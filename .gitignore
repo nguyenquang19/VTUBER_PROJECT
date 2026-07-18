@@ -1,0 +1,69 @@
+# ============================================
+# .gitignore — AI VTuber
+# QUAN TRỌNG: tránh commit nhầm model nặng GB, token, dữ liệu cá nhân
+# ============================================
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+.Python
+
+# --- Bí mật / cấu hình cá nhân (KHÔNG BAO GIỜ commit) ---
+.env
+.env.*
+*.key
+*_secret*
+secrets/
+config/secrets.yaml
+config/*.local.yaml
+discord_token.txt
+
+# --- Model & trọng số (nặng, để ngoài git; dùng Git LFS hoặc tải riêng) ---
+models/
+*.gguf
+*.safetensors
+*.bin
+*.pth
+*.onnx
+*.ckpt
+checkpoints/
+adapters/            # LoRA adapter — quản lý riêng, không nhồi vào git
+
+# --- Dữ liệu runtime (memory, log, transcript, dataset) ---
+data/
+logs/
+*.log
+transcripts/
+memory/store/        # vector DB local
+*.sqlite
+*.db
+
+# --- Audio / media tạm ---
+assets/voice_ref/    # audio mẫu clone giọng (bản quyền/cá nhân)
+*.wav
+*.mp3
+*.tmp
+tmp/
+
+# --- Persona evolving thực tế (giữ file mẫu, bỏ bản chạy thật nếu muốn riêng tư) ---
+# config/persona_evolving.yaml   # bỏ comment nếu muốn giữ evolving sheet riêng tư
+
+# --- IDE / OS ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+
+# --- pytest / test cache ---
+.pytest_cache/
+.coverage
+htmlcov/

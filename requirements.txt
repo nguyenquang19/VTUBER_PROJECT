@@ -1,0 +1,42 @@
+# ============================================
+# requirements.txt — AI VTuber V1 (Discord-only)
+# Cài trong WSL2 (Ubuntu). Model chạy qua vLLM (cài riêng, xem docs/setup.md).
+# ============================================
+
+# --- Lõi ---
+pyyaml>=6.0              # đọc persona config
+python-dotenv>=1.0       # đọc .env (token)
+
+# --- Input: Discord ---
+discord.py>=2.3          # bot Discord (nhớ bật Message Content Intent)
+
+# --- LLM client (gọi vLLM qua HTTP, OpenAI-compatible) ---
+openai>=1.0              # dùng làm client tới vLLM endpoint
+
+# --- Avatar: VTube Studio ---
+pyvts>=0.3               # điều khiển VTube Studio qua WebSocket API
+websockets>=12.0
+
+# --- TTS (chọn 1 khi tới Bước B — xem docs/setup.md) ---
+# GPT-SoVITS và Kokoro cài riêng theo repo gốc, không qua pip đơn giản.
+# soundfile / numpy để xử lý audio:
+soundfile>=0.12
+numpy>=1.24
+
+# --- Memory (Bước E) ---
+qdrant-client>=1.7       # vector DB
+# sentence-transformers / FlagEmbedding cho bge-m3 — cài khi làm memory
+
+# --- Tiện ích ---
+aiohttp>=3.9
+
+# ============================================
+# KHÔNG có ở đây (cài riêng, xem docs/setup.md):
+#   - vLLM  (cần CUDA, cài trong WSL2)
+#   - torch (theo phiên bản CUDA của bạn)
+#   - GPT-SoVITS / Kokoro (clone repo riêng)
+# ============================================
+
+# --- Dev / test ---
+pytest>=7.4
+pytest-asyncio>=0.23
