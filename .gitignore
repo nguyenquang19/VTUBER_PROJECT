@@ -11,3 +11,5 @@ dist/
 models/*
 !models/.gitkeep
 !models/README.md
+audio_out/*
+!audio_out/.gitkeep
