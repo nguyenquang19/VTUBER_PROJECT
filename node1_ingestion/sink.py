@@ -12,7 +12,9 @@ class TcpNode2Sink:
     def __init__(self, host=NODE2_HOST, port=NODE2_PORT):
         self._host, self._port = host, port
     def send(self, rec: IngestionRecord) -> None:
-        stamp(rec.timing, "t1_enqueued")   # mốc lúc đẩy vào hàng đợi Node2
-        line = (json.dumps(rec.to_dict()) + "\n").encode()
+        stamp(rec.timing, "t1_enqueued")  
+        from shared.utils.trace_sink import emit_partial
+        emit_partial("node1", rec.timing)  
+        line = (json.dumps(rec.to_dict(), ensure_ascii=False) + "\n").encode("utf-8")
         with socket.create_connection((self._host, self._port), timeout=2) as s:
             s.sendall(line)

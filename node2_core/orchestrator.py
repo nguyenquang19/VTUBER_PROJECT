@@ -1,8 +1,9 @@
-import threading, uuid
+import threading
 from shared.contracts.payloads import (IngestionRecord, SentenceOut,
-                                       Priority, Mood, EventType)
+                                        Priority, Mood, EventType)
 from shared.contracts.timing import TimingTrace
-from shared.utils.timing_recorder import stamp, log_trace
+from shared.utils.timing_recorder import stamp
+from shared.utils.trace_sink import emit_partial
 from shared.utils.logger import get_logger
 from .states import State
 from .queue import PriorityInbox
@@ -16,8 +17,9 @@ from .egress import Node3Egress
 
 _log = get_logger("node2")
 
+
 class Orchestrator:
-    def __init__(self, egress=None, llm=None, crisis=None, persona=None):
+    def __init__(self, egress=None, llm=None, crisis=None):
         self.state = State.IDLE
         self.inbox = PriorityInbox()
         self.llm = llm or LlamaCppClient()
@@ -26,23 +28,33 @@ class Orchestrator:
         self.egress = egress or Node3Egress()
         self._speaking_turn = None      # turn_id đang phát (để ngắt khi crisis)
 
-    # ---- ingress: Node1 đẩy record vào đây ----
+    # ---- ingress: Node1 (hoặc test) đẩy record vào đây ----
     def submit(self, rec: IngestionRecord):
         pri = Priority.CRISIS if self.crisis.is_crisis(rec.content) else Priority.CHAT
-        # NGẮT NGAY: nếu đang phát 1 turn khác mà crisis tới -> stop turn đó tức thì.
+        # NGẮT NGAY: đang phát turn khác mà crisis tới -> stop turn đó tức thì,
+        # không đợi câu hiện tại phát xong.
         if pri == Priority.CRISIS and self._speaking_turn:
-            self.egress.send_stop(self._speaking_turn)   # không đợi câu hiện tại xong
+            self.egress.send_stop(self._speaking_turn)
         self.inbox.put(pri, rec)
 
-    # ---- vòng xử lý chính ----
+    # ---- vòng xử lý ----
     def run_once(self):
         got = self.inbox.get()
-        if got is None: return
+        if got is None:
+            return
         pri, rec = got
         self._handle(pri, rec)
 
+    def run_forever(self, idle_sleep=0.05):
+        import time
+        while True:
+            if self.inbox.get_size() == 0:
+                time.sleep(idle_sleep)     # NGHỈ khi rỗng -> không đốt CPU
+                continue
+            self.run_once()
+
     def _cancel_check(self):
-        # Hủy generate LLM của turn thường khi có crisis chờ trong hàng đợi.
+        # Hủy generate LLM của turn thường khi có crisis đang chờ trong hàng đợi.
         return self.inbox.has_pending_crisis()
 
     def _handle(self, pri: Priority, rec: IngestionRecord):
@@ -53,35 +65,60 @@ class Orchestrator:
                       else State.PROCESSING)
 
         # 1) LLM (timeout cứng + retry 1 lần + fallback tĩnh)
-        prompt = self._build_prompt(session, rec.content)
-        raw = self._call_llm(prompt, trace)
+        messages = self._build_prompt(session, rec.content)
+        raw = self._call_llm(messages, trace)
 
-        # 2) Moderation (hết giờ -> không phát)
+        # 2) Moderation (sanitize control token + chặn cứng; hết giờ -> không phát)
         stamp(trace, "t4_moderation_end")
         ok, safe = moderate(raw)
         if not ok:
-            _log.info(f"blocked turn={turn_id}"); self.state = State.IDLE; return
+            _log.info(f"blocked turn={turn_id}")
+            self.state = State.IDLE
+            return
 
         # 3) Cắt câu -> phát sang Node3 (KHÔNG còn persona-rewrite)
         mood = Mood.NEUTRAL
         sents = split_sentences(safe)
-        self.state = State.SPEAKING; self._speaking_turn = turn_id
+        if not sents:
+            self.state = State.IDLE
+            return
+
+        self.state = State.SPEAKING
+        self._speaking_turn = turn_id
         for i, s in enumerate(sents):
             out = SentenceOut(turn_id, i, s, i == len(sents) - 1, mood)
+            # timing đính vào câu đầu; egress ghi t7_handoff_node3 ở đó
             self.egress.send_sentence(out, trace if i == 0 else None)
+
         self.history.append(session, f"user: {rec.content}\nai: {safe}")
 
-    def _build_prompt(self, session, content):
-        ctx = self.history.context(session)
-        return f"{ctx}\nuser: {content}\nai:" if ctx else f"user: {content}\nai:"
+        # Bắn partial timing của Node2 (t2,t3,t4,t7) về collector — fire-and-forget.
+        # KHÔNG ghi t9 ở đây: Node3 sở hữu t8/t9.
+        emit_partial("node2", trace)
 
-    def _call_llm(self, prompt, trace) -> str:
+        self._speaking_turn = None
+        self.state = State.IDLE
+
+    def _build_prompt(self, session, content):
+        msgs = [{"role": "system", "content":
+                 "Bạn là VTuber AI tên Mai, cô gái vui vẻ thân thiện. "
+                 "Trả lời bằng tiếng Việt, TỐI ĐA 2 câu ngắn, tự nhiên như đang "
+                 "nói chuyện với người xem. Không dài dòng, không liệt kê, "
+                 "không nhắc mình là mô hình AI hay Google."}]
+        ctx = self.history.context(session)
+        if ctx:
+            msgs.append({"role": "system", "content": f"Ngữ cảnh trước:\n{ctx}"})
+        msgs.append({"role": "user", "content": content})
+        return msgs
+
+    def _call_llm(self, messages, trace) -> str:
         for attempt in (1, 2):
             try:
                 stamp(trace, "t2_llm_start")
-                out = "".join(self.llm.stream(prompt, self._cancel_check))
+                out = "".join(self.llm.stream(messages, self._cancel_check))
                 stamp(trace, "t3_llm_end")
-                if out.strip(): return out
+                if out.strip():
+                    return out
             except Exception as e:
                 _log.info(f"llm attempt {attempt} fail: {e}")
         stamp(trace, "t3_llm_end")

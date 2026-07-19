@@ -50,4 +50,6 @@ class Node3:
         _log.info(f"audio turn={s.turn_id} seq={s.seq} dur={dur:.0f}ms -> {wav}")
 
         if s.is_last and trace is not None:
+            from shared.utils.trace_sink import emit_partial
+            emit_partial("node3", trace)
             log_trace(trace)  # chốt chain khi câu cuối xong (nếu trace đi kèm)

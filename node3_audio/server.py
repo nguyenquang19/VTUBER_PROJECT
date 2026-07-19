@@ -2,24 +2,23 @@ import json, socketserver, threading
 from shared.contracts.payloads import SentenceOut, Mood
 from shared.contracts.timing import TimingTrace
 from .config import SENT_PORT, STOP_PORT
-
 def _sentence(d: dict) -> SentenceOut:
     return SentenceOut(d["turn_id"], d["seq"], d["text"],
                        d["is_last"], Mood(d["mood"]))
 
 def serve(node3):
-    # Kênh câu (8803): mỗi dòng 1 SentenceOut (có thể kèm "timing").
     class SentH(socketserver.StreamRequestHandler):
         def handle(self):
-            for line in self.rfile:
+            for raw in self.rfile:
+                line = raw.decode("utf-8")
                 if not line.strip(): continue
                 d = json.loads(line)
                 trace = TimingTrace(**d["timing"]) if "timing" in d else None
                 node3.on_sentence(_sentence(d), trace)
-    # Kênh stop (8804): StopSignal, xử lý TỨC THÌ, tách khỏi luồng câu.
     class StopH(socketserver.StreamRequestHandler):
         def handle(self):
-            for line in self.rfile:
+            for raw in self.rfile:
+                line = raw.decode("utf-8")
                 if not line.strip(): continue
                 node3.stop(json.loads(line)["turn_id"])
 

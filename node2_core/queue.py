@@ -24,3 +24,8 @@ class PriorityInbox:
             return any(-p == int(Priority.CRISIS) for p, _, _ in self._h)
     def crisis_event(self) -> threading.Event:
         return self._crisis_evt
+    def get_size(self) -> int:
+        with self._lock: return len(self._h)
+    def get_size(self) -> int:
+        with self._lock:
+            return len(self._h)
