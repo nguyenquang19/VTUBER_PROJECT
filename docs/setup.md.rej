@@ -1,0 +1,7 @@
+--- docs/setup.md	2026-07-19 01:57:53.776807152 +0000
++++ docs/setup.md	2026-07-19 01:57:59.386201514 +0000
+@@ -41,3 +41,4 @@
+ 
+ ## Bảo mật
+ - KHÔNG commit `.env`, token, model. `.gitignore` đã chặn sẵn.
++```
