@@ -10,7 +10,6 @@ class TimingTrace:
     t2_llm_start: Optional[float] = None       # Node2
     t3_llm_end: Optional[float] = None         # Node2
     t4_moderation_end: Optional[float] = None  # Node2
-    t5_persona_start: Optional[float] = None   # Node2.5
     t6_persona_end: Optional[float] = None     # Node2.5
     t7_handoff_node3: Optional[float] = None   # Node2/2.5->Node3
     t8_node3_received: Optional[float] = None  # Node3
@@ -27,7 +26,6 @@ class TimingTrace:
             "queue_wait":      d(t.t1_enqueued, t.t2_llm_start),
             "llm_call":        d(t.t2_llm_start, t.t3_llm_end),
             "moderation":      d(t.t3_llm_end, t.t4_moderation_end),
-            "persona_rewrite": d(t.t5_persona_start, t.t6_persona_end),
             "cut_handoff":     d(t.t6_persona_end, t.t7_handoff_node3),
             "node3_to_audio":  d(t.t8_node3_received, t.t9_audio_start),
             "end_to_end":      d(t.t0_received, t.t9_audio_start),

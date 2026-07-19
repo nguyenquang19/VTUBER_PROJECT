@@ -9,7 +9,6 @@ from .queue import PriorityInbox
 from .llm.llamacpp import LlamaCppClient
 from .llm.fallback import fallback_sentence
 from .moderation import moderate
-from .persona_stub import PassthroughRewriter
 from .crisis_stub import NoopCrisisDetector
 from .splitter import split_sentences
 from .history import RawHistory
@@ -23,7 +22,6 @@ class Orchestrator:
         self.inbox = PriorityInbox()
         self.llm = llm or LlamaCppClient()
         self.crisis = crisis or NoopCrisisDetector()
-        self.persona = persona or PassthroughRewriter()
         self.history = RawHistory()
         self.egress = egress or Node3Egress()
         self._speaking_turn = None      # turn_id đang phát (để ngắt khi crisis)
@@ -64,21 +62,14 @@ class Orchestrator:
         if not ok:
             _log.info(f"blocked turn={turn_id}"); self.state = State.IDLE; return
 
-        # 3) Persona-Rewriter (GĐ2.5 stub passthrough; ghi t5/t6 ở bản thật)
+        # 3) Cắt câu -> phát sang Node3 (KHÔNG còn persona-rewrite)
         mood = Mood.NEUTRAL
-        styled = self.persona.rewrite(safe, mood)
-
-        # 4) Cắt câu -> phát sang Node3
-        sents = split_sentences(styled)
+        sents = split_sentences(safe)
         self.state = State.SPEAKING; self._speaking_turn = turn_id
         for i, s in enumerate(sents):
             out = SentenceOut(turn_id, i, s, i == len(sents) - 1, mood)
             self.egress.send_sentence(out, trace if i == 0 else None)
-        self.history.append(session, f"user: {rec.content}\nai: {styled}")
-
-        stamp(trace, "t9_audio_start")   # (bản thật: Node3 ghi; ở đây tạm để đủ chain khi mock)
-        log_trace(trace)
-        self._speaking_turn = None; self.state = State.IDLE
+        self.history.append(session, f"user: {rec.content}\nai: {safe}")
 
     def _build_prompt(self, session, content):
         ctx = self.history.context(session)
