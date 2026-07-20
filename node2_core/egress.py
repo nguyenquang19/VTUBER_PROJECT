@@ -12,7 +12,10 @@ class Node3Egress:
         return socket.create_connection((NODE3_HOST, port), timeout=2)
     def send_sentence(self, s: SentenceOut, trace=None):
         if trace is not None: stamp(trace, "t7_handoff_node3")
-        line = (json.dumps(s.to_dict(), ensure_ascii=False) + "\n").encode("utf-8")
+        d = s.to_dict()
+        if trace is not None:
+            d["timing"] = trace.to_dict()
+        line = (json.dumps(d, ensure_ascii=False) + "\n").encode("utf-8")
         with self._lock:
             if self._sent_conn is None: self._sent_conn = self._conn(NODE3_PORT)
             self._sent_conn.sendall(line)

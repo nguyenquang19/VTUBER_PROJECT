@@ -1,1 +1,3 @@
-{"turn_id": "demo", "deltas": {"node1_proc": 10.0, "queue_wait": 10.0, "llm_call": 780.0, "moderation": 10.0, "cut_handoff": null, "node3_to_audio": 130.0, "end_to_end": 950.0}}
+{"turn_id": "6ae3e636-ca3c-4e0b-99f3-56cb96fa485c", "deltas": {"node1_proc": 0.03, "queue_wait": 24.5, "llm_call": 1119.44, "moderation": 0.0, "cut_handoff": null, "node3_to_audio": 0.1, "end_to_end": 1144.87}}
+{"turn_id": "5745ed33-6d5b-4861-81cb-06951afbee56", "deltas": {"node1_proc": 0.02, "queue_wait": 10.8, "llm_call": 879.89, "moderation": 0.0, "cut_handoff": null, "node3_to_audio": 0.19, "end_to_end": 891.17}}
+{"turn_id": "09dd53fe-5c02-4f4d-9a4d-b44fef02291f", "deltas": {"node1_proc": 0.02, "queue_wait": 2.09, "llm_call": 4675.84, "moderation": 0.0, "cut_handoff": null, "node3_to_audio": 0.82, "end_to_end": 4679.14}}

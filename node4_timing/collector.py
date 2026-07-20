@@ -13,6 +13,7 @@ class TimingCollector:
     def __init__(self):
         self._acc: dict[str, dict] = {}; self._lock = threading.Lock()
     def ingest(self, timing: dict):
+        import sys; print(f"RECV_DEBUG turn={str(timing.get('turn_id'))[:8]} has={[k for k,v in timing.items() if v is not None and k!='turn_id']}", file=sys.stderr, flush=True)
         tid = timing["turn_id"]
         with self._lock:
             cur = self._acc.setdefault(tid, {"turn_id": tid})
