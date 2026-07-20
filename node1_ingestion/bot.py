@@ -8,6 +8,8 @@ from .scorer import tier1_score
 from .sink import TcpNode2Sink, Node2Sink
 from .config import DISCORD_TOKEN
 import uuid
+from shared.utils.logger import get_logger
+_log = get_logger("node1")
 
 class IngestionBot(discord.Client):
     def __init__(self, sink: Node2Sink, **kw):
@@ -15,6 +17,7 @@ class IngestionBot(discord.Client):
         self._sink = sink; self._rl = RateLimiter()
 
     async def on_message(self, m: discord.Message):
+        print(f"NODE1_MSG {m.content[:20]}", flush=True)
         if m.author == self.user: return
         # v1 Discord: coi viewer > 0, bỏ qua OFFLINE detection.
         if not self._rl.allow(str(m.author.id)): return
@@ -26,6 +29,14 @@ class IngestionBot(discord.Client):
         try: self._sink.send(rec)
         except Exception: pass  # không để lỗi sink chặn bot
 
+    async def on_ready(self):
+        from .voice import VoicePlayer
+        from .voice_server import serve_voice
+        import threading
+        self.voice = VoicePlayer(self)
+        await self.voice.connect()
+        threading.Thread(target=lambda: serve_voice(self.voice), daemon=True).start()
+        _log.info(f"bot ready: {self.user}")
 def main():
     i = discord.Intents.default(); i.message_content = True
     IngestionBot(TcpNode2Sink(), intents=i).run(DISCORD_TOKEN)

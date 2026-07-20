@@ -15,6 +15,8 @@ sleep 1
 
 "$PY" -m node4_timing.collector & pids+=($!)
 sleep 0.5
+"$PY" -m node5_memory.server & pids+=($!)
+sleep 0.5
 "$PY" -m node3_audio.server & pids+=($!)
 sleep 0.5
 "$PY" -c "from node2_core.orchestrator import Orchestrator; from node2_core.ingress import serve; \

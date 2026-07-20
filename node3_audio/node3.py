@@ -49,7 +49,34 @@ class Node3:
         self._vtt[s.turn_id].add(s.text, dur)
         _log.info(f"audio turn={s.turn_id} seq={s.seq} dur={dur:.0f}ms -> {wav}")
 
+
+        # MỚI: báo Node1 phát file .wav này vào Discord voice
+        self._send_play(s.turn_id, s.seq, wav, s.is_last)
+
         if s.is_last and trace is not None:
             from shared.utils.trace_sink import emit_partial
             emit_partial("node3", trace)
             log_trace(trace)  # chốt chain khi câu cuối xong (nếu trace đi kèm)
+    
+    def _send_play(self, turn_id, seq, wav_path, is_last):
+        import json, socket, os
+        host = os.getenv("VOICE_PLAY_HOST", "127.0.0.1")
+        port = int(os.getenv("VOICE_PLAY_PORT", "8806"))
+        try:
+            ev = {"turn_id": turn_id, "seq": seq,
+                  "wav_path": os.path.abspath(wav_path), "is_last": is_last}
+            with socket.create_connection((host, port), timeout=1) as s:
+                s.sendall((json.dumps(ev) + "\n").encode("utf-8"))
+        except Exception as e:
+            _log.info(f"gửi play-event fail: {e}")
+
+    def stop(self, turn_id: str):
+        self.cancel.cancel(turn_id)
+        # báo Node1 dừng phát voice cho turn này
+        import json, socket, os
+        try:
+            with socket.create_connection(
+                (os.getenv("VOICE_PLAY_HOST","127.0.0.1"),
+                 int(os.getenv("VOICE_PLAY_PORT","8806"))), timeout=1) as s:
+                s.sendall((json.dumps({"op":"stop","turn_id":turn_id})+"\n").encode())
+        except Exception: pass

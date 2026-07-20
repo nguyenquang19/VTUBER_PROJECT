@@ -1,0 +1,1 @@
+{"turn_id": "demo", "deltas": {"node1_proc": 10.0, "queue_wait": 10.0, "llm_call": 780.0, "moderation": 10.0, "cut_handoff": null, "node3_to_audio": 130.0, "end_to_end": 950.0}}

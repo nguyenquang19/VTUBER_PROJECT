@@ -12,3 +12,12 @@ class AudioResult:
 # Bọc engine TTS. Đổi engine = viết thêm 1 adapter, không đụng Node3 còn lại.
 class TTSProvider(Protocol):
     def synth(self, text: str, wav_path: str) -> float: ...  # trả duration_ms
+
+
+@dataclass
+class PlayEvent:
+    turn_id: str
+    seq: int
+    wav_path: str
+    is_last: bool
+    def to_dict(self): return asdict(self)

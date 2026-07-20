@@ -27,6 +27,12 @@ class TimingCollector:
     def _finalize(self, tid, merged):
         trace = TimingTrace(**{k: merged.get(k) for k in ("turn_id", *self._FIELDS)})
         _log.info(format_breakdown(trace))
+        # GHI RA FILE để tổng hợp/phân tích
+        import json, os
+        os.makedirs("data", exist_ok=True)
+        with open("data/timing.jsonl", "a", encoding="utf-8") as f:
+            f.write(json.dumps({"turn_id": tid, "deltas": trace.deltas()},
+                               ensure_ascii=False) + "\n")
         with self._lock: self._acc.pop(tid, None)
 
 def serve(collector, port=8810):
