@@ -7,7 +7,8 @@ class LlamaCppClient:
         self._host, self._timeout, self._n = host, timeout, n_predict
 
     def stream(self, messages: list[dict], cancel_check) -> Iterator[str]:
-        payload = {"messages": messages, "max_tokens": self._n, "stream": True}
+        payload = {"messages": messages, "max_tokens": self._n, "stream": True,
+            "chat_template_kwargs": {"enable_thinking": False}}
         r = requests.post(f"{self._host}/v1/chat/completions", json=payload,
                           stream=True, timeout=self._timeout)
         try:
