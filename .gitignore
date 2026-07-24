@@ -1,18 +1,39 @@
+# Python
 __pycache__/
 *.py[cod]
-.env
-.venv/
+.pytest_cache/
+.cache/
+
+# Môi trường ảo
+env/
 venv/
+.venv/
+
+# Bí mật & log
+.env
 *.log
-audio_out/
-*.wav
-node_modules/
-dist/
+
+# Model (nặng, tải riêng — xem models/README.md)
 models/*
 !models/.gitkeep
 !models/README.md
+
+# Âm thanh sinh ra khi chạy
 audio_out/*
-!audio_out/.gitkeepenv/
+!audio_out/.gitkeep
+*.wav
+
+# Dữ liệu sinh ra khi chạy (mood, timing, turns, room_state, hồ sơ...)
 data/*.db
 data/*.jsonl
-env/
+data/timing.jsonl
+data/turns-*.jsonl
+data/room_state.json
+
+# Tài liệu nội bộ (không đưa lên repo)
+md/
+claude.md
+
+# Khác
+node_modules/
+dist/

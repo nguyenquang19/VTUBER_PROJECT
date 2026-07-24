@@ -4,8 +4,11 @@ from .timing import TimingTrace
 
 class EventType(str, Enum):
     CHAT = "chat"
+    AUTO = "auto"           # lượt Mai tự nói (node6 đẩy vào)
 
-# Hợp đồng Node1 -> Node2 (BẤT BIẾN).
+# Hợp đồng Node1 -> Node2 (BẤT BIẾN với lượt CHAT).
+# `facts` là field optional (default None) -> lượt CHAT cũ không đổi. Chỉ lượt
+# tự nói (node6) mới mang facts; khi có facts thì đây là lượt AUTO.
 @dataclass
 class IngestionRecord:
     event_type: EventType
@@ -15,6 +18,7 @@ class IngestionRecord:
     sent_at: float          # epoch ms, thời điểm Discord gửi
     tier1_score: float      # rule-based
     timing: TimingTrace
+    facts: dict | None = None    # dữ kiện cho lượt tự nói; None = lượt thường
 
     def to_dict(self) -> dict:
         d = asdict(self)

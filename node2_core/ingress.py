@@ -7,7 +7,7 @@ def _to_record(d: dict) -> IngestionRecord:
     t = TimingTrace(**d["timing"])
     return IngestionRecord(EventType(d["event_type"]), d["user_id"],
                            d["display_name"], d["content"], d["sent_at"],
-                           d["tier1_score"], t)
+                           d["tier1_score"], t, d.get("facts"))
 
 def serve(orch, port=INGRESS_PORT):
     class H(socketserver.StreamRequestHandler):
