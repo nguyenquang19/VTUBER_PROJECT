@@ -23,6 +23,11 @@ import time
 from pathlib import Path
 from typing import Any
 
+# Force UTF-8 stdout để in được ký tự tiếng Việt / mũi tên trên Windows console
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 import httpx
 
 from gpu_monitor import GpuMonitor
