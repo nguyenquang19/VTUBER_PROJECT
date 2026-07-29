@@ -4,7 +4,7 @@
 
 ---
 
-## Stack tóm tắt (chốt v2.2)
+## Stack tóm tắt (chốt v2.3)
 
 - **OS:** Windows 11 (single target, không dual-support Linux)
 - **LLM backend:** llama.cpp (`llama-server.exe`), giao tiếp qua OpenAI-compatible HTTP API
@@ -118,8 +118,8 @@ Sau khi review nhiều lần, mình rút ra 5 warning quan trọng nhất:
 **2. Đừng skip Pre-flight vì "sẽ làm sau".**
 Nhiều dev skip → 4 tuần sau phát hiện TTS Vietnamese không đủ tốt → refactor toàn bộ. Đã cảnh báo.
 
-**3. Đừng build hết feature trong 1 phase.**
-Mỗi phase có "must-have" (Definition of Done) và "stretch goal". Chỉ commit stretch khi must-have xong.
+**3. Đừng build 12+ trigger types trong Phase 2.**
+Chỉ 4 types đầu (operator_voice/chat_mention/chat_normal/ambient_talk). Thêm type mới khi log thực tế cho thấy cần. YAGNI.
 
 **4. Đừng tune persona quá sớm.**
 Chạy prompt v1 qua 100 turn trước khi tune. Đa số vấn đề tự resolve khi bạn hiểu Mai thực tế trả lời thế nào.

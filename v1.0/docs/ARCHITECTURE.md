@@ -36,7 +36,15 @@
 - Tách `QUICKSTART.md` ra file riêng
 - **Complexity giảm ~40% so với v2.0 mà không mất chức năng cốt lõi**
 
-**v2.1 → v2.2 (bản hiện tại):**
+**v2.2 → v2.3 (bản hiện tại — cleanup: bỏ E4B, consistency):**
+- **Bỏ E4B hoàn toàn** (quyết định user Phase -1): chỉ 1 instance main (Gemma 12B port 8080). Fallback dùng canned response (Level 2). Filter dùng rule-only. Nếu Pre-flight Day 1 tight VRAM, add E4B sau.
+- **Fix mâu thuẫn triggers.yaml:** 11 priority → 4 type (operator_voice:100, chat_mention:60, chat_normal:30, ambient_talk:10).
+- **Fix mâu thuẫn ambient_talk:** bỏ probability, dùng threshold cứng 60s.
+- **Fix mâu thuẫn Phase 2 roadmap:** "12+ types" → "4 types".
+- **Fix mâu thuẫn số instance + comment:** "3 instance" / "2 instance + shared" → "1 instance main (port 8080 only)".
+- Không đổi logic, chỉ dọn v2.0/v2.1 tàn dư.
+
+**v2.1 → v2.2:**
 - **Chốt LLM backend:** llama.cpp (llama-server) làm chính, không dùng Ollama — control trực tiếp KV cache Q8, speculative decoding, prompt caching
 - **Chốt OS target:** Windows 11 duy nhất (bỏ dual-support Linux) — VTube Studio native, ecosystem VTuber
 - Cập nhật toàn bộ code/script/path sang Windows convention (PowerShell, `\` separator, `.exe` extension, `TerminateProcess()` thay SIGTERM)
@@ -392,13 +400,12 @@ Symptom: "chỉ cần deliver, quality tính sau". Fix: VTuber là marathon — 
 | `stt` | Voice → text + emotion | ✅ | 300MB-1GB |
 | `context_builder` | Ghép prompt cho LLM | ❌ | 0 |
 | `llm` | Sinh response chính | ❌ (always on) | 9GB |
-| `filter` | Check output vi phạm | ✅ | 0-3GB |
+| `filter` | Check rule-based vi phạm | ✅ | 0 (regex only, v2.3 bỏ E4B) |
 | `parser` | Parse text + mood | ❌ | 0 |
 | `tts` | Text → audio | ✅ (không tắt được nếu muốn nghe) | 0-3GB |
 | `animation` | Mood → expression | ✅ | 500MB |
 | `memory_working` | Short-term context | ❌ | 0 |
 | `memory_semantic` | Long-term memory | ✅ | 500MB (CPU) |
-| `qc` | Persona quality check | ✅ | 3GB (share với filter) |
 | `data_collector` | Log for training | ✅ | 0 |
 | `trigger_manager` ⭐ | Turn-taking decisions | ❌ (always on) | 0 |
 | `state_machine` ⭐ | Conversation state | ❌ (always on) | 0 |
@@ -1402,7 +1409,7 @@ orchestrator/
 services/llm/
 ├── __init__.py
 ├── llama_cpp_llm.py     # llama.cpp implementation (llama-server client)
-├── process_manager.py   # Quản lý lifecycle 3 llama-server instance (main/fallback/filter)
+├── process_manager.py   # Quản lý lifecycle 2 llama-server instance (main + shared_e4b)
 ├── prompt_manager.py    # System prompt + versioning
 ├── prompt_cache.py      # Quản lý --prompt-cache file cho persona prefix
 └── metrics.py           # LLM-specific metrics
@@ -1416,28 +1423,27 @@ services/llm/
 - Speculative decoding: `--model-draft` trỏ tới Gemma E4B
 - Prompt caching: `--prompt-cache` cho phần persona cố định
 
-**`process_manager.py`** khởi động **2** `llama-server` instance khi orchestrator start — `main` (Gemma 12B, port 8080) và `shared_e4b` (Gemma E4B, port 8082, dùng chung cho cả `llm_filter` và `llm_fallback`, xem Section 10.3):
+**`process_manager.py`** khởi động **1** `llama-server` instance khi orchestrator start — `main` (Gemma 12B, port 8080). (v2.3: bỏ E4B, nếu Pre-flight tight VRAM thêm sau.)
 
 ```python
 class LlamaServerProcessManager:
-    def __init__(self, configs: dict[str, LlamaServerConfig]):
-        self.configs = configs  # {"main": ..., "shared_e4b": ...}
-        self.processes: dict[str, subprocess.Popen] = {}
+    def __init__(self, config: LlamaServerConfig):
+        self.config = config  # {"main": cfg_8080}
+        self.process: subprocess.Popen | None = None
     
-    async def start_all(self):
-        for name, cfg in self.configs.items():
-            args = cfg.to_cli_args()  # -m, -ngl, -c, --cache-type-k, ...
-            self.processes[name] = subprocess.Popen(args)
-            await self._wait_healthy(cfg.port, timeout=30)
-            logger.info("llama_server_started", instance=name, port=cfg.port)
+    async def start(self):
+        args = self.config.to_cli_args()  # -m, -ngl, -c, --cache-type-k, ...
+        self.process = subprocess.Popen(args)
+        await self._wait_healthy(self.config.port, timeout=30)
+        logger.info("llama_server_started", instance="main", port=self.config.port)
     
-    async def stop_all(self):
-        for name, proc in self.processes.items():
-            proc.terminate()
+    async def stop(self):
+        if self.process:
+            self.process.terminate()
             try:
-                proc.wait(timeout=10)
+                self.process.wait(timeout=10)
             except subprocess.TimeoutExpired:
-                proc.kill()
+                self.process.kill()
 ```
 
 **Streaming implementation** (gọi endpoint OpenAI-compatible của `llama-server`):
@@ -1532,9 +1538,7 @@ class RuleFilter(FilterService):
         )
 ```
 
-**B. AI-based (`ai_filter.py`)**
-
-Gọi tới `llama_filter` instance (port 8082, xem Section 10.3) qua cùng `LlamaCppLLMService` client, chỉ khác prompt template (classification thay vì persona generation).
+**Note v2.3:** AI filter bỏ (bỏ E4B). Chỉ rule-based, đủ cho MVP Phase 3. Add AI filter sau nếu rule-based miss quá nhiều (>20% false negative) + VRAM ok.
 
 ### 8.4. TTS Module
 
@@ -1620,7 +1624,7 @@ class SemanticMemory(MemoryService):
 
 Mỗi module trong critical path phải có fallback rõ ràng. Đây là nguyên tắc P8.
 
-#### 8.7.1. LLM Fallback Chain (v2.1: SIMPLIFIED — 2 levels để bắt đầu)
+#### 8.7.1. LLM Fallback Chain (v2.3: 2 levels, bỏ E4B)
 
 ```
 Level 1 (Primary):   Gemma 12B qua llama-server (llama.cpp)
@@ -1629,9 +1633,9 @@ Level 2 (Canned):    Canned response từ template + current mood
                      "..." | "Ừ" | "Hả gì cơ" (theo mood)
 ```
 
-**Chỉ 2 level.** Bỏ Gemma E4B fallback riêng (Level 2 cũ) — nếu Gemma 12B fail, khả năng cao là hệ thống (GPU, driver, VRAM) có vấn đề chung, chạy E4B trên cùng process cũng dễ fail tương tự. Thay vào đó dùng canned response ngay, đơn giản và đủ để Mai không "đứng hình".
+**Chỉ 2 level, YAGNI.** Bỏ E4B hoàn toàn (v2.3). Nếu Gemma 12B fail, khả năng cao hệ thống (GPU, driver, VRAM) có vấn đề chung. Canned response đơn giản đủ để Mai không "đứng hình".
 
-**Add Level 3 (E4B fallback) khi nào:** nếu log thực tế cho thấy Gemma 12B fail riêng lẻ (network/model issue) trong khi GPU vẫn khoẻ — lúc đó E4B fallback mới có giá trị thật.
+**Add E4B fallback sau khi nào:** nếu Pre-flight Day 1 benchmark cho thấy VRAM dư (>6GB) VÀ latency cần tối ưu, hoặc log thực tế cho thấy 12B fail riêng lẻ (network/model issue) khi GPU vẫn khoẻ.
 
 #### 8.7.2. STT Fallback Chain (v2.1: SIMPLIFIED — 2 levels)
 
@@ -1659,18 +1663,18 @@ Level 2 (Emergency): Silence + subtitle overlay
 
 **Add Level giữa (Piper CPU backup) khi nào:** nếu Level 1 chọn là GPU-based (XTTS/viXTTS) VÀ log thực tế cho thấy nó crash thường xuyên hơn dự kiến — lúc đó thêm Piper CPU làm bước đệm trước khi rơi hẳn về silence.
 
-#### 8.7.4. Filter Fallback Chain
+#### 8.7.4. Filter Fallback Chain (v2.3: rule-only, bỏ AI filter)
 
 ```
 Level 1 (Primary):   Rule-based filter
                      (fail: regex error → allow with warning)
-Level 2 (Optional):  AI filter nếu enabled
-                     ↓ (fail)
-Level 3 (Emergency): Allow output nhưng log + alert
+Level 2 (Emergency): Allow output nhưng log + alert
                      (Fail-open cho VTuber: thà nói câu chưa được filter còn hơn im lặng)
 ```
 
-**Lưu ý:** Filter chọn "fail-open" chứ không "fail-closed" vì đây là VTuber giải trí, không phải financial/medical. Rủi ro nói câu sai < rủi ro im lặng khiến trải nghiệm tệ.
+**v2.3:** Chỉ rule-based, bỏ AI filter hoàn toàn (bỏ E4B). Rule bắt được ~80% vi phạm, đủ cho Phase 3 MVP.
+
+**Add AI filter sau khi nào:** nếu Phase 3 + Phase 8 log thực tế cho thấy rule-based miss quá nhiều case (>20% false negative) + có E4B sẵn (Pre-flight Day 1 VRAM ok).
 
 #### 8.7.5. Animation Fallback Chain
 
@@ -1991,10 +1995,10 @@ conversation:
   
 ambient_talk:
   enabled: true
-  min_silence_seconds: 60
-  probability_at_1min: 0.3
-  probability_at_3min: 0.7
-  content_variety_window: 10  # tránh lặp lại 10 câu gần nhất
+  min_silence_seconds: 60      # v2.1: 1 threshold cứng, KHÔNG probability (xem 7.9.2)
+  content_variety_window: 10   # tránh lặp lại 10 câu gần nhất
+  # Bỏ probability_at_1min / probability_at_3min — chỉ dùng threshold cứng 60s.
+  # Add probability lại khi thấy ambient talk 60s cứng gây cảm giác máy móc.
 ```
 
 ### 10.3. models.yaml (v2.2: llama.cpp)
@@ -2014,10 +2018,6 @@ llm_main:
   kv_cache_type_k: q8_0           # --cache-type-k, giảm KV cache size không cắt context
   kv_cache_type_v: q8_0           # --cache-type-v
   
-  # Speculative decoding — llama.cpp control trực tiếp, đây là chỗ mature hơn Ollama
-  draft_model_path: .\models\llm\gemma-4-e4b-Q4_K_M.gguf  # --model-draft
-  draft_n_max: 16                 # --draft-max
-  
   # Prompt caching — cache riêng phần persona cố định
   prompt_cache_path: .\cache\persona_prefix.bin  # --prompt-cache
   prompt_cache_all: false         # chỉ cache prompt, không cache generation
@@ -2027,35 +2027,18 @@ llm_main:
   
   extra_flags:
     - "--flash-attn"              # nếu GPU hỗ trợ, giảm thêm VRAM + tăng tốc
-    - "--cont-batching"           # continuous batching, hữu ích khi có nhiều request song song (filter + main)
   
   # Rationale context: Persona (~1500 tok) + working memory (~800 tok) + 
   # semantic memory (~300 tok) + system (~200 tok) = ~2800 tok tối thiểu.
   # 2048 không đủ chứa, sẽ phải truncate persona → làm hỏng nhân vật.
   # Pre-flight Day 1 PHẢI confirm: warm TTFT với prompt-cache < 500ms.
 
-llm_fallback:  # Emergency path — KHÔNG chạy process riêng, trỏ chung sang llm_filter (xem cảnh báo VRAM bên dưới)
-  provider: llama_cpp
-  shares_instance_with: llm_filter   # cùng port 8082, gọi với prompt khác (fallback response thay vì filter check)
-  context_size: 2048
-  activated_when: "primary_timeout OR primary_oom"
-
-llm_filter:
-  provider: llama_cpp
-  binary: .\llama.cpp\build\bin\Release\llama-server.exe
-  model_path: .\models\llm\gemma-4-e4b-Q4_K_M.gguf
-  port: 8082
-  context_size: 2048
-  gpu_layers: 999
-  kv_cache_type_k: q8_0
-  kv_cache_type_v: q8_0
+# v2.3 cleanup: bỏ E4B hoàn toàn. Fallback dùng canned response (Level 2), filter dùng rule-based.
+# Nếu Pre-flight Day 1 cho thấy VRAM dư + latency cần speculative, thêm E4B sau.
+# Xem trade-off log Appendix C dòng E4B.
 ```
 
-⚠️ **Lưu ý VRAM quan trọng (khác với thiết kế Ollama ban đầu):** `llm_fallback` và `llm_filter` đều cần model `gemma-4-e4b`. Nếu mỗi cái chạy 1 `llama-server` process riêng (port khác nhau), **model E4B bị load vào VRAM 2 lần** (~3GB × 2 = 6GB), không share được như giả định "filter share với QC" ở Section 3.2/4.3.
 
-**Mặc định trong config trên: dùng chung 1 instance** (`llm_fallback.shares_instance_with: llm_filter`) — chỉ 1 process E4B chạy trên port 8082, cả logic filter và logic fallback đều gọi chung endpoint này với prompt khác nhau. Tiết kiệm 3GB, đúng tinh thần thiết kế gốc. `FallbackManager` (Section 8.7.7) gọi cùng 1 client tới port 8082 cho cả 2 mục đích.
-
-**Chỉ tách thành 2 process riêng nếu:** VRAM Pre-flight Day 1 cho thấy còn dư nhiều (>6GB), và bạn muốn `llm_fallback` sẵn sàng ngay cả khi `llm_filter` đang bận xử lý request khác (tránh block lẫn nhau khi có nhiều request đồng thời).
   
 stt:
   provider: faster_whisper  # ← v2: đổi từ whisper
@@ -2093,29 +2076,24 @@ embedding:
 ### 10.4. triggers.yaml ⭐ **MỚI**
 
 ```yaml
+# v2.2 CLEANUP: chỉ 4 type cho Phase 2, khớp Section 7.9.1 (YAGNI).
+# Các type mở rộng (donation/subscribe/question/keyword/continuation/scheduled/
+# operator_voice_interrupt) CHƯA thêm — add khi log thực tế cho thấy cần
+# (xem bảng "Mở rộng khi có tín hiệu thực tế" ở Section 7.9.1).
+# priority phải khớp đúng code mẫu Section 7.9.1.
 triggers:
-  # Priority weights
+  # Priority weights (4 type — không hơn)
   priorities:
-    operator_voice_interrupt: 150
     operator_voice: 100
-    chat_donation: 90
-    chat_subscribe: 85
-    chat_mention: 80
-    chat_question: 70
-    chat_keyword: 60
-    chat_normal: 40
-    continuation: 30
-    ambient_talk: 20
-    scheduled: 10
+    chat_mention: 60
+    chat_normal: 30
+    ambient_talk: 10
   
-  # Rate limiting
+  # Rate limiting — chỉ áp cho chat_normal (operator/mention luôn qua, xem 7.9.2)
   rate_limits:
     chat_normal:
       window_seconds: 10
       max_responses: 3
-    chat_mention:
-      window_seconds: 10
-      max_responses: 5
   
   # Queue settings
   queue:
@@ -2233,8 +2211,8 @@ Xem Section 0.
 
 **Deliverables:**
 - [ ] Trigger Manager với priority queue
-- [ ] Trigger classification (12+ types)
-- [ ] Rate limiting per source
+- [ ] Trigger classification (4 types — Section 7.9.1, KHÔNG build 12)
+- [ ] Rate limiting cho chat_normal (1 limiter, không per-source)
 - [ ] State machine full implementation
 - [ ] Interrupt policy
 - [ ] Ambient talk trigger
@@ -2620,8 +2598,8 @@ hypothesis>=6.100
 1. Load config files
 2. Initialize logger + metrics
 3. Start dashboard server (available even nếu core fail)
-4. Start llama-server instances (main, shared_e4b) — xem Section 8.2 process_manager
-5. Wait healthy check cho từng instance (timeout 30s)
+4. Start llama-server instance (main port 8080) — xem Section 8.2 process_manager
+5. Wait healthy check (timeout 30s)
 6. Load enabled features
 7. Start core services (LLM client, parser)
 8. Start optional services (per feature toggle)
@@ -2630,7 +2608,7 @@ hypothesis>=6.100
 11. Ready state
 ```
 
-Startup log rõ ràng, dashboard hiển thị progress. Bước 4-5 là điểm khác biệt so với dùng Ollama — llama-server không chạy sẵn như daemon, orchestrator phải tự spawn process và đợi model load xong trước khi nhận trigger đầu tiên.
+Startup log rõ ràng, dashboard hiển thị progress. v2.3: chỉ 1 instance (bỏ E4B). Nếu Pre-flight Day 1 tight VRAM, add E4B sau.
 
 ### 13.3. Graceful shutdown (Windows)
 
@@ -2696,6 +2674,7 @@ Trường hợp crash:
 Health check mỗi 10s (xem `LlamaServerHealthMonitor` ở Section 13.7):
 - Cả 2 llama-server instance (main, shared_e4b) responsive qua `/health`?
 - VRAM usage bình thường?
+- llama-server instance responsive?
 - No stuck LLM calls?
 - Event queue không phình?
 
@@ -2705,64 +2684,58 @@ Nếu unhealthy → alert dashboard + auto-recovery attempt.
 
 **llama-server crash (thường xảy ra khi OOM):**
 
-Vì có 3 instance (`main`, `fallback`, `filter`) chạy độc lập trên 3 port, monitor phải theo dõi từng cái riêng — 1 instance chết không nhất thiết kéo theo cái khác.
+Monitor theo dõi 1 instance duy nhất `main` (port 8080). Nếu fail → restart, hoặc alert và emergency stop nếu restart liên tiếp fail.
 
 ```python
 class LlamaServerHealthMonitor:
-    def __init__(self, instances: dict[str, LlamaServerConfig]):
-        # instances = {"main": cfg_8080, "fallback": cfg_8081, "filter": cfg_8082}
-        self.instances = instances
-        self.processes: dict[str, subprocess.Popen] = {}
+    def __init__(self, config: LlamaServerConfig):
+        self.config = config
+        self.process: subprocess.Popen | None = None
     
     async def monitor(self):
         while True:
             await asyncio.sleep(5)
-            for name, cfg in self.instances.items():
-                try:
-                    await self._ping(cfg.port)
-                except Exception:
-                    logger.error("llama_server_unresponsive", instance=name)
-                    await self._restart(name, cfg)
+            try:
+                await self._ping(self.config.port)
+            except Exception:
+                logger.error("llama_server_unresponsive", port=self.config.port)
+                await self._restart()
     
     async def _ping(self, port: int):
         async with httpx.AsyncClient() as client:
             resp = await client.get(f"http://localhost:{port}/health", timeout=3)
             resp.raise_for_status()
     
-    async def _restart(self, name: str, cfg: LlamaServerConfig):
-        # Nếu là instance "main" → cần emergency stop vì đây là critical path
-        if name == "main":
-            await self.state_machine.emergency_stop()
+    async def _restart(self):
+        # Critical path fail → emergency stop
+        await self.state_machine.emergency_stop()
         
         # Kill process cũ (nếu còn sống)
-        old_proc = self.processes.get(name)
-        if old_proc and old_proc.poll() is None:
-            old_proc.terminate()
+        if self.process and self.process.poll() is None:
+            self.process.terminate()
             await asyncio.sleep(2)
-            if old_proc.poll() is None:
-                old_proc.kill()
+            if self.process.poll() is None:
+                self.process.kill()
         
         # Restart với đúng flags từ models.yaml
-        new_proc = subprocess.Popen(cfg.to_cli_args())
-        self.processes[name] = new_proc
+        self.process = subprocess.Popen(self.config.to_cli_args())
         await asyncio.sleep(5)  # llama-server load model cần vài giây
         
         # Verify healthy
-        for _ in range(15):  # llama.cpp load model chậm hơn Ollama do không cache sẵn
+        for _ in range(15):
             try:
-                await self._ping(cfg.port)
-                logger.info("llama_server_restarted", instance=name)
-                if name == "main":
-                    await self.state_machine.recover()
+                await self._ping(self.config.port)
+                logger.info("llama_server_restarted")
+                await self.state_machine.recover()
                 return
             except Exception:
                 await asyncio.sleep(1)
         
-        logger.critical("llama_server_restart_failed", instance=name)
+        logger.critical("llama_server_restart_failed")
         # Alert dashboard, no auto-retry (tránh restart loop tốn VRAM)
 ```
 
-**Lưu ý khác với Ollama:** llama.cpp không có daemon quản lý sẵn như Ollama — restart nghĩa là load lại toàn bộ .gguf từ đĩa, chậm hơn (5-15s tuỳ kích thước model), và mất `--prompt-cache` đã build (phải rebuild cache sau restart, TTFT lượt đầu sau khi restart sẽ cao hơn bình thường).
+**Lưu ý khác với Ollama:** llama.cpp không có daemon quản lý sẵn — restart nghĩa là load lại toàn bộ .gguf từ đĩa (5-15s), và mất `--prompt-cache` đã build (phải rebuild, TTFT lượt đầu sau restart cao hơn). Thường chỉ restart khi OOM — rare case.
 
 **VTube Studio disconnect:**
 
@@ -2899,6 +2872,7 @@ cd ..\day4
 |---|---|---|---|
 | **OS target** ⭐ v2.2 | **Windows 11** | Dual (Windows/Ubuntu) | VTube Studio native tốt trên Windows; ecosystem VTuber phần lớn dùng Windows; single target giảm complexity code (không phải if/else theo platform) |
 | LLM backend | llama.cpp (llama-server) ⭐ v2.2 | Ollama | Đã có sẵn build; control trực tiếp KV cache Q8, speculative decoding, prompt caching — đúng 3 optimization đã đặt ra, không qua abstraction |
+| **E4B model (speculative + filter/fallback)** ⭐ v2.3 | **Bỏ hoàn toàn** | Có 2 instance (main + shared_e4b) | YAGNI — chỉ 1 instance 12B, fallback dùng canned response, filter dùng rule. Nếu Pre-flight Day 1 tight VRAM, add E4B sau. |
 | TTS primary | *TBD from Pre-flight* | - | Quyết định sau Day 2, điền vào `decisions/002_tts_choice.md` |
 | STT primary | faster-whisper small | Whisper base | Whisper base WER quá cao cho tiếng Việt |
 | Vector store | SQLite+vec | Qdrant/Chroma | Không cần server riêng |
@@ -2932,7 +2906,7 @@ Trước khi bắt đầu Phase 0, verify:
 
 **Software:**
 - [ ] llama.cpp built với CUDA support (`GGML_CUDA=ON`), `llama-server.exe` chạy được từ `.\build\bin\Release\`
-- [ ] Model GGUF đã tải (main 12B + E4B cho fallback/filter)
+- [ ] Model GGUF đã tải (Gemma 4 12B Q4_K_M, v2.3 bỏ E4B)
 - [ ] Python 3.11+ với venv setup (`.\venv\Scripts\Activate.ps1` chạy được)
 - [ ] Git repo initialized
 
