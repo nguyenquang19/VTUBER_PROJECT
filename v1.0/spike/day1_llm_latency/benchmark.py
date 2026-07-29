@@ -34,6 +34,7 @@ async def stream_once(
     endpoint: str,
     messages: list[dict],
     max_tokens: int,
+    debug: bool = False,
 ) -> dict:
     payload = {
         "model": "gemma",
@@ -42,11 +43,13 @@ async def stream_once(
         "max_tokens": max_tokens,
         "temperature": 0.7,
         "cache_prompt": True,
+        "stream_options": {"include_usage": True},
     }
     t_start = time.perf_counter()
     t_first: float | None = None
     tokens_out = 0
     prompt_tokens: int | None = None
+    raw_preview: list[str] = []
 
     try:
         async with client.stream(
@@ -61,6 +64,8 @@ async def stream_once(
                 print(f"    [HTTP-ERROR] {msg}")
                 raise RuntimeError(msg)
             async for line in resp.aiter_lines():
+                if len(raw_preview) < 10:
+                    raw_preview.append(line)
                 if not line.startswith("data: "):
                     continue
                 data = line[6:].strip()
@@ -78,12 +83,21 @@ async def stream_once(
                     continue
                 delta = choices[0].get("delta", {})
                 content = delta.get("content")
+                # Fallback: một số impl gửi message.content thay vì delta.content
+                if not content:
+                    msg_obj = choices[0].get("message", {})
+                    content = msg_obj.get("content")
                 if content:
                     if t_first is None:
                         t_first = time.perf_counter()
                     tokens_out += 1
     except Exception as e:
         return {"error": str(e), "ttft_ms": None, "decode_tps": None, "tokens_out": 0}
+
+    if tokens_out == 0:
+        print(f"    [WARN] tokens_out=0. Raw response preview (first {len(raw_preview)} lines):")
+        for i, line in enumerate(raw_preview):
+            print(f"      [{i}] {line[:200]}")
 
     t_end = time.perf_counter()
     if t_first is None:
