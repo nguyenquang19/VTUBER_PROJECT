@@ -1,31 +1,50 @@
-@"
 # Python
 venv/
 __pycache__/
 *.pyc
+*.pyo
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Env
+.env
+*.env.local
 
 # Data & logs
 data/*.db
 data/*.db-journal
+data/*.db-wal
+data/*.db-shm
+data/qc/
 logs/**/*.jsonl
 logs/**/*.log
 backups/
 
-# Models (quá lớn, không commit)
+# Models (không commit — quá lớn)
 models/**/*.gguf
 models/**/*.onnx
 models/**/*.bin
+models/**/*.pt
+models/**/*.safetensors
 
 # Cache
 cache/
-.env
+*.cache
+
+# Spike outputs (audio samples, benchmarks intermediate)
+spike/**/*.wav
+spike/**/*.mp3
+spike/**/*.flac
+spike/**/output/
+spike/**/temp/
 
 # OS
 Thumbs.db
 Desktop.ini
+.DS_Store
 
 # IDE
 .vscode/
 .idea/
-"@ | Out-File .gitignore -Encoding utf8
+*.swp
