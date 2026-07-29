@@ -82,11 +82,14 @@ async def stream_once(
                 if not choices:
                     continue
                 delta = choices[0].get("delta", {})
-                content = delta.get("content")
-                # Fallback: một số impl gửi message.content thay vì delta.content
-                if not content:
-                    msg_obj = choices[0].get("message", {})
-                    content = msg_obj.get("content")
+                # Ưu tiên: content > reasoning_content > message.content
+                # llama-server có thể stream `reasoning_content` khi model
+                # được config với reasoning-style chat template.
+                content = (
+                    delta.get("content")
+                    or delta.get("reasoning_content")
+                    or choices[0].get("message", {}).get("content")
+                )
                 if content:
                     if t_first is None:
                         t_first = time.perf_counter()
