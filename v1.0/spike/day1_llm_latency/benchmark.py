@@ -57,9 +57,9 @@ async def stream_once(
         ) as resp:
             if resp.status_code >= 400:
                 body = await resp.aread()
-                raise RuntimeError(
-                    f"HTTP {resp.status_code}: {body.decode('utf-8', errors='replace')[:500]}"
-                )
+                msg = f"HTTP {resp.status_code}: {body.decode('utf-8', errors='replace')[:500]}"
+                print(f"    [HTTP-ERROR] {msg}")
+                raise RuntimeError(msg)
             async for line in resp.aiter_lines():
                 if not line.startswith("data: "):
                     continue
@@ -128,14 +128,19 @@ async def scenario_warm(
     endpoint: str,
     target_tokens: int,
     label: str,
+    n_ctx: int | None = None,
 ) -> dict:
     print(f"\n>>> {label} — build prompt...")
-    messages, ptok = await build_messages(client, endpoint, target_prompt_tokens=target_tokens)
+    target = cap_target(target_tokens, n_ctx, max_tokens=100)
+    messages, ptok = await build_messages(client, endpoint, target_prompt_tokens=target)
     print(f"    prompt_tokens (measured): {ptok}")
     print(f">>> {label} — warmup...")
-    await stream_once(client, endpoint, messages, max_tokens=30)
+    warm = await stream_once(client, endpoint, messages, max_tokens=30)
+    if warm.get("error"):
+        return {"error": f"warmup failed: {warm['error']}", "prompt_tokens": ptok}
     print(f">>> {label} — measured run...")
-    return await stream_once(client, endpoint, messages, max_tokens=100)
+    result = await stream_once(client, endpoint, messages, max_tokens=100)
+    return result
 
 
 async def scenario_overheating(
@@ -143,23 +148,45 @@ async def scenario_overheating(
     endpoint: str,
     duration_sec: int,
     interval_sec: int,
+    n_ctx: int | None = None,
 ) -> dict:
     print(f"\n>>> S5 Overheating — chạy {duration_sec/60:.0f} phút, sample mỗi {interval_sec}s")
-    messages, ptok = await build_messages(client, endpoint, target_prompt_tokens=2000)
+    target = cap_target(2000, n_ctx, max_tokens=100)
+    messages, ptok = await build_messages(client, endpoint, target_prompt_tokens=target)
     print(f"    prompt_tokens (measured): {ptok}")
+
+    # pre-flight: 1 call trước khi bỏ 30 phút chạy vô ích
+    print("    [pre-flight] test 1 call...")
+    pre = await stream_once(client, endpoint, messages, max_tokens=50)
+    if pre.get("error") or pre.get("tokens_out", 0) == 0:
+        return {
+            "error": f"pre-flight failed: {pre.get('error') or 'no tokens returned'}",
+            "prompt_tokens": ptok,
+        }
+    print(f"    [pre-flight OK] TTFT={pre['ttft_ms']:.0f}ms decode={pre['decode_tps']:.1f}tps")
+
     monitor = GpuMonitor(poll_interval=10.0)
     monitor.start()
     samples: list[dict] = []
+    consecutive_errors = 0
     t0 = time.perf_counter()
     try:
         while (time.perf_counter() - t0) < duration_sec:
             result = await stream_once(client, endpoint, messages, max_tokens=100)
             elapsed = time.perf_counter() - t0
             samples.append({"t_sec": elapsed, **result})
-            print(
-                f"    [{elapsed/60:5.1f}m] TTFT={result.get('ttft_ms') or 0:6.0f}ms "
-                f"decode={result.get('decode_tps') or 0:5.1f}tok/s"
-            )
+            if result.get("error"):
+                consecutive_errors += 1
+                print(f"    [{elapsed/60:5.1f}m] ERROR ({consecutive_errors}/3): {result['error'][:100]}")
+                if consecutive_errors >= 3:
+                    print("    [ABORT] 3 lỗi liên tiếp, dừng overheating scenario")
+                    break
+            else:
+                consecutive_errors = 0
+                print(
+                    f"    [{elapsed/60:5.1f}m] TTFT={result['ttft_ms']:6.0f}ms "
+                    f"decode={result['decode_tps']:5.1f}tps"
+                )
             wait = interval_sec - (result.get("total_ms") or 0) / 1000
             if wait > 0:
                 await asyncio.sleep(wait)
@@ -176,6 +203,41 @@ async def health_check(client: httpx.AsyncClient, endpoint: str) -> bool:
     except Exception as e:
         print(f"ERROR: không kết nối được {endpoint}: {e}")
         return False
+
+
+async def probe_context(client: httpx.AsyncClient, endpoint: str) -> int | None:
+    """Đọc /props để lấy n_ctx thực tế của llama-server."""
+    try:
+        r = await client.get(f"{endpoint}/props", timeout=5)
+        if r.status_code != 200:
+            return None
+        data = r.json()
+        # llama-server trả về n_ctx trong default_generation_settings hoặc top-level
+        for key_path in (("default_generation_settings", "n_ctx"), ("n_ctx",)):
+            cur: Any = data
+            ok = True
+            for k in key_path:
+                if isinstance(cur, dict) and k in cur:
+                    cur = cur[k]
+                else:
+                    ok = False
+                    break
+            if ok and isinstance(cur, int):
+                return cur
+        return None
+    except Exception:
+        return None
+
+
+def cap_target(target: int, n_ctx: int | None, max_tokens: int, buffer: int = 200) -> int:
+    """Cap target_prompt_tokens để chừa chỗ cho generation + chat template overhead."""
+    if n_ctx is None:
+        return target
+    cap = n_ctx - max_tokens - buffer
+    if target > cap:
+        print(f"    [WARN] target {target} > n_ctx({n_ctx}) - max_tokens({max_tokens}) - buffer({buffer}); cap to {cap}")
+        return max(100, cap)
+    return target
 
 
 def print_summary(results: dict) -> None:
@@ -251,13 +313,18 @@ async def main() -> None:
     async with httpx.AsyncClient() as client:
         if not await health_check(client, args.endpoint):
             sys.exit(1)
+        n_ctx = await probe_context(client, args.endpoint)
+        print(f"llama-server n_ctx = {n_ctx}")
+        results["meta"]["n_ctx"] = n_ctx
+        if n_ctx and n_ctx < 4096:
+            print(f"    [WARN] n_ctx={n_ctx} < 4096 (spec ARCHITECTURE 0.2). S3/S4 sẽ bị cap.")
 
         scenarios = [
             ("1", "s1_cold", lambda: scenario_cold(client, args.endpoint)),
-            ("2", "s2_warm_short", lambda: scenario_warm(client, args.endpoint, 500, "S2 Warm short (~500 tok)")),
-            ("3", "s3_warm_medium", lambda: scenario_warm(client, args.endpoint, 2000, "S3 Warm medium (~2K tok)")),
-            ("4", "s4_warm_long", lambda: scenario_warm(client, args.endpoint, 4000, "S4 Warm long (~4K tok)")),
-            ("5", "s5_overheating", lambda: scenario_overheating(client, args.endpoint, args.overheat_sec, args.overheat_interval)),
+            ("2", "s2_warm_short", lambda: scenario_warm(client, args.endpoint, 500, "S2 Warm short (~500 tok)", n_ctx)),
+            ("3", "s3_warm_medium", lambda: scenario_warm(client, args.endpoint, 2000, "S3 Warm medium (~2K tok)", n_ctx)),
+            ("4", "s4_warm_long", lambda: scenario_warm(client, args.endpoint, 4000, "S4 Warm long (~4K tok)", n_ctx)),
+            ("5", "s5_overheating", lambda: scenario_overheating(client, args.endpoint, args.overheat_sec, args.overheat_interval, n_ctx)),
         ]
         for tag, key, coro in scenarios:
             if tag not in to_run:
