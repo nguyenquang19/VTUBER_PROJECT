@@ -27,14 +27,37 @@ def _sf_load(path, *args, **kw):
 
 torchaudio.load = _sf_load
 
+import re as _re
+from num2words import num2words as _n2w
 from TTS.tts.layers.xtts import tokenizer as _tk
+
+
+def _vi_expand_numbers(text: str) -> str:
+    """1.250.000 -> một triệu hai trăm năm mươi nghìn."""
+
+    def _repl(m):
+        raw = m.group(0)
+        digits = raw.replace(".", "").replace(",", "")
+        try:
+            return _n2w(int(digits), lang="vi")
+        except Exception:
+            return raw
+
+    return _re.sub(r"\d[\d.,]*", _repl, text)
+
+
+def _vi_cleaner(text: str) -> str:
+    text = _vi_expand_numbers(text)
+    text = _re.sub(r"\s+", " ", text).strip()
+    return text.lower()
+
 
 _orig_preprocess = _tk.VoiceBpeTokenizer.preprocess_text
 
 
 def _vi_preprocess(self, txt, lang):
     if lang == "vi":
-        return _tk.multilingual_cleaners(txt, "en")
+        return _vi_cleaner(txt)
     return _orig_preprocess(self, txt, lang)
 
 
@@ -79,8 +102,12 @@ def main() -> None:
                 text,
                 config,
                 speaker_wav=str(SPEAKER_WAV),
-                gpt_cond_len=3,
+                gpt_cond_len=30,
+                gpt_cond_chunk_len=6,
                 language="vi",
+                temperature=0.75,
+                length_penalty=1.0,
+                repetition_penalty=5.0,
             )
             _sf.write(str(out_path), out["wav"], 24000)
         except Exception as e:

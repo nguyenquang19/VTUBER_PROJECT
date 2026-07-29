@@ -1,16 +1,16 @@
 # STATE — Mai project
 
 **Phase hiện tại:** Pre-flight
-**Task đang làm:** Day 1 DONE (GO) → next: Day 2 TTS
-**Cập nhật:** 2026-07-29 21:57
+**Task đang làm:** Day 2 DONE (GO viXTTS) → next: Day 3 STT
+**Cập nhật:** 2026-07-29 22:45
 
 ## Tiến độ phase hiện tại
-- [x] Day 1 code + fix (5 commit)
-- [x] Day 1 chạy 5 scenario, `spike/day1_report.md` filled
-- [x] Day 1 **GO** (không chạm no-go: TTFT cold 444ms, decode min 40 tps, max temp 63°C)
-- [x] gpu_monitor.py refactor dùng `throttle_reasons` (cho lần đo sau)
-- [ ] Day 2 TTS Vietnamese
-- [ ] Day 3 STT
+- [x] Day 1 LLM latency — GO (TTFT cold 444ms, decode min 40tps, max temp 63°C)
+- [x] Day 2 TTS — Piper 3 voice REJECT, viXTTS GO với baseline config
+  - Primary: viXTTS (cond_len=30, num2words vi cleaner, VRAM 1.79GB, 2600ms avg)
+  - Fallback: subtitle overlay
+  - Known issues (train lại sau, không blocking): English words lai; ref audio cần thu riêng cho persona
+- [ ] Day 3 STT (faster-whisper small)
 - [ ] Update `config/models.yaml`, Section 1.1 latency, Appendix C
 
 ## Phase đã xong
@@ -33,7 +33,7 @@
 - [ ] Python chạy với quyền Administrator (cho `keyboard` hook toàn cục)
 
 ## Ghi chú
-- Spike Day 2 chốt TTS: <điền sau Pre-flight>
+- Spike Day 2 chốt TTS: **viXTTS** (config trong `spike/day2_report.md`)
 - TTFT P50 thực đo: <điền sau Pre-flight Day 1>
 - E4B model: **BỎ** (v2.3, Appendix C) — chỉ 1 instance 12B port 8080
 - Nếu Pre-flight Day 1 tight VRAM → xem xét thêm E4B sau
