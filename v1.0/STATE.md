@@ -1,11 +1,17 @@
 # STATE — Mai project
 
-**Phase hiện tại:** -1 done → next: Pre-flight
-**Task đang làm:** (none — chờ user "tiếp" để bắt đầu Pre-flight Day 1)
+**Phase hiện tại:** Pre-flight
+**Task đang làm:** Day 1 — user chạy `spike/day1_llm_latency/benchmark.py`
 **Cập nhật:** 2026-07-29
 
 ## Tiến độ phase hiện tại
-(none — chờ Pre-flight)
+- [x] Day 1 code viết xong (benchmark.py, prompts.py, gpu_monitor.py, README.md, report_template.md)
+- [x] nvidia-smi verified (idle 46°C)
+- [ ] Day 1 — user chạy benchmark, điền `spike/day1_report.md`
+- [ ] Day 1 Go/No-go decision
+- [ ] Day 2 TTS
+- [ ] Day 3 STT
+- [ ] Update `config/models.yaml`, Section 1.1 latency, Appendix C
 
 ## Phase đã xong
 - [x] Phase -1 Bootstrap
