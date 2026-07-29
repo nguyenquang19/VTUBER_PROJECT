@@ -1,0 +1,82 @@
+[
+  {
+    "slug": "01_greeting_short",
+    "text": "Xin chào, mình là Mai. Rất vui được gặp bạn hôm nay.",
+    "synth_ms": 2672.377900000356,
+    "audio_duration_s": 4.405333333333333,
+    "rtf": 0.6066233126514126,
+    "wav_path": "samples\\vixtts\\01_greeting_short.wav"
+  },
+  {
+    "slug": "02_emotion_happy",
+    "text": "Wow tuyệt quá! Bạn giỏi thật đấy, mình phục bạn quá đi mất!",
+    "synth_ms": 1943.0804999992688,
+    "audio_duration_s": 4.405333333333333,
+    "rtf": 0.4410745687044345,
+    "wav_path": "samples\\vixtts\\02_emotion_happy.wav"
+  },
+  {
+    "slug": "03_emotion_sad",
+    "text": "Ừm... nghe buồn ghê. Mình hiểu cảm giác đó, đôi khi mọi thứ cứ nặng nề.",
+    "synth_ms": 2371.3322000003245,
+    "audio_duration_s": 5.525333333333333,
+    "rtf": 0.429174505308939,
+    "wav_path": "samples\\vixtts\\03_emotion_sad.wav"
+  },
+  {
+    "slug": "04_question",
+    "text": "Bạn nghĩ sao về việc học một thứ mới mỗi ngày? Có mệt lắm không?",
+    "synth_ms": 2383.750200000577,
+    "audio_duration_s": 4.8213333333333335,
+    "rtf": 0.49441721515498693,
+    "wav_path": "samples\\vixtts\\04_question.wav"
+  },
+  {
+    "slug": "05_long_sentence",
+    "text": "Hôm nay trời trong xanh và mát mẻ, gió thổi nhè nhẹ qua tán cây phượng, buổi sáng thức dậy nghe tiếng chim hót, tự dưng thấy nhẹ nhõm và vui vẻ hơn hẳn.",
+    "synth_ms": 4441.853199999969,
+    "audio_duration_s": 9.376,
+    "rtf": 0.47374714163822196,
+    "wav_path": "samples\\vixtts\\05_long_sentence.wav"
+  },
+  {
+    "slug": "06_numbers_money",
+    "text": "Tổng cộng là 1.250.000 đồng, bạn muốn thanh toán bằng thẻ hay tiền mặt?",
+    "synth_ms": 2461.283500000718,
+    "audio_duration_s": 5.429333333333333,
+    "rtf": 0.45333070358559396,
+    "wav_path": "samples\\vixtts\\06_numbers_money.wav"
+  },
+  {
+    "slug": "07_names_english",
+    "text": "Bạn thử xem YouTube kênh của Anthropic hoặc DeepMind chưa? Nội dung về AI khá hay.",
+    "synth_ms": 2128.6730000001626,
+    "audio_duration_s": 4.874666666666666,
+    "rtf": 0.4366807303063791,
+    "wav_path": "samples\\vixtts\\07_names_english.wav"
+  },
+  {
+    "slug": "08_exclamation",
+    "text": "Trời ơi! Không thể tin được! Bạn nói thật đấy à?",
+    "synth_ms": 2015.3496000002633,
+    "audio_duration_s": 4.501333333333333,
+    "rtf": 0.44772280805693054,
+    "wav_path": "samples\\vixtts\\08_exclamation.wav"
+  },
+  {
+    "slug": "09_ellipsis_pause",
+    "text": "Ừm... để mình nghĩ xíu... à đúng rồi, mình nhớ ra rồi. Là chuyện tuần trước mà.",
+    "synth_ms": 2416.7530000004263,
+    "audio_duration_s": 5.706666666666667,
+    "rtf": 0.4234964369159625,
+    "wav_path": "samples\\vixtts\\09_ellipsis_pause.wav"
+  },
+  {
+    "slug": "10_mixed_punct",
+    "text": "Này, bạn ơi (nghe không?) — hôm nay mình đi ăn phở, uống trà sữa, xong ghé cà phê; cả ngày vui hết cỡ luôn!",
+    "synth_ms": 3164.665299999797,
+    "audio_duration_s": 7.658666666666667,
+    "rtf": 0.4132136098537339,
+    "wav_path": "samples\\vixtts\\10_mixed_punct.wav"
+  }
+]
