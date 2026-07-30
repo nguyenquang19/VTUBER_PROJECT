@@ -1,7 +1,7 @@
 # STATE — Mai project
 
 **Phase hiện tại:** Phase 0 Foundation
-**Task đang làm:** 0.D DONE → next 0.E (SQLite migration)
+**Task đang làm:** 0.E DONE → next 0.F (metrics + dashboard + emergency stop)
 **Cập nhật:** 2026-07-30
 
 ## Tiến độ Phase 0 (6 milestone)
@@ -27,7 +27,10 @@
   - `orchestrator/fallback_manager.py` — generic 2-level chain + timeout per level (N1 no circuit breaker)
   - `config/triggers.yaml` — 4 priority, rate limit, spam patterns, ambient threshold
   - Chưa làm (Phase 2): interrupt policy enforce, ambient content gen
-- [ ] **0.E SQLite migration** — `migrations/001_initial.sql` + runner
+- [x] **0.E SQLite migration** — 19 test pass (tổng 272)
+  - `migrations/001_initial.sql` — turns, state_transitions, trigger_decisions (+index), IF NOT EXISTS
+  - `orchestrator/migration_runner.py` — versioned SQL, numeric order, backup-before (shutil), idempotent, fail→success=0 + retry
+  - Rule 8.8.4: chỉ THÊM, không auto-rollback (restore từ backup)
 - [ ] **0.F Metrics + Dashboard + Emergency stop** — FastAPI + WS + Chart.js, Ctrl+Shift+X
 
 ## Pre-flight (DONE)
