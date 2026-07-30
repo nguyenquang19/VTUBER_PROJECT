@@ -81,6 +81,8 @@
 
 ## Ghi chú
 - Spike Day 2 chốt TTS: **viXTTS** (config trong `spike/day2_report.md`)
+- ⭐ Phase 4 TTS BẮT BUỘC dùng `inference_stream()` (TTFA ~450ms đo thật), KHÔNG
+  dùng `synthesize()` blocking (2.6s). End-to-end ~1s → đạt target. Xem day2_report.md.
 - TTFT P50 thực đo: <điền sau Pre-flight Day 1>
 - E4B model: **BỎ** (v2.3, Appendix C) — chỉ 1 instance 12B port 8080
 - Nếu Pre-flight Day 1 tight VRAM → xem xét thêm E4B sau

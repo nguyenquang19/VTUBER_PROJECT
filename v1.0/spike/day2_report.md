@@ -31,6 +31,25 @@ viXTTS avg 2.6s/câu (vs target <800ms) — không đạt target latency lý tư
 Nhưng RTF 0.482 < 1.0 → streaming câu-theo-câu vẫn OK cho Phase 4:
 model đọc trước câu N+1 khi Mai đang nói câu N → user không thấy trễ.
 
+### ⭐ Cập nhật 2026-07-30 — TTFA streaming đo thật
+
+Con số 2600ms ở trên là `synthesize()` **blocking cả câu** — dùng để CHẤM chất
+lượng, KHÔNG phải metric UX. Đo lại bằng `Xtts.inference_stream()`:
+
+| Câu | Blocking (cả câu) | **Stream TTFA** (âm đầu) | chunks |
+|---|---|---|---|
+| Câu dài | 2450 ms | **465 ms** | 5 |
+| Câu vừa | 1652 ms | **445 ms** | 5 |
+| Câu ngắn | 1590 ms | **447 ms** | 4 |
+
+**TTFA ~450ms** → end-to-end (LLM chữ đầu ~0.5s + TTS âm đầu ~0.45s) ≈ **~1s** tới
+lúc Mai cất tiếng. ĐẠT target Phase 4 (TTFA <1s).
+
+**QUYẾT ĐỊNH KIẾN TRÚC Phase 4 (bắt buộc):** TTS module dùng `inference_stream()`
+(yield chunk), KHÔNG dùng `synthesize()` blocking. `get_conditioning_latents(
+gpt_cond_len=30)` gọi 1 lần cache lại, rồi `inference_stream(text,'vi',gpt_lat,
+spk,stream_chunk_size=20)`.
+
 ## Decision matrix
 
 | TTS | Quality | Latency | VRAM | Emotion | Decision |
@@ -38,7 +57,7 @@ model đọc trước câu N+1 khi Mai đang nói câu N → user không thấy 
 | Piper vais1000-medium | REJECT | 158ms | 0 | No | **skip** |
 | Piper 25hours_single-low | REJECT | 128ms | 0 | No | **skip** |
 | Piper vivos-x_low | REJECT | 128ms | 0 | No | **skip** |
-| **viXTTS (v3 config)** | Accepted (baseline) | 2600ms | 1.79GB | Yes | **primary** |
+| **viXTTS (v3 config)** | Accepted (baseline) | TTFA ~450ms (stream) / 2600ms blocking | 1.79GB | Yes | **primary** |
 | Subtitle overlay | N/A | 0 | 0 | N/A | **fallback** (spec 8.7.3) |
 
 ## No-go check (ARCHITECTURE 0.3)
