@@ -32,6 +32,7 @@ class DashboardServer:
         trigger_manager: Any = None,
         metrics: Any = None,
         emergency_stop: Any = None,
+        health_monitor: Any = None,
         push_interval_s: float = 1.0,
     ) -> None:
         self.features = feature_manager
@@ -39,6 +40,7 @@ class DashboardServer:
         self.triggers = trigger_manager
         self.metrics = metrics
         self.emergency = emergency_stop
+        self.health = health_monitor
         self.push_interval_s = push_interval_s
         self._log = get_logger("dashboard")
         self._ws_clients: set[WebSocket] = set()
@@ -82,6 +84,9 @@ class DashboardServer:
                 "used_mb": self.features.used_vram_mb(),
                 "budget_mb": self.features._vram_budget_mb,
             }
+
+        if self.health is not None:
+            snap["health"] = self.health.snapshot()
         return snap
 
     # ---------- app ----------

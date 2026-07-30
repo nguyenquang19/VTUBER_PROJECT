@@ -19,6 +19,7 @@ from orchestrator.config_loader import ConfigLoader
 from orchestrator.emergency_stop import EmergencyStop
 from orchestrator.event_bus import EventBus
 from orchestrator.features import FeatureManager
+from orchestrator.health_monitor import HealthMonitor
 from orchestrator.logger import get_logger, setup_from_config
 from orchestrator.metrics_collector import MetricsCollector
 from orchestrator.migration_runner import MigrationRunner
@@ -51,6 +52,10 @@ class Orchestrator:
         )
         self.triggers = TriggerManager.from_config(self.loader, event_bus=self.event_bus)
 
+        # health monitor: poll các Service định kỳ (13.6)
+        self.health = HealthMonitor.from_config(self.loader, event_bus=self.event_bus)
+        self.health.register_service(self.triggers)
+
         # emergency stop → state machine.emergency_stop()
         async def _do_stop() -> None:
             with contextlib.suppress(Exception):
@@ -67,6 +72,7 @@ class Orchestrator:
             trigger_manager=self.triggers,
             metrics=self.metrics,
             emergency_stop=self.emergency,
+            health_monitor=self.health,
             push_interval_s=self.loader.get("system", "dashboard.push_interval_s", 1.0),
         )
 
@@ -88,6 +94,7 @@ class Orchestrator:
 
         self.loader.start_watching()
         self.emergency.bind()  # fail → chỉ log, vẫn chạy (không admin)
+        self.health.start()
         self.dashboard.start_push_loop()
 
         self.log.info("orchestrator_ready", host=host, port=port,
@@ -104,6 +111,7 @@ class Orchestrator:
         self.log.info("orchestrator_shutdown")
         self.loader.stop_watching()
         self.emergency.unbind()
+        await self.health.stop()
         await self.dashboard.stop_push_loop()
         await self.state_machine.shutdown()
         await self.event_bus.close()

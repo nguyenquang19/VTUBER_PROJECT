@@ -1,8 +1,14 @@
 # STATE — Mai project
 
-**Phase hiện tại:** Phase 0 Foundation — DONE (chờ CHECKPOINT P0)
-**Task đang làm:** 0.F DONE → chờ user duyệt P0 rồi sang Phase 1
+**Phase hiện tại:** Phase 1 Core LLM (P0 đã duyệt + 0.G vá xong)
+**Task đang làm:** lập kế hoạch Phase 1
 **Cập nhật:** 2026-07-30
+
+## Phase 0 — HOÀN THÀNH (báo cáo: docs/phase0_report.md)
+- 0.A Config+Logger, 0.B Interfaces+Features, 0.C EventBus+StateMachine,
+  0.D Trigger+Fallback, 0.E Migration, 0.F Metrics+Dashboard+EmergencyStop,
+  0.G Health monitor + leak test
+- 331 test pass. DoD 7/7 tick (leak test + live soak 60s RSS phẳng 60→61MB)
 
 ## Tiến độ Phase 0 (6 milestone)
 - [x] **0.A Config + Logger** — 40 test pass

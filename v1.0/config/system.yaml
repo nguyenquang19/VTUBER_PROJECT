@@ -37,6 +37,10 @@ config_reload:
   enabled: true
   debounce_ms: 500             # gộp nhiều file-change event liên tiếp
 
+health:
+  interval_s: 10               # health check định kỳ (ARCHITECTURE 13.6)
+  check_timeout_s: 5           # 1 service check quá lâu → coi unhealthy
+
 event_bus:
   # Queue mỗi subscriber. VTuber realtime: thà drop event cũ còn hơn block
   # producer (chat flood không được làm nghẽn LLM/TTS).
