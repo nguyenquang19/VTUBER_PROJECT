@@ -1,7 +1,7 @@
 # STATE — Mai project
 
 **Phase hiện tại:** Phase 0 Foundation
-**Task đang làm:** 0.B DONE → next 0.C (event bus + state machine)
+**Task đang làm:** 0.C DONE → next 0.D (trigger + fallback skeleton)
 **Cập nhật:** 2026-07-30
 
 ## Tiến độ Phase 0 (6 milestone)
@@ -15,7 +15,12 @@
     `llm.py`, `filter.py`, `tts.py`, `animation.py` (MoodState 5 mood), `memory.py`
   - `orchestrator/features.py` — FeatureManager: 6 toggle rule (atomic/log/dependency/conflict/resource/rollback)
   - `config/system.yaml` thêm `resources.*` (VRAM budget 5594MB) + `features.core` (7 core feature)
-- [ ] **0.C Event bus + State machine** — 5 state / 9 transition, hypothesis property test
+- [x] **0.C Event bus + State machine** — 71 test pass (tổng 202)
+  - `orchestrator/event_bus.py` — asyncio pub/sub fan-out, bounded queue, drop_oldest/drop_newest, TOPIC_ALL
+  - `orchestrator/state_machine.py` — AsyncMachine 5 state / 9 transition, action hook, cooldown timer
+  - `config/state_machine.yaml` — cooldown 500ms, interrupt_policy + watchdog threshold (Phase 2 dùng)
+  - 5 hypothesis property test: state luôn valid, emergency_stop từ mọi state → PAUSED,
+    resume → IDLE, history liên tục, SPEAKING chỉ vào từ THINKING
 - [ ] **0.D Trigger + Fallback skeleton** — 4 type, 2 level, `config/triggers.yaml`
 - [ ] **0.E SQLite migration** — `migrations/001_initial.sql` + runner
 - [ ] **0.F Metrics + Dashboard + Emergency stop** — FastAPI + WS + Chart.js, Ctrl+Shift+X

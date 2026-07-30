@@ -36,6 +36,12 @@ config_reload:
   enabled: true
   debounce_ms: 500             # gộp nhiều file-change event liên tiếp
 
+event_bus:
+  # Queue mỗi subscriber. VTuber realtime: thà drop event cũ còn hơn block
+  # producer (chat flood không được làm nghẽn LLM/TTS).
+  max_queue_size: 500
+  overflow_policy: drop_oldest   # drop_oldest | drop_newest
+
 resources:
   # RTX 5060 Ti 16GB. Baseline đã chiếm: Gemma 12B Q4_K_M ~8000MB (Pre-flight Day 1)
   # + viXTTS 1790MB (Day 2) = ~9790MB. Budget cho toggleable feature là phần còn lại,
