@@ -1,4 +1,3 @@
-@"
 # Python
 venv/
 __pycache__/
@@ -6,16 +5,18 @@ __pycache__/
 .pytest_cache/
 
 # Data & logs
-data/*.db
-data/*.db-journal
-logs/**/*.jsonl
-logs/**/*.log
+*.db
+*.db-journal
+*.db-wal
+logs/
 backups/
 
-# Models (quá lớn, không commit)
-models/**/*.gguf
-models/**/*.onnx
-models/**/*.bin
+# Models (quá lớn, KHÔNG commit — che cả ở v1.0/)
+models/
+*.gguf
+*.onnx
+*.pth
+*.safetensors
 
 # Cache
 cache/
@@ -28,4 +29,3 @@ Desktop.ini
 # IDE
 .vscode/
 .idea/
-"@ | Out-File .gitignore -Encoding utf8
