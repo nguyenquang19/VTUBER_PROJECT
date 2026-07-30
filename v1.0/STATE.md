@@ -39,7 +39,11 @@
       - prompt_manager.PromptManager: build_messages [system+history+user] thuần,
         commit_turn ghi history + trim theo max_history_turns, build_request → LLMRequest
       - models.yaml thêm: persona_prompt_path, max_history_turns=12, temperature=0.85
-- [ ] 1.D parser (regex+pydantic, strip reasoning, key có/không dấu)
+- [x] 1.D parser — 24 unit pass. services/llm/parser.py: parse_response(raw)->ParsedResponse
+      (text + MoodState + reason + continuation + ok + raw). Fail-safe: sai format vẫn
+      trả text, ok=False, không raise. Strip <think>/<|token|>. Key mood alternation
+      (có/không dấu, space/underscore), clamp 0-10. Parse cả "còn nữa" (Phase 2 dùng sau).
+      Né ngoặc vuông ngẫu nhiên trong text (chọn block nhiều mood key nhất).
 - [ ] 1.E CLI + LLM fallback 2-level (canned theo mood)
 - [ ] 1.F dashboard LLM metrics + integration (100 turn)
 
