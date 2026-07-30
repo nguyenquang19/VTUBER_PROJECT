@@ -23,6 +23,10 @@ llm_main:
   extra_flags:
     - "--flash-attn"
     - "on"
+    # Gemma 4 có reasoning native → BẮT BUỘC tắt, nếu không model "nghĩ" trước
+    # (chậm + rỗng content). Xem STATE.md / memory reference-llm-model.
+    - "--reasoning"
+    - "off"
 
   # Measured Pre-flight Day 1 (RTX 5060 Ti / Gemma 4 12B Q4_K_M / n_ctx 4096)
   latency_measured:

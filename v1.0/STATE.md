@@ -4,12 +4,34 @@
 **Task đang làm:** 1.A process_manager + fix config path
 **Cập nhật:** 2026-07-30
 
+## ✅ BLOCKER ĐÃ GIẢI HOÀN TOÀN (2026-07-30) — thủ phạm là httpx buffer, streaming vẫn NHANH
+- Model: "Gemma 4 12B It Qat Uncensored Heretic" (uncensored Gemma 4 12B). Reasoning
+  là NATIVE của Gemma 4 (Google build sẵn) → mọi bản Gemma 4 đều có, tắt bằng --reasoning off.
+- Chẩn đoán cuối (đo thật, cùng prompt, first-CONTENT token):
+  - **raw asyncio socket: 72ms** ✅ | curl -N: 283ms | **httpx stream: 2200ms** ✗
+  - httpx buffer bất kể iter_lines/bytes/raw, trust_env, gzip. Server stream 69-72ms.
+  - "2.4s" TỪ ĐẦU là do httpx buffer phía client, KHÔNG phải model/reasoning.
+- Option C (--chat-template gemma) THẤT BẠI: output rác (khoá special token harmony).
+- **CHỐT cho Phase 1 (streaming OK, giữ model uncensored):**
+  - Server: `--flash-attn on --reasoning off` (bỏ --prompt-cache)
+  - Endpoint `/v1/chat/completions`, persona = system message
+  - **Streaming qua `asyncio.open_connection` (raw socket stdlib), KHÔNG httpx** → TTFT 72ms
+  - httpx CHỈ cho non-stream (health/props)
+  - Pipeline: LLM stream TTFT 72ms → tách câu → viXTTS inference_stream (TTFA 450ms)
+    → first audio ~0.5s. Vượt target.
+  - 1.B PHẢI viết lại: /v1/chat/completions, streaming qua asyncio socket, LLMRequest
+    mang messages (system+history).
+
 ## Phase 1 milestone (6)
 - [x] 1.A process_manager + fix config path — 14 unit + 1 live pass (start/healthy/stop server thật 22.8s)
   - Fix path: binary=E:\BAI_CUA_DUC\llama\llama-server.exe, model=gemma_4_12B_Q4.gguf
   - BỎ --prompt-cache (flag llama-cli, KHÔNG phải server; spec 10.3 nhầm) → dùng cache_prompt request param
   - flash-attn cần "on" (build mới cần [on|off|auto])
-- [ ] 1.B llama_cpp_llm streaming (/completion)
+- [x] 1.B llama_cpp_llm streaming — VIẾT LẠI xong: /v1/chat/completions + raw
+      asyncio socket (KHÔNG httpx) + --reasoning off. 63 unit + 2 live pass.
+      Live: TTFT 204ms cold (warm ~72ms), decode 40.7tps, content sạch, cancel OK.
+      Interface thêm ChatMessage + LLMRequest.messages + to_messages(). httpx chỉ health.
+      config/models.yaml extra_flags thêm --reasoning off.
 - [ ] 1.C prompt_manager + persona (A+C) + prompt_cache
 - [ ] 1.D parser (regex+pydantic, strip reasoning, key có/không dấu)
 - [ ] 1.E CLI + LLM fallback 2-level (canned theo mood)
