@@ -1,142 +1,96 @@
-"""Công cụ test tay: chat với model qua llama-server (streaming nhanh).
+"""Công cụ test tay: chat với Mai qua ĐÚNG pipeline 1.B + 1.C.
 
-Dùng cách đã chốt (xem STATE.md / memory reference-llm-model):
-- endpoint /v1/chat/completions, server chạy với --reasoning off
-- streaming qua asyncio.open_connection (raw socket) — TTFT ~72ms, KHÔNG httpx
-- persona Mai rút gọn (bản đầy đủ để Phase 1.C)
+Dogfood:
+- PromptCache/PromptManager (1.C) dựng persona đầy đủ từ config/prompts/persona_system.txt
+  + giữ history (cửa sổ max_history_turns).
+- LlamaCppLLMService (1.B) stream qua raw asyncio socket (TTFT ~72ms), --reasoning off.
 
-Chạy (sau khi đã start server — xem hướng dẫn):
-    .\venv\Scripts\python.exe scripts\chat_test.py
-Gõ câu tiếng Việt, Enter. Gõ 'quit' để thoát.
+Cần server chạy trước:
+    E:\\BAI_CUA_DUC\\llama\\llama-server.exe -m .\\models\\llm\\gemma_4_12B_Q4.gguf `
+      --host 127.0.0.1 --port 8080 -c 4096 -ngl 999 -ctk q8_0 -ctv q8_0 -b 512 `
+      --flash-attn on --reasoning off
+
+Chạy:
+    # tương tác:
+    .\\venv\\Scripts\\python.exe scripts\\chat_test.py
+    # auto (mỗi arg là 1 lượt, giữ ngữ cảnh giữa các lượt):
+    .\\venv\\Scripts\\python.exe scripts\\chat_test.py "chào Mai" "mày có phải AI không"
 """
 from __future__ import annotations
 
 import asyncio
-import json
 import sys
 import time
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT))
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 if hasattr(sys.stdin, "reconfigure"):
     sys.stdin.reconfigure(encoding="utf-8", errors="replace")
 
-HOST = "127.0.0.1"
-PORT = 8080
-
-# Persona Mai rút gọn cho test (bản đầy đủ Phase 1.C lấy từ persona.md A+C)
-SYSTEM_PROMPT = (
-    "Bạn là Mai, một AI VTuber nữ 18 tuổi, tính cách ngang, hay cãi, hay trêu, "
-    "thích cà khịa nhưng thực ra quan tâm người khác. Tự xưng 'tớ', gọi người xem "
-    "là 'cậu', gọi người vận hành là 'ông'. Trả lời NGẮN, tự nhiên, đúng chất trẻ "
-    "và lém. Không nói kiểu trợ lý ('tôi có thể giúp gì'). Không tự nhận là AI trừ "
-    "khi bị hỏi thẳng. Không khẩn cầu, không thao túng cảm xúc."
-)
+from orchestrator.config_loader import ConfigLoader  # noqa: E402
+from services.llm.llama_cpp_llm import LlamaCppLLMService  # noqa: E402
+from services.llm.prompt_manager import PromptManager  # noqa: E402
 
 
-async def stream_chat(messages: list[dict], max_tokens: int = 200) -> tuple[str, float, float]:
-    """Gửi messages, stream reply. Trả (text, ttft_ms, decode_tps)."""
-    body = json.dumps(
-        {
-            "messages": messages,
-            "max_tokens": max_tokens,
-            "temperature": 0.85,
-            "stream": True,
-            "cache_prompt": True,
-        }
-    ).encode("utf-8")
-    req = (
-        b"POST /v1/chat/completions HTTP/1.1\r\n"
-        b"Host: " + HOST.encode() + b"\r\n"
-        b"Content-Type: application/json\r\n"
-        b"Content-Length: " + str(len(body)).encode() + b"\r\n"
-        b"Connection: close\r\n\r\n" + body
-    )
-
-    reader, writer = await asyncio.open_connection(HOST, PORT)
-    t0 = time.perf_counter()
-    writer.write(req)
-    await writer.drain()
-
-    t_first: float | None = None
-    tokens = 0
+async def run_turn(svc: LlamaCppLLMService, pm: PromptManager, user: str) -> str:
+    request = pm.build_request(f"cli-{time.time_ns()}", user)
     parts: list[str] = []
-    buf = b""
-    header_done = False
-
-    while True:
-        chunk = await reader.read(4096)
-        if not chunk:
-            break
-        buf += chunk
-        if not header_done:
-            if b"\r\n\r\n" in buf:
-                header_done = True
-                buf = buf.split(b"\r\n\r\n", 1)[1]
-            else:
-                continue
-        while b"\n" in buf:
-            line, buf = buf.split(b"\n", 1)
-            s = line.decode("utf-8", "replace")
-            if "data:" not in s:
-                continue
-            data = s.split("data:", 1)[1].strip()
-            if data == "[DONE]":
-                writer.close()
-                return _finish(parts, t0, t_first, tokens)
-            try:
-                obj = json.loads(data)
-            except json.JSONDecodeError:
-                continue
-            tok = obj["choices"][0].get("delta", {}).get("content")
-            if tok:
-                if t_first is None:
-                    t_first = time.perf_counter()
-                tokens += 1
-                parts.append(tok)
-                print(tok, end="", flush=True)
-    writer.close()
-    return _finish(parts, t0, t_first, tokens)
-
-
-def _finish(parts, t0, t_first, tokens):
+    print("Mai: ", end="", flush=True)
+    async for tok in svc.generate_stream(request):
+        if tok.token:
+            print(tok.token, end="", flush=True)
+            parts.append(tok.token)
     text = "".join(parts)
-    ttft = (t_first - t0) * 1000 if t_first else 0.0
-    decode = tokens / (time.perf_counter() - t_first) if t_first and tokens > 1 else 0.0
-    return text, ttft, decode
+    pm.commit_turn(user, text)
+    m = svc.get_metrics()
+    ttft = m["llm_last_ttft_ms"] or 0.0
+    tps = m["llm_last_decode_tps"] or 0.0
+    print(f"\n   [TTFT={ttft:.0f}ms, {tps:.0f} tok/s, tokens={m['llm_last_tokens_out']}]")
+    return text
 
 
 async def main() -> None:
-    # kiểm tra server sống
-    try:
-        r, w = await asyncio.open_connection(HOST, PORT)
-        w.close()
-    except Exception:
-        print(f"❌ Không kết nối được llama-server ở {HOST}:{PORT}. Bạn đã start server chưa?")
+    loader = ConfigLoader(REPO_ROOT / "config")
+    loader.load_all()
+    svc = LlamaCppLLMService.from_loader(loader)
+    await svc.start()
+    pm = PromptManager.from_loader(loader)
+
+    health = await svc.health_check()
+    if not health.is_ok:
+        print(f"❌ llama-server chưa chạy ({health.detail}). Start server trước (xem docstring).")
+        await svc.stop()
         return
 
-    print("=" * 60)
-    print("  CHAT TEST với Mai — gõ 'quit' để thoát")
-    print("=" * 60)
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    print("=" * 64)
+    print(f"  CHAT với Mai — persona v{pm.version} — gõ 'quit' để thoát")
+    print("=" * 64)
 
-    while True:
-        try:
-            user = input("\nBạn: ").strip()
-        except (EOFError, KeyboardInterrupt):
-            print("\nBye!")
-            break
-        if not user:
-            continue
-        if user.lower() in ("quit", "exit", "thoat", "thoát"):
-            print("Bye!")
-            break
-
-        messages.append({"role": "user", "content": user})
-        print("Mai: ", end="", flush=True)
-        text, ttft, decode = await stream_chat(messages)
-        messages.append({"role": "assistant", "content": text})
-        print(f"\n   [TTFT={ttft:.0f}ms, {decode:.0f} tok/s]")
+    auto_prompts = sys.argv[1:]
+    try:
+        if auto_prompts:
+            for p in auto_prompts:
+                print(f"\nBạn: {p}")
+                await run_turn(svc, pm, p)
+        else:
+            while True:
+                try:
+                    user = input("\nBạn: ").strip()
+                except (EOFError, KeyboardInterrupt):
+                    print("\nBye!")
+                    break
+                if not user:
+                    continue
+                if user.lower() in ("quit", "exit", "thoat", "thoát"):
+                    print("Bye!")
+                    break
+                await run_turn(svc, pm, user)
+    finally:
+        await svc.stop()
 
 
 if __name__ == "__main__":

@@ -32,7 +32,13 @@
       Live: TTFT 204ms cold (warm ~72ms), decode 40.7tps, content sạch, cancel OK.
       Interface thêm ChatMessage + LLMRequest.messages + to_messages(). httpx chỉ health.
       config/models.yaml extra_flags thêm --reasoning off.
-- [ ] 1.C prompt_manager + persona (A+C) + prompt_cache
+- [x] 1.C prompt_manager + persona (A+B+C) + prompt_cache — 20 unit pass
+      - config/prompts/persona_system.txt (dựng từ persona.md A+B format+C ranh giới)
+      - prompt_cache.PromptCache: load+freeze persona, version hash 12 ký tự, as_message()
+        (vai trò: giữ prefix byte-ổn định cho KV cache reuse, KHÔNG file --prompt-cache)
+      - prompt_manager.PromptManager: build_messages [system+history+user] thuần,
+        commit_turn ghi history + trim theo max_history_turns, build_request → LLMRequest
+      - models.yaml thêm: persona_prompt_path, max_history_turns=12, temperature=0.85
 - [ ] 1.D parser (regex+pydantic, strip reasoning, key có/không dấu)
 - [ ] 1.E CLI + LLM fallback 2-level (canned theo mood)
 - [ ] 1.F dashboard LLM metrics + integration (100 turn)

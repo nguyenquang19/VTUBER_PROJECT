@@ -18,8 +18,13 @@ llm_main:
   prompt_cache_path: ".\\cache\\persona_prefix.bin"
   prompt_cache_all: false
   num_predict: 300
+  temperature: 0.85              # default sampling temp (prompt_manager 1.C)
   batch_size: 512
   health_timeout_s: 30
+  # Persona prefix (system message) — giữ byte-ổn định để llama-server KV-cache
+  # reuse (cache_prompt:true). Dựng từ persona.md Phần A+B+C. Xem prompt_cache 1.C.
+  persona_prompt_path: ".\\config\\prompts\\persona_system.txt"
+  max_history_turns: 12         # số cặp (user+assistant) giữ trong context
   extra_flags:
     - "--flash-attn"
     - "on"
