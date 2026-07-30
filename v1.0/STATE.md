@@ -1,7 +1,7 @@
 # STATE — Mai project
 
-**Phase hiện tại:** Phase 1 Core LLM
-**Task đang làm:** 1.A process_manager + fix config path
+**Phase hiện tại:** Phase 1 Core LLM — ĐÃ CODE XONG 6/6 milestone (1.A–1.F)
+**Task đang làm:** ⛔ CHECKPOINT P1 — chờ user duyệt persona subjective (20 turn cli.py)
 **Cập nhật:** 2026-07-30
 
 ## ✅ BLOCKER ĐÃ GIẢI HOÀN TOÀN (2026-07-30) — thủ phạm là httpx buffer, streaming vẫn NHANH
