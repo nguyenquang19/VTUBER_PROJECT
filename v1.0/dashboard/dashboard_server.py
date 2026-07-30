@@ -62,6 +62,8 @@ class DashboardServer:
 
         if self.metrics is not None:
             snap["metrics"] = self.metrics.tick_fake_metrics()
+            if hasattr(self.metrics, "llm_snapshot"):
+                snap["llm"] = self.metrics.llm_snapshot()
 
         if self.triggers is not None:
             stats = await self.triggers.get_queue_stats()

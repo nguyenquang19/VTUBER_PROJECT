@@ -2,7 +2,7 @@
 // Mai dashboard — vanilla JS, no external deps (100% local).
 
 const MAX_POINTS = 60;
-const series = { gpu: [], vram: [] };
+const series = { gpu: [], vram: [], ttft: [] };
 
 // ---------- tabs ----------
 document.querySelectorAll(".tabs button").forEach((btn) => {
@@ -74,6 +74,19 @@ function renderMetrics(m) {
   drawChart("chart-vram", series.vram, "#4caf50", 16384);
 }
 
+function renderLLM(l) {
+  if (!l) return;
+  setText("l-ttft", l.last_ttft_ms == null ? "–" : l.last_ttft_ms);
+  setText("l-tps", l.last_decode_tps == null ? "–" : l.last_decode_tps);
+  setText("l-req", l.requests_total);
+  setText("l-parse", l.parse_rate_percent == null ? "–" : l.parse_rate_percent);
+  setText("l-fb", l.fallback_total);
+  if (l.last_ttft_ms != null) {
+    pushPoint(series.ttft, l.last_ttft_ms);
+    drawChart("chart-ttft", series.ttft, "#ffb454", 800);
+  }
+}
+
 function renderState(s) {
   if (!s) return;
   const box = document.getElementById("state-name");
@@ -137,6 +150,7 @@ function renderTriggers(t) {
 
 function render(snap) {
   renderMetrics(snap.metrics);
+  renderLLM(snap.llm);
   renderState(snap.state);
   renderFeatures(snap.features, snap.vram);
   renderTriggers(snap.triggers);

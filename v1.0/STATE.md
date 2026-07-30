@@ -53,7 +53,14 @@
       - scripts/cli.py: CLI input mode full stack (interactive + auto), on_token stream
       - models.yaml: llm_canned (timeout_primary_s 5.0, timeout_canned_s 0.1, responses)
       - live: primary stream OK, parse_ok=True, mood dominant hiển thị, TTFT 352ms warm
-- [ ] 1.F dashboard LLM metrics + integration (100 turn)
+- [x] 1.F dashboard LLM metrics + integration — 11 unit/integration pass + visual check.
+      - MetricsCollector: llm_ttft_seconds(hist), llm_decode_tps, llm_requests_total,
+        llm_fallback_total, llm_parse_total{ok/fail}; record_llm_turn() + llm_snapshot()
+      - LLMTurnRunner nhận metrics=, tự record sau mỗi turn (best-effort get_metrics)
+      - dashboard build_snapshot thêm "llm"; frontend panel LLM (TTFT/decode/turns/
+        parse%/fallback) + chart TTFT realtime — visual verify qua browser (parse 93.3%)
+      - integration test_phase1_turns: 100 turn no crash + parse 100%, 96% với malformed,
+        force-timeout → canned (level 1), history trim ổn định. Full suite 432 pass.
 
 ## Phase 0 — HOÀN THÀNH (báo cáo: docs/phase0_report.md)
 - 0.A Config+Logger, 0.B Interfaces+Features, 0.C EventBus+StateMachine,

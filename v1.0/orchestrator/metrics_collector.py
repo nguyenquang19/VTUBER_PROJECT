@@ -39,6 +39,36 @@ class MetricsCollector:
             registry=self.registry,
         )
 
+        # --- LLM metrics thật (Phase 1, dashboard 1.F) ---
+        self.llm_ttft_seconds = Histogram(
+            "mai_llm_ttft_seconds",
+            "LLM time-to-first-token",
+            buckets=[0.05, 0.1, 0.2, 0.3, 0.5, 0.8, 1.0, 2.0, 5.0],
+            registry=self.registry,
+        )
+        self.llm_decode_tps = Gauge(
+            "mai_llm_decode_tps", "LLM decode tokens/sec (lần gần nhất)",
+            registry=self.registry,
+        )
+        self.llm_requests_total = Counter(
+            "mai_llm_requests_total", "Tổng lượt LLM turn",
+            registry=self.registry,
+        )
+        self.llm_fallback_total = Counter(
+            "mai_llm_fallback_total", "Số lần rơi xuống canned (fallback level>0)",
+            registry=self.registry,
+        )
+        self.llm_parse_total = Counter(
+            "mai_llm_parse_total", "Kết quả parse mood block", ["result"],
+            registry=self.registry,
+        )
+        self._last_ttft_ms: float | None = None
+        self._last_decode_tps: float | None = None
+        self._parse_ok = 0
+        self._parse_fail = 0
+        self._fallback = 0
+        self._llm_requests = 0
+
         # --- 3 "metric giả" cho Phase 0 (chưa có service thật) ---
         # DoD: "Metric giả cập nhật realtime trên chart"
         self.fake_gpu_util = Gauge(
@@ -66,6 +96,45 @@ class MetricsCollector:
 
     def observe_ttfa(self, seconds: float) -> None:
         self.ttfa_seconds.observe(seconds)
+
+    def record_llm_turn(
+        self,
+        ttft_ms: float | None,
+        decode_tps: float | None,
+        parse_ok: bool,
+        level_used: int,
+    ) -> None:
+        """1 lượt LLM xong (LLMTurnRunner gọi). Cập nhật metric cho dashboard."""
+        self._llm_requests += 1
+        self.llm_requests_total.inc()
+        if ttft_ms is not None:
+            self._last_ttft_ms = ttft_ms
+            self.llm_ttft_seconds.observe(ttft_ms / 1000.0)
+        if decode_tps is not None:
+            self._last_decode_tps = decode_tps
+            self.llm_decode_tps.set(decode_tps)
+        if parse_ok:
+            self._parse_ok += 1
+            self.llm_parse_total.labels(result="ok").inc()
+        else:
+            self._parse_fail += 1
+            self.llm_parse_total.labels(result="fail").inc()
+        if level_used > 0:
+            self._fallback += 1
+            self.llm_fallback_total.inc()
+
+    def llm_snapshot(self) -> dict[str, Any]:
+        total = self._parse_ok + self._parse_fail
+        rate = round(100.0 * self._parse_ok / total, 1) if total else None
+        return {
+            "last_ttft_ms": round(self._last_ttft_ms, 1) if self._last_ttft_ms is not None else None,
+            "last_decode_tps": round(self._last_decode_tps, 1) if self._last_decode_tps is not None else None,
+            "requests_total": self._llm_requests,
+            "fallback_total": self._fallback,
+            "parse_ok": self._parse_ok,
+            "parse_total": total,
+            "parse_rate_percent": rate,
+        }
 
     # ---------- fake updater (Phase 0 demo) ----------
 

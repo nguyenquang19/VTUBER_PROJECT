@@ -8,7 +8,7 @@
 </head>
 <body>
 <header>
-  <h1>Mai — Dashboard <span class="phase">Phase 0</span></h1>
+  <h1>Mai — Dashboard <span class="phase">Phase 1</span></h1>
   <div class="controls">
     <span id="conn" class="badge off">WS: connecting…</span>
     <button id="btn-estop" class="danger">■ Emergency Stop (Ctrl+Shift+X)</button>
@@ -26,6 +26,17 @@
 <main>
   <!-- METRICS -->
   <section id="tab-metrics" class="tab active">
+    <h3>LLM (realtime)</h3>
+    <div class="cards">
+      <div class="card"><div class="label">TTFT</div><div class="value" id="l-ttft">–</div><span class="unit">ms</span></div>
+      <div class="card"><div class="label">Decode</div><div class="value" id="l-tps">–</div><span class="unit">tok/s</span></div>
+      <div class="card"><div class="label">Turns</div><div class="value" id="l-req">–</div></div>
+      <div class="card"><div class="label">Parse ok</div><div class="value" id="l-parse">–</div><span class="unit">%</span></div>
+      <div class="card"><div class="label">Fallback</div><div class="value" id="l-fb">–</div></div>
+    </div>
+    <div class="chart-wrap"><canvas id="chart-ttft" width="800" height="160"></canvas><div class="chart-title">LLM TTFT ms (realtime)</div></div>
+
+    <h3>System (fake demo)</h3>
     <div class="cards">
       <div class="card"><div class="label">GPU util</div><div class="value" id="m-gpu">–</div><span class="unit">%</span></div>
       <div class="card"><div class="label">VRAM</div><div class="value" id="m-vram">–</div><span class="unit">MB</span></div>

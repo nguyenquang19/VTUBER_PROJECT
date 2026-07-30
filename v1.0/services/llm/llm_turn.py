@@ -35,12 +35,14 @@ class LLMTurnRunner:
         timeout_primary_s: float = 5.0,
         timeout_canned_s: float = 0.1,
         on_token: TokenSink | None = None,
+        metrics: Any = None,
     ) -> None:
         self._svc = svc
         self._pm = prompt_manager
         self._fb = fallback
         self._canned = canned
         self._on_token = on_token or (lambda _t: None)
+        self._metrics = metrics
         self._fb.register_chain(
             _CHAIN_ID,
             [self._primary, self._canned_handler],
@@ -56,6 +58,7 @@ class LLMTurnRunner:
         fallback: FallbackManager,
         canned: CannedResponder,
         on_token: TokenSink | None = None,
+        metrics: Any = None,
     ) -> "LLMTurnRunner":
         return cls(
             svc,
@@ -65,6 +68,7 @@ class LLMTurnRunner:
             timeout_primary_s=float(loader.get("models", "llm_canned.timeout_primary_s", 5.0)),
             timeout_canned_s=float(loader.get("models", "llm_canned.timeout_canned_s", 0.1)),
             on_token=on_token,
+            metrics=metrics,
         )
 
     async def _primary(self, request: Any) -> ParsedResponse:
@@ -88,4 +92,22 @@ class LLMTurnRunner:
         self._pm.commit_turn(user_text, parsed.text)
         if parsed.ok:
             self._canned.update_mood(parsed.mood)
+        self._record_metrics(parsed, result.level_used)
         return parsed, result.level_used
+
+    def _record_metrics(self, parsed: ParsedResponse, level_used: int) -> None:
+        if self._metrics is None:
+            return
+        m: dict[str, Any] = {}
+        get_metrics = getattr(self._svc, "get_metrics", None)
+        if callable(get_metrics):
+            try:
+                m = get_metrics()
+            except Exception:  # pragma: no cover - metrics best-effort
+                m = {}
+        self._metrics.record_llm_turn(
+            ttft_ms=m.get("llm_last_ttft_ms"),
+            decode_tps=m.get("llm_last_decode_tps"),
+            parse_ok=parsed.ok,
+            level_used=level_used,
+        )
