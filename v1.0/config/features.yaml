@@ -1,0 +1,136 @@
+# features.yaml — feature toggle state, persist ở đây (ARCHITECTURE 4.3, 4.5)
+#
+# Core features (không toggle được) KHÔNG liệt kê ở đây:
+#   input_chat, llm_main, parser_output, context_builder,
+#   memory_working, trigger_manager, state_machine
+#
+# Chỉ toggleable features. `enabled` là state hiện tại (mutate khi user toggle).
+
+features:
+  input_voice:
+    enabled: false              # STT deferred — xem spike/day3_report.md
+    vram_cost_mb: 1024
+    latency_impact_ms: 150
+    category: input
+    depends_on: []
+    conflicts_with: []
+
+  input_emotion_voice:
+    enabled: false
+    vram_cost_mb: 500
+    latency_impact_ms: 50
+    category: input
+    depends_on: ["input_voice"]
+    conflicts_with: []
+
+  filter_rule:
+    enabled: true
+    vram_cost_mb: 0
+    latency_impact_ms: 20
+    category: filter
+    depends_on: []
+    conflicts_with: []
+
+  filter_ai:
+    enabled: false
+    vram_cost_mb: 3072
+    latency_impact_ms: 200
+    category: filter
+    depends_on: []
+    conflicts_with: []
+
+  tts_streaming:
+    enabled: true
+    vram_cost_mb: 0
+    latency_impact_ms: -300
+    category: tts
+    depends_on: []
+    conflicts_with: []
+
+  tts_emotion_aware:
+    enabled: false
+    vram_cost_mb: 0
+    latency_impact_ms: 100
+    category: tts
+    depends_on: []
+    conflicts_with: []
+
+  animation_smooth:
+    enabled: true
+    vram_cost_mb: 200
+    latency_impact_ms: 50
+    category: animation
+    depends_on: []
+    conflicts_with: []
+
+  animation_micro:
+    enabled: false
+    vram_cost_mb: 100
+    latency_impact_ms: 30
+    category: animation
+    depends_on: ["animation_smooth"]
+    conflicts_with: []
+
+  memory_semantic:
+    enabled: false
+    vram_cost_mb: 500
+    latency_impact_ms: 150
+    category: memory
+    depends_on: []
+    conflicts_with: []
+
+  memory_hierarchical:
+    enabled: false
+    vram_cost_mb: 0
+    latency_impact_ms: 100
+    category: memory
+    depends_on: ["memory_semantic"]
+    conflicts_with: []
+
+  qc_persona:
+    enabled: false
+    vram_cost_mb: 3072
+    latency_impact_ms: 0
+    category: qc
+    depends_on: []
+    conflicts_with: []
+
+  data_collector:
+    enabled: true
+    vram_cost_mb: 0
+    latency_impact_ms: 10
+    category: data
+    depends_on: []
+    conflicts_with: []
+
+  speculative_decoding:
+    enabled: false              # v2.3 bỏ E4B draft model → tạm off, bật lại nếu add E4B
+    vram_cost_mb: 700
+    latency_impact_ms: -400
+    category: llm
+    depends_on: []
+    conflicts_with: []
+
+  kv_cache_q8:
+    enabled: true
+    vram_cost_mb: -750
+    latency_impact_ms: 0
+    category: llm
+    depends_on: []
+    conflicts_with: []
+
+  turn_taking_predictor:
+    enabled: false
+    vram_cost_mb: 200
+    latency_impact_ms: -300
+    category: trigger
+    depends_on: []
+    conflicts_with: []
+
+  ambient_talk:
+    enabled: true
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: trigger
+    depends_on: []
+    conflicts_with: []

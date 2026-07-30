@@ -1,20 +1,25 @@
 # STATE — Mai project
 
-**Phase hiện tại:** Pre-flight DONE (Day 3 skip) → sẵn sàng Phase 0
-**Task đang làm:** (chờ user confirm sang Phase 0)
-**Cập nhật:** 2026-07-29 23:00
+**Phase hiện tại:** Phase 0 Foundation
+**Task đang làm:** 0.A DONE → next 0.B (interfaces + feature registry)
+**Cập nhật:** 2026-07-30
 
-## Tiến độ phase hiện tại
+## Tiến độ Phase 0 (6 milestone)
+- [x] **0.A Config + Logger** — 40 test pass
+  - `config/system.yaml`, `models.yaml` (số Pre-flight đã điền), `logging.yaml`, `features.yaml`
+  - `orchestrator/config_loader.py` — dotted access, atomic reload, watchdog hot-reload
+  - `orchestrator/logger.py` — structlog + JSONL (events/turns) + rotation
+  - `pytest.ini`
+- [ ] **0.B Interfaces + Feature registry** — `interfaces/*.py`, `orchestrator/features.py`
+- [ ] **0.C Event bus + State machine** — 5 state / 9 transition, hypothesis property test
+- [ ] **0.D Trigger + Fallback skeleton** — 4 type, 2 level, `config/triggers.yaml`
+- [ ] **0.E SQLite migration** — `migrations/001_initial.sql` + runner
+- [ ] **0.F Metrics + Dashboard + Emergency stop** — FastAPI + WS + Chart.js, Ctrl+Shift+X
+
+## Pre-flight (DONE)
 - [x] Day 1 LLM latency — GO (TTFT cold 444ms, decode min 40tps, max temp 63°C)
-- [x] Day 2 TTS — Piper 3 voice REJECT, viXTTS GO với baseline config
-  - Primary: viXTTS (cond_len=30, num2words vi cleaner, VRAM 1.79GB, 2600ms avg)
-  - Fallback: subtitle overlay
-  - Known issues (train lại sau, không blocking): English words lai; ref audio cần thu riêng cho persona
-- [x] Day 3 STT — **SKIPPED** theo quyết định user (MVP không cần voice input)
-  - Deviation N3 documented ở `spike/day3_report.md`
-  - Phase 5 STT bị đẩy xuống sau Phase 8; khi chạy sẽ làm Day 3 spike thật trước
-  - Input flow MVP: chat từ platform + operator text từ dashboard (không voice)
-- [ ] Update `config/models.yaml` (Phase 0), Section 1.1 latency, Appendix C
+- [x] Day 2 TTS — Piper REJECT, viXTTS GO (cond_len=30, VRAM 1.79GB, 2600ms avg)
+- [x] Day 3 STT — SKIPPED (user scope decision, xem `spike/day3_report.md`)
 
 ## Phase đã xong
 - [x] Phase -1 Bootstrap

@@ -1,0 +1,37 @@
+# system.yaml — cấu hình hệ thống chung (ARCHITECTURE 10.2)
+
+app:
+  name: mai
+  version: "1.0.0"
+
+dashboard:
+  host: "127.0.0.1"
+  port: 7860
+  ws_path: "/ws"
+
+paths:
+  data_dir: "data"
+  log_dir: "logs"
+  backup_dir: "backups"
+  cache_dir: "cache"
+  db_file: "data/mai.db"
+
+conversation:
+  cooldown_ms: 500
+  max_state_duration:
+    THINKING: 10000
+    SPEAKING: 30000
+    COOLDOWN: 5000
+
+ambient_talk:
+  enabled: true
+  min_silence_seconds: 60      # v2.1: 1 threshold cứng, KHÔNG probability (ARCHITECTURE 7.9.2)
+  content_variety_window: 10   # tránh lặp lại 10 câu gần nhất
+
+emergency_stop:
+  hotkey: "ctrl+shift+x"       # cần chạy Python với quyền Administrator (Windows)
+  enabled: true
+
+config_reload:
+  enabled: true
+  debounce_ms: 500             # gộp nhiều file-change event liên tiếp

@@ -1,0 +1,87 @@
+# models.yaml — cấu hình model (ARCHITECTURE 10.3)
+# Số liệu latency đã điền từ Pre-flight Day 1 + Day 2 (spike/day1_report.md, day2_report.md)
+
+llm_main:
+  provider: llama_cpp
+  binary: ".\\llama.cpp\\build\\bin\\Release\\llama-server.exe"
+  model_path: ".\\models\\llm\\gemma-4-12b-Q4_K_M.gguf"
+  host: "127.0.0.1"
+  port: 8080
+  context_size: 4096
+  gpu_layers: 999
+  kv_cache_type_k: q8_0
+  kv_cache_type_v: q8_0
+  prompt_cache_path: ".\\cache\\persona_prefix.bin"
+  prompt_cache_all: false
+  num_predict: 300
+  batch_size: 512
+  health_timeout_s: 30
+  extra_flags:
+    - "--flash-attn"
+
+  # Measured Pre-flight Day 1 (RTX 5060 Ti / Gemma 4 12B Q4_K_M / n_ctx 4096)
+  latency_measured:
+    ttft_cold_ms: 444
+    ttft_warm_short_ms: 552
+    ttft_warm_medium_ms: 545
+    ttft_warm_long_ms: 541
+    decode_tps_min: 40.0
+    decode_tps_typical: 43.0
+  latency_target:
+    ttft_p50_ms: 600           # thay vì 500 trong spec gốc — số thực đo
+    ttft_p95_ms: 1000
+    decode_tps_min: 40         # thay vì 60 trong spec gốc — 60 không realistic trên hardware này
+
+  # Day 1 finding: llama-server stream qua delta.reasoning_content thay vì delta.content
+  # Phase 1 parser phải handle cả 2 field. Xem spike/day1_report.md.
+  stream_content_fields:
+    - "content"
+    - "reasoning_content"
+
+tts:
+  provider: vixtts               # chốt Pre-flight Day 2 (Piper 3 voice REJECTED)
+  model_dir: ".\\models\\tts\\xtts\\vixtts"
+  reference_audio: ".\\models\\tts\\xtts\\vixtts\\vi_sample.wav"
+  device: cuda
+  sample_rate: 24000
+  vram_mb: 1790
+  params:
+    language: vi
+    gpt_cond_len: 30             # default 3 gây giọng lai Anh — bắt buộc 30
+    gpt_cond_chunk_len: 6
+    temperature: 0.75
+    length_penalty: 1.0
+    repetition_penalty: 5.0
+  latency_measured:
+    synth_p50_ms: 2600
+    rtf: 0.48                    # < 1.0 → streaming per-sentence giấu được latency
+  latency_target:
+    synth_p50_ms: 2600
+    synth_p95_ms: 5000
+
+tts_fallback:
+  provider: subtitle_overlay     # ARCHITECTURE 8.7.3 — không có TTS backup, dùng subtitle
+  enabled: true
+
+# STT deferred — xem spike/day3_report.md (user scope decision, MVP chat-only).
+# Giữ block config để Phase 5 wire sau; interfaces/stt.py có stub trả "".
+stt:
+  enabled: false
+  provider: faster_whisper
+  model: small
+  language: vi
+  device: cuda
+  compute_type: int8_float16
+
+stt_fallback:
+  enabled: false
+  provider: faster_whisper
+  model: tiny
+  device: cpu
+
+embedding:
+  enabled: false                 # Phase 7
+  provider: sentence_transformers
+  model: BAAI/bge-m3
+  device: cpu
+  cache_size: 1000
