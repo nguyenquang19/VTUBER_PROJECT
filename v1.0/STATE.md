@@ -1,7 +1,7 @@
 # STATE — Mai project
 
 **Phase hiện tại:** Phase 0 Foundation
-**Task đang làm:** 0.A DONE → next 0.B (interfaces + feature registry)
+**Task đang làm:** 0.B DONE → next 0.C (event bus + state machine)
 **Cập nhật:** 2026-07-30
 
 ## Tiến độ Phase 0 (6 milestone)
@@ -10,7 +10,11 @@
   - `orchestrator/config_loader.py` — dotted access, atomic reload, watchdog hot-reload
   - `orchestrator/logger.py` — structlog + JSONL (events/turns) + rotation
   - `pytest.ini`
-- [ ] **0.B Interfaces + Feature registry** — `interfaces/*.py`, `orchestrator/features.py`
+- [x] **0.B Interfaces + Feature registry** — 91 test pass (tổng 131)
+  - `interfaces/base.py` (Service ABC + HealthStatus), `input.py`, `stt.py` (+NullSTTService stub),
+    `llm.py`, `filter.py`, `tts.py`, `animation.py` (MoodState 5 mood), `memory.py`
+  - `orchestrator/features.py` — FeatureManager: 6 toggle rule (atomic/log/dependency/conflict/resource/rollback)
+  - `config/system.yaml` thêm `resources.*` (VRAM budget 5594MB) + `features.core` (7 core feature)
 - [ ] **0.C Event bus + State machine** — 5 state / 9 transition, hypothesis property test
 - [ ] **0.D Trigger + Fallback skeleton** — 4 type, 2 level, `config/triggers.yaml`
 - [ ] **0.E SQLite migration** — `migrations/001_initial.sql` + runner
