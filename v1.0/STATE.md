@@ -1,7 +1,7 @@
 # STATE — Mai project
 
-**Phase hiện tại:** Phase 0 Foundation
-**Task đang làm:** 0.E DONE → next 0.F (metrics + dashboard + emergency stop)
+**Phase hiện tại:** Phase 0 Foundation — DONE (chờ CHECKPOINT P0)
+**Task đang làm:** 0.F DONE → chờ user duyệt P0 rồi sang Phase 1
 **Cập nhật:** 2026-07-30
 
 ## Tiến độ Phase 0 (6 milestone)
@@ -31,7 +31,23 @@
   - `migrations/001_initial.sql` — turns, state_transitions, trigger_decisions (+index), IF NOT EXISTS
   - `orchestrator/migration_runner.py` — versioned SQL, numeric order, backup-before (shutil), idempotent, fail→success=0 + retry
   - Rule 8.8.4: chỉ THÊM, không auto-rollback (restore từ backup)
-- [ ] **0.F Metrics + Dashboard + Emergency stop** — FastAPI + WS + Chart.js, Ctrl+Shift+X
+- [x] **0.F Metrics + Dashboard + Emergency stop** — 43 test pass (tổng 315)
+  - `orchestrator/metrics_collector.py` — prometheus (TTFA/trigger/state + 3 fake gauge), CollectorRegistry riêng
+  - `orchestrator/emergency_stop.py` — Ctrl+Shift+X (keyboard lib, degrade nếu không admin)
+  - `dashboard/dashboard_server.py` — FastAPI + WS + REST (toggle/estop/resume/metrics)
+  - `dashboard/templates/index.html` + `static/` — vanilla JS + canvas chart (không CDN, 100% local)
+  - `orchestrator/main.py` — wiring toàn bộ + uvicorn
+  - **Verified live:** server chạy localhost:7860, metric realtime qua WS, toggle OK,
+    emergency→PAUSED→resume→IDLE, prometheus counter tăng đúng, hotkey bound (admin)
+
+## ✅ DoD Phase 0 (ARCHITECTURE 11.1)
+- [x] Dashboard mở ở localhost, toggle giả bật/tắt được
+- [x] Metric giả cập nhật realtime trên chart (WS push mỗi 1s)
+- [x] Emergency stop Ctrl+Shift+X → PAUSED từ mọi state (property test + live)
+- [x] State transitions log được (structlog JSONL + event bus + SQLite table)
+- [x] Config reload không cần restart (watchdog test)
+- [x] Test phase 0 xanh — 315 passed
+- [ ] Không memory leak sau 1h idle — CHƯA test (cần chạy dài, để user verify tuỳ chọn)
 
 ## Pre-flight (DONE)
 - [x] Day 1 LLM latency — GO (TTFT cold 444ms, decode min 40tps, max temp 63°C)

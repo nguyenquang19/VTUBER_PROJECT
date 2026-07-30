@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mai Dashboard</title>
+<link rel="stylesheet" href="/static/dashboard.css">
+</head>
+<body>
+<header>
+  <h1>Mai — Dashboard <span class="phase">Phase 0</span></h1>
+  <div class="controls">
+    <span id="conn" class="badge off">WS: connecting…</span>
+    <button id="btn-estop" class="danger">■ Emergency Stop (Ctrl+Shift+X)</button>
+    <button id="btn-resume">▶ Resume</button>
+  </div>
+</header>
+
+<nav class="tabs">
+  <button data-tab="metrics" class="active">Metrics</button>
+  <button data-tab="features">Features</button>
+  <button data-tab="state">State Machine</button>
+  <button data-tab="triggers">Triggers</button>
+</nav>
+
+<main>
+  <!-- METRICS -->
+  <section id="tab-metrics" class="tab active">
+    <div class="cards">
+      <div class="card"><div class="label">GPU util</div><div class="value" id="m-gpu">–</div><span class="unit">%</span></div>
+      <div class="card"><div class="label">VRAM</div><div class="value" id="m-vram">–</div><span class="unit">MB</span></div>
+      <div class="card"><div class="label">Chat rate</div><div class="value" id="m-chat">–</div><span class="unit">/min</span></div>
+    </div>
+    <div class="chart-wrap"><canvas id="chart-gpu" width="800" height="160"></canvas><div class="chart-title">GPU util (fake, realtime)</div></div>
+    <div class="chart-wrap"><canvas id="chart-vram" width="800" height="160"></canvas><div class="chart-title">VRAM (fake, realtime)</div></div>
+  </section>
+
+  <!-- FEATURES -->
+  <section id="tab-features" class="tab">
+    <div id="vram-budget" class="budget">VRAM budget: – / –</div>
+    <table class="features">
+      <thead><tr><th>Feature</th><th>Category</th><th>VRAM</th><th>Status</th><th></th></tr></thead>
+      <tbody id="features-body"></tbody>
+    </table>
+  </section>
+
+  <!-- STATE MACHINE -->
+  <section id="tab-state" class="tab">
+    <div class="state-current">Current: <span id="state-name" class="statebox">–</span>
+      <span id="state-time" class="dim"></span>
+      <span id="state-interrupted" class="flag"></span>
+    </div>
+    <ol class="states-legend">
+      <li>IDLE</li><li>THINKING</li><li>SPEAKING</li><li>COOLDOWN</li><li>PAUSED</li>
+    </ol>
+    <h3>Recent transitions</h3>
+    <ul id="state-history" class="history"></ul>
+  </section>
+
+  <!-- TRIGGERS -->
+  <section id="tab-triggers" class="tab">
+    <div class="cards">
+      <div class="card"><div class="label">Queue</div><div class="value" id="t-size">–</div><span class="unit">pending</span></div>
+      <div class="card"><div class="label">Dropped</div><div class="value" id="t-dropped">–</div></div>
+      <div class="card"><div class="label">Expired</div><div class="value" id="t-expired">–</div></div>
+    </div>
+    <h3>Queue by type</h3>
+    <ul id="triggers-bytype" class="bytype"></ul>
+  </section>
+</main>
+
+<script src="/static/dashboard.js"></script>
+</body>
+</html>

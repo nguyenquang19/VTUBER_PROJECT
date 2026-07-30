@@ -8,6 +8,7 @@ dashboard:
   host: "127.0.0.1"
   port: 7860
   ws_path: "/ws"
+  push_interval_s: 1.0
 
 paths:
   data_dir: "data"
