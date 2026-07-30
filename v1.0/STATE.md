@@ -1,8 +1,19 @@
 # STATE — Mai project
 
-**Phase hiện tại:** Phase 1 Core LLM (P0 đã duyệt + 0.G vá xong)
-**Task đang làm:** lập kế hoạch Phase 1
+**Phase hiện tại:** Phase 1 Core LLM
+**Task đang làm:** 1.A process_manager + fix config path
 **Cập nhật:** 2026-07-30
+
+## Phase 1 milestone (6)
+- [x] 1.A process_manager + fix config path — 14 unit + 1 live pass (start/healthy/stop server thật 22.8s)
+  - Fix path: binary=E:\BAI_CUA_DUC\llama\llama-server.exe, model=gemma_4_12B_Q4.gguf
+  - BỎ --prompt-cache (flag llama-cli, KHÔNG phải server; spec 10.3 nhầm) → dùng cache_prompt request param
+  - flash-attn cần "on" (build mới cần [on|off|auto])
+- [ ] 1.B llama_cpp_llm streaming (/completion)
+- [ ] 1.C prompt_manager + persona (A+C) + prompt_cache
+- [ ] 1.D parser (regex+pydantic, strip reasoning, key có/không dấu)
+- [ ] 1.E CLI + LLM fallback 2-level (canned theo mood)
+- [ ] 1.F dashboard LLM metrics + integration (100 turn)
 
 ## Phase 0 — HOÀN THÀNH (báo cáo: docs/phase0_report.md)
 - 0.A Config+Logger, 0.B Interfaces+Features, 0.C EventBus+StateMachine,
