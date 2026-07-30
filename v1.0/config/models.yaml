@@ -25,6 +25,21 @@ llm_main:
   # reuse (cache_prompt:true). Dựng từ persona.md Phần A+B+C. Xem prompt_cache 1.C.
   persona_prompt_path: ".\\config\\prompts\\persona_system.txt"
   max_history_turns: 12         # số cặp (user+assistant) giữ trong context
+
+# LLM fallback chain 2 tầng (ARCHITECTURE 8.7.1 — N1: đúng 2 level, bỏ E4B).
+# Level 1 = Gemma 12B (timeout_primary_s). Level 2 = canned theo mood (timeout_canned_s).
+llm_canned:
+  timeout_primary_s: 5.0
+  timeout_canned_s: 0.1
+  # canned pick theo dominant mood (key khớp MoodState: vui/buon/buc/bon_chon/nguong);
+  # mood không rõ / neutral → dùng "default".
+  responses:
+    default: ["Ừ.", "Hả, gì cơ?", "..."]
+    vui: ["Hehe, ừ.", "Biết rồi mà!"]
+    buon: ["...", "Ừ, tớ nghe đây."]
+    buc: ["Gì nữa đây.", "Hừ."]
+    bon_chon: ["Ơ... sao thế?", "Gì vậy?"]
+    nguong: ["Ơ kìa...", "Thôi mà."]
   extra_flags:
     - "--flash-attn"
     - "on"

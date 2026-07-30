@@ -44,7 +44,15 @@
       trả text, ok=False, không raise. Strip <think>/<|token|>. Key mood alternation
       (có/không dấu, space/underscore), clamp 0-10. Parse cả "còn nữa" (Phase 2 dùng sau).
       Né ngoặc vuông ngẫu nhiên trong text (chọn block nhiều mood key nhất).
-- [ ] 1.E CLI + LLM fallback 2-level (canned theo mood)
+- [x] 1.E CLI + LLM fallback 2-level — 19 unit pass + live smoke.
+      - canned_response.CannedResponder: pick theo dominant mood (config models.yaml
+        llm_canned.responses), fail-open pool "..."
+      - llm_turn.LLMTurnRunner: đăng ký chain "llm" vào FallbackManager (0.D):
+        L0 primary stream+parse, L1 canned; run_turn build→execute→commit history
+        (lưu text ĐÃ tách mood block); update canned mood chỉ khi parse ok
+      - scripts/cli.py: CLI input mode full stack (interactive + auto), on_token stream
+      - models.yaml: llm_canned (timeout_primary_s 5.0, timeout_canned_s 0.1, responses)
+      - live: primary stream OK, parse_ok=True, mood dominant hiển thị, TTFT 352ms warm
 - [ ] 1.F dashboard LLM metrics + integration (100 turn)
 
 ## Phase 0 — HOÀN THÀNH (báo cáo: docs/phase0_report.md)
