@@ -1,8 +1,8 @@
 # STATE — Mai project
 
-**Phase hiện tại:** Pre-flight
-**Task đang làm:** Day 2 DONE (GO viXTTS) → next: Day 3 STT
-**Cập nhật:** 2026-07-29 22:45
+**Phase hiện tại:** Pre-flight DONE (Day 3 skip) → sẵn sàng Phase 0
+**Task đang làm:** (chờ user confirm sang Phase 0)
+**Cập nhật:** 2026-07-29 23:00
 
 ## Tiến độ phase hiện tại
 - [x] Day 1 LLM latency — GO (TTFT cold 444ms, decode min 40tps, max temp 63°C)
@@ -10,8 +10,11 @@
   - Primary: viXTTS (cond_len=30, num2words vi cleaner, VRAM 1.79GB, 2600ms avg)
   - Fallback: subtitle overlay
   - Known issues (train lại sau, không blocking): English words lai; ref audio cần thu riêng cho persona
-- [ ] Day 3 STT (faster-whisper small)
-- [ ] Update `config/models.yaml`, Section 1.1 latency, Appendix C
+- [x] Day 3 STT — **SKIPPED** theo quyết định user (MVP không cần voice input)
+  - Deviation N3 documented ở `spike/day3_report.md`
+  - Phase 5 STT bị đẩy xuống sau Phase 8; khi chạy sẽ làm Day 3 spike thật trước
+  - Input flow MVP: chat từ platform + operator text từ dashboard (không voice)
+- [ ] Update `config/models.yaml` (Phase 0), Section 1.1 latency, Appendix C
 
 ## Phase đã xong
 - [x] Phase -1 Bootstrap
