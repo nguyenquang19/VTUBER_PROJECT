@@ -24,7 +24,9 @@ llm_main:
   # Persona prefix (system message) — giữ byte-ổn định để llama-server KV-cache
   # reuse (cache_prompt:true). Dựng từ persona.md Phần A+B+C. Xem prompt_cache 1.C.
   persona_prompt_path: ".\\config\\prompts\\persona_system.txt"
-  max_history_turns: 12         # số cặp (user+assistant) giữ trong context
+  max_history_turns: 6          # 12→6 (2026-07-31): giảm prefill LLM khi GPU chia với TTS.
+                                # Mai nhớ 6 cặp turn ≈ 3-5 phút hội thoại — đủ cho MVP.
+                                # Bật lên lại nếu thấy Mai quên chuyện vừa nói.
   # Ambient talk (7.9.4, 2.C): prompt để Mai tự mở lời khi im lặng lâu.
   # Placeholder {silence} (phút) + {mood} thay lúc build.
   ambient_prompt_path: ".\\config\\prompts\\ambient_instruction.txt"
