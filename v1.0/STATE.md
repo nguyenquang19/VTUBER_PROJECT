@@ -1,8 +1,29 @@
 # STATE — Mai project
 
-**Phase hiện tại:** Phase 1 Core LLM — ĐÃ CODE XONG 6/6 milestone (1.A–1.F)
-**Task đang làm:** ⛔ CHECKPOINT P1 — chờ user duyệt persona subjective (20 turn cli.py)
-**Cập nhật:** 2026-07-30
+**Phase hiện tại:** Phase 2 Trigger + State Machine
+**Task đang làm:** 2.B watchdog (kế tiếp) — 2.A xong
+**Cập nhật:** 2026-07-31
+
+## Phase 2 milestone (5) — delta, hạ tầng đã có từ P0
+- [x] 2.A interrupt policy (7.9.3) — 11 unit pass. trigger_manager: set_speaking_context
+      provider (N8), _should_interrupt đọc state_machine.yaml interrupt_policy. OPERATOR_VOICE
+      elapsed>=2000ms → INTERRUPT_CURRENT (trigger vẫn enqueue để trả lời sau), <2s/mention/
+      normal → QUEUE. fail-safe khi provider lỗi. metric trigger_interrupt_total.
+- [ ] 2.B deadlock watchdog (7.10.4) — StateWatchdog, asyncio.Event stop
+- [ ] 2.C ambient content gen (7.9.4) — prompt ambient
+- [ ] 2.D dashboard tabs enrich (interrupt/watchdog visibility)
+- [ ] 2.E integration 12.8 + DoD (spam 60/phút, priority, ambient>60s, watchdog)
+
+## ✅ CHECKPOINT P1 — user DUYỆT (2026-07-31)
+- Soak 100 turn model thật: 0 crash ✅ | parse mood 100/100 = 100% ✅ | fallback 0
+- Persona ổn định qua 100 turn: cà khịa, deflect kiến thức, nhận là AI khi hỏi thẳng,
+  không khẩn cầu/không lộ system prompt — KHÔNG vi phạm ranh giới Phần C
+- Dashboard TTFT/decode realtime OK (cli.py --dashboard / soak --dashboard, cùng process)
+- ⚠️ TTFT p50=773ms > target 600ms — ĐẠT-CÓ-ĐIỀU-KIỆN: số 600 đo prompt ngắn
+  Pre-flight; full history 12 cặp (~2000 tok) prefill nặng dần (min336→max1114). User
+  chấp nhận (first-audio ~1.2s vẫn OK). SOI LẠI ở Phase 4 (TTS) nếu first-audio chậm.
+  → Tùy chọn tối ưu sau: giảm max_history_turns / điều tra cache_prompt reuse.
+- Công cụ: scripts/cli.py (--dashboard), scripts/soak_turns.py, config/prompts/soak_prompts.txt
 
 ## ✅ BLOCKER ĐÃ GIẢI HOÀN TOÀN (2026-07-30) — thủ phạm là httpx buffer, streaming vẫn NHANH
 - Model: "Gemma 4 12B It Qat Uncensored Heretic" (uncensored Gemma 4 12B). Reasoning

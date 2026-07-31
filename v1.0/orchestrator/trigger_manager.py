@@ -1,11 +1,15 @@
-"""Trigger Manager skeleton (ARCHITECTURE 7.9.2, Phase 0 task 8).
+"""Trigger Manager (ARCHITECTURE 7.9.2 + 7.9.3, Phase 0 task 8 + Phase 2 2.A).
 
 Phase 0 scope: classify 4 type, priority queue, spam detection, rate limit
 chat_normal, ambient threshold. Số liệu từ `config/triggers.yaml` (N6).
 
-CHƯA làm (Phase 2, PROCESS.md):
-- Interrupt policy enforcement (7.9.3) — cần tích hợp state machine
-- Ambient content generation (7.9.4) — cần LLM
+Phase 2 (2.A): Interrupt policy enforcement (7.9.3) — khi Mai đang SPEAKING mà có
+trigger mới, quyết định INTERRUPT_CURRENT / QUEUE theo type + elapsed speaking time.
+Đọc `state_machine.yaml` interrupt_policy (N6). Không gọi thẳng state machine — nhận
+speaking-context qua provider inject (N8).
+
+CHƯA làm (Phase 2 sau):
+- Ambient content generation (7.9.4) — 2.C (cần LLM)
 - Viewer profile / priority boost (đã YAGNI-out ở 7.9.2)
 """
 from __future__ import annotations
@@ -16,7 +20,10 @@ import re
 import uuid
 from collections import deque
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
+
+#: elapsed >= giá trị này (ms) mới cho interrupt. 999999 = không bao giờ interrupt.
+_NEVER_INTERRUPT_MS = 999999
 
 from interfaces.base import HealthStatus
 from interfaces.input import EventSource, InputEvent
@@ -29,6 +36,14 @@ from interfaces.trigger import (
     TriggerType,
 )
 from orchestrator.logger import get_logger
+
+#: map TriggerType → key trong state_machine.yaml interrupt_policy (chỉ 3 key,
+#: AMBIENT_TALK không có → không bao giờ interrupt).
+_INTERRUPT_KEY = {
+    TriggerType.OPERATOR_VOICE: "operator_text",
+    TriggerType.CHAT_MENTION: "chat_mention",
+    TriggerType.CHAT_NORMAL: "chat_normal",
+}
 
 
 class SimpleRateLimiter:
@@ -68,6 +83,7 @@ class TriggerManager(TriggerManagerInterface):
         spam_min_length: int,
         spam_patterns: list[str],
         event_bus: Any = None,
+        interrupt_allow_ms: dict[TriggerType, int] | None = None,
     ) -> None:
         self._priorities = priorities
         self._keywords = [k.lower() for k in keywords]
@@ -79,6 +95,11 @@ class TriggerManager(TriggerManagerInterface):
         self._spam_min_length = spam_min_length
         self._spam_patterns = [re.compile(p) for p in spam_patterns]
         self._event_bus = event_bus
+        self._interrupt_allow_ms = interrupt_allow_ms or {}
+        # Provider trả (is_speaking, elapsed_ms) — orchestrator cấp từ state machine
+        # (N8: không gọi thẳng state machine). None → không bao giờ interrupt.
+        self._speaking_context: Callable[[], tuple[bool, int]] | None = None
+        self._interrupt_total = 0
         self._log = get_logger("trigger_manager")
 
         # Priority queue: heap of (-priority, seq, trigger). seq giữ FIFO trong
@@ -108,7 +129,17 @@ class TriggerManager(TriggerManagerInterface):
             spam_min_length=int(p.get("spam", {}).get("min_length", 2)),
             spam_patterns=list(p.get("spam", {}).get("blocked_patterns", [])),
             event_bus=event_bus,
+            interrupt_allow_ms=cls._load_interrupt_policy(loader),
         )
+
+    @staticmethod
+    def _load_interrupt_policy(loader) -> dict[TriggerType, int]:
+        """Đọc state_machine.yaml interrupt_policy → {TriggerType: allow_after_ms}."""
+        ip = loader.get("state_machine", "state_machine.interrupt_policy", {}) or {}
+        allow: dict[TriggerType, int] = {}
+        for ttype, key in _INTERRUPT_KEY.items():
+            allow[ttype] = int(ip.get(key, {}).get("allow_after_ms", _NEVER_INTERRUPT_MS))
+        return allow
 
     # ---------- Service ----------
 
@@ -130,7 +161,28 @@ class TriggerManager(TriggerManagerInterface):
             "trigger_dropped_total": self._dropped_total,
             "trigger_expired_total": self._expired_total,
             "trigger_skipped_total": self._skipped_total,
+            "trigger_interrupt_total": self._interrupt_total,
         }
+
+    # ---------- interrupt policy (7.9.3) ----------
+
+    def set_speaking_context(self, provider: Callable[[], tuple[bool, int]]) -> None:
+        """Orchestrator cấp hàm trả (is_speaking, elapsed_ms) từ state machine (N8)."""
+        self._speaking_context = provider
+
+    def _should_interrupt(self, ttype: TriggerType) -> bool:
+        """True nếu trigger này được phép cắt ngang câu Mai đang nói (7.9.3)."""
+        if self._speaking_context is None:
+            return False
+        try:
+            is_speaking, elapsed_ms = self._speaking_context()
+        except Exception as e:  # provider lỗi → fail-safe: không interrupt
+            self._log.error("speaking_context_failed", error=str(e))
+            return False
+        if not is_speaking:
+            return False
+        allow_ms = self._interrupt_allow_ms.get(ttype, _NEVER_INTERRUPT_MS)
+        return elapsed_ms >= allow_ms
 
     # ---------- classify (7.9.2) ----------
 
@@ -191,6 +243,21 @@ class TriggerManager(TriggerManagerInterface):
             self._event_bus.publish(
                 "trigger_queued", {"type": ttype.value, "priority": priority}
             )
+
+        # Interrupt policy (7.9.3): trigger đã vào queue; nếu được phép cắt ngang
+        # câu đang nói → báo INTERRUPT_CURRENT để orchestrator gọi sm.interrupted().
+        if self._should_interrupt(ttype):
+            self._interrupt_total += 1
+            self._log.info("trigger_interrupt", type=ttype.value, priority=priority)
+            if self._event_bus is not None:
+                self._event_bus.publish("trigger_interrupt", {"type": ttype.value})
+            return TriggerDecision(
+                action=TriggerAction.INTERRUPT_CURRENT,
+                priority=priority,
+                reason="interrupt_current_speech",
+                queue_position=len(self._heap),
+            )
+
         return TriggerDecision(
             action=TriggerAction.QUEUE, priority=priority, queue_position=len(self._heap)
         )
