@@ -90,6 +90,24 @@ class MetricsCollector:
         self._filter_fail_open = 0
         self._filter_recent: list[dict[str, Any]] = []  # tối đa 10 mục gần nhất
 
+        # --- TTS metrics (Phase 4, dashboard 4.E) ---
+        self.tts_ttfa_seconds = Histogram(
+            "mai_tts_ttfa_seconds", "TTS time-to-first-audio (end-to-end pipeline)",
+            buckets=[0.3, 0.5, 0.8, 1.0, 1.5, 2.0, 3.0],
+            registry=self.registry,
+        )
+        self.tts_turns_total = Counter(
+            "mai_tts_turns_total", "Tổng lượt TTS pipeline",
+            registry=self.registry,
+        )
+        self.tts_subtitle_total_c = Counter(
+            "mai_tts_subtitle_fallback_total", "Số lượt rơi xuống subtitle fallback (level>0)",
+            registry=self.registry,
+        )
+        self._tts_turns = 0
+        self._tts_subtitle_fallback = 0
+        self._tts_last_ttfa_ms: float | None = None
+
         # --- 3 "metric giả" cho Phase 0 (chưa có service thật) ---
         # DoD: "Metric giả cập nhật realtime trên chart"
         self.fake_gpu_util = Gauge(
@@ -175,6 +193,29 @@ class MetricsCollector:
             "by_category": dict(self._filter_by_cat),
             "fail_open_total": self._filter_fail_open,
             "recent": list(reversed(self._filter_recent)),  # mới nhất trước
+        }
+
+    def record_tts_turn(self, ttfa_ms: float | None, level_used: int) -> None:
+        """1 lượt TTSPipeline.speak xong. 4.E dashboard đọc."""
+        self._tts_turns += 1
+        self.tts_turns_total.inc()
+        if ttfa_ms is not None:
+            self._tts_last_ttfa_ms = ttfa_ms
+            self.tts_ttfa_seconds.observe(ttfa_ms / 1000.0)
+            # Dùng lại pipeline TTFA histogram tổng (5.3) khi có
+            try:
+                self.ttfa_seconds.observe(ttfa_ms / 1000.0)
+            except Exception:
+                pass
+        if level_used > 0:
+            self._tts_subtitle_fallback += 1
+            self.tts_subtitle_total_c.inc()
+
+    def tts_snapshot(self) -> dict[str, Any]:
+        return {
+            "turns_total": self._tts_turns,
+            "last_ttfa_ms": round(self._tts_last_ttfa_ms, 1) if self._tts_last_ttfa_ms is not None else None,
+            "subtitle_fallback_total": self._tts_subtitle_fallback,
         }
 
     def llm_snapshot(self) -> dict[str, Any]:

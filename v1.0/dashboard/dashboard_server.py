@@ -36,6 +36,9 @@ class DashboardServer:
         watchdog: Any = None,
         filter_svc: Any = None,
         regenerator: Any = None,
+        tts_service: Any = None,
+        audio_player: Any = None,
+        tts_pipeline: Any = None,
         push_interval_s: float = 1.0,
     ) -> None:
         self.features = feature_manager
@@ -47,6 +50,9 @@ class DashboardServer:
         self.watchdog = watchdog
         self.filter = filter_svc
         self.regenerator = regenerator
+        self.tts_service = tts_service
+        self.audio_player = audio_player
+        self.tts_pipeline = tts_pipeline
         self.push_interval_s = push_interval_s
         self._log = get_logger("dashboard")
         self._ws_clients: set[WebSocket] = set()
@@ -111,6 +117,33 @@ class DashboardServer:
                 fm = self.filter.get_metrics()
                 fsnap["service_fail_open_total"] = fm.get("filter_fail_open_total", 0)
             snap["filter"] = fsnap
+
+        # 4.E: TTS panel — merge check-level metrics + service/player/pipeline
+        if self.metrics is not None and hasattr(self.metrics, "tts_snapshot"):
+            tsnap = self.metrics.tts_snapshot()
+            if self.tts_service is not None and hasattr(self.tts_service, "get_metrics"):
+                sm = self.tts_service.get_metrics()
+                tsnap["service"] = {
+                    "requests_total": sm.get("tts_requests_total", 0),
+                    "errors_total": sm.get("tts_errors_total", 0),
+                    "last_ttfa_ms": sm.get("tts_last_ttfa_ms"),
+                    "last_chunks": sm.get("tts_last_chunks", 0),
+                    "last_rtf": sm.get("tts_last_rtf"),
+                }
+            if self.audio_player is not None and hasattr(self.audio_player, "get_metrics"):
+                pm = self.audio_player.get_metrics()
+                tsnap["player"] = {
+                    "chunks_played": pm.get("audio_chunks_played", 0),
+                    "chunks_dropped": pm.get("audio_chunks_dropped", 0),
+                    "queue_size": pm.get("audio_queue_size", 0),
+                    "is_playing": pm.get("audio_is_playing", False),
+                }
+            if self.tts_pipeline is not None and hasattr(self.tts_pipeline, "get_metrics"):
+                pp = self.tts_pipeline.get_metrics()
+                tsnap["pipeline"] = {
+                    "sentences_total": pp.get("tts_pipeline_sentences_total", 0),
+                }
+            snap["tts"] = tsnap
 
         if self.health is not None:
             snap["health"] = self.health.snapshot()

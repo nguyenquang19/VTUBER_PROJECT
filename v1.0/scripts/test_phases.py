@@ -57,6 +57,15 @@ PHASES: dict[str, tuple[str, list[str]]] = {
         "tests/unit/test_metrics_filter.py",
         "tests/integration/test_filter_dod.py",
     ]),
+    "4": ("TTS (patches/viXTTS/splitter/subtitle/player/pipeline)", [
+        "tests/unit/test_vixtts_patches.py",
+        "tests/unit/test_vixtts_service.py",
+        "tests/unit/test_sentence_splitter.py",
+        "tests/unit/test_subtitle_fallback.py",
+        "tests/unit/test_audio_player.py",
+        "tests/unit/test_metrics_tts.py",
+        "tests/integration/test_tts_pipeline.py",
+    ]),
 }
 
 # test cần server thật (marker llm)

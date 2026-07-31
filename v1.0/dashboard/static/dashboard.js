@@ -2,7 +2,7 @@
 // Mai dashboard — vanilla JS, no external deps (100% local).
 
 const MAX_POINTS = 60;
-const series = { gpu: [], vram: [], ttft: [] };
+const series = { gpu: [], vram: [], ttft: [], ttfa: [] };
 
 // ---------- tabs ----------
 document.querySelectorAll(".tabs button").forEach((btn) => {
@@ -186,10 +186,34 @@ function renderFilter(f) {
   });
 }
 
+function renderTTS(t) {
+  if (!t) return;
+  setText("tts-turns", t.turns_total);
+  setText("tts-ttfa", t.last_ttfa_ms == null ? "–" : t.last_ttfa_ms);
+  setText("tts-sub", t.subtitle_fallback_total);
+  const pl = t.pipeline || {};
+  setText("tts-sents", pl.sentences_total || 0);
+  const svc = t.service || {};
+  setText("tts-svc-req", svc.requests_total || 0);
+  setText("tts-svc-err", svc.errors_total || 0);
+  setText("tts-svc-ttfa", svc.last_ttfa_ms == null ? "–" : Math.round(svc.last_ttfa_ms));
+  setText("tts-svc-rtf", svc.last_rtf == null ? "–" : svc.last_rtf.toFixed(3));
+  const ply = t.player || {};
+  setText("tts-ply-p", ply.chunks_played || 0);
+  setText("tts-ply-d", ply.chunks_dropped || 0);
+  setText("tts-ply-q", ply.queue_size || 0);
+  setText("tts-ply-on", ply.is_playing ? "▶" : "–");
+  if (t.last_ttfa_ms != null) {
+    pushPoint(series.ttfa, t.last_ttfa_ms);
+    drawChart("chart-ttfa", series.ttfa, "#e57373", 2000);
+  }
+}
+
 function render(snap) {
   renderMetrics(snap.metrics);
   renderLLM(snap.llm);
   renderFilter(snap.filter);
+  renderTTS(snap.tts);
   renderState(snap.state, snap.watchdog);
   renderFeatures(snap.features, snap.vram);
   renderTriggers(snap.triggers);

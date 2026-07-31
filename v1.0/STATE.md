@@ -1,7 +1,7 @@
 # STATE — Mai project
 
-**Phase hiện tại:** Phase 4 TTS — P3 ĐÃ DUYỆT (2026-07-31)
-**Task đang làm:** 4.E integration + dashboard TTS (kế tiếp) — 4.A–4.D xong
+**Phase hiện tại:** Phase 4 TTS — ĐÃ CODE XONG 5/5 (4.A–4.E)
+**Task đang làm:** ⛔ CHECKPOINT P4 — Must DoD đã xanh (mocked); live audio user duyệt
 
 ## Phase 4 milestone (5) — viXTTS streaming
 - [x] 4.A VN cleaner + coqui-tts patches — 12 unit pass. services/tts/vixtts_patches.py:
@@ -25,7 +25,22 @@
       (DoD no-overlap). cancel_current(request_id) drop pending + stop chunk hiện tại.
       Backend abstract (default SounddeviceBackend, test inject FakeBackend).
       is_playing property, chunks_played/dropped metrics.
-- [ ] 4.E integration pipeline + dashboard TTS tab + DoD (TTFA P50 <1s)
+- [x] 4.E pipeline + dashboard TTS tab + DoD — 14 unit/integration pass.
+      services/tts/tts_pipeline.py TTSPipeline: split_vn → TTSRequest per sentence →
+      FallbackManager chain (L0 viXTTS, L1 subtitle) → AudioPlayer.enqueue. TTFA đo
+      từ speak() tới chunk audio đầu non-empty. cancel(req_id) forward primary+player.
+      MetricsCollector: record_tts_turn + tts_snapshot (turns/last_ttfa/subtitle_fb).
+      DashboardServer: +tts_service/audio_player/tts_pipeline, snapshot["tts"] merge
+      pipeline+service+player. Frontend: tab TTS mới + realtime TTFA chart.
+      test_phases.py thêm Phase 4.
+
+## ✅ DoD Phase 4 (ARCHITECTURE 11.5) — Must (Stretch để sau)
+- [x] Không audio overlap giữa turns (test_no_overlap: 2 câu x 2 chunk × start+end xen kẽ)
+- [x] TTFA đo được end-to-end (test_ttfa_measured + metric tts_pipeline_last_ttfa_ms)
+- [x] Subtitle fallback triggered khi primary lỗi (test_primary_error_falls_to_subtitle)
+- [ ] TTFA P50 <1s trên model thật — chờ user chạy live (spike day2 đo 465ms → khả thi)
+- [ ] Quality subjective >6/10 qua 30 câu — chờ user duyệt live (không tự tick)
+- Toàn suite: 578 pass. Live test có marker "tts" (chưa viết — làm khi user muốn).
 
 ## Phase 3 milestone (3)
 - [x] 3.A RuleFilter — 13 unit pass. services/filter/rule_filter.py (FilterService):
