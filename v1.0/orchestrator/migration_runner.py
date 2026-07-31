@@ -116,8 +116,15 @@ class MigrationRunner:
         if not self.db_path.exists():
             return None
         self.backup_dir.mkdir(parents=True, exist_ok=True)
-        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        dest = self.backup_dir / f"{self.db_path.name}.pre_migration_{ts}"
+        # Microsecond granularity + counter fallback: 2 migration trong cùng 1 giây
+        # (thậm chí cùng microsecond) không được ghi đè backup của nhau (8.8.4).
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+        base = self.backup_dir / f"{self.db_path.name}.pre_migration_{ts}"
+        dest = base
+        counter = 1
+        while dest.exists():
+            dest = base.with_name(f"{base.name}_{counter}")
+            counter += 1
         shutil.copy2(self.db_path, dest)
         self._log.info("migration_backup", backup=str(dest))
         return dest

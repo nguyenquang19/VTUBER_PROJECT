@@ -120,11 +120,27 @@ class TestBackup:
         db, migrations, backups = runner_env
         write_migration(migrations, "001_a.sql", "CREATE TABLE foo (id INTEGER);")
         runner = MigrationRunner(db, migrations, backups)
-        runner.initialize()  # tạo DB
+        runner.initialize()  # tạo DB + backup trước khi apply 001
         write_migration(migrations, "002_b.sql", "CREATE TABLE bar (id INTEGER);")
-        runner.initialize()  # giờ DB đã tồn tại → phải backup trước khi apply 002
+        runner.initialize()  # DB đã tồn tại → backup trước khi apply 002
         backup_files = list(backups.glob("mai.db.pre_migration_*"))
-        assert len(backup_files) == 1
+        # 2 backup riêng biệt (trước 001 và trước 002), KHÔNG ghi đè nhau dù
+        # 2 lần chạy có thể xảy ra trong cùng 1 giây (8.8.4: backup-before-migrate).
+        assert len(backup_files) == 2
+        assert len({f.name for f in backup_files}) == 2  # tên duy nhất, không collide
+
+    def test_backups_unique_within_same_second(self, runner_env) -> None:
+        """2 backup liên tiếp (cùng giây) phải có tên khác nhau — không silent overwrite."""
+        db, migrations, backups = runner_env
+        write_migration(migrations, "001_a.sql", "CREATE TABLE foo (id INTEGER);")
+        runner = MigrationRunner(db, migrations, backups)
+        runner.initialize()
+        # gọi backup thủ công 2 lần liên tiếp trong cùng thời điểm
+        b1 = runner._backup_before_migration()
+        b2 = runner._backup_before_migration()
+        assert b1 is not None and b2 is not None
+        assert b1 != b2
+        assert b1.exists() and b2.exists()
 
     def test_backup_preserves_data(self, runner_env) -> None:
         db, migrations, backups = runner_env
@@ -138,7 +154,8 @@ class TestBackup:
 
         write_migration(migrations, "002_b.sql", "CREATE TABLE bar (id INTEGER);")
         runner.initialize()
-        backup = next(backups.glob("mai.db.pre_migration_*"))
+        # nhiều backup (trước 001, trước 002) → lấy MỚI NHẤT (trước 002, đã có foo+42)
+        backup = sorted(backups.glob("mai.db.pre_migration_*"))[-1]
         conn = sqlite3.connect(backup)
         try:
             assert conn.execute("SELECT id FROM foo").fetchone() == (42,)
