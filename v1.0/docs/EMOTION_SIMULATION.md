@@ -315,4 +315,24 @@ Fine-tune trên data mới → model **follow chỉ thị mood tốt hơn** (ski
 | Tone (buồn thật/gạ gẫm) | Nhét nhầm vào mood | Cờ riêng → Prompt + Filter (đúng tầng) |
 | QC "mood consistent" | Đo tự-mâu-thuẫn (vô nghĩa) | Đo drift 2 kênh (có nghĩa) |
 | Code Phase 0-2 đã viết | — | **Không cần sửa lại** |
-```
+
+---
+
+## 10. ĐỐI CHIẾU CODEBASE HIỆN TẠI (P0–P2)
+
+Audit 2026-07-31 (đang ở cuối Phase 2): xác nhận claim "code P0-2 không cần sửa" **đúng** —
+mọi điểm chạm là THÊM MỚI. Chi tiết + việc phải làm KHI tới Phase 7.5:
+
+| Thành phần hiện có | Tương thích | Việc ở Phase 7.5 (không phải bây giờ) |
+|---|---|---|
+| `MoodState` (`interfaces/animation.py`) — vui/buon/buc/bon_chon/nguong int 0-10 | ✅ trùng `baseline` MoodEngine | Output engine là float → `round`→int khi tạo `MoodState` |
+| Parser mood block (`services/llm/parser.py`, `ParsedResponse.mood`) | ✅ có sẵn | Dùng làm Kênh B (`apply_llm_hint`); `continuation` cũng sẵn |
+| `PromptManager` (`services/llm/prompt_manager.py`) | ✅ không sửa | THÊM method inject `current_mood`+category+flags (theo pattern `build_ambient_request`); `build_request` cũ giữ nguyên |
+| `persona_system.txt` | ✅ | THÊM 1 dòng "sẽ nhận current_mood, viết khớp" (config, không phải code) |
+| `TriggerManager` 4 type (Phase 2) | ✅ | 20 category là tầng phân loại RIÊNG cho appraisal — KHÔNG thay 4 `TriggerType`; rate-limit/spam vẫn lọc trước appraisal |
+| `EventSource` (`interfaces/input.py`) | ⚠️ thiếu source | System event mới (donation/subscribe/viewer_count/shutdown) cần thêm `EventSource` hoặc dùng `metadata` KHI tích hợp platform (Phase 6+) |
+| Filter (Phase 3) | ⏳ chưa build | Category troll/jailbreak/sexual + cờ `force_deflect` chạy ở Filter → phụ thuộc Phase 3 (đúng thứ tự) |
+| Memory (Phase 7) | ⏳ chưa build | 3 modifier query Memory → phụ thuộc Phase 7 (đúng thứ tự) |
+
+**Kết luận:** KHÔNG thay đổi code Phase 0-2 nào ở thời điểm này. Tất cả là module/config/prompt
+mới, làm khi tới Phase 7.5 (sau Phase 3 Filter + Phase 7 Memory).
