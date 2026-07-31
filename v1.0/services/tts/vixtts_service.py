@@ -103,17 +103,29 @@ class ViXttsService(TTSService):
             self._model = await asyncio.to_thread(self._load_model)
         # Cache conditioning latents 1 lần (spike day2 quyết định)
         self._gpt_lat, self._spk_emb = await asyncio.to_thread(self._compute_latents)
-        self._log.info(
-            "tts_ready",
-            model_dir=str(self.model_dir),
-            sample_rate=self.sample_rate,
-            gpt_cond_len=self.gpt_cond_len,
-        )
+        # Sau khi model đã lên GPU + latents cached, dọn CPU-side để RAM sụt lại
+        await asyncio.to_thread(self._reclaim_memory)
+        info: dict[str, Any] = {
+            "model_dir": str(self.model_dir),
+            "sample_rate": self.sample_rate,
+            "gpt_cond_len": self.gpt_cond_len,
+            "device": self.device,
+        }
+        try:
+            import torch
+
+            if self.device == "cuda" and torch.cuda.is_available():
+                info["vram_alloc_gb"] = round(torch.cuda.memory_allocated() / 1024**3, 2)
+                info["vram_reserved_gb"] = round(torch.cuda.memory_reserved() / 1024**3, 2)
+        except Exception:  # pragma: no cover
+            pass
+        self._log.info("tts_ready", **info)
 
     async def stop(self) -> None:
         self._model = None
         self._gpt_lat = None
         self._spk_emb = None
+        await asyncio.to_thread(self._reclaim_memory)
 
     async def health_check(self) -> HealthStatus:
         if self._model is None or self._gpt_lat is None:
@@ -131,8 +143,12 @@ class ViXttsService(TTSService):
         }
 
     def _load_model(self) -> Any:
+        import torch
         from TTS.tts.configs.xtts_config import XttsConfig
         from TTS.tts.models.xtts import Xtts
+
+        # eval-only: bỏ autograd để giảm RAM/VRAM (không cần graph)
+        torch.set_grad_enabled(False)
 
         config = XttsConfig()
         config.load_json(str(self.model_dir / "config.json"))
@@ -141,8 +157,25 @@ class ViXttsService(TTSService):
             config, checkpoint_dir=str(self.model_dir), use_deepspeed=False, eval=True
         )
         if self.device == "cuda":
+            if not torch.cuda.is_available():
+                raise ViXttsError(
+                    "config yêu cầu device=cuda nhưng torch.cuda KHÔNG khả dụng"
+                )
             model.cuda()
         return model
+
+    def _reclaim_memory(self) -> None:
+        """Giải phóng CPU-side tensor còn treo + trim CUDA cache. Gọi sau move CUDA."""
+        import gc
+
+        gc.collect()
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
 
     def _compute_latents(self) -> tuple[Any, Any]:
         assert self._model is not None
