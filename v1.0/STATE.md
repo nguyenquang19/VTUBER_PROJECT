@@ -1,8 +1,11 @@
 # STATE — Mai project
 
-**Phase hiện tại:** Phase 2 Trigger + State Machine
-**Task đang làm:** 2.E integration + DoD (kế tiếp) — 2.A–2.D xong
+**Phase hiện tại:** Phase 2 Trigger + State Machine — ĐÃ CODE XONG 5/5 (2.A–2.E)
+**Task đang làm:** ⛔ CHECKPOINT P2 — chờ user duyệt
 **Cập nhật:** 2026-07-31
+
+## ⚠️ Bug tiềm ẩn (flag, ngoài scope P2): migration backup filename chỉ có độ phân giải
+giây → 2 migration cùng giây đè backup (test_migration_runner flaky). Đã spawn task riêng.
 
 ## Phase 2 milestone (5) — delta, hạ tầng đã có từ P0
 - [x] 2.A interrupt policy (7.9.3) — 11 unit pass. trigger_manager: set_speaking_context
@@ -19,7 +22,19 @@
 - [x] 2.D dashboard tabs enrich — 4 unit pass. QueueStats +skipped_total/interrupt_total;
       trigger_manager populate; dashboard_server +watchdog param + snapshot["watchdog"];
       frontend: Triggers tab +Skipped/Interrupt cards, State tab +watchdog-info line.
-- [ ] 2.E integration 12.8 + DoD (spam 60/phút, priority, ambient>60s, watchdog)
+- [x] 2.E integration 12.8 + DoD — 11 integration pass. turn_orchestrator.TurnOrchestrator:
+      glue trigger↔state machine↔watchdog (consumer loop, interrupt cắt speak, emergency,
+      resume). Test: priority operator>mention>normal, spam 60/phút→chỉ 3 lọt (rate),
+      ambient>60s, trigger-during-thinking→queue, spam-during-speaking→drop, operator
+      interrupt speaking, emergency từ speaking→PAUSED+clear queue, race 2 trigger, watchdog wiring.
+
+## ✅ DoD Phase 2 (ARCHITECTURE 11.3)
+- [x] Spam 60 tin/phút → không respond tất cả (rate limit 3/10s, test)
+- [x] Priority operator_voice > mention > normal (test)
+- [x] State transitions log đầy đủ (structlog + event bus + history, từ P0)
+- [x] Ambient talk sau silence > 60s (test)
+- [x] Watchdog detect deadlock khi force stuck (2.B unit + integration wiring)
+- [x] Integration 12.8 xanh (11 test)
 
 ## ✅ CHECKPOINT P1 — user DUYỆT (2026-07-31)
 - Soak 100 turn model thật: 0 crash ✅ | parse mood 100/100 = 100% ✅ | fallback 0
