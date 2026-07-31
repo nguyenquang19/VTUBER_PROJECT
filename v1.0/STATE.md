@@ -1,7 +1,7 @@
 # STATE — Mai project
 
 **Phase hiện tại:** Phase 4 TTS — P3 ĐÃ DUYỆT (2026-07-31)
-**Task đang làm:** 4.C sentence splitter + subtitle fallback (kế tiếp) — 4.A, 4.B xong
+**Task đang làm:** 4.D audio player (kế tiếp) — 4.A, 4.B, 4.C xong
 
 ## Phase 4 milestone (5) — viXTTS streaming
 - [x] 4.A VN cleaner + coqui-tts patches — 12 unit pass. services/tts/vixtts_patches.py:
@@ -13,7 +13,12 @@
       → cache gpt_cond_lat+spk_emb 1 lần; synthesize_stream chạy inference_stream trong
       executor, forward chunks qua asyncio.Queue → yield AudioChunk (float32 mono PCM
       @ sample_rate); cancel qua flag (check between chunks). Metrics TTFA/chunks/RTF.
-- [ ] 4.C sentence splitter + subtitle fallback (Level 2)
+- [x] 4.C sentence splitter + subtitle fallback — 18 unit pass.
+      services/tts/sentence_splitter.py split_vn: regex . ! ? … giữ dấu, bảo vệ
+      số thập phân/viết tắt (3.14, 1.250.000), lọc câu không chữ (min_len alnum).
+      services/tts/subtitle_fallback.py SubtitleFallbackService(TTSService): Level 2
+      (spec 8.7.3) — không phát audio, push text qua on_subtitle callback + event
+      bus, yield 1 final empty chunk. Sink error không giết pipeline (N7).
 - [ ] 4.D audio player (sounddevice, no-overlap, cancellable)
 - [ ] 4.E integration pipeline + dashboard TTS tab + DoD (TTFA P50 <1s)
 
