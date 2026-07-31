@@ -3,7 +3,9 @@
 Chạy full stack:
 - Phase 1: PromptManager + LlamaCppLLMService + parser + LLM fallback (canned)
 - Phase 4 (khi --tts): ViXttsService + AudioPlayer + SubtitleFallback + TTSPipeline
-  → sau mỗi câu Mai nói, đưa `parsed.text` (đã tách mood block) qua TTS pipeline.
+  → LiveSentenceStreamer: câu vừa hoàn tất trong lúc LLM còn stream → TTS synth
+    NGAY câu đó (song song với LLM), player phát tuần tự → user nghe âm SỚM,
+    không phải chờ LLM in xong hết rồi TTS mới nói.
 
 Cần server LLM chạy trước (--reasoning off). Xem scripts/chat_test.py docstring.
 
@@ -47,10 +49,41 @@ from services.llm.canned_response import CannedResponder  # noqa: E402
 from services.llm.llama_cpp_llm import LlamaCppLLMService  # noqa: E402
 from services.llm.llm_turn import LLMTurnRunner  # noqa: E402
 from services.llm.prompt_manager import PromptManager  # noqa: E402
+from services.tts.sentence_splitter import LiveSentenceStreamer  # noqa: E402
 
 
-def _print_token(t: str) -> None:
+class _TurnCtx:
+    """Container cầu nối giữa on_token sync và pipeline async."""
+
+    streamer: LiveSentenceStreamer | None = None
+    loop: asyncio.AbstractEventLoop | None = None
+    pipeline = None
+    req_id: str = ""
+    seq: int = 0
+    tasks: list = []
+    t_start: float = 0.0
+    t_first_dispatch: float | None = None
+
+
+def _on_token(t: str) -> None:
+    """Streaming callback: in ra + đẩy vào LiveSentenceStreamer nếu TTS on."""
     print(t, end="", flush=True)
+    if _TurnCtx.streamer is not None:
+        _TurnCtx.streamer.push(t)
+
+
+def _on_sentence(sent: str) -> None:
+    """Callback từ streamer: gọi pipeline.speak cho câu vừa hoàn tất."""
+    if _TurnCtx.pipeline is None or _TurnCtx.loop is None:
+        return
+    if _TurnCtx.t_first_dispatch is None:
+        _TurnCtx.t_first_dispatch = time.perf_counter()
+    _TurnCtx.seq += 1
+    seq = _TurnCtx.seq
+    task = _TurnCtx.loop.create_task(
+        _TurnCtx.pipeline.speak(f"{_TurnCtx.req_id}#s{seq}", sent)
+    )
+    _TurnCtx.tasks.append(task)
 
 
 async def _one_turn(
@@ -62,36 +95,58 @@ async def _one_turn(
 ) -> None:
     print("Mai: ", end="", flush=True)
     req_id = f"cli-{time.time_ns()}"
+
+    # Reset ngữ cảnh cho streamer
+    _TurnCtx.streamer = LiveSentenceStreamer(_on_sentence) if pipeline is not None else None
+    _TurnCtx.loop = asyncio.get_running_loop() if pipeline is not None else None
+    _TurnCtx.pipeline = pipeline
+    _TurnCtx.req_id = req_id
+    _TurnCtx.seq = 0
+    _TurnCtx.tasks = []
+    _TurnCtx.t_start = time.perf_counter()
+    _TurnCtx.t_first_dispatch = None
+
     parsed, level = await runner.run_turn(req_id, user)
+
+    # Streamer close: flush câu chưa hoàn tất (nếu chưa cắt tại mood block)
+    if _TurnCtx.streamer is not None:
+        _TurnCtx.streamer.close()
+
     m = svc.get_metrics()
     tag = "canned" if level > 0 else "primary"
     ttft = m["llm_last_ttft_ms"] or 0.0
     tps = m["llm_last_decode_tps"] or 0.0
-    line = (f"\n   [{tag}] mood={parsed.mood.dominant()} parse_ok={parsed.ok} "
-            f"TTFT={ttft:.0f}ms {tps:.0f}tok/s")
-    print(line)
+    print(f"\n   [{tag}] mood={parsed.mood.dominant()} parse_ok={parsed.ok} "
+          f"TTFT={ttft:.0f}ms {tps:.0f}tok/s")
 
-    if pipeline is not None and parsed.text.strip():
-        # Chỉ đưa CÂU Mai nói (đã tách mood block ở parser 1.D) vào TTS
-        t_speak = time.perf_counter()
-        await pipeline.speak(f"tts-{req_id}", parsed.text)
+    # Đợi tất cả TTS task xong + player drain
+    if pipeline is not None and _TurnCtx.tasks:
+        with contextlib.suppress(Exception):
+            await asyncio.gather(*_TurnCtx.tasks, return_exceptions=True)
+
+        # Thống kê thời gian tới lần dispatch đầu (câu 1 sẵn sàng cho TTS)
+        first_dispatch_ms = None
+        if _TurnCtx.t_first_dispatch is not None:
+            first_dispatch_ms = (_TurnCtx.t_first_dispatch - _TurnCtx.t_start) * 1000
         pipe_ttfa = pipeline.get_metrics().get("tts_pipeline_last_ttfa_ms")
-        # svc-level TTFA (từ inference_stream tới first chunk yielded — spike day2 ~450ms)
         svc_ttfa = None
         primary = getattr(pipeline, "_primary", None)
         if primary is not None and hasattr(primary, "get_metrics"):
             svc_ttfa = primary.get_metrics().get("tts_last_ttfa_ms")
-        enq_ms = (time.perf_counter() - t_speak) * 1000
+
         parts = []
+        if first_dispatch_ms is not None:
+            parts.append(f"1st_sent@{first_dispatch_ms:.0f}ms")
         if pipe_ttfa is not None:
             parts.append(f"pipeline_TTFA={pipe_ttfa:.0f}ms")
         if svc_ttfa is not None:
             parts.append(f"svc_TTFA={svc_ttfa:.0f}ms")
-        parts.append(f"total_enq={enq_ms:.0f}ms")
+        parts.append(f"sentences={_TurnCtx.seq}")
         print(f"   [TTS] {' '.join(parts)}")
+
         # Chờ player phát xong trước khi cho user gõ tiếp (tránh nói đè)
         if player is not None:
-            deadline = asyncio.get_event_loop().time() + 30.0
+            deadline = asyncio.get_event_loop().time() + 60.0
             while player.is_playing or player.get_metrics()["audio_queue_size"] > 0:
                 if asyncio.get_event_loop().time() > deadline:
                     break
@@ -115,7 +170,7 @@ async def main() -> None:
     fb = FallbackManager()
     canned = CannedResponder.from_loader(loader)
     runner = LLMTurnRunner.from_loader(
-        loader, svc, pm, fb, canned, on_token=_print_token, metrics=metrics
+        loader, svc, pm, fb, canned, on_token=_on_token, metrics=metrics
     )
 
     health = await svc.health_check()
@@ -180,7 +235,7 @@ async def main() -> None:
 
     print("=" * 64)
     print(f"  Mai CLI — persona v{pm.version} — gõ 'quit' để thoát"
-          f"{' — TTS ON' if tts_pipeline else ''}")
+          f"{' — TTS ON (streaming per-sentence)' if tts_pipeline else ''}")
     print("=" * 64)
 
     try:

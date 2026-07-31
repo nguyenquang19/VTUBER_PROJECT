@@ -28,21 +28,53 @@ class AudioBackend(Protocol):
 
 
 class SounddeviceBackend:
-    """Backend thật bằng sounddevice."""
+    """Backend thật bằng sounddevice.
 
-    def play_blocking(self, samples: np.ndarray, sample_rate: int) -> None:
+    Dùng OutputStream persistent + `stream.write` per chunk (KHÔNG `sd.play+sd.wait`
+    per chunk — cách đó mở/đóng stream mỗi lần → click/gap giữa chunk).
+    `stream.write` blocking khi buffer đầy → pacing gần realtime, không giật.
+    `stop()` abort stream đang phát (dùng khi cancel_current).
+    """
+
+    def __init__(self) -> None:
+        self._stream: Any = None
+        self._sr: int | None = None
+
+    def _ensure_stream(self, sample_rate: int) -> None:
         import sounddevice as sd
 
-        sd.play(samples, sample_rate)
-        sd.wait()
+        if self._stream is not None and self._sr == sample_rate:
+            return
+        self._teardown()
+        self._stream = sd.OutputStream(
+            samplerate=sample_rate, channels=1, dtype="float32", blocksize=0,
+        )
+        self._stream.start()
+        self._sr = sample_rate
+
+    def play_blocking(self, samples: np.ndarray, sample_rate: int) -> None:
+        self._ensure_stream(sample_rate)
+        if samples.ndim == 1:
+            samples = samples.reshape(-1, 1)
+        # write blocks khi buffer PortAudio đầy → giữ pacing gần realtime.
+        # Không gọi wait() giữa chunk (đó là nguồn gap/click). Cuối turn, worker
+        # xử chunk tiếp; giữa turn, Queue của AudioPlayer serialize.
+        self._stream.write(samples.astype("float32"))
 
     def stop(self) -> None:
-        try:
-            import sounddevice as sd
+        # cancel_current: abort ngay + drop buffered
+        self._teardown()
 
-            sd.stop()
-        except Exception:
-            pass
+    def _teardown(self) -> None:
+        stream = self._stream
+        self._stream = None
+        self._sr = None
+        if stream is not None:
+            try:
+                stream.abort()
+                stream.close()
+            except Exception:
+                pass
 
 
 class AudioPlayer:
