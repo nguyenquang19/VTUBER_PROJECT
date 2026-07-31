@@ -75,9 +75,20 @@ async def _one_turn(
         # Chỉ đưa CÂU Mai nói (đã tách mood block ở parser 1.D) vào TTS
         t_speak = time.perf_counter()
         await pipeline.speak(f"tts-{req_id}", parsed.text)
-        ttfa = pipeline.get_metrics().get("tts_pipeline_last_ttfa_ms")
+        pipe_ttfa = pipeline.get_metrics().get("tts_pipeline_last_ttfa_ms")
+        # svc-level TTFA (từ inference_stream tới first chunk yielded — spike day2 ~450ms)
+        svc_ttfa = None
+        primary = getattr(pipeline, "_primary", None)
+        if primary is not None and hasattr(primary, "get_metrics"):
+            svc_ttfa = primary.get_metrics().get("tts_last_ttfa_ms")
         enq_ms = (time.perf_counter() - t_speak) * 1000
-        print(f"   [TTS] TTFA={ttfa:.0f}ms enq={enq_ms:.0f}ms" if ttfa else f"   [TTS] enq={enq_ms:.0f}ms")
+        parts = []
+        if pipe_ttfa is not None:
+            parts.append(f"pipeline_TTFA={pipe_ttfa:.0f}ms")
+        if svc_ttfa is not None:
+            parts.append(f"svc_TTFA={svc_ttfa:.0f}ms")
+        parts.append(f"total_enq={enq_ms:.0f}ms")
+        print(f"   [TTS] {' '.join(parts)}")
         # Chờ player phát xong trước khi cho user gõ tiếp (tránh nói đè)
         if player is not None:
             deadline = asyncio.get_event_loop().time() + 30.0

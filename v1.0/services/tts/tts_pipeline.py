@@ -51,6 +51,9 @@ class TTSPipeline:
         self._sentences_total = 0
         self._last_ttfa_ms: float | None = None
         self._last_level_max = 0     # tầng fallback cao nhất đã dùng trong turn cuối
+        # State cho đo TTFA đúng chỗ: mark khi chunk audio ĐẦU TIÊN được enqueue
+        self._speak_t0: float | None = None
+        self._speak_first_marked: bool = False
         self._fb.register_chain(
             _CHAIN_ID,
             [self._synth_primary, self._synth_subtitle],
@@ -86,6 +89,11 @@ class TTSPipeline:
             if chunk.audio_bytes and first_chunk is None:
                 first_chunk = chunk
             await self._player.enqueue(chunk)
+            # Mark TTFA khi chunk audio ĐẦU TIÊN được enqueue (ngay lúc user
+            # sắp nghe âm đầu), KHÔNG phải khi cả câu synth xong.
+            if chunk.audio_bytes and not self._speak_first_marked and self._speak_t0 is not None:
+                self._speak_first_marked = True
+                self._last_ttfa_ms = (time.perf_counter() - self._speak_t0) * 1000
         return first_chunk
 
     # ---------- public ----------
@@ -102,8 +110,11 @@ class TTSPipeline:
         if not sentences:
             return
 
-        t0 = time.perf_counter()
-        t_first: float | None = None
+        # Reset state cho lượt speak này. TTFA sẽ được mark trong _stream_to_player
+        # ngay khi chunk audio đầu tiên được enqueue (chứ KHÔNG phải khi cả câu xong).
+        self._speak_t0 = time.perf_counter()
+        self._speak_first_marked = False
+        self._last_ttfa_ms = None
         max_level = 0
 
         for idx, sent in enumerate(sentences):
@@ -117,9 +128,6 @@ class TTSPipeline:
                 self._log.warning("tts_sentence_failed", request_id=request_id, idx=idx, error=str(e))
                 continue
             self._sentences_total += 1
-            if t_first is None:
-                t_first = time.perf_counter()
-                self._last_ttfa_ms = (t_first - t0) * 1000
 
         self._last_level_max = max_level
         self._record_metrics(max_level)
