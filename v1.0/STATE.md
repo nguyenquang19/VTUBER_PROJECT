@@ -1,7 +1,15 @@
 # STATE — Mai project
 
-**Phase hiện tại:** Phase 2 Trigger + State Machine — ĐÃ CODE XONG 5/5 (2.A–2.E)
-**Task đang làm:** ⛔ CHECKPOINT P2 — chờ user duyệt
+**Phase hiện tại:** Phase 3 Filter — P2 ĐÃ DUYỆT (2026-07-31)
+**Task đang làm:** 3.B regenerate (kế tiếp) — 3.A xong
+
+## Phase 3 milestone (3)
+- [x] 3.A RuleFilter — 13 unit pass. services/filter/rule_filter.py (FilterService):
+      4 category, patterns config/filters.yaml (N6), severity/action max-priority,
+      fail-open intrinsic (N7, không raise; bad pattern skip lúc compile). PERSONA_BREAK
+      bắt hedge robot KHÔNG bắt "là AI" trần. config_loader thêm "filters".
+- [ ] 3.B regenerate-with-hint (persona_break → re-prompt LLM)
+- [ ] 3.C dashboard filter tab + integration DoD (troll>80%, FP<5%)
 **Cập nhật:** 2026-07-31
 
 ## ⚠️ Bug tiềm ẩn (flag, ngoài scope P2): migration backup filename chỉ có độ phân giải

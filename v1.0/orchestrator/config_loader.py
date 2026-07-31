@@ -25,6 +25,7 @@ CONFIG_FILES: dict[str, str] = {
     "features": "features.yaml",
     "triggers": "triggers.yaml",
     "state_machine": "state_machine.yaml",
+    "filters": "filters.yaml",
 }
 
 ReloadCallback = Callable[[str, dict[str, Any]], None]
