@@ -34,7 +34,10 @@ class TTSPipeline:
         subtitle,                   # TTSService (SubtitleFallbackService)
         player,                     # AudioPlayer
         fallback: FallbackManager,
-        timeout_primary_s: float = 3.0,
+        # 15s = đủ cho câu Mai NÓI dài nhất (viXTTS ~0.5×audio ⇒ câu ~10-12s audio
+        # synth mất ~5s; buffer 3× vì có lúc GPU nghẽn LLM streaming đồng thời).
+        # Trước đây 3s → câu dài rơi xuống subtitle oan uổng.
+        timeout_primary_s: float = 15.0,
         timeout_subtitle_s: float = 0.5,
         metrics: Any = None,
     ) -> None:
@@ -67,7 +70,7 @@ class TTSPipeline:
     def from_loader(cls, loader, primary, subtitle, player, fallback, metrics=None) -> "TTSPipeline":
         return cls(
             primary, subtitle, player, fallback,
-            timeout_primary_s=float(loader.get("models", "tts.timeout_primary_s", 3.0)),
+            timeout_primary_s=float(loader.get("models", "tts.timeout_primary_s", 15.0)),
             timeout_subtitle_s=float(loader.get("models", "tts.timeout_subtitle_s", 0.5)),
             metrics=metrics,
         )

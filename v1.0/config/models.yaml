@@ -90,6 +90,11 @@ tts:
   latency_target:
     synth_p50_ms: 2600
     synth_p95_ms: 5000
+  # Fallback chain timeouts (TTSPipeline 4.E). Đây là timeout SYNTH cả câu (KHÔNG
+  # phải TTFA — TTFA vẫn ~450ms nhờ inference_stream). Câu dài 100+ chars synth
+  # ~4-5s → 15s buffer đủ. Trước đây default 3s → câu dài rơi subtitle oan.
+  timeout_primary_s: 15.0
+  timeout_subtitle_s: 0.5
 
 tts_fallback:
   provider: subtitle_overlay     # ARCHITECTURE 8.7.3 — không có TTS backup, dùng subtitle
