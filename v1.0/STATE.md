@@ -1,7 +1,17 @@
 # STATE — Mai project
 
-**Phase hiện tại:** Phase 3 Filter — ĐÃ CODE XONG 3/3 (3.A–3.C)
-**Task đang làm:** ⛔ CHECKPOINT P3 — chờ user duyệt (DoD objective đã xanh)
+**Phase hiện tại:** Phase 4 TTS — P3 ĐÃ DUYỆT (2026-07-31)
+**Task đang làm:** 4.B ViXttsService (kế tiếp) — 4.A xong
+
+## Phase 4 milestone (5) — viXTTS streaming
+- [x] 4.A VN cleaner + coqui-tts patches — 12 unit pass. services/tts/vixtts_patches.py:
+      vi_expand_numbers (num2words), vi_clean (expand+strip+lowercase), apply_patches
+      idempotent (torchaudio.load→soundfile, VoiceBpeTokenizer.preprocess_text vi hook).
+      requirements.txt: coqui-tts + num2words + soundfile explicit; piper-tts REJECTED comment.
+- [ ] 4.B ViXttsService (load model, cache latents, inference_stream, cancel)
+- [ ] 4.C sentence splitter + subtitle fallback (Level 2)
+- [ ] 4.D audio player (sounddevice, no-overlap, cancellable)
+- [ ] 4.E integration pipeline + dashboard TTS tab + DoD (TTFA P50 <1s)
 
 ## Phase 3 milestone (3)
 - [x] 3.A RuleFilter — 13 unit pass. services/filter/rule_filter.py (FilterService):

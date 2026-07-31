@@ -29,8 +29,13 @@ sqlite-vec>=0.1
 # STT (Phase 5)
 faster-whisper>=1.0
 
-# TTS (Phase 4 - chot sau Pre-flight Day 2)
-piper-tts>=1.2
+# TTS (Phase 4 — viXTTS chot sau Pre-flight Day 2, xem spike/day2_report.md)
+# coqui-tts keo theo torch/torchaudio; num2words + soundfile la direct dep cua patch VN
+coqui-tts>=0.24
+num2words>=0.5
+soundfile>=0.12
+# piper-tts REJECTED (day 2 report: khong doc dau tieng Viet) - giu ref khong install
+# piper-tts>=1.2
 
 # Embedding (Phase 7)
 sentence-transformers>=2.7
