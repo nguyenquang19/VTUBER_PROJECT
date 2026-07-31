@@ -1,14 +1,18 @@
 # STATE — Mai project
 
 **Phase hiện tại:** Phase 4 TTS — P3 ĐÃ DUYỆT (2026-07-31)
-**Task đang làm:** 4.B ViXttsService (kế tiếp) — 4.A xong
+**Task đang làm:** 4.C sentence splitter + subtitle fallback (kế tiếp) — 4.A, 4.B xong
 
 ## Phase 4 milestone (5) — viXTTS streaming
 - [x] 4.A VN cleaner + coqui-tts patches — 12 unit pass. services/tts/vixtts_patches.py:
       vi_expand_numbers (num2words), vi_clean (expand+strip+lowercase), apply_patches
       idempotent (torchaudio.load→soundfile, VoiceBpeTokenizer.preprocess_text vi hook).
       requirements.txt: coqui-tts + num2words + soundfile explicit; piper-tts REJECTED comment.
-- [ ] 4.B ViXttsService (load model, cache latents, inference_stream, cancel)
+- [x] 4.B ViXttsService — 12 unit pass (fake model, no GPU). services/tts/vixtts_service.py:
+      from_loader đọc models.yaml tts.*; start() apply patches → load Xtts (asyncio.to_thread)
+      → cache gpt_cond_lat+spk_emb 1 lần; synthesize_stream chạy inference_stream trong
+      executor, forward chunks qua asyncio.Queue → yield AudioChunk (float32 mono PCM
+      @ sample_rate); cancel qua flag (check between chunks). Metrics TTFA/chunks/RTF.
 - [ ] 4.C sentence splitter + subtitle fallback (Level 2)
 - [ ] 4.D audio player (sounddevice, no-overlap, cancellable)
 - [ ] 4.E integration pipeline + dashboard TTS tab + DoD (TTFA P50 <1s)
