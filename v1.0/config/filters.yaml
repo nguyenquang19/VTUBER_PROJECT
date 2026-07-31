@@ -8,6 +8,10 @@
 # trình) + lộ system prompt.
 
 filter:
+  # 3.B: nếu suggested_action == regenerate → thử build hint + re-prompt LLM
+  # tối đa max_regenerate_attempts lần. Đặt 0 để tắt.
+  max_regenerate_attempts: 1
+
   patterns:
     # C.3 hedge robot + C.5 lộ system prompt
     persona_break:

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
+from interfaces.filter import FilterVerdict
 from interfaces.llm import LLMService
 from orchestrator.fallback_manager import FallbackManager
 from services.llm.canned_response import CannedResponder
@@ -36,6 +37,7 @@ class LLMTurnRunner:
         timeout_canned_s: float = 0.1,
         on_token: TokenSink | None = None,
         metrics: Any = None,
+        regenerator: Any = None,
     ) -> None:
         self._svc = svc
         self._pm = prompt_manager
@@ -43,6 +45,8 @@ class LLMTurnRunner:
         self._canned = canned
         self._on_token = on_token or (lambda _t: None)
         self._metrics = metrics
+        self._regen = regenerator  # FilterRegenerator | None (3.B)
+        self.last_filter_verdict: FilterVerdict | None = None
         self._fb.register_chain(
             _CHAIN_ID,
             [self._primary, self._canned_handler],
@@ -59,6 +63,7 @@ class LLMTurnRunner:
         canned: CannedResponder,
         on_token: TokenSink | None = None,
         metrics: Any = None,
+        regenerator: Any = None,
     ) -> "LLMTurnRunner":
         return cls(
             svc,
@@ -69,6 +74,7 @@ class LLMTurnRunner:
             timeout_canned_s=float(loader.get("models", "llm_canned.timeout_canned_s", 0.1)),
             on_token=on_token,
             metrics=metrics,
+            regenerator=regenerator,
         )
 
     async def _primary(self, request: Any) -> ParsedResponse:
@@ -77,7 +83,16 @@ class LLMTurnRunner:
             if tok.token:
                 parts.append(tok.token)
                 self._on_token(tok.token)
-        return parse_response("".join(parts))
+        parsed = parse_response("".join(parts))
+
+        # 3.B: filter+regen (optional). Nếu bad → regen thay parsed; verdict lộ ra
+        # last_filter_verdict để caller (dashboard/QC) đọc.
+        if self._regen is not None:
+            parsed, verdict = await self._regen.check_and_maybe_regen(
+                request, parsed, on_token=self._on_token
+            )
+            self.last_filter_verdict = verdict
+        return parsed
 
     async def _canned_handler(self, request: Any) -> ParsedResponse:
         parsed = self._canned.build()

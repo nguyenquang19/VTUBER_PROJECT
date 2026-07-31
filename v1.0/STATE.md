@@ -1,14 +1,20 @@
 # STATE — Mai project
 
 **Phase hiện tại:** Phase 3 Filter — P2 ĐÃ DUYỆT (2026-07-31)
-**Task đang làm:** 3.B regenerate (kế tiếp) — 3.A xong
+**Task đang làm:** 3.C dashboard filter tab + integration (kế tiếp) — 3.A, 3.B xong
 
 ## Phase 3 milestone (3)
 - [x] 3.A RuleFilter — 13 unit pass. services/filter/rule_filter.py (FilterService):
       4 category, patterns config/filters.yaml (N6), severity/action max-priority,
       fail-open intrinsic (N7, không raise; bad pattern skip lúc compile). PERSONA_BREAK
       bắt hedge robot KHÔNG bắt "là AI" trần. config_loader thêm "filters".
-- [ ] 3.B regenerate-with-hint (persona_break → re-prompt LLM)
+- [x] 3.B regenerate-with-hint — 13 unit + 3 wire pass. services/filter/regenerator.py
+      FilterRegenerator: build hint từ categories_hit (map VN), append 2 message
+      (assistant=bad, user=hint) vào messages, re-generate + re-check tối đa
+      max_regenerate_attempts (config filters.filter.max_regenerate_attempts=1).
+      Metrics: checked/attempts/recovered/exhausted. N7 fail-open (filter/LLM lỗi →
+      trả bản trước, không raise). Wire OPTIONAL vào LLMTurnRunner._primary +
+      last_filter_verdict; backward-compat (no regen = behave như cũ).
 - [ ] 3.C dashboard filter tab + integration DoD (troll>80%, FP<5%)
 **Cập nhật:** 2026-07-31
 
