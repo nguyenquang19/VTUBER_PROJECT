@@ -29,3 +29,6 @@ Desktop.ini
 # IDE
 .vscode/
 .idea/
+
+# Claude Code internal (worktrees tạm — không track)
+.claude/worktrees/
