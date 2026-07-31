@@ -51,6 +51,12 @@ PHASES: dict[str, tuple[str, list[str]]] = {
         "tests/unit/test_dashboard_phase2.py",
         "tests/integration/test_trigger_state_interaction.py",
     ]),
+    "3": ("Filter (rule + regenerate + dashboard + DoD catch/FP)", [
+        "tests/unit/test_rule_filter.py",
+        "tests/unit/test_regenerator.py",
+        "tests/unit/test_metrics_filter.py",
+        "tests/integration/test_filter_dod.py",
+    ]),
 }
 
 # test cần server thật (marker llm)

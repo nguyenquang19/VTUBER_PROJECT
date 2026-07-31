@@ -69,6 +69,27 @@ class MetricsCollector:
         self._fallback = 0
         self._llm_requests = 0
 
+        # --- Filter metrics (Phase 3, dashboard 3.C) ---
+        self.filter_checks_total_c = Counter(
+            "mai_filter_checks_total", "Số lượt filter check",
+            registry=self.registry,
+        )
+        self.filter_hits_total_c = Counter(
+            "mai_filter_hits_total", "Số lượt filter bắt vi phạm", ["category"],
+            registry=self.registry,
+        )
+        self.filter_regen_total_c = Counter(
+            "mai_filter_regen_total", "Kết quả regen", ["result"],  # recovered/exhausted/none
+            registry=self.registry,
+        )
+        self._filter_checks = 0
+        self._filter_hits = 0
+        self._filter_by_cat: dict[str, int] = {}
+        self._filter_regen_recovered = 0
+        self._filter_regen_exhausted = 0
+        self._filter_fail_open = 0
+        self._filter_recent: list[dict[str, Any]] = []  # tối đa 10 mục gần nhất
+
         # --- 3 "metric giả" cho Phase 0 (chưa có service thật) ---
         # DoD: "Metric giả cập nhật realtime trên chart"
         self.fake_gpu_util = Gauge(
@@ -122,6 +143,39 @@ class MetricsCollector:
         if level_used > 0:
             self._fallback += 1
             self.llm_fallback_total.inc()
+
+    def record_filter_check(
+        self,
+        passed: bool,
+        categories: list[str] | None = None,
+        action: str = "allow",
+        fail_open: bool = False,
+    ) -> None:
+        """1 lượt filter check (LLMTurnRunner gọi qua last_filter_verdict). 3.C dashboard."""
+        self._filter_checks += 1
+        self.filter_checks_total_c.inc()
+        if fail_open:
+            self._filter_fail_open += 1
+        if not passed:
+            self._filter_hits += 1
+            for c in categories or []:
+                self._filter_by_cat[c] = self._filter_by_cat.get(c, 0) + 1
+                self.filter_hits_total_c.labels(category=c).inc()
+            self._filter_recent.append({"categories": list(categories or []), "action": action})
+            if len(self._filter_recent) > 10:
+                del self._filter_recent[: len(self._filter_recent) - 10]
+
+    def filter_snapshot(self) -> dict[str, Any]:
+        total = self._filter_checks
+        hit_rate = round(100.0 * self._filter_hits / total, 1) if total else None
+        return {
+            "checks_total": self._filter_checks,
+            "hits_total": self._filter_hits,
+            "hit_rate_percent": hit_rate,
+            "by_category": dict(self._filter_by_cat),
+            "fail_open_total": self._filter_fail_open,
+            "recent": list(reversed(self._filter_recent)),  # mới nhất trước
+        }
 
     def llm_snapshot(self) -> dict[str, Any]:
         total = self._parse_ok + self._parse_fail

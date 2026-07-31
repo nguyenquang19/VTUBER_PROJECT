@@ -8,7 +8,7 @@
 </head>
 <body>
 <header>
-  <h1>Mai — Dashboard <span class="phase">Phase 1</span></h1>
+  <h1>Mai — Dashboard <span class="phase">Phase 3</span></h1>
   <div class="controls">
     <span id="conn" class="badge off">WS: connecting…</span>
     <button id="btn-estop" class="danger">■ Emergency Stop (Ctrl+Shift+X)</button>
@@ -21,6 +21,7 @@
   <button data-tab="features">Features</button>
   <button data-tab="state">State Machine</button>
   <button data-tab="triggers">Triggers</button>
+  <button data-tab="filter">Filter</button>
 </nav>
 
 <main>
@@ -80,6 +81,22 @@
     </div>
     <h3>Queue by type</h3>
     <ul id="triggers-bytype" class="bytype"></ul>
+  </section>
+
+  <!-- FILTER (3.C) -->
+  <section id="tab-filter" class="tab">
+    <div class="cards">
+      <div class="card"><div class="label">Checks</div><div class="value" id="f-checks">–</div></div>
+      <div class="card"><div class="label">Hits</div><div class="value" id="f-hits">–</div></div>
+      <div class="card"><div class="label">Hit rate</div><div class="value" id="f-rate">–</div><span class="unit">%</span></div>
+      <div class="card"><div class="label">Regen recover</div><div class="value" id="f-regen-rec">–</div></div>
+      <div class="card"><div class="label">Regen exhaust</div><div class="value" id="f-regen-ex">–</div></div>
+      <div class="card"><div class="label">Fail-open</div><div class="value" id="f-fo">–</div></div>
+    </div>
+    <h3>By category</h3>
+    <ul id="filter-bycat" class="bytype"></ul>
+    <h3>Recent hits</h3>
+    <ul id="filter-recent" class="history"></ul>
   </section>
 </main>
 

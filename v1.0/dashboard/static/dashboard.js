@@ -154,9 +154,42 @@ function renderTriggers(t) {
   }
 }
 
+function renderFilter(f) {
+  if (!f) return;
+  setText("f-checks", f.checks_total);
+  setText("f-hits", f.hits_total);
+  setText("f-rate", f.hit_rate_percent == null ? "–" : f.hit_rate_percent);
+  const regen = f.regen || {};
+  setText("f-regen-rec", regen.recovered_total || 0);
+  setText("f-regen-ex", regen.exhausted_total || 0);
+  setText("f-fo", (f.fail_open_total || 0) + (f.service_fail_open_total || 0));
+
+  const byCat = document.getElementById("filter-bycat");
+  byCat.innerHTML = "";
+  const cats = f.by_category || {};
+  if (Object.keys(cats).length === 0) {
+    byCat.innerHTML = "<li>(chưa có hit)</li>";
+  } else {
+    Object.entries(cats).forEach(([k, v]) => {
+      const li = document.createElement("li");
+      li.textContent = `${k}: ${v}`;
+      byCat.appendChild(li);
+    });
+  }
+
+  const recent = document.getElementById("filter-recent");
+  recent.innerHTML = "";
+  (f.recent || []).forEach((r) => {
+    const li = document.createElement("li");
+    li.textContent = `[${(r.categories || []).join(", ")}] → ${r.action}`;
+    recent.appendChild(li);
+  });
+}
+
 function render(snap) {
   renderMetrics(snap.metrics);
   renderLLM(snap.llm);
+  renderFilter(snap.filter);
   renderState(snap.state, snap.watchdog);
   renderFeatures(snap.features, snap.vram);
   renderTriggers(snap.triggers);

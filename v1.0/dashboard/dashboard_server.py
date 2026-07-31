@@ -34,6 +34,8 @@ class DashboardServer:
         emergency_stop: Any = None,
         health_monitor: Any = None,
         watchdog: Any = None,
+        filter_svc: Any = None,
+        regenerator: Any = None,
         push_interval_s: float = 1.0,
     ) -> None:
         self.features = feature_manager
@@ -43,6 +45,8 @@ class DashboardServer:
         self.emergency = emergency_stop
         self.health = health_monitor
         self.watchdog = watchdog
+        self.filter = filter_svc
+        self.regenerator = regenerator
         self.push_interval_s = push_interval_s
         self._log = get_logger("dashboard")
         self._ws_clients: set[WebSocket] = set()
@@ -91,6 +95,22 @@ class DashboardServer:
 
         if self.watchdog is not None:
             snap["watchdog"] = self.watchdog.snapshot()
+
+        # 3.C: filter panel — merge check-level metrics + regen metrics + fail_open
+        # từ filter service (nếu có).
+        if self.metrics is not None and hasattr(self.metrics, "filter_snapshot"):
+            fsnap = self.metrics.filter_snapshot()
+            if self.regenerator is not None:
+                rm = self.regenerator.get_metrics()
+                fsnap["regen"] = {
+                    "attempts_total": rm.get("filter_regen_attempts_total", 0),
+                    "recovered_total": rm.get("filter_regen_recovered_total", 0),
+                    "exhausted_total": rm.get("filter_regen_exhausted_total", 0),
+                }
+            if self.filter is not None and hasattr(self.filter, "get_metrics"):
+                fm = self.filter.get_metrics()
+                fsnap["service_fail_open_total"] = fm.get("filter_fail_open_total", 0)
+            snap["filter"] = fsnap
 
         if self.health is not None:
             snap["health"] = self.health.snapshot()

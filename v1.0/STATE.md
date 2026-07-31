@@ -1,7 +1,7 @@
 # STATE — Mai project
 
-**Phase hiện tại:** Phase 3 Filter — P2 ĐÃ DUYỆT (2026-07-31)
-**Task đang làm:** 3.C dashboard filter tab + integration (kế tiếp) — 3.A, 3.B xong
+**Phase hiện tại:** Phase 3 Filter — ĐÃ CODE XONG 3/3 (3.A–3.C)
+**Task đang làm:** ⛔ CHECKPOINT P3 — chờ user duyệt (DoD objective đã xanh)
 
 ## Phase 3 milestone (3)
 - [x] 3.A RuleFilter — 13 unit pass. services/filter/rule_filter.py (FilterService):
@@ -15,7 +15,19 @@
       Metrics: checked/attempts/recovered/exhausted. N7 fail-open (filter/LLM lỗi →
       trả bản trước, không raise). Wire OPTIONAL vào LLMTurnRunner._primary +
       last_filter_verdict; backward-compat (no regen = behave như cũ).
-- [ ] 3.C dashboard filter tab + integration DoD (troll>80%, FP<5%)
+- [x] 3.C dashboard filter tab + integration DoD — 12 unit/integration pass.
+      MetricsCollector: record_filter_check + filter_snapshot (checks/hits/hit_rate/
+      by_category/fail_open/recent). LLMTurnRunner._record_metrics forward verdict.
+      DashboardServer: filter_svc + regenerator params, snapshot["filter"] merge
+      check-level + regen counts + service fail-open. Frontend: tab Filter mới
+      (cards + by-category + recent). test_phases.py thêm Phase 3.
+
+## ✅ DoD Phase 3 (ARCHITECTURE 11.4)
+- [x] 20 troll persona-break/manipulation/explicit/harmful: catch rate 100% (>80%)
+- [x] 100 câu clean (gồm "tớ là AI" không hedge): false positive 0% (<5%)
+- [x] Regenerate hoạt động khi persona_break detected (3.B unit test)
+- [x] Filter fail-open khi regex/service error (3.A/3.B fail-safe test)
+- Toàn suite: 515 pass (0 fail, 5 llm-live deselected).
 **Cập nhật:** 2026-07-31
 
 ## ⚠️ Bug tiềm ẩn (flag, ngoài scope P2): migration backup filename chỉ có độ phân giải

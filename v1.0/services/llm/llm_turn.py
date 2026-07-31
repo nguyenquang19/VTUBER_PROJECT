@@ -126,3 +126,13 @@ class LLMTurnRunner:
             parse_ok=parsed.ok,
             level_used=level_used,
         )
+        # 3.C: forward filter verdict (nếu có regen) vào metrics
+        recorder = getattr(self._metrics, "record_filter_check", None)
+        if callable(recorder) and self.last_filter_verdict is not None:
+            v = self.last_filter_verdict
+            recorder(
+                passed=v.passed,
+                categories=[c.value for c in v.categories_hit],
+                action=v.suggested_action,
+                fail_open=v.reason.startswith("fail-open"),
+            )
