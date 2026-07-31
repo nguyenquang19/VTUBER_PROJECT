@@ -336,4 +336,6 @@ class TriggerManager(TriggerManagerInterface):
             by_type=by_type,
             dropped_total=self._dropped_total,
             expired_total=self._expired_total,
+            skipped_total=self._skipped_total,
+            interrupt_total=self._interrupt_total,
         )

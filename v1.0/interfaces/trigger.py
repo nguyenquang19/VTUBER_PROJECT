@@ -55,6 +55,8 @@ class QueueStats(BaseModel):
     by_type: dict[str, int] = Field(default_factory=dict)
     dropped_total: int = 0
     expired_total: int = 0
+    skipped_total: int = 0       # spam / rate-limited (2.D dashboard)
+    interrupt_total: int = 0     # số lần interrupt speech (7.9.3)
 
 
 class TriggerManagerInterface(Service):

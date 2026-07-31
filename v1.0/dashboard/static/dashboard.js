@@ -87,7 +87,11 @@ function renderLLM(l) {
   }
 }
 
-function renderState(s) {
+function renderState(s, watchdog) {
+  if (watchdog) {
+    const last = watchdog.last_deadlock_state ? ` (last: ${watchdog.last_deadlock_state})` : "";
+    setText("watchdog-info", `Watchdog: ${watchdog.deadlocks_total} deadlock${last} · watching ${(watchdog.watched_states || []).join(", ")}`);
+  }
   if (!s) return;
   const box = document.getElementById("state-name");
   box.textContent = s.current;
@@ -134,6 +138,8 @@ function renderTriggers(t) {
   setText("t-size", t.size);
   setText("t-dropped", t.dropped_total);
   setText("t-expired", t.expired_total);
+  setText("t-skipped", t.skipped_total);
+  setText("t-interrupt", t.interrupt_total);
   const ul = document.getElementById("triggers-bytype");
   ul.innerHTML = "";
   const byType = t.by_type || {};
@@ -151,7 +157,7 @@ function renderTriggers(t) {
 function render(snap) {
   renderMetrics(snap.metrics);
   renderLLM(snap.llm);
-  renderState(snap.state);
+  renderState(snap.state, snap.watchdog);
   renderFeatures(snap.features, snap.vram);
   renderTriggers(snap.triggers);
 }

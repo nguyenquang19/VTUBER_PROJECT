@@ -61,6 +61,7 @@
       <span id="state-time" class="dim"></span>
       <span id="state-interrupted" class="flag"></span>
     </div>
+    <div class="dim" id="watchdog-info">Watchdog: –</div>
     <ol class="states-legend">
       <li>IDLE</li><li>THINKING</li><li>SPEAKING</li><li>COOLDOWN</li><li>PAUSED</li>
     </ol>
@@ -74,6 +75,8 @@
       <div class="card"><div class="label">Queue</div><div class="value" id="t-size">–</div><span class="unit">pending</span></div>
       <div class="card"><div class="label">Dropped</div><div class="value" id="t-dropped">–</div></div>
       <div class="card"><div class="label">Expired</div><div class="value" id="t-expired">–</div></div>
+      <div class="card"><div class="label">Skipped</div><div class="value" id="t-skipped">–</div><span class="unit">spam/rate</span></div>
+      <div class="card"><div class="label">Interrupt</div><div class="value" id="t-interrupt">–</div></div>
     </div>
     <h3>Queue by type</h3>
     <ul id="triggers-bytype" class="bytype"></ul>
