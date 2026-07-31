@@ -1,7 +1,7 @@
 # STATE — Mai project
 
 **Phase hiện tại:** Phase 2 Trigger + State Machine
-**Task đang làm:** 2.B watchdog (kế tiếp) — 2.A xong
+**Task đang làm:** 2.C ambient content (kế tiếp) — 2.A, 2.B xong
 **Cập nhật:** 2026-07-31
 
 ## Phase 2 milestone (5) — delta, hạ tầng đã có từ P0
@@ -9,7 +9,10 @@
       provider (N8), _should_interrupt đọc state_machine.yaml interrupt_policy. OPERATOR_VOICE
       elapsed>=2000ms → INTERRUPT_CURRENT (trigger vẫn enqueue để trả lời sau), <2s/mention/
       normal → QUEUE. fail-safe khi provider lỗi. metric trigger_interrupt_total.
-- [ ] 2.B deadlock watchdog (7.10.4) — StateWatchdog, asyncio.Event stop
+- [x] 2.B deadlock watchdog (7.10.4) — 9 unit pass. state_watchdog.StateWatchdog:
+      poll interval (config auto_recovery), elapsed>max_time_in_state → emergency_stop
+      + auto recover→IDLE. IDLE/PAUSED (null) không giám sát. asyncio.Event stop (không
+      hang). N8: chỉ dùng API state machine. metric watchdog_deadlocks_total.
 - [ ] 2.C ambient content gen (7.9.4) — prompt ambient
 - [ ] 2.D dashboard tabs enrich (interrupt/watchdog visibility)
 - [ ] 2.E integration 12.8 + DoD (spam 60/phút, priority, ambient>60s, watchdog)
