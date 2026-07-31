@@ -54,6 +54,9 @@ class TTSPipeline:
         # State cho đo TTFA đúng chỗ: mark khi chunk audio ĐẦU TIÊN được enqueue
         self._speak_t0: float | None = None
         self._speak_first_marked: bool = False
+        # Serialize speak() calls — viXTTS model KHÔNG thread-safe cho concurrent
+        # inference. Lock lazy tạo trong event loop (asyncio.Lock() cần loop từ 3.10-).
+        self._speak_lock: asyncio.Lock | None = None
         self._fb.register_chain(
             _CHAIN_ID,
             [self._synth_primary, self._synth_subtitle],
@@ -104,6 +107,12 @@ class TTSPipeline:
         TTFA đo từ lúc gọi speak() tới khi chunk audio đầu tiên non-empty được
         enqueue vào player. Metric ghi vào self._last_ttfa_ms.
         """
+        if self._speak_lock is None:
+            self._speak_lock = asyncio.Lock()
+        async with self._speak_lock:
+            await self._speak_locked(request_id, text)
+
+    async def _speak_locked(self, request_id: str, text: str) -> None:
         self._cancelled.discard(request_id)
         self._requests_total += 1
         sentences = split_vn(text)

@@ -72,6 +72,16 @@ def _on_token(t: str) -> None:
         _TurnCtx.streamer.push(t)
 
 
+async def _speak_and_log(pipeline, req_id: str, sent: str) -> None:
+    try:
+        await pipeline.speak(req_id, sent)
+    except Exception as e:
+        # In lỗi thấy được — nếu không catch, asyncio nuốt vì task không được await
+        import traceback
+        print(f"\n   [TTS ERROR] {type(e).__name__}: {e}")
+        traceback.print_exc()
+
+
 def _on_sentence(sent: str) -> None:
     """Callback từ streamer: gọi pipeline.speak cho câu vừa hoàn tất."""
     if _TurnCtx.pipeline is None or _TurnCtx.loop is None:
@@ -80,8 +90,10 @@ def _on_sentence(sent: str) -> None:
         _TurnCtx.t_first_dispatch = time.perf_counter()
     _TurnCtx.seq += 1
     seq = _TurnCtx.seq
+    # Pipeline.speak có async lock nội tại → task 2 chờ task 1 xong synth mới bắt
+    # đầu. Player vẫn phát song song, nên câu 1 audio chảy trong khi câu 2 synth.
     task = _TurnCtx.loop.create_task(
-        _TurnCtx.pipeline.speak(f"{_TurnCtx.req_id}#s{seq}", sent)
+        _speak_and_log(_TurnCtx.pipeline, f"{_TurnCtx.req_id}#s{seq}", sent)
     )
     _TurnCtx.tasks.append(task)
 
