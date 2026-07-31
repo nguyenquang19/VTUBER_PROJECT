@@ -99,7 +99,7 @@ async def main() -> None:
 
     health = await svc.health_check()
     if not health.is_ok:
-        print(f"❌ llama-server chưa chạy ({health.detail}). Start server trước.")
+        print(f"❌ llama-server chưa chạy ({health.message}). Start server trước.")
         await svc.stop()
         return
 
