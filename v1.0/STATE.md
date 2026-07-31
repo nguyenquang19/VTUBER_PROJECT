@@ -1,7 +1,7 @@
 # STATE — Mai project
 
 **Phase hiện tại:** Phase 2 Trigger + State Machine
-**Task đang làm:** 2.C ambient content (kế tiếp) — 2.A, 2.B xong
+**Task đang làm:** 2.D dashboard tabs (kế tiếp) — 2.A, 2.B, 2.C xong
 **Cập nhật:** 2026-07-31
 
 ## Phase 2 milestone (5) — delta, hạ tầng đã có từ P0
@@ -13,7 +13,9 @@
       poll interval (config auto_recovery), elapsed>max_time_in_state → emergency_stop
       + auto recover→IDLE. IDLE/PAUSED (null) không giám sát. asyncio.Event stop (không
       hang). N8: chỉ dùng API state machine. metric watchdog_deadlocks_total.
-- [ ] 2.C ambient content gen (7.9.4) — prompt ambient
+- [x] 2.C ambient content gen (7.9.4) — 9 unit pass. PromptManager.build_ambient_request:
+      persona + history + user turn "tự mở lời" (template config/prompts/ambient_instruction.txt,
+      placeholder {silence} phút + {mood}). models.yaml ambient_prompt_path. Không mutate history.
 - [ ] 2.D dashboard tabs enrich (interrupt/watchdog visibility)
 - [ ] 2.E integration 12.8 + DoD (spam 60/phút, priority, ambient>60s, watchdog)
 

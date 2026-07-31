@@ -25,6 +25,9 @@ llm_main:
   # reuse (cache_prompt:true). Dựng từ persona.md Phần A+B+C. Xem prompt_cache 1.C.
   persona_prompt_path: ".\\config\\prompts\\persona_system.txt"
   max_history_turns: 12         # số cặp (user+assistant) giữ trong context
+  # Ambient talk (7.9.4, 2.C): prompt để Mai tự mở lời khi im lặng lâu.
+  # Placeholder {silence} (phút) + {mood} thay lúc build.
+  ambient_prompt_path: ".\\config\\prompts\\ambient_instruction.txt"
 
 # LLM fallback chain 2 tầng (ARCHITECTURE 8.7.1 — N1: đúng 2 level, bỏ E4B).
 # Level 1 = Gemma 12B (timeout_primary_s). Level 2 = canned theo mood (timeout_canned_s).

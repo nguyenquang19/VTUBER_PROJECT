@@ -11,8 +11,16 @@ KV cache prefix (cache_prompt:true). Build là hàm THUẦN (không đổi histo
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 from interfaces.llm import ChatMessage, LLMRequest
 from services.llm.prompt_cache import PromptCache
+
+_DEFAULT_AMBIENT = (
+    "[Bối cảnh: đã im lặng khoảng {silence} phút, không ai chat. Mood: {mood}.]\n\n"
+    "Giờ đang rảnh, chẳng ai nói gì. Tự mở lời với chat theo đúng tính cách của tớ đi. "
+    "Nói NGẮN thôi, vẫn theo đúng khuôn trả lời bắt buộc (kèm mood block)."
+)
 
 
 class PromptManager:
@@ -22,6 +30,7 @@ class PromptManager:
         max_history_turns: int = 12,
         default_max_tokens: int = 300,
         default_temperature: float = 0.85,
+        ambient_template: str | None = None,
     ) -> None:
         if max_history_turns < 0:
             raise ValueError("max_history_turns không được âm")
@@ -29,6 +38,7 @@ class PromptManager:
         self._max_history_turns = max_history_turns
         self._default_max_tokens = default_max_tokens
         self._default_temperature = default_temperature
+        self._ambient_template = ambient_template or _DEFAULT_AMBIENT
         self._history: list[ChatMessage] = []
 
     @classmethod
@@ -39,7 +49,16 @@ class PromptManager:
             max_history_turns=int(loader.get("models", "llm_main.max_history_turns", 12)),
             default_max_tokens=int(loader.get("models", "llm_main.num_predict", 300)),
             default_temperature=float(loader.get("models", "llm_main.temperature", 0.85)),
+            ambient_template=cls._load_ambient_template(loader),
         )
+
+    @staticmethod
+    def _load_ambient_template(loader) -> str | None:
+        path = loader.get("models", "llm_main.ambient_prompt_path", None)
+        if not path:
+            return None
+        p = Path(path)
+        return p.read_text(encoding="utf-8").strip() if p.is_file() else None
 
     @property
     def version(self) -> str:
@@ -72,6 +91,36 @@ class PromptManager:
         return LLMRequest(
             request_id=request_id,
             messages=self.build_messages(user_text),
+            max_tokens=max_tokens if max_tokens is not None else self._default_max_tokens,
+            temperature=temperature if temperature is not None else self._default_temperature,
+        )
+
+    def build_ambient_request(
+        self,
+        request_id: str,
+        silence_seconds: float,
+        mood: str = "",
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+    ) -> LLMRequest:
+        """Request cho AMBIENT_TALK (7.9.4): Mai tự mở lời khi im lặng.
+
+        Vẫn kèm persona + history để Mai có ngữ cảnh; chèn 1 user turn "nhắc" tự nói.
+        """
+        minutes = round(silence_seconds / 60.0, 1)
+        instruction = (
+            self._ambient_template
+            .replace("{silence}", str(minutes))
+            .replace("{mood}", mood or "bình thường")
+        )
+        messages = [
+            self._cache.as_message(),
+            *self._history,
+            ChatMessage(role="user", content=instruction),
+        ]
+        return LLMRequest(
+            request_id=request_id,
+            messages=messages,
             max_tokens=max_tokens if max_tokens is not None else self._default_max_tokens,
             temperature=temperature if temperature is not None else self._default_temperature,
         )
