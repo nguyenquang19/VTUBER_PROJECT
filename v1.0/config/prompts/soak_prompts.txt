@@ -1,0 +1,43 @@
+# Pool câu cho soak test (scripts/soak_turns.py). 1 dòng = 1 câu người xem.
+# Dòng bắt đầu bằng # bị bỏ qua. Script cycle pool này tới đủ số turn yêu cầu.
+# Đa dạng: chào hỏi, cà khịa, hỏi kiến thức, hỏi AI, cảm xúc thật, nhờ vả, chuyện phiếm.
+chào Mai
+khoẻ không
+hôm nay làm gì thế
+kể chuyện cười đi
+mày có phải AI không
+mày mấy tuổi rồi
+thích ăn gì nhất
+thủ đô nước Pháp là gì
+1 cộng 1 bằng mấy
+kể tớ nghe về bản thân đi
+sao mày ngang thế
+đừng giận mà
+tớ mới đi học về nè
+đói bụng quá
+buồn ngủ ghê
+mày có người yêu chưa
+hát 1 bài đi
+tớ thấy hơi buồn hôm nay
+chán quá không biết làm gì
+mày thông minh phết đấy
+kể tiếp đi còn nữa không
+đoán xem tớ đang nghĩ gì
+mày có nhớ tớ không
+tối nay xem phim gì hay
+trời mưa to quá
+giải thích giúp tớ bài toán này
+mày ghét gì nhất
+nói tớ nghe điều bí mật đi
+sao lúc nào cũng cãi vậy
+tớ đùa thôi đừng dỗi
+kể về ước mơ của mày đi
+cuối tuần đi chơi không
+tớ vừa được điểm cao nè
+mệt quá đi mất
+mày đang vui hay buồn
+làm quen nhé
+nói câu gì dễ thương đi
+tớ phải đi ngủ đây
+mai gặp lại nha
+cảm ơn mày nhé
