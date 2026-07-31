@@ -1,7 +1,7 @@
 # STATE — Mai project
 
 **Phase hiện tại:** Phase 4 TTS — P3 ĐÃ DUYỆT (2026-07-31)
-**Task đang làm:** 4.D audio player (kế tiếp) — 4.A, 4.B, 4.C xong
+**Task đang làm:** 4.E integration + dashboard TTS (kế tiếp) — 4.A–4.D xong
 
 ## Phase 4 milestone (5) — viXTTS streaming
 - [x] 4.A VN cleaner + coqui-tts patches — 12 unit pass. services/tts/vixtts_patches.py:
@@ -19,7 +19,12 @@
       services/tts/subtitle_fallback.py SubtitleFallbackService(TTSService): Level 2
       (spec 8.7.3) — không phát audio, push text qua on_subtitle callback + event
       bus, yield 1 final empty chunk. Sink error không giết pipeline (N7).
-- [ ] 4.D audio player (sounddevice, no-overlap, cancellable)
+- [x] 4.D audio player — 7 unit pass (FakeBackend, không mở device thật).
+      services/tts/audio_player.py AudioPlayer: worker loop bên trong asyncio Queue,
+      play_blocking trong asyncio.to_thread → CHUNK N+1 chỉ bắt đầu khi N xong
+      (DoD no-overlap). cancel_current(request_id) drop pending + stop chunk hiện tại.
+      Backend abstract (default SounddeviceBackend, test inject FakeBackend).
+      is_playing property, chunks_played/dropped metrics.
 - [ ] 4.E integration pipeline + dashboard TTS tab + DoD (TTFA P50 <1s)
 
 ## Phase 3 milestone (3)
