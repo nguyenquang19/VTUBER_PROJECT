@@ -23,6 +23,10 @@ conversation:
     THINKING: 10000
     SPEAKING: 30000
     COOLDOWN: 5000
+  # CONTINUATION đơn giản: nếu Mai kết "còn nữa: có" → tự chạy tiếp N lượt nữa.
+  # 0 = tắt (giữ hành vi phase 1-4). 2 = an toàn cho MVP (không kéo lê quá dài).
+  # Full CONTINUATION trigger (thứ 5) đã YAGNI-out ở phase 2 — đây chỉ là hook CLI.
+  auto_continue_max: 2
 
 ambient_talk:
   enabled: true

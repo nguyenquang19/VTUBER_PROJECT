@@ -146,4 +146,6 @@ class TestFromLoader:
         assert len(m.version) == 12
         msgs = m.build_messages("test")
         assert "Mai" in msgs[0].content  # persona thật được nạp
-        assert m._max_history_turns == 12
+        # Config có thể tune (2026-07-31: hạ 12→10 vì GPU chia với TTS).
+        # Kiểm là số dương hợp lý, không hard-code giá trị cụ thể → dễ tune sau.
+        assert 4 <= m._max_history_turns <= 20

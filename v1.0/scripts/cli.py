@@ -104,7 +104,8 @@ async def _one_turn(
     user: str,
     pipeline=None,
     player=None,
-) -> None:
+):
+    """Chạy 1 lượt. Trả ParsedResponse để caller check .continuation cho auto-continue."""
     print("Mai: ", end="", flush=True)
     req_id = f"cli-{time.time_ns()}"
 
@@ -164,6 +165,29 @@ async def _one_turn(
                     break
                 await asyncio.sleep(0.05)
 
+    return parsed
+
+
+async def _turn_with_continue(
+    runner: LLMTurnRunner,
+    svc: LlamaCppLLMService,
+    user: str,
+    pipeline=None,
+    player=None,
+    max_continue: int = 0,
+) -> None:
+    """1 lượt + tự nói tiếp nếu Mai xuất `còn nữa: có` (tối đa max_continue lần).
+
+    Prompt "nói tiếp" là user turn tổng hợp — Mai xem nó như tín hiệu "kể tiếp đi".
+    History có ghi lại (Mai có thể nhìn lại như 1 turn thường).
+    """
+    parsed = await _one_turn(runner, svc, user, pipeline, player)
+    count = 0
+    while parsed is not None and parsed.continuation and count < max_continue:
+        count += 1
+        print(f"\n(auto-continue #{count})")
+        parsed = await _one_turn(runner, svc, "(nói tiếp đi)", pipeline, player)
+
 
 async def main() -> None:
     ap = argparse.ArgumentParser(description="Mai CLI")
@@ -174,6 +198,8 @@ async def main() -> None:
 
     loader = ConfigLoader(REPO_ROOT / "config")
     loader.load_all()
+
+    auto_continue_max = int(loader.get("system", "conversation.auto_continue_max", 0))
 
     metrics = MetricsCollector()
     svc = LlamaCppLLMService.from_loader(loader)
@@ -254,7 +280,10 @@ async def main() -> None:
         if args.prompts:
             for p in args.prompts:
                 print(f"\nBạn: {p}")
-                await _one_turn(runner, svc, p, tts_pipeline, audio_player)
+                await _turn_with_continue(
+                    runner, svc, p, tts_pipeline, audio_player,
+                    max_continue=auto_continue_max,
+                )
         else:
             while True:
                 try:
@@ -267,7 +296,10 @@ async def main() -> None:
                 if user.lower() in ("quit", "exit", "thoat", "thoát"):
                     print("Bye!")
                     break
-                await _one_turn(runner, svc, user, tts_pipeline, audio_player)
+                await _turn_with_continue(
+                    runner, svc, user, tts_pipeline, audio_player,
+                    max_continue=auto_continue_max,
+                )
     finally:
         if dash_server is not None:
             await dash_server.stop_push_loop()
