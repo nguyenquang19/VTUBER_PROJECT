@@ -259,6 +259,34 @@
 
 ---
 
+## PHASE 7.5: Emotion Simulation (ARCHITECTURE 11.8.5)
+
+**Spec đầy đủ:** `docs/EMOTION_SIMULATION.md`. **Mục tiêu:** mood có ground-truth (appraisal rule-based) thay vì LLM tự bịa. Format output Phase 1 KHÔNG đổi.
+
+**Việc:**
+1. Tầng 1 phân loại: 20 category + 4 time-based (keyword/regex + Filter Phase 3 + platform API).
+2. Tầng 2 appraisal: bảng target 0-10 (Mục 4) + 3 modifier (query Memory Phase 7).
+3. Tầng 3 `orchestrator/mood_engine.py` + `config/mood_engine.yaml` (spring-damper 2 kênh) + saturation.
+4. Tầng 4: `current_mood` vào prompt làm chỉ thị; mood block LLM → Kênh B (turn kế).
+5. 2 cờ tone `force_gentle_tone`/`force_deflect` → Prompt + Filter (KHÔNG trộn vào mood).
+6. `services/qc/drift_detector.py` — log lệch appraisal vs LLM.
+7. Test: 10k tick ổn định, saturation 100 sự kiện, target decay, drift log.
+
+**DoD (ARCHITECTURE 11.8.5 / EMOTION_SIMULATION.md Mục 8.2):**
+- [ ] 20 category + 4 timer + 3 modifier đúng bảng
+- [ ] MoodEngine over-damped, không dao động/NaN qua 10k tick
+- [ ] Saturation: 100 sự kiện đồng thời không overshoot >10/kẹt clamp
+- [ ] Target decay về baseline, không kẹt đỉnh
+- [ ] 2 cờ tone nối đúng Prompt + Filter
+- [ ] Drift detector log khi lệch > threshold
+- [ ] Live ≥100 turn, mood curve "cảm thấy đúng" (subjective, user duyệt)
+
+> Thứ tự: SAU Phase 7 (modifier cần Memory), TRƯỚC Phase 8 (data hợp lệ phụ thuộc appraisal live).
+
+**⛔ CHECKPOINT P7.5.**
+
+---
+
 ## PHASE 8: QC + Data pipeline (ARCHITECTURE 11.9)
 
 **Mục tiêu:** Thu + chấm data cho fine-tune. Rubric = persona.md Phần A-C.
@@ -344,7 +372,7 @@ Claude Code cập nhật file này sau MỖI task. Đây là nguồn sự thật
 Bootstrap → [CP B0] → Pre-flight 3 spike → [CP PF]
   → Phase 0 → [CP P0] → Phase 1 → [CP P1] → Phase 2 → [CP P2]
   → Phase 3 → [CP P3] → Phase 4 → [CP P4] → Phase 5 → [CP P5]
-  → Phase 6 → [CP P6] → Phase 7 → [CP P7] → Phase 8 → [CP P8]
+  → Phase 6 → [CP P6] → Phase 7 → [CP P7] → Phase 7.5 → [CP P7.5] → Phase 8 → [CP P8]
   → Phase 9 → [CP P9] → done (Phase 10+ iteration)
 
 Tại mỗi [CP]: cập nhật STATE.md, báo user, chờ "tiếp".

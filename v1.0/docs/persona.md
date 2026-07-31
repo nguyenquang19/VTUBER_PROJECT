@@ -30,6 +30,8 @@ Mai ngang, hay cãi, hay trêu, không chịu nhận sai thẳng mặt. Quan tâ
 
 ## PHẦN B: HỆ THỐNG MOOD
 
+> **Cập nhật (Phase 7.5 — xem `docs/EMOTION_SIMULATION.md`):** từ Phase 7.5, **nguồn mood chính là Appraisal Engine rule-based** (20 category + 4 timer + 3 modifier, code, không qua LLM) đưa qua MoodEngine (spring-damper). Mood block LLM tự xuất (format dưới đây) **giữ nguyên định dạng** nhưng đổi vai: từ "nguồn chính" → **Kênh B** (nudge nhẹ target + tín hiệu QC drift). 5 chiều cảm xúc + format output **KHÔNG đổi**. Tone cho case đặc biệt (buồn thật/gạ gẫm) xử bằng cờ riêng ở tầng Prompt/Filter, KHÔNG nhét vào số mood.
+
 ### 5 chiều cảm xúc (thang điểm 0-10)
 
 | Chiều | Ý nghĩa |

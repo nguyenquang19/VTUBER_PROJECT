@@ -7,6 +7,12 @@
 ## ⚠️ Bug tiềm ẩn (flag, ngoài scope P2): migration backup filename chỉ có độ phân giải
 giây → 2 migration cùng giây đè backup (test_migration_runner flaky). Đã spawn task riêng.
 
+## 📌 ROADMAP đổi (2026-07-31): thêm PHASE 7.5 — Emotion Simulation (giữa P7 và P8)
+- Spec: `docs/EMOTION_SIMULATION.md`. Mood đổi nguồn: appraisal rule-based (20 category
+  + 4 timer + 3 modifier) làm CHÍNH; mood block LLM → Kênh B (format Phase 1 KHÔNG đổi).
+- Đã cập nhật: ARCHITECTURE 11.8.5 + changelog v2.4, PROCESS Phase 7.5 + flow, persona.md Phần B.
+- CHƯA code (đang ở Phase 2) — chỉ tích hợp tài liệu/roadmap. Code khi tới Phase 7.5.
+
 ## Phase 2 milestone (5) — delta, hạ tầng đã có từ P0
 - [x] 2.A interrupt policy (7.9.3) — 11 unit pass. trigger_manager: set_speaking_context
       provider (N8), _should_interrupt đọc state_machine.yaml interrupt_policy. OPERATOR_VOICE

@@ -36,7 +36,13 @@
 - Tách `QUICKSTART.md` ra file riêng
 - **Complexity giảm ~40% so với v2.0 mà không mất chức năng cốt lõi**
 
-**v2.2 → v2.3 (bản hiện tại — cleanup: bỏ E4B, consistency):**
+**v2.3 → v2.4 (bản hiện tại — Emotion Simulation):**
+- Thêm Section 11.8.5: **Phase 7.5 — Emotion Simulation** (Appraisal + Mood Engine). Spec đầy đủ ở `docs/EMOTION_SIMULATION.md`.
+- Mood đổi nguồn: appraisal rule-based (20 category + 4 time-based + 3 modifier, code, KHÔNG qua LLM) làm CHÍNH; mood block LLM (format Phase 1 KHÔNG đổi) thành Kênh B (nudge nhẹ + input QC drift).
+- Thêm MoodEngine (spring-damper 2 kênh, `config/mood_engine.yaml`) + 2 cờ tone `force_gentle_tone`/`force_deflect` (xử ở tầng Prompt/Filter, không phải mood).
+- **Code Phase 0-2 KHÔNG cần sửa lại** — chỉ thêm 3 tầng phía trước LLM khi tới Phase 7.5.
+
+**v2.2 → v2.3 (cleanup: bỏ E4B, consistency):**
 - **Bỏ E4B hoàn toàn** (quyết định user Phase -1): chỉ 1 instance main (Gemma 12B port 8080). Fallback dùng canned response (Level 2). Filter dùng rule-only. Nếu Pre-flight Day 1 tight VRAM, add E4B sau.
 - **Fix mâu thuẫn triggers.yaml:** 11 priority → 4 type (operator_voice:100, chat_mention:60, chat_normal:30, ambient_talk:10).
 - **Fix mâu thuẫn ambient_talk:** bỏ probability, dùng threshold cứng 60s.
@@ -2322,6 +2328,33 @@ Xem Section 0.
 - [ ] Fallback về working memory nếu timeout
 - [ ] Manual inject 10 memories, Mai callback được > 80%
 - [ ] Multi-viewer: Mai nhớ 5 viewer thường xuyên qua sessions
+
+### 11.8.5. Phase 7.5: Emotion Simulation (Appraisal + Mood Engine)
+
+**Spec đầy đủ:** `docs/EMOTION_SIMULATION.md` (đọc trước khi code). Bổ sung cho `persona.md` Phần B.
+
+**Goal:** Mood có ground-truth (rule-based appraisal), không còn để LLM tự bịa. 4 tầng:
+phân loại category → appraisal (target 0-10) → MoodEngine (spring-damper 2 kênh) → LLM
+nhận `current_mood` làm chỉ thị (format output Phase 1 KHÔNG đổi).
+
+**Deliverables:**
+- [ ] Tầng 1: phân loại 20 category + 4 time-based (keyword/regex + Filter Phase 3 + platform API)
+- [ ] Tầng 2: bảng appraisal (target 0-10) + 3 modifier (repeated/first-time, query Memory Phase 7)
+- [ ] Tầng 3: `orchestrator/mood_engine.py` (spring-damper, `config/mood_engine.yaml`) + saturation đa sự kiện
+- [ ] Tầng 4: đưa `current_mood` vào prompt làm chỉ thị; mood block LLM → Kênh B (turn kế)
+- [ ] 2 cờ tone `force_gentle_tone`/`force_deflect` nối Prompt + Filter (không trộn vào mood)
+- [ ] `services/qc/drift_detector.py` — log lệch appraisal vs LLM self-report
+
+**Definition of Done (chi tiết ở EMOTION_SIMULATION.md Mục 8.2):**
+- [ ] 20 category + 4 timer + 3 modifier đúng bảng
+- [ ] MoodEngine tick ổn định (over-damped, không dao động/NaN qua 10k tick)
+- [ ] Saturation: 100 sự kiện đồng thời không overshoot >10 / kẹt clamp
+- [ ] Target decay: mood tự về baseline, không kẹt đỉnh
+- [ ] 2 cờ tone nối đúng Prompt + Filter (test case thật)
+- [ ] Drift detector log khi lệch > threshold
+- [ ] Live ≥100 turn, mood curve "cảm thấy đúng" (subjective, user duyệt)
+
+**Thứ tự:** SAU Phase 7 (cần Memory cho modifier), TRƯỚC Phase 8 (data hợp lệ phụ thuộc appraisal chạy live — EMOTION_SIMULATION.md Mục 8.1). **⛔ CHECKPOINT P7.5.**
 
 ### 11.9. Phase 8: QC + Data pipeline (Tuần 24-26)
 
