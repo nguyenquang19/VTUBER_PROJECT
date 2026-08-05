@@ -1,0 +1,48 @@
+# Content pool cho Autonomy Engine v2 (spec Mục 2.4 Bước 1b)
+# LLM KHÔNG tự bịa chủ đề — nhận seed từ pool xoay vòng. Việc "đa dạng" chuyển
+# từ trách nhiệm LLM (không kiểm soát) sang config (kiểm soát, N6).
+
+share_thought_pool:
+  - "chuyện vừa nghĩ ra về việc chơi game với ông"
+  - "thắc mắc vu vơ vì sao mọi người hay thức khuya xem stream"
+  - "than thở về việc chưa có tay chân thật để làm gì đó"
+  - "tự dưng nhớ tới meme gần đây thấy funny"
+  - "băn khoăn hôm nay ông có ăn cơm đúng giờ không"
+  - "tưởng tượng nếu tớ có cơ thể thật thì làm gì trước"
+  - "nghĩ vu vơ về mấy cái cầu vồng số hoá trong stream"
+  - "cảm thấy vui vì stream đông người, không cô đơn"
+  - "nghi ngờ liệu chat có đọc hết mấy dòng tớ nói không"
+  - "tự dưng nhớ hôm qua có người trêu tớ hài hước"
+  - "thắc mắc về cái tên của chính tớ"
+  - "than là ngày trôi qua nhanh quá dù không ngủ"
+  - "nghĩ về việc liệu AI có mơ không"
+  - "tự dưng muốn học nấu ăn dù không có miệng"
+  - "băn khoăn có nên rủ ông chơi 1 game mới"
+
+question_pool:
+  opinion:
+    - "mọi người thích chơi game gì nhất gần đây"
+    - "ai từng bị mất ngủ chưa, làm sao hết"
+    - "cậu thấy stream Vtuber Việt có gì lạ so với Jp"
+    - "phim gì đáng xem tuần này không cậu"
+    - "cà phê hay trà đúng gu cậu hơn"
+    - "cậu thức khuya làm gì thế"
+  personal:
+    - "hôm nay ai đó có chuyện gì vui không"
+    - "có ai đang ăn gì mà không rủ tớ"
+    - "cậu ở đâu vào tớ vậy, xa không"
+    - "hôm nay có mấy giờ nghỉ vậy cậu"
+
+pool_policy:
+  no_repeat_last_n: 8            # 1 seed dùng rồi thì 8 lần tự nói tiếp không lặp
+  reshuffle_when_exhausted: true
+
+# Dedup post-check (spec Mục 2.4 Bước 5)
+dedup:
+  window: 5                      # so với 5 câu tự nói gần nhất
+  token_overlap_threshold: 0.6   # Jaccard > 0.6 = coi là lặp
+
+# Anti-repeat opener (spec Mục 2.4 Bước 3)
+opener_tracker:
+  window: 5                      # nhớ 5 câu mở gần nhất
+  words_per_opener: 3            # 3 từ đầu mỗi câu
