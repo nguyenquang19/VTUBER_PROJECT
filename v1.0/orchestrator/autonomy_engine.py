@@ -1,10 +1,10 @@
-"""AutonomyEngine v2 core: UrgeAccumulator + CategorySelector (Aut.A).
+"""AutonomyEngine v2: Urge + CategorySelector + AutonomyEngine composer (Aut.A + C).
 
 Spec: docs/AUTONOMY_ENGINE_REDESIGN.md — thay hard `silence > 60s` bằng urge
 accumulator probabilistic + category selector có mood coupling + no-repeat.
 
-Đây là 2 building block core, chưa gồm material pipeline (Aut.B) hay composer
-(Aut.C). Sync API (không async — tick chạy trong bg loop ngoài).
+AutonomyEngine (composer) compose 5 phần: Urge + Selector + MaterialProvider
++ OpenerTracker + DedupBuffer. Caller (Aut.D wire) tick loop + gọi maybe_generate.
 
 Design chốt v2 (fix 5 vấn đề bản gốc):
 1. Threshold không hằng số → prob curve + Gaussian noise mỗi tick
@@ -24,6 +24,10 @@ from typing import Any
 
 from interfaces.animation import MoodState
 from orchestrator.logger import get_logger
+from services.autonomy.dedup import DedupBuffer
+from services.autonomy.material_provider import MaterialProvider, RuntimeContext
+from services.autonomy.opener_tracker import OpenerTracker
+from services.autonomy.prompt_builder import render_prompt
 
 
 # ─────────────────────── Config dataclasses ───────────────────────
@@ -281,3 +285,176 @@ def _weighted_choice(items: list[tuple[str, float]], rng: random.Random) -> str:
         if upto >= r:
             return name
     return items[-1][0]  # numerical safety
+
+
+# ─────────────────────── AutonomyEngine (composer, Aut.C) ───────────────────────
+
+
+@dataclass
+class AmbientDecision:
+    """Kết quả maybe_generate — data đủ để caller gọi LLM sinh câu ambient."""
+    category: str
+    prompt_text: str           # instruction đã slot-filled, inject vào messages[user]
+    mood_snapshot: MoodState   # mood lúc quyết định (dùng cho drift + log)
+    material: dict             # nguyên liệu đã dùng (dùng cho log/debug)
+
+
+class AutonomyEngine:
+    """Compose 5 phần: Urge + Selector + MaterialProvider + OpenerTracker + DedupBuffer.
+
+    Caller (Aut.D wire — cli.py / stream_runtime.py) chạy tick loop:
+      while running:
+          await sleep(cfg.tick_seconds)
+          engine.tick(current_mood)
+          decision = engine.maybe_generate(current_mood, ctx)
+          if decision:
+              text = await run_llm(decision.prompt_text)
+              if engine.check_dedup(text):
+                  text = await run_llm(decision.prompt_text)  # regen 1 lần
+              # phát TTS + engine.on_self_spoke(text)
+    """
+
+    def __init__(
+        self,
+        cfg: AutonomyConfig,
+        material_provider: MaterialProvider,
+        opener_tracker: OpenerTracker | None = None,
+        dedup_buffer: DedupBuffer | None = None,
+        clock=None,
+        rng: random.Random | None = None,
+    ) -> None:
+        self.cfg = cfg
+        self._rng = rng or random.Random()
+        self._clock = clock or time.time
+
+        self.urge = UrgeAccumulator(cfg.urge, clock=self._clock, rng=self._rng)
+        self.selector = CategorySelector(cfg, clock=self._clock, rng=self._rng)
+        self.material = material_provider
+        self.opener = opener_tracker or OpenerTracker()
+        self.dedup = dedup_buffer or DedupBuffer()
+
+        self._log = get_logger("autonomy.engine")
+        self._generated_total = 0
+        self._skipped_no_material = 0
+        self._dedup_hits = 0
+
+    @classmethod
+    def from_loader(
+        cls,
+        loader,
+        material_provider: MaterialProvider | None = None,
+        rng: random.Random | None = None,
+    ) -> "AutonomyEngine":
+        cfg = AutonomyConfig.from_loader(loader)
+        mp = material_provider or MaterialProvider.from_loader(loader, rng=rng)
+        # opener/dedup config từ autonomy_content_pool.yaml
+        opener_win = int(loader.get("autonomy_content_pool", "opener_tracker.window", 5))
+        opener_words = int(loader.get(
+            "autonomy_content_pool", "opener_tracker.words_per_opener", 3,
+        ))
+        dedup_win = int(loader.get("autonomy_content_pool", "dedup.window", 5))
+        dedup_thr = float(loader.get(
+            "autonomy_content_pool", "dedup.token_overlap_threshold", 0.6,
+        ))
+        return cls(
+            cfg=cfg,
+            material_provider=mp,
+            opener_tracker=OpenerTracker(window=opener_win, words_per_opener=opener_words),
+            dedup_buffer=DedupBuffer(window=dedup_win, threshold=dedup_thr),
+            rng=rng,
+        )
+
+    # ---------- lifecycle hooks (caller gọi) ----------
+
+    def tick(self, mood: MoodState) -> None:
+        self.urge.tick(mood)
+
+    def on_external_activity(self) -> None:
+        """Chat/operator lên tiếng → reset silence + nag."""
+        self.urge.on_external_activity()
+
+    def on_self_spoke(self, text: str) -> None:
+        """Sau khi turn ambient hoàn tất — record opener + dedup + reset urge."""
+        self.urge.on_self_spoke()
+        self.opener.record(text)
+        self.dedup.record(text)
+
+    # ---------- decision ----------
+
+    def maybe_generate(
+        self, mood: MoodState, ctx: RuntimeContext,
+    ) -> AmbientDecision | None:
+        """Quyết định có sinh ambient turn không. Return None nếu:
+          - urge chưa đủ (probabilistic)
+          - Tất cả category đang cooldown / trong no_repeat window
+          - Tất cả category còn candidate đều thiếu material
+        """
+        if not self.urge.should_speak_now():
+            return None
+
+        chosen_cat: str | None = None
+        chosen_material: dict | None = None
+        # Loop tối đa 2×len(categories) để tìm cat có material (weighted random
+        # có thể lặp — không guarantee mỗi lần khác)
+        max_tries = max(4, 2 * len(self.cfg.categories))
+        tried: set[str] = set()
+        for _ in range(max_tries):
+            cat = self.selector.select(mood)
+            if cat is None:
+                break
+            if cat in tried:
+                continue
+            tried.add(cat)
+            mat = self.material.get(cat, ctx)
+            if mat is None:
+                self._skipped_no_material += 1
+                continue
+            chosen_cat = cat
+            chosen_material = mat
+            break
+
+        if chosen_cat is None or chosen_material is None:
+            return None
+
+        # Mark used TRƯỚC khi return (composer đã quyết dùng)
+        self.selector.mark_used(chosen_cat)
+
+        prompt_text = render_prompt(
+            category=chosen_cat,
+            material=chosen_material,
+            mood=mood,
+            forbidden_openers=self.opener.forbidden_list(),
+            prompt_hint=self.cfg.categories[chosen_cat].prompt_hint,
+        )
+        self._generated_total += 1
+        return AmbientDecision(
+            category=chosen_cat,
+            prompt_text=prompt_text,
+            mood_snapshot=mood,
+            material=chosen_material,
+        )
+
+    def check_dedup(self, text: str) -> bool:
+        """True nếu text quá giống câu tự nói gần đây — composer nên regen 1 lần."""
+        hit = self.dedup.check(text)
+        if hit:
+            self._dedup_hits += 1
+        return hit
+
+    def get_metrics(self) -> dict[str, Any]:
+        return {
+            "autonomy_generated_total": self._generated_total,
+            "autonomy_skipped_no_material": self._skipped_no_material,
+            "autonomy_dedup_hits": self._dedup_hits,
+            **self.urge.snapshot(),
+            **{f"selector_{k}": v for k, v in self.selector.snapshot().items()},
+        }
+
+    def snapshot(self) -> dict[str, Any]:
+        return {
+            "urge": self.urge.snapshot(),
+            "selector": self.selector.snapshot(),
+            "opener_recent": self.opener.recent(),
+            "dedup_recent_count": len(self.dedup.recent()),
+            "generated_total": self._generated_total,
+        }
