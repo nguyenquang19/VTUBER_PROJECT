@@ -1,0 +1,16 @@
+# Platform chat sources cho stream mode (Phase Platform.A)
+# Set video_id / channel khi bắt đầu stream. Empty = disabled.
+
+youtube:
+  enabled: false
+  video_id: ""                   # VD "abc123XYZ" từ URL youtube.com/watch?v=abc123XYZ
+  poll_interval_s: 2.0           # pytchat khuyến nghị 2-5s (rate-limit)
+
+# Twitch/TikTok — placeholder, chưa impl
+twitch:
+  enabled: false
+  channel: ""
+
+tiktok:
+  enabled: false
+  unique_id: ""                  # @username
