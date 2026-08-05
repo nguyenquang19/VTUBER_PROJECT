@@ -176,6 +176,10 @@ class MoodEngine:
             "target": dict(self.target),
         }
 
+    def current_state(self) -> MoodState:
+        """Snapshot MoodState hiện tại (int 0-10) — không tick."""
+        return self._to_mood_state()
+
     def _to_mood_state(self) -> MoodState:
         # Round float pos → int 0-10 (khớp interface Phase 0.B)
         rounded = {d: int(round(_clamp(self.pos[d], 0.0, 10.0))) for d in DIMENSIONS}
