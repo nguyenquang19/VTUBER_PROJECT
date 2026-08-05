@@ -57,9 +57,8 @@ PHASES: dict[str, tuple[str, list[str]]] = {
         "tests/unit/test_metrics_filter.py",
         "tests/integration/test_filter_dod.py",
     ]),
-    "4": ("TTS (patches/viXTTS/splitter/subtitle/player/pipeline)", [
-        "tests/unit/test_vixtts_patches.py",
-        "tests/unit/test_vixtts_service.py",
+    "4": ("TTS (VieNeu/splitter/subtitle/player/pipeline)", [
+        "tests/unit/test_vieneu_service.py",
         "tests/unit/test_sentence_splitter.py",
         "tests/unit/test_subtitle_fallback.py",
         "tests/unit/test_audio_player.py",

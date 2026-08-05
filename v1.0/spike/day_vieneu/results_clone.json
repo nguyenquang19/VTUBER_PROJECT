@@ -1,0 +1,430 @@
+{
+  "stream_default": [
+    {
+      "slug": "01_greeting_short",
+      "text": "Xin chào, mình là Mai. Rất vui được gặp bạn hôm nay.",
+      "ttfa_ms": 326.331799995387,
+      "full_synth_ms": 2706.6017000033753,
+      "audio_duration_s": 3.12,
+      "rtf": 0.8675005448728766,
+      "num_chunks": 8,
+      "vram_peak_gb": 0.3716707229614258,
+      "wav_path": "samples\\stream_default_01_greeting_short.wav"
+    },
+    {
+      "slug": "02_emotion_happy",
+      "text": "Wow tuyệt quá! Bạn giỏi thật đấy, mình phục bạn quá đi mất!",
+      "ttfa_ms": 293.2530000107363,
+      "full_synth_ms": 2943.047300010221,
+      "audio_duration_s": 3.44,
+      "rtf": 0.8555370058169247,
+      "num_chunks": 9,
+      "vram_peak_gb": 0.371826171875,
+      "wav_path": "samples\\stream_default_02_emotion_happy.wav"
+    },
+    {
+      "slug": "03_emotion_sad",
+      "text": "Ừm... nghe buồn ghê. Mình hiểu cảm giác đó, đôi khi mọi thứ cứ nặng nề.",
+      "ttfa_ms": 305.5466000078013,
+      "full_synth_ms": 3980.371900004684,
+      "audio_duration_s": 4.72,
+      "rtf": 0.8432991313569246,
+      "num_chunks": 11,
+      "vram_peak_gb": 0.3720698356628418,
+      "wav_path": "samples\\stream_default_03_emotion_sad.wav"
+    },
+    {
+      "slug": "04_question",
+      "text": "Bạn nghĩ sao về việc học một thứ mới mỗi ngày? Có mệt lắm không?",
+      "ttfa_ms": 295.5006999982288,
+      "full_synth_ms": 3105.1963999925647,
+      "audio_duration_s": 3.6,
+      "rtf": 0.8625545555534901,
+      "num_chunks": 9,
+      "vram_peak_gb": 0.37187814712524414,
+      "wav_path": "samples\\stream_default_04_question.wav"
+    },
+    {
+      "slug": "05_long_sentence",
+      "text": "Hôm nay trời trong xanh và mát mẻ, gió thổi nhè nhẹ qua tán cây phượng, buổi sáng thức dậy nghe tiếng chim hót, tự dưng thấy nhẹ nhõm và vui vẻ hơn hẳn.",
+      "ttfa_ms": 316.21269999595825,
+      "full_synth_ms": 8416.905999998562,
+      "audio_duration_s": 9.76,
+      "rtf": 0.8623879098359183,
+      "num_chunks": 20,
+      "vram_peak_gb": 0.3743095397949219,
+      "wav_path": "samples\\stream_default_05_long_sentence.wav"
+    },
+    {
+      "slug": "06_numbers_money",
+      "text": "Tổng cộng là 1.250.000 đồng, bạn muốn thanh toán bằng thẻ hay tiền mặt?",
+      "ttfa_ms": 293.65590000816155,
+      "full_synth_ms": 4528.110700004618,
+      "audio_duration_s": 5.28,
+      "rtf": 0.857596723485723,
+      "num_chunks": 13,
+      "vram_peak_gb": 0.37270069122314453,
+      "wav_path": "samples\\stream_default_06_numbers_money.wav"
+    },
+    {
+      "slug": "07_names_english",
+      "text": "Bạn thử xem YouTube kênh của Anthropic hoặc DeepMind chưa? Nội dung về AI khá hay.",
+      "ttfa_ms": 294.0658000006806,
+      "full_synth_ms": 4921.209000007366,
+      "audio_duration_s": 5.76,
+      "rtf": 0.8543765625012788,
+      "num_chunks": 13,
+      "vram_peak_gb": 0.37248945236206055,
+      "wav_path": "samples\\stream_default_07_names_english.wav"
+    },
+    {
+      "slug": "08_exclamation",
+      "text": "Trời ơi! Không thể tin được! Bạn nói thật đấy à?",
+      "ttfa_ms": 305.7416999945417,
+      "full_synth_ms": 2972.2811999963596,
+      "audio_duration_s": 3.44,
+      "rtf": 0.8640352325570813,
+      "num_chunks": 9,
+      "vram_peak_gb": 0.37164735794067383,
+      "wav_path": "samples\\stream_default_08_exclamation.wav"
+    },
+    {
+      "slug": "09_ellipsis_pause",
+      "text": "Ừm... để mình nghĩ xíu... à đúng rồi, mình nhớ ra rồi. Là chuyện tuần trước mà.",
+      "ttfa_ms": 359.9285999953281,
+      "full_synth_ms": 4037.8711999946972,
+      "audio_duration_s": 4.64,
+      "rtf": 0.8702308620678227,
+      "num_chunks": 11,
+      "vram_peak_gb": 0.3723926544189453,
+      "wav_path": "samples\\stream_default_09_ellipsis_pause.wav"
+    },
+    {
+      "slug": "10_mixed_punct",
+      "text": "Này, bạn ơi (nghe không?) — hôm nay mình đi ăn phở, uống trà sữa, xong ghé cà phê; cả ngày vui hết cỡ luôn!",
+      "ttfa_ms": 294.6838000061689,
+      "full_synth_ms": 5555.362500002957,
+      "audio_duration_s": 6.64,
+      "rtf": 0.8366509789161081,
+      "num_chunks": 14,
+      "vram_peak_gb": 0.37300539016723633,
+      "wav_path": "samples\\stream_default_10_mixed_punct.wav"
+    }
+  ],
+  "block_default": [
+    {
+      "slug": "01_greeting_short",
+      "text": "Xin chào, mình là Mai. Rất vui được gặp bạn hôm nay.",
+      "ttfa_ms": 2180.7735999900615,
+      "full_synth_ms": 2180.7735999900615,
+      "audio_duration_s": 3.52,
+      "rtf": 0.619537954542631,
+      "vram_peak_gb": 0.3691272735595703,
+      "wav_path": "samples\\block_default_01_greeting_short.wav"
+    },
+    {
+      "slug": "02_emotion_happy",
+      "text": "Wow tuyệt quá! Bạn giỏi thật đấy, mình phục bạn quá đi mất!",
+      "ttfa_ms": 2280.0910000078147,
+      "full_synth_ms": 2280.0910000078147,
+      "audio_duration_s": 3.76,
+      "rtf": 0.6064071808531423,
+      "vram_peak_gb": 0.3726463317871094,
+      "wav_path": "samples\\block_default_02_emotion_happy.wav"
+    },
+    {
+      "slug": "03_emotion_sad",
+      "text": "Ừm... nghe buồn ghê. Mình hiểu cảm giác đó, đôi khi mọi thứ cứ nặng nề.",
+      "ttfa_ms": 2768.5861000063596,
+      "full_synth_ms": 2768.5861000063596,
+      "audio_duration_s": 4.56,
+      "rtf": 0.6071460745627982,
+      "vram_peak_gb": 0.38628578186035156,
+      "wav_path": "samples\\block_default_03_emotion_sad.wav"
+    },
+    {
+      "slug": "04_question",
+      "text": "Bạn nghĩ sao về việc học một thứ mới mỗi ngày? Có mệt lắm không?",
+      "ttfa_ms": 2480.244699996547,
+      "full_synth_ms": 2480.244699996547,
+      "audio_duration_s": 4.08,
+      "rtf": 0.6079031127442517,
+      "vram_peak_gb": 0.3773484230041504,
+      "wav_path": "samples\\block_default_04_question.wav"
+    },
+    {
+      "slug": "05_long_sentence",
+      "text": "Hôm nay trời trong xanh và mát mẻ, gió thổi nhè nhẹ qua tán cây phượng, buổi sáng thức dậy nghe tiếng chim hót, tự dưng thấy nhẹ nhõm và vui vẻ hơn hẳn.",
+      "ttfa_ms": 6267.110399989178,
+      "full_synth_ms": 6267.110399989178,
+      "audio_duration_s": 9.92,
+      "rtf": 0.6317651612892317,
+      "vram_peak_gb": 0.5319485664367676,
+      "wav_path": "samples\\block_default_05_long_sentence.wav"
+    },
+    {
+      "slug": "06_numbers_money",
+      "text": "Tổng cộng là 1.250.000 đồng, bạn muốn thanh toán bằng thẻ hay tiền mặt?",
+      "ttfa_ms": 3219.607300008647,
+      "full_synth_ms": 3219.607300008647,
+      "audio_duration_s": 4.8,
+      "rtf": 0.6707515208351349,
+      "vram_peak_gb": 0.39115381240844727,
+      "wav_path": "samples\\block_default_06_numbers_money.wav"
+    },
+    {
+      "slug": "07_names_english",
+      "text": "Bạn thử xem YouTube kênh của Anthropic hoặc DeepMind chưa? Nội dung về AI khá hay.",
+      "ttfa_ms": 3923.0618000001414,
+      "full_synth_ms": 3923.0618000001414,
+      "audio_duration_s": 5.68,
+      "rtf": 0.6906798943662221,
+      "vram_peak_gb": 0.4081697463989258,
+      "wav_path": "samples\\block_default_07_names_english.wav"
+    },
+    {
+      "slug": "08_exclamation",
+      "text": "Trời ơi! Không thể tin được! Bạn nói thật đấy à?",
+      "ttfa_ms": 2315.742799997679,
+      "full_synth_ms": 2315.742799997679,
+      "audio_duration_s": 3.44,
+      "rtf": 0.6731810465109532,
+      "vram_peak_gb": 0.3671894073486328,
+      "wav_path": "samples\\block_default_08_exclamation.wav"
+    },
+    {
+      "slug": "09_ellipsis_pause",
+      "text": "Ừm... để mình nghĩ xíu... à đúng rồi, mình nhớ ra rồi. Là chuyện tuần trước mà.",
+      "ttfa_ms": 2975.3187999885995,
+      "full_synth_ms": 2975.3187999885995,
+      "audio_duration_s": 4.8,
+      "rtf": 0.6198580833309583,
+      "vram_peak_gb": 0.39115381240844727,
+      "wav_path": "samples\\block_default_09_ellipsis_pause.wav"
+    },
+    {
+      "slug": "10_mixed_punct",
+      "text": "Này, bạn ơi (nghe không?) — hôm nay mình đi ăn phở, uống trà sữa, xong ghé cà phê; cả ngày vui hết cỡ luôn!",
+      "ttfa_ms": 4598.336400013068,
+      "full_synth_ms": 4598.336400013068,
+      "audio_duration_s": 6.56,
+      "rtf": 0.7009659146361384,
+      "vram_peak_gb": 0.4298982620239258,
+      "wav_path": "samples\\block_default_10_mixed_punct.wav"
+    }
+  ],
+  "stream_fast": [
+    {
+      "slug": "01_greeting_short",
+      "text": "Xin chào, mình là Mai. Rất vui được gặp bạn hôm nay.",
+      "ttfa_ms": 350.4458999959752,
+      "full_synth_ms": 2972.790100000566,
+      "audio_duration_s": 3.12,
+      "rtf": 0.952817339743771,
+      "num_chunks": 10,
+      "vram_peak_gb": 0.3716421127319336,
+      "wav_path": "samples\\stream_fast_01_greeting_short.wav"
+    },
+    {
+      "slug": "02_emotion_happy",
+      "text": "Wow tuyệt quá! Bạn giỏi thật đấy, mình phục bạn quá đi mất!",
+      "ttfa_ms": 330.11830000032205,
+      "full_synth_ms": 3382.363800003077,
+      "audio_duration_s": 3.84,
+      "rtf": 0.8808239062508013,
+      "num_chunks": 10,
+      "vram_peak_gb": 0.3718891143798828,
+      "wav_path": "samples\\stream_fast_02_emotion_happy.wav"
+    },
+    {
+      "slug": "03_emotion_sad",
+      "text": "Ừm... nghe buồn ghê. Mình hiểu cảm giác đó, đôi khi mọi thứ cứ nặng nề.",
+      "ttfa_ms": 300.9561000071699,
+      "full_synth_ms": 4213.746200010064,
+      "audio_duration_s": 4.72,
+      "rtf": 0.8927428389851831,
+      "num_chunks": 12,
+      "vram_peak_gb": 0.3720870018005371,
+      "wav_path": "samples\\stream_fast_03_emotion_sad.wav"
+    },
+    {
+      "slug": "04_question",
+      "text": "Bạn nghĩ sao về việc học một thứ mới mỗi ngày? Có mệt lắm không?",
+      "ttfa_ms": 325.11899998644367,
+      "full_synth_ms": 3757.272299990291,
+      "audio_duration_s": 3.92,
+      "rtf": 0.9584878316301763,
+      "num_chunks": 11,
+      "vram_peak_gb": 0.3719296455383301,
+      "wav_path": "samples\\stream_fast_04_question.wav"
+    },
+    {
+      "slug": "05_long_sentence",
+      "text": "Hôm nay trời trong xanh và mát mẻ, gió thổi nhè nhẹ qua tán cây phượng, buổi sáng thức dậy nghe tiếng chim hót, tự dưng thấy nhẹ nhõm và vui vẻ hơn hẳn.",
+      "ttfa_ms": 322.14650000969414,
+      "full_synth_ms": 9297.254100005375,
+      "audio_duration_s": 10.0,
+      "rtf": 0.9297254100005375,
+      "num_chunks": 26,
+      "vram_peak_gb": 0.37430238723754883,
+      "wav_path": "samples\\stream_fast_05_long_sentence.wav"
+    },
+    {
+      "slug": "06_numbers_money",
+      "text": "Tổng cộng là 1.250.000 đồng, bạn muốn thanh toán bằng thẻ hay tiền mặt?",
+      "ttfa_ms": 290.9053000039421,
+      "full_synth_ms": 4625.4402000049595,
+      "audio_duration_s": 5.44,
+      "rtf": 0.8502647426479705,
+      "num_chunks": 12,
+      "vram_peak_gb": 0.3726949691772461,
+      "wav_path": "samples\\stream_fast_06_numbers_money.wav"
+    },
+    {
+      "slug": "07_names_english",
+      "text": "Bạn thử xem YouTube kênh của Anthropic hoặc DeepMind chưa? Nội dung về AI khá hay.",
+      "ttfa_ms": 319.02910000644624,
+      "full_synth_ms": 5308.692999999039,
+      "audio_duration_s": 6.16,
+      "rtf": 0.8618008116881556,
+      "num_chunks": 14,
+      "vram_peak_gb": 0.37253522872924805,
+      "wav_path": "samples\\stream_fast_07_names_english.wav"
+    },
+    {
+      "slug": "08_exclamation",
+      "text": "Trời ơi! Không thể tin được! Bạn nói thật đấy à?",
+      "ttfa_ms": 290.76799999165814,
+      "full_synth_ms": 2584.871999992174,
+      "audio_duration_s": 3.04,
+      "rtf": 0.8502868421026888,
+      "num_chunks": 8,
+      "vram_peak_gb": 0.3715786933898926,
+      "wav_path": "samples\\stream_fast_08_exclamation.wav"
+    },
+    {
+      "slug": "09_ellipsis_pause",
+      "text": "Ừm... để mình nghĩ xíu... à đúng rồi, mình nhớ ra rồi. Là chuyện tuần trước mà.",
+      "ttfa_ms": 309.96690000756644,
+      "full_synth_ms": 4005.896999995457,
+      "audio_duration_s": 4.64,
+      "rtf": 0.8633398706886761,
+      "num_chunks": 11,
+      "vram_peak_gb": 0.37233543395996094,
+      "wav_path": "samples\\stream_fast_09_ellipsis_pause.wav"
+    },
+    {
+      "slug": "10_mixed_punct",
+      "text": "Này, bạn ơi (nghe không?) — hôm nay mình đi ăn phở, uống trà sữa, xong ghé cà phê; cả ngày vui hết cỡ luôn!",
+      "ttfa_ms": 296.7932000028668,
+      "full_synth_ms": 6014.022500006831,
+      "audio_duration_s": 6.96,
+      "rtf": 0.8640836925297172,
+      "num_chunks": 15,
+      "vram_peak_gb": 0.37305688858032227,
+      "wav_path": "samples\\stream_fast_10_mixed_punct.wav"
+    }
+  ],
+  "block_fast": [
+    {
+      "slug": "01_greeting_short",
+      "text": "Xin chào, mình là Mai. Rất vui được gặp bạn hôm nay.",
+      "ttfa_ms": 2235.1633999933256,
+      "full_synth_ms": 2235.1633999933256,
+      "audio_duration_s": 3.52,
+      "rtf": 0.6349896022708311,
+      "vram_peak_gb": 0.3691272735595703,
+      "wav_path": "samples\\block_fast_01_greeting_short.wav"
+    },
+    {
+      "slug": "02_emotion_happy",
+      "text": "Wow tuyệt quá! Bạn giỏi thật đấy, mình phục bạn quá đi mất!",
+      "ttfa_ms": 2548.251000000164,
+      "full_synth_ms": 2548.251000000164,
+      "audio_duration_s": 3.84,
+      "rtf": 0.6636070312500427,
+      "vram_peak_gb": 0.372650146484375,
+      "wav_path": "samples\\block_fast_02_emotion_happy.wav"
+    },
+    {
+      "slug": "03_emotion_sad",
+      "text": "Ừm... nghe buồn ghê. Mình hiểu cảm giác đó, đôi khi mọi thứ cứ nặng nề.",
+      "ttfa_ms": 2938.74529999448,
+      "full_synth_ms": 2938.74529999448,
+      "audio_duration_s": 4.64,
+      "rtf": 0.6333502801712242,
+      "vram_peak_gb": 0.3887748718261719,
+      "wav_path": "samples\\block_fast_03_emotion_sad.wav"
+    },
+    {
+      "slug": "04_question",
+      "text": "Bạn nghĩ sao về việc học một thứ mới mỗi ngày? Có mệt lắm không?",
+      "ttfa_ms": 2483.751099993242,
+      "full_synth_ms": 2483.751099993242,
+      "audio_duration_s": 3.92,
+      "rtf": 0.633609974488072,
+      "vram_peak_gb": 0.3738555908203125,
+      "wav_path": "samples\\block_fast_04_question.wav"
+    },
+    {
+      "slug": "05_long_sentence",
+      "text": "Hôm nay trời trong xanh và mát mẻ, gió thổi nhè nhẹ qua tán cây phượng, buổi sáng thức dậy nghe tiếng chim hót, tự dưng thấy nhẹ nhõm và vui vẻ hơn hẳn.",
+      "ttfa_ms": 6443.026099994313,
+      "full_synth_ms": 6443.026099994313,
+      "audio_duration_s": 10.0,
+      "rtf": 0.6443026099994313,
+      "vram_peak_gb": 0.5348548889160156,
+      "wav_path": "samples\\block_fast_05_long_sentence.wav"
+    },
+    {
+      "slug": "06_numbers_money",
+      "text": "Tổng cộng là 1.250.000 đồng, bạn muốn thanh toán bằng thẻ hay tiền mặt?",
+      "ttfa_ms": 3388.6753000115277,
+      "full_synth_ms": 3388.6753000115277,
+      "audio_duration_s": 5.52,
+      "rtf": 0.6138904529006391,
+      "vram_peak_gb": 0.4050126075744629,
+      "wav_path": "samples\\block_fast_06_numbers_money.wav"
+    },
+    {
+      "slug": "07_names_english",
+      "text": "Bạn thử xem YouTube kênh của Anthropic hoặc DeepMind chưa? Nội dung về AI khá hay.",
+      "ttfa_ms": 3613.262200000463,
+      "full_synth_ms": 3613.262200000463,
+      "audio_duration_s": 5.92,
+      "rtf": 0.6103483445946728,
+      "vram_peak_gb": 0.41440629959106445,
+      "wav_path": "samples\\block_fast_07_names_english.wav"
+    },
+    {
+      "slug": "08_exclamation",
+      "text": "Trời ơi! Không thể tin được! Bạn nói thật đấy à?",
+      "ttfa_ms": 1886.3745999988168,
+      "full_synth_ms": 1886.3745999988168,
+      "audio_duration_s": 3.12,
+      "rtf": 0.6046072435893644,
+      "vram_peak_gb": 0.3637113571166992,
+      "wav_path": "samples\\block_fast_08_exclamation.wav"
+    },
+    {
+      "slug": "09_ellipsis_pause",
+      "text": "Ừm... để mình nghĩ xíu... à đúng rồi, mình nhớ ra rồi. Là chuyện tuần trước mà.",
+      "ttfa_ms": 3059.394699987024,
+      "full_synth_ms": 3059.394699987024,
+      "audio_duration_s": 5.04,
+      "rtf": 0.6070227579339333,
+      "vram_peak_gb": 0.3948369026184082,
+      "wav_path": "samples\\block_fast_09_ellipsis_pause.wav"
+    },
+    {
+      "slug": "10_mixed_punct",
+      "text": "Này, bạn ơi (nghe không?) — hôm nay mình đi ăn phở, uống trà sữa, xong ghé cà phê; cả ngày vui hết cỡ luôn!",
+      "ttfa_ms": 4090.914200001862,
+      "full_synth_ms": 4090.914200001862,
+      "audio_duration_s": 6.56,
+      "rtf": 0.623614969512479,
+      "vram_peak_gb": 0.4298982620239258,
+      "wav_path": "samples\\block_fast_10_mixed_punct.wav"
+    }
+  ]
+}

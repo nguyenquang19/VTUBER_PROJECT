@@ -5,7 +5,7 @@ Ghép 4.B/4.C/4.D + FallbackManager (0.D) thành pipeline hoàn chỉnh:
   text
     → split_vn → list[sentence]
     → cho từng câu: FallbackManager.execute("tts", TTSRequest)
-         Level 0: ViXttsService.synthesize_stream (primary)
+         Level 0: VieNeuTtsService.synthesize_stream (primary)
          Level 1: SubtitleFallbackService.synthesize_stream (subtitle overlay)
        forward AudioChunk → AudioPlayer.enqueue (no-overlap)
     → đo TTFA end-to-end (từ speak() gọi tới AudioChunk đầu tiên non-empty)
@@ -30,7 +30,7 @@ _CHAIN_ID = "tts"
 class TTSPipeline:
     def __init__(
         self,
-        primary,                    # TTSService (ViXttsService)
+        primary,                    # TTSService (VieNeuTtsService)
         subtitle,                   # TTSService (SubtitleFallbackService)
         player,                     # AudioPlayer
         fallback: FallbackManager,

@@ -2,7 +2,7 @@
 
 Chạy full stack:
 - Phase 1: PromptManager + LlamaCppLLMService + parser + LLM fallback (canned)
-- Phase 4 (khi --tts): ViXttsService + AudioPlayer + SubtitleFallback + TTSPipeline
+- Phase 4 (khi --tts): VieNeuTtsService + AudioPlayer + SubtitleFallback + TTSPipeline
   → LiveSentenceStreamer: câu vừa hoàn tất trong lúc LLM còn stream → TTS synth
     NGAY câu đó (song song với LLM), player phát tuần tự → user nghe âm SỚM,
     không phải chờ LLM in xong hết rồi TTS mới nói.
@@ -225,15 +225,15 @@ async def main() -> None:
         from services.tts.audio_player import AudioPlayer
         from services.tts.subtitle_fallback import SubtitleFallbackService
         from services.tts.tts_pipeline import TTSPipeline
-        from services.tts.vixtts_service import ViXttsService
+        from services.tts.vieneu_service import VieNeuTtsService
 
-        print("🎙️ Đang nạp viXTTS (10-15s)...")
+        print("🎙️ Đang nạp VieNeu-TTS (10-15s)...")
         t0 = time.perf_counter()
-        tts_svc = ViXttsService.from_loader(loader)
+        tts_svc = VieNeuTtsService.from_loader(loader)
         try:
             await tts_svc.start()
         except Exception as e:
-            print(f"❌ viXTTS load thất bại: {e}. Chạy tiếp KHÔNG TTS.")
+            print(f"❌ VieNeu-TTS load thất bại: {e}. Chạy tiếp KHÔNG TTS.")
             tts_svc = None
         else:
             audio_player = AudioPlayer(sample_rate=tts_svc.sample_rate)

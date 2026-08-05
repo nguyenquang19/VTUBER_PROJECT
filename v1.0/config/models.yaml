@@ -73,28 +73,30 @@ llm_canned:
     - "reasoning_content"
 
 tts:
-  provider: vixtts               # chốt Pre-flight Day 2 (Piper 3 voice REJECTED)
-  model_dir: ".\\models\\tts\\xtts\\vixtts"
+  provider: vieneu               # chuyển từ viXTTS sau spike day_vieneu (2026-08)
+  # reference_audio dùng chung file vi_sample.wav (giữ lại từ setup viXTTS —
+  # đây là giọng bạn ưng). VieNeu enroll qua add_voice() 1 lần lúc start().
   reference_audio: ".\\models\\tts\\xtts\\vixtts\\vi_sample.wav"
   device: cuda
-  sample_rate: 24000
-  vram_mb: 1790
+  backend: pytorch               # pytorch = GPU (có streaming); onnx = CPU int8
+  sample_rate: 48000             # VieNeu v3 Turbo output 48kHz (viXTTS trước là 24kHz)
+  vram_mb: 400                   # đo được ~0.37GB peak (nhẹ hơn viXTTS 1.79GB 4.8x)
   params:
-    language: vi
-    gpt_cond_len: 30             # default 3 gây giọng lai Anh — bắt buộc 30
-    gpt_cond_chunk_len: 6
-    temperature: 0.75
-    length_penalty: 1.0
-    repetition_penalty: 5.0
+    style: tu_nhien              # "tu_nhien" | "doc_truyen"
+    denoise: true                # auto denoise ref audio lúc enroll
+    temperature: 0.8
+    top_k: 25
+    top_p: 0.95
+    max_new_frames: 300
+    repetition_penalty: 1.2
   latency_measured:
-    synth_p50_ms: 2600
-    rtf: 0.48                    # < 1.0 → streaming per-sentence giấu được latency
+    ttfa_p50_ms: 308             # spike day_vieneu (10 câu VN, sau khi cache voice)
+    rtf: 0.857                   # < 1.0 → streaming per-sentence OK
   latency_target:
-    synth_p50_ms: 2600
-    synth_p95_ms: 5000
-  # Fallback chain timeouts (TTSPipeline 4.E). Đây là timeout SYNTH cả câu (KHÔNG
-  # phải TTFA — TTFA vẫn ~450ms nhờ inference_stream). Câu dài 100+ chars synth
-  # ~4-5s → 15s buffer đủ. Trước đây default 3s → câu dài rơi subtitle oan.
+    ttfa_p50_ms: 500
+    ttfa_p95_ms: 1000
+  # Fallback chain timeouts (TTSPipeline 4.E). Timeout SYNTH cả câu (KHÔNG phải TTFA
+  # — TTFA ~308ms nhờ infer_stream). Câu dài 100+ chars full synth ~5-8s → 15s đủ.
   timeout_primary_s: 15.0
   timeout_subtitle_s: 0.5
 

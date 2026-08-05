@@ -1,6 +1,7 @@
 """TTS interface (ARCHITECTURE 7.6).
 
-Implementation `ViXttsService` ở Phase 4 (chốt Pre-flight Day 2).
+Implementation `VieNeuTtsService` ở Phase 4 (chuyển từ viXTTS 2026-08 sau spike
+day_vieneu — VieNeu TTFA 308ms vs viXTTS 450ms, fine-tune LoRA nhẹ hơn).
 Fallback là subtitle overlay, không phải TTS engine thứ 2 (spec 8.7.3).
 """
 from __future__ import annotations

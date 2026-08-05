@@ -1,7 +1,24 @@
 # STATE — Mai project
 
-**Phase hiện tại:** Phase 4 TTS — ĐÃ CODE XONG 5/5 (4.A–4.E)
-**Task đang làm:** ⛔ CHECKPOINT P4 — Must DoD đã xanh (mocked); live audio user duyệt
+**Phase hiện tại:** Phase 4 TTS — ĐÃ CHUYỂN sang VieNeu-TTS v3 Turbo (2026-08)
+**Task đang làm:** ⛔ CHECKPOINT P4 — 579 test xanh (mocked); live audio user duyệt
+
+## 📌 SWAP TTS BACKEND (2026-08): viXTTS → VieNeu-TTS v3 Turbo
+- **Lý do:** VieNeu TTFA 308ms (vs viXTTS 450ms, nhanh 32%), VRAM 0.37GB (vs 1.79GB,
+  nhẹ 4.8x), 48kHz (vs 24kHz), fine-tune LoRA nhẹ (vs full-weight XTTS ~24GB VRAM
+  không fit RTX 5060 Ti). Chốt sau spike `spike/day_vieneu/benchmark_clone.py`.
+- **Chain mới:** VieNeu (L0 primary) → subtitle (L1). Bỏ hẳn viXTTS khỏi chain.
+- **File xoá:** services/tts/vixtts_service.py, vixtts_patches.py, test_vixtts_*.py
+- **File mới:** services/tts/vieneu_service.py (14 unit test pass, dùng FakeEngine
+  không cần GPU/vieneu package). Enroll ref audio (`add_voice`) 1 LẦN trong start()
+  — critical: mỗi infer không cache → TTFA 5626ms (18x chậm hơn).
+- **Ref audio:** giữ `models/tts/xtts/vixtts/vi_sample.wav` (giọng user đã ưng).
+- **Config:** models.yaml tts.* thay params (style/temperature/top_k/max_new_frames).
+- **Deps:** transformers upgraded 4.57 → 5.14 (hub 1.x support). vieneu 3.2.4 +
+  gradio 6 + sea-g2p + pandas 3 vào venv chính. coqui-tts KHÔNG import được nữa
+  (không load nổi hub 1.x) — đã xoá vì đằng nào cũng bỏ viXTTS.
+- **Test:** 579 pass (trước 578, +14 vieneu, -13 vixtts). test_phases Phase 4 update.
+- **Backup:** `requirements_before_vieneu.txt` (132 lines) để rollback nếu cần.
 
 ## Phase 4 milestone (5) — viXTTS streaming
 - [x] 4.A VN cleaner + coqui-tts patches — 12 unit pass. services/tts/vixtts_patches.py:

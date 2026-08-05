@@ -239,8 +239,8 @@ class TestRealConfigFiles:
         assert loader.require("models", "llm_main.provider") == "llama_cpp"
         assert loader.require("models", "llm_main.context_size") == 4096
         assert loader.require("models", "llm_main.port") == 8080
-        # TTS chốt Pre-flight Day 2
-        assert loader.require("models", "tts.provider") == "vixtts"
-        assert loader.require("models", "tts.params.gpt_cond_len") == 30
+        # TTS chuyển sang VieNeu-TTS v3 Turbo (spike day_vieneu, 2026-08)
+        assert loader.require("models", "tts.provider") == "vieneu"
+        assert loader.require("models", "tts.params.style") == "tu_nhien"
         # STT deferred theo scope decision
         assert loader.require("models", "stt.enabled") is False
