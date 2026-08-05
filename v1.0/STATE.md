@@ -1,7 +1,38 @@
 # STATE — Mai project
 
-**Phase hiện tại:** Platform (Stream mode) — YouTube + Discord + Router + stream.py XONG, 839 test xanh
-**Task đang làm:** ⛔ CHECKPOINT Platform (chờ user thử live YouTube/Discord thật)
+**Phase hiện tại:** Autonomy v2 — Aut.A→Aut.E CODE XONG, 923 test xanh
+**Task đang làm:** ⛔ CHECKPOINT Autonomy (chờ user thử live subjective ≥2h)
+
+## Autonomy v2 milestone (5) — Mai tự nói probabilistic + category-based
+- [x] Aut.A UrgeAccumulator + CategorySelector + config (21 test).
+      Urge probabilistic (sigmoid quanh floor, cap prob_max, Gaussian noise),
+      mood coupling (bon_chon boost, buon/nguong dampen), nag decay per
+      consecutive_ignored, self_cooldown TÁCH last_external_activity vs
+      last_self_speak. Selector weighted random no-repeat + per-cat cooldown.
+- [x] Aut.B Material pipeline (35 test). RoundRobinPool xoay vòng no_repeat_last_n
+      + reshuffle. MaterialProvider 5 category dispatch (silence+chat count /
+      topic seed / question seed / operator state / memory snippet), None →
+      composer skip (không bao giờ để LLM bịa từ số 0). OpenerTracker chặn 3 từ
+      mở đầu bơm vào prompt tường minh. DedupBuffer Jaccard overlap post-check.
+- [x] Aut.C AutonomyEngine composer + prompt_builder (19 test). Compose 5 phần,
+      maybe_generate loop 2×len(cats) tries → skip cat thiếu material. Prompt
+      slot-fill per-category, forbidden_openers trong prompt.
+- [x] Aut.D Refactor stream + CLI wire (0 test unit, verify --help + suite).
+      Split stream.py → stream_youtube.py (--with-discord) + stream_discord.py
+      (--with-youtube VID). Extract StreamRuntime shared (autonomy tick loop bg
+      + share turn_lock với ChatRouter). CLI --autonomy flag wire EmotionOrch
+      + AutonomyEngine + bg loop chia turn_lock với REPL.
+- [x] Aut.E Integration DoD (9 test). Simulated FakeClock 2-6h, verify 5 DoD.
+
+## ✅ DoD Autonomy v2 (spec Mục 4) — 5/6 (chờ live subjective)
+- [x] Variance: 2h simulated → intervals CV > 5% (không constant)
+- [x] No-repeat: 20 speaks liên tiếp không lần nào lặp cat + max cat < 60%
+- [x] Self-cooldown: urge stays 0 trong toàn window, should_speak_now False
+- [x] Mood coupling: bon_chon=9 vs 1 → HIGH speaks nhiều hơn LOW (45 phút sim)
+- [x] Nag decay: consecutive_ignored=5 → urge tăng chậm hơn baseline
+- [ ] Live ≥2h subjective — chờ user chạy `python scripts/cli.py --autonomy`
+
+
 
 ## Platform milestone (4) — Stream mode: YouTube + Discord
 - [x] Platform.A YouTubeChatService (13 test). pytchat wrapper, poll 2s, parse
