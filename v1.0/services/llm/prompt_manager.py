@@ -95,6 +95,39 @@ class PromptManager:
             temperature=temperature if temperature is not None else self._default_temperature,
         )
 
+    def build_request_with_mood(
+        self,
+        request_id: str,
+        user_text: str,
+        current_mood,             # MoodState — mood đã tính từ MoodEngine (Kênh A)
+        event_category: str | None = None,
+        tone_flags: set[str] | None = None,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+    ) -> LLMRequest:
+        """Request có Context block (Phase 7.5.D, spec Mục 6.1).
+
+        Chèn 1 system message sau persona chứa `current_mood` + `event_category`
+        + tone flags. LLM viết theo mood ĐÃ GIAO (không tự đoán). Mood block LLM
+        xuất ra vẫn giữ format Phase 1 — dùng làm Kênh B turn kế.
+
+        `tone_flags`: set các cờ đang active (VD {"force_gentle_tone"}). Thread
+        qua prompt để LLM biết đổi tone; Filter (Phase 3) xử độc lập ở output.
+        """
+        context = _format_mood_context(current_mood, event_category, tone_flags)
+        messages = [
+            self._cache.as_message(),
+            ChatMessage(role="system", content=context),
+            *self._history,
+            ChatMessage(role="user", content=user_text),
+        ]
+        return LLMRequest(
+            request_id=request_id,
+            messages=messages,
+            max_tokens=max_tokens if max_tokens is not None else self._default_max_tokens,
+            temperature=temperature if temperature is not None else self._default_temperature,
+        )
+
     def build_ambient_request(
         self,
         request_id: str,
@@ -135,3 +168,41 @@ class PromptManager:
         max_msgs = self._max_history_turns * 2
         if len(self._history) > max_msgs:
             self._history = self._history[-max_msgs:] if max_msgs else []
+
+
+# ---------- helpers ----------
+
+
+_TONE_HINTS: dict[str, str] = {
+    "force_gentle_tone": (
+        "CỜ force_gentle_tone: user đang tổn thương thật — BỎ giọng đùa/ngang, "
+        "chuyển đồng cảm chân thành (persona Phần C ranh giới #4)."
+    ),
+    "force_deflect": (
+        "CỜ force_deflect: có ý đồ gạ gẫm — LUÔN né/đùa nhẹ, KHÔNG bao giờ "
+        "gạ lại (persona Phần C ranh giới)."
+    ),
+}
+
+
+def _format_mood_context(current_mood, event_category, tone_flags) -> str:
+    """Build 1 system message chứa Context block (spec Mục 6.1).
+
+    Format có chủ đích ngắn — llama-server không tốn token thừa. Mood dạng
+    'vui=6 buc=3 ...' để LLM parse nhanh không lẫn với block mood output cuối câu.
+    """
+    mood_str = " ".join(
+        f"{d}={getattr(current_mood, d)}"
+        for d in ("vui", "buon", "buc", "bon_chon", "nguong")
+    )
+    lines = [
+        "[Context — mood ĐƯỢC GIAO, viết câu khớp; vẫn xuất mood block cuối câu như bình thường]",
+        f"- current_mood: {mood_str}",
+    ]
+    if event_category:
+        lines.append(f"- event_category: {event_category}")
+    if tone_flags:
+        for flag in sorted(tone_flags):
+            hint = _TONE_HINTS.get(flag, f"CỜ {flag}: bật.")
+            lines.append(f"- {hint}")
+    return "\n".join(lines)
