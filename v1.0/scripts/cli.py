@@ -189,11 +189,79 @@ async def _turn_with_continue(
         parsed = await _one_turn(runner, svc, "(nói tiếp đi)", pipeline, player)
 
 
+async def _autonomy_bg_loop(
+    autonomy, emotion, pm, runner, tts_pipeline, turn_lock: asyncio.Lock,
+) -> None:
+    """Background task: tick autonomy, sinh ambient turn khi urge đủ (Aut.D wire cli).
+
+    Chia sẻ turn_lock với REPL để không đè turn user (đang gõ hoặc đang chờ Mai).
+    """
+    from services.autonomy.material_provider import RuntimeContext
+    import time as _time
+
+    tick_s = autonomy.cfg.tick_seconds
+    while True:
+        try:
+            await asyncio.sleep(tick_s)
+            mood = emotion.current_mood() if emotion else None
+            if mood is None:
+                continue
+            autonomy.tick(mood)
+
+            # Skip nếu REPL đang xử turn khác (user gõ hoặc turn chạy)
+            if turn_lock.locked():
+                continue
+
+            # Build ctx từ pm.history (2-3 turn text gần nhất)
+            recent = []
+            for msg in list(pm.history())[-6:]:
+                if hasattr(msg, "content") and msg.content:
+                    recent.append(msg.content)
+            silence_s = _time.time() - autonomy.urge.last_external_activity_ts
+            ctx = RuntimeContext(
+                silence_seconds=silence_s,
+                chat_count_last_10min=0,
+                operator_online=False,
+                consecutive_ignored=autonomy.urge.consecutive_ignored,
+                working_memory_recent=recent,
+            )
+            decision = autonomy.maybe_generate(mood, ctx)
+            if decision is None:
+                continue
+
+            async with turn_lock:
+                print(f"\n[Mai tự nói ({decision.category}, urge={autonomy.urge.urge:.0f})]",
+                      flush=True)
+                parsed = await runner.run_ambient_turn(
+                    f"ambient_cli_{autonomy.urge._ticks}", decision.prompt_text,
+                )
+                if parsed.ok and parsed.text:
+                    if autonomy.check_dedup(parsed.text):
+                        parsed = await runner.run_ambient_turn(
+                            f"ambient_cli_{autonomy.urge._ticks}_r", decision.prompt_text,
+                        )
+                    autonomy.on_self_spoke(parsed.text)
+                    if tts_pipeline is not None:
+                        try:
+                            await tts_pipeline.speak(
+                                f"ambient_cli_{autonomy.urge._ticks}", parsed.text,
+                            )
+                        except Exception:
+                            pass
+                    print("\nBạn: ", end="", flush=True)
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            print(f"\n[autonomy err] {e}", flush=True)
+
+
 async def main() -> None:
     ap = argparse.ArgumentParser(description="Mai CLI")
     ap.add_argument("prompts", nargs="*", help="câu hỏi auto (mỗi arg 1 lượt)")
     ap.add_argument("--dashboard", action="store_true", help="bật dashboard cùng process")
-    ap.add_argument("--tts", action="store_true", help="bật TTS viXTTS (cần GPU)")
+    ap.add_argument("--tts", action="store_true", help="bật TTS VieNeu (cần GPU)")
+    ap.add_argument("--autonomy", action="store_true",
+                    help="bật Autonomy Engine v2 (Mai tự nói khi silence)")
     args = ap.parse_args()
 
     loader = ConfigLoader(REPO_ROOT / "config")
@@ -207,9 +275,29 @@ async def main() -> None:
     pm = PromptManager.from_loader(loader)
     fb = FallbackManager()
     canned = CannedResponder.from_loader(loader)
-    runner = LLMTurnRunner.from_loader(
-        loader, svc, pm, fb, canned, on_token=_on_token, metrics=metrics
-    )
+
+    # ---------- Autonomy Engine v2 (optional --autonomy) ----------
+    emotion = None
+    autonomy = None
+    turn_lock = asyncio.Lock()
+    if args.autonomy:
+        from orchestrator.autonomy_engine import AutonomyEngine
+        from orchestrator.emotion_orchestrator import EmotionOrchestrator
+        from services.qc.drift_detector import DriftDetector
+
+        emotion = EmotionOrchestrator.from_loader(loader, memory=None)
+        drift = DriftDetector.from_loader(loader)
+        await emotion.start()
+        autonomy = AutonomyEngine.from_loader(loader)
+        runner = LLMTurnRunner.from_loader(
+            loader, svc, pm, fb, canned, on_token=_on_token, metrics=metrics,
+            emotion=emotion, drift_detector=drift,
+        )
+        print("🧠 Autonomy engine v2 bật — Mai sẽ tự nói khi silence.")
+    else:
+        runner = LLMTurnRunner.from_loader(
+            loader, svc, pm, fb, canned, on_token=_on_token, metrics=metrics,
+        )
 
     health = await svc.health_check()
     if not health.is_ok:
@@ -271,19 +359,31 @@ async def main() -> None:
         dash_task = asyncio.create_task(uv.serve())
         print(f"📊 Dashboard: http://{host}:{port}")
 
+    # ---------- Autonomy background loop ----------
+    autonomy_task = None
+    if autonomy is not None:
+        autonomy_task = asyncio.create_task(
+            _autonomy_bg_loop(autonomy, emotion, pm, runner, tts_pipeline, turn_lock),
+            name="cli_autonomy",
+        )
+
     print("=" * 64)
     print(f"  Mai CLI — persona v{pm.version} — gõ 'quit' để thoát"
-          f"{' — TTS ON (streaming per-sentence)' if tts_pipeline else ''}")
+          f"{' — TTS ON (streaming per-sentence)' if tts_pipeline else ''}"
+          f"{' — AUTONOMY ON' if autonomy else ''}")
     print("=" * 64)
 
     try:
         if args.prompts:
             for p in args.prompts:
                 print(f"\nBạn: {p}")
-                await _turn_with_continue(
-                    runner, svc, p, tts_pipeline, audio_player,
-                    max_continue=auto_continue_max,
-                )
+                async with turn_lock:
+                    if autonomy is not None:
+                        autonomy.on_external_activity()
+                    await _turn_with_continue(
+                        runner, svc, p, tts_pipeline, audio_player,
+                        max_continue=auto_continue_max,
+                    )
         else:
             while True:
                 try:
@@ -296,11 +396,22 @@ async def main() -> None:
                 if user.lower() in ("quit", "exit", "thoat", "thoát"):
                     print("Bye!")
                     break
-                await _turn_with_continue(
-                    runner, svc, user, tts_pipeline, audio_player,
-                    max_continue=auto_continue_max,
-                )
+                async with turn_lock:
+                    if autonomy is not None:
+                        autonomy.on_external_activity()
+                    await _turn_with_continue(
+                        runner, svc, user, tts_pipeline, audio_player,
+                        max_continue=auto_continue_max,
+                    )
     finally:
+        # Cancel autonomy bg loop trước (dùng runner/emotion cleanup sau)
+        if autonomy_task is not None and not autonomy_task.done():
+            autonomy_task.cancel()
+            with contextlib.suppress(Exception):
+                await autonomy_task
+        if emotion is not None:
+            with contextlib.suppress(Exception):
+                await emotion.stop()
         if dash_server is not None:
             await dash_server.stop_push_loop()
         if dash_task is not None:

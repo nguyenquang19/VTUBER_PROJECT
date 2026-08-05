@@ -144,6 +144,36 @@ class LLMTurnRunner:
         self._schedule_memory_write(user_text, parsed, viewer_id, session_id, trigger_type)
         return parsed, result.level_used
 
+    async def run_ambient_turn(self, request_id: str, prompt_text: str) -> ParsedResponse:
+        """Mai tự nói (Autonomy Engine v2 — Aut.D wire).
+
+        Khác run_turn thường:
+        - user_text = prompt_text đã slot-fill sẵn từ AutonomyEngine (Context Mai
+          tự lên tiếng, lý do, seed, forbidden opener…)
+        - KHÔNG commit vào history (ambient không phải trao đổi user — commit sẽ
+          bloat context nhanh khi silence dài)
+        - Vẫn qua fallback chain (canned nếu timeout)
+        - Vẫn feed emotion Kênh B (mood LLM tự report → apply_llm_hint)
+        - KHÔNG memory_extract (ambient không có user_text để extract preference)
+        """
+        request = self._pm.build_request(request_id, prompt_text)
+        result = await self._fb.execute(_CHAIN_ID, request)
+        parsed: ParsedResponse = result.value
+        if parsed.ok:
+            self._canned.update_mood(parsed.mood)
+        self._record_metrics(parsed, result.level_used)
+        # Emotion feedback: apply_llm_hint (Kênh B) + clear tone flags
+        if self._emotion is not None and parsed.ok:
+            try:
+                self._emotion.apply_llm_hint(parsed.mood)
+            except Exception as e:
+                get_logger("llm_turn").warning("ambient_emotion_hint_failed", error=str(e))
+            try:
+                self._emotion.clear_tone_flags()
+            except Exception:
+                pass
+        return parsed
+
     def _build_request_maybe_with_mood(
         self, request_id: str, user_text: str, event_category: str | None,
     ):
