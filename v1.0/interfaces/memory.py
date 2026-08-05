@@ -42,8 +42,13 @@ class MemoryService(Service):
         query_text: str,
         top_k: int = 3,
         tier: MemoryTier | None = None,
+        viewer_id: str | None = None,
     ) -> list[MemoryEntry]:
-        """Truy hồi entry liên quan. Timeout → trả list rỗng, không raise."""
+        """Truy hồi entry liên quan. Timeout → trả list rỗng, không raise.
+
+        `viewer_id` filter — chỉ trả entry của viewer đó (Phase 7.F multi-viewer).
+        None = không lọc theo viewer (default).
+        """
 
     @abstractmethod
     async def forget(self, entry_id: str) -> None:

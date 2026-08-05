@@ -71,8 +71,9 @@ class WorkingMemoryService(MemoryService):
         query_text: str,
         top_k: int = 3,
         tier: MemoryTier | None = None,
+        viewer_id: str | None = None,
     ) -> list[MemoryEntry]:
-        """Trả top_k entry MỚI NHẤT (LIFO), lọc tier nếu có.
+        """Trả top_k entry MỚI NHẤT (LIFO), lọc tier/viewer_id nếu có.
 
         query_text ignored — working memory không semantic search, chỉ recent.
         """
@@ -81,6 +82,8 @@ class WorkingMemoryService(MemoryService):
         it = reversed(self._buf)
         if tier is not None:
             it = (e for e in it if e.tier == tier)
+        if viewer_id is not None:
+            it = (e for e in it if e.metadata.get("viewer_id") == viewer_id)
         return list(_take(it, top_k))
 
     async def forget(self, entry_id: str) -> None:

@@ -101,10 +101,11 @@ class MemoryFallbackManager(MemoryService):
         query_text: str,
         top_k: int = 3,
         tier: MemoryTier | None = None,
+        viewer_id: str | None = None,
     ) -> list[MemoryEntry]:
         """Semantic first, empty → working. Semantic timeout đã trả [] ở 7.D."""
         try:
-            results = await self._primary.query(query_text, top_k, tier)
+            results = await self._primary.query(query_text, top_k, tier, viewer_id)
         except Exception as e:
             self._log.warning("memory_primary_query_error_fallback", error=str(e))
             results = []
@@ -112,7 +113,7 @@ class MemoryFallbackManager(MemoryService):
             self._queries_primary_hit += 1
             return results
         # empty (timeout hoặc thực sự không có) → fallback
-        fallback = await self._fallback.query(query_text, top_k, tier)
+        fallback = await self._fallback.query(query_text, top_k, tier, viewer_id)
         if fallback:
             self._queries_fallback_hit += 1
         return fallback

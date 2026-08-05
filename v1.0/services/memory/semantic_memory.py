@@ -134,13 +134,14 @@ class SemanticMemoryService(MemoryService):
         query_text: str,
         top_k: int = 3,
         tier: MemoryTier | None = None,
+        viewer_id: str | None = None,
     ) -> list[MemoryEntry]:
         """Retrieve top_k. Hard timeout 150ms → fail-safe trả []."""
         self._queries_total += 1
         t0 = time.perf_counter()
         try:
             results = await asyncio.wait_for(
-                self._retrieve(query_text, top_k, tier),
+                self._retrieve(query_text, top_k, tier, viewer_id),
                 timeout=self._timeout_s,
             )
             self._last_query_ms = (time.perf_counter() - t0) * 1000
@@ -164,11 +165,12 @@ class SemanticMemoryService(MemoryService):
         query_text: str,
         top_k: int,
         tier: MemoryTier | None,
+        viewer_id: str | None,
     ) -> list[MemoryEntry]:
         vec = await asyncio.to_thread(self._embedder.embed, query_text)
         tier_str = tier.value if tier else None
         stored = await asyncio.to_thread(
-            self._store.query_knn, vec, top_k, tier=tier_str,
+            self._store.query_knn, vec, top_k, tier=tier_str, viewer_id=viewer_id,
         )
         return [_stored_to_entry(s) for s in stored]
 

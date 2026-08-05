@@ -39,7 +39,7 @@ class FakePrimary(MemoryService):
     async def write(self, entry):
         if self.write_raises: raise self.write_raises
         self.writes.append(entry)
-    async def query(self, text, top_k=3, tier=None):
+    async def query(self, text, top_k=3, tier=None, viewer_id=None):
         self.query_calls += 1
         if self.query_raises: raise self.query_raises
         return list(self.query_returns)
@@ -127,6 +127,20 @@ class TestQueryFallback:
         assert await fb.query("q") == []
         assert fb.get_metrics()["memory_fb_primary_hit"] == 0
         assert fb.get_metrics()["memory_fb_fallback_hit"] == 0
+
+    async def test_viewer_id_forwarded_to_both_tiers(self, working) -> None:
+        p = FakePrimary(query_returns=[])
+        # working có 2 entries khác viewer
+        from datetime import datetime as _dt
+        from interfaces.memory import MemoryEntry
+        e_a = MemoryEntry(entry_id="a", content="c-a", timestamp=_dt.now(),
+                          tier=MemoryTier.WORKING, metadata={"viewer_id": "v_a"})
+        e_b = MemoryEntry(entry_id="b", content="c-b", timestamp=_dt.now(),
+                          tier=MemoryTier.WORKING, metadata={"viewer_id": "v_b"})
+        await working.write(e_a); await working.write(e_b)
+        fb = MemoryFallbackManager(primary=p, fallback=working)
+        results = await fb.query("q", top_k=5, viewer_id="v_a")
+        assert [e.entry_id for e in results] == ["a"]
 
 
 class TestForget:

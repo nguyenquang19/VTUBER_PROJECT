@@ -81,6 +81,17 @@ class TestQuery:
         svc = WorkingMemoryService(maxlen=5)
         assert await svc.query("q") == []
 
+    async def test_filter_by_viewer_id(self) -> None:
+        svc = WorkingMemoryService(maxlen=10)
+        e0 = make_entry(0)
+        e1 = make_entry(1); e1.metadata["viewer_id"] = "v_a"
+        e2 = make_entry(2); e2.metadata["viewer_id"] = "v_b"
+        e3 = make_entry(3); e3.metadata["viewer_id"] = "v_a"
+        for e in (e0, e1, e2, e3):
+            await svc.write(e)
+        results = await svc.query("q", top_k=5, viewer_id="v_a")
+        assert [e.entry_id for e in results] == ["m3", "m1"]
+
 
 class TestForget:
     async def test_forget_removes(self) -> None:
