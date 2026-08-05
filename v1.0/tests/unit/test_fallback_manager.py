@@ -152,6 +152,6 @@ class TestTwoLevelChainsMatchSpec:
 
     async def test_tts_chain_shape(self) -> None:
         fm = FallbackManager()
-        fm.register_chain("tts", [ok_handler("vixtts"), ok_handler("subtitle")], [3.0, 0.1])
+        fm.register_chain("tts", [ok_handler("vieneu"), ok_handler("subtitle")], [3.0, 0.1])
         result = await fm.execute("tts", None)
-        assert result.value == "vixtts"
+        assert result.value == "vieneu"

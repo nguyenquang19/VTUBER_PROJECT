@@ -53,12 +53,13 @@ event_bus:
 
 resources:
   # RTX 5060 Ti 16GB. Baseline đã chiếm: Gemma 12B Q4_K_M ~8000MB (Pre-flight Day 1)
-  # + viXTTS 1790MB (Day 2) = ~9790MB. Budget cho toggleable feature là phần còn lại,
-  # trừ 1000MB buffer cho OS/driver/fragmentation.
+  # + VieNeu-TTS v3 Turbo 400MB (spike day_vieneu) = ~8400MB. Budget cho toggleable
+  # feature là phần còn lại, trừ 1000MB buffer cho OS/driver/fragmentation.
+  # (Trước swap 2026-08: viXTTS chiếm 1790MB → budget hẹp hơn 1390MB.)
   vram_total_mb: 16384
-  vram_reserved_mb: 9790       # core: LLM + TTS
+  vram_reserved_mb: 8400       # core: LLM + TTS
   vram_buffer_mb: 1000
-  # → budget khả dụng cho feature toggle = 16384 - 9790 - 1000 = 5594 MB
+  # → budget khả dụng cho feature toggle = 16384 - 8400 - 1000 = 6984 MB
 
 features:
   # Feature core, KHÔNG toggle được (ARCHITECTURE 4.3)

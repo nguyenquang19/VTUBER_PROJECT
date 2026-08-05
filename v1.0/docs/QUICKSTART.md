@@ -10,7 +10,7 @@
 - **LLM backend:** llama.cpp (`llama-server.exe`), giao tiếp qua OpenAI-compatible HTTP API
 - **Model chính:** Gemma 4 12B Q4_K_M (main), Gemma 4 E4B Q4_K_M (share cho filter + fallback)
 - **STT:** faster-whisper small (VI)
-- **TTS:** xác định sau Pre-flight Day 2 (Piper / XTTS / viXTTS)
+- **TTS:** VieNeu-TTS v3 Turbo (48kHz, GPU PyTorch streaming, chốt spike day_vieneu 2026-08)
 - **Animation:** VTube Studio API
 - **Vector store:** SQLite + sqlite-vec (không server riêng)
 - **Dashboard:** FastAPI + Vanilla JS (Phase 0-5), thêm Alpine.js từ Phase 6

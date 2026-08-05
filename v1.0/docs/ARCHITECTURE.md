@@ -179,23 +179,18 @@ python benchmark.py --endpoint http://localhost:8080
    - Setup F5-TTS
    - Test khả năng Vietnamese
 
-**Decision matrix:**
+**Decision matrix (kết quả đo thực tế, cập nhật 2026-08):**
 
-| TTS | Quality (1-10) | Latency | VRAM | Emotion | Decision |
+| TTS | Quality VN | TTFA | VRAM | Emotion | Decision |
 |---|---|---|---|---|---|
-| Piper | ? | ? | 0 | No | ? |
-| XTTS v2 | ? | ? | 2-3GB | Yes | ? |
-| viXTTS | ? | ? | 2-3GB | Yes | ? |
-| F5-TTS | ? | ? | 1.5-2GB | Partial | ? |
+| Piper | ❌ không đọc dấu VN | — | 0 | No | REJECTED (Day 2) |
+| viXTTS | 6-7/10 | 450ms | 1.79GB | Partial | Dùng Phase 4 đợt 1 (2026-07) → SWAP |
+| VieNeu-TTS v3 Turbo | **>viXTTS** | **308ms** | **0.37GB** | Style + 3 non-verbal cue | ✅ **CURRENT** (2026-08) |
+| OmniVoice VN | — | — | — | — | REJECTED (giọng tạp âm, không stream) |
+| F5-TTS VN | — | — | — | — | REJECTED (base Emilia NC 4.0 non-commercial) |
 
-**Go criteria:**
-- Có ít nhất 1 option đạt quality ≥ 6/10 với latency < 800ms
-
-**No-go scenarios:**
-- Nếu tất cả < 6/10 → phải cân nhắc:
-  - Chấp nhận chất lượng thấp cho v1 (Piper), upgrade sau
-  - Hoặc phá "100% local" constraint, dùng edge-tts (Microsoft, free, cần network)
-  - Hoặc invest fine-tune TTS model riêng (advanced, tốn thời gian)
+**Chốt hiện tại:** VieNeu-TTS v3 Turbo (spike `spike/day_vieneu/benchmark_clone.py`).
+Chi tiết swap: commit `153bf14 phase4: swap viXTTS → VieNeu-TTS`.
 
 **Deliverable:** `spike/day2_report.md` với:
 - Audio samples (attached)
@@ -1550,23 +1545,32 @@ class RuleFilter(FilterService):
 
 **File:** `services/tts/`
 
-**Primary:** xác định sau Pre-flight Day 2 (Piper / XTTS / viXTTS). Ví dụ Piper (CPU, ổn định, low VRAM):
+**Primary (chốt 2026-08):** VieNeu-TTS v3 Turbo (48kHz, GPU PyTorch streaming).
+
+Kiến trúc: Qwen2-0.5B backbone + MOSS-Audio-Tokenizer-Nano vocoder. Fine-tune từ
+NeuTTS Air trên 1000h VN. Support fine-tune tiếp qua LoRA (r=32) — thư mục
+`/finetune` trong repo, phù hợp khi có 30 phút - vài h giọng Mai riêng.
+
+**Điểm bắt buộc:** `add_voice(name, ref_audio, denoise=True)` trong `start()` để
+enroll ref audio 1 lần → cache `speaker_emb` + `ref_codes`. Nếu KHÔNG cache, mỗi
+infer re-encode → TTFA 5626ms (18x chậm hơn). Sau khi cache: TTFA 308ms.
 
 ```python
-class PiperTTS(TTSService):
-    def __init__(self, model_path: str):
-        self.voice = PiperVoice.load(model_path)
-    
+class VieNeuTtsService(TTSService):
+    async def start(self):
+        self._engine = Vieneu(mode="v3turbo", backend="pytorch")
+        # Enroll 1 lần — critical
+        self._engine.add_voice("mai_ref", self.reference_audio, denoise=True)
+
     async def synthesize_stream(self, request):
-        sentences = self._split_sentences(request.text)
-        for i, sentence in enumerate(sentences):
-            audio_bytes = await self._synthesize_one(sentence)
+        for chunk in self._engine.infer_stream(
+            text=request.text, voice="mai_ref",
+            style=self.style, temperature=self.temperature,
+        ):
             yield AudioChunk(
-                request_id=request.request_id,
-                chunk_index=i,
-                audio_bytes=audio_bytes,
-                is_final=(i == len(sentences) - 1),
-                duration_ms=self._get_duration(audio_bytes)
+                request_id=request.request_id, chunk_index=idx,
+                audio_bytes=chunk.tobytes(), is_final=False,
+                duration_ms=int(1000 * len(chunk) / self.sample_rate),
             )
 ```
 
@@ -1656,10 +1660,10 @@ Level 2 (Emergency): Treat as silence, log incident
 
 #### 8.7.3. TTS Fallback Chain (v2.1: SIMPLIFIED — 2 levels)
 
-Xác định dựa vào Pre-flight Day 2:
+Chốt 2026-08 (sau spike day_vieneu):
 
 ```
-Level 1 (Primary):   [Kết quả Pre-flight Day 2 — Piper/XTTS/viXTTS]
+Level 1 (Primary):   VieNeu-TTS v3 Turbo (GPU PyTorch stream, TTFA 308ms, 48kHz)
                      ↓ (fail: timeout, crash)
 Level 2 (Emergency): Silence + subtitle overlay
                      Log incident
@@ -1667,7 +1671,9 @@ Level 2 (Emergency): Silence + subtitle overlay
 
 **Subtitle overlay** là fallback quan trọng: Mai vẫn "communicate" được kể cả không có audio.
 
-**Add Level giữa (Piper CPU backup) khi nào:** nếu Level 1 chọn là GPU-based (XTTS/viXTTS) VÀ log thực tế cho thấy nó crash thường xuyên hơn dự kiến — lúc đó thêm Piper CPU làm bước đệm trước khi rơi hẳn về silence.
+**Add Level giữa (CPU TTS backup) khi nào:** nếu VieNeu GPU crash thường xuyên hơn
+dự kiến — lúc đó thêm VieNeu CPU ONNX int8 (`backend="onnx"`) làm bước đệm trước
+khi rơi hẳn về silence. Cùng model, khác backend → không cần model file mới.
 
 #### 8.7.4. Filter Fallback Chain (v2.3: rule-only, bỏ AI filter)
 
@@ -2059,18 +2065,21 @@ stt_fallback:  # ← MỚI
   device: cpu
   
 tts:
-  provider: piper  # ← Xác nhận sau Pre-flight Day 2
-  # Alternative options nếu Piper không đủ:
-  # provider: xtts
-  # provider: vixtts
-  model_path: .\models\tts\piper_vi_female.onnx
-  device: cpu
-  sample_rate: 22050
-  
-tts_fallback:  # ← MỚI
-  provider: piper
-  model_path: .\models\tts\piper_vi_backup.onnx
-  device: cpu
+  provider: vieneu  # chốt 2026-08 sau spike day_vieneu (viXTTS → VieNeu v3 Turbo)
+  reference_audio: .\models\tts\xtts\vixtts\vi_sample.wav  # giữ ref cũ (giọng ưng)
+  device: cuda
+  backend: pytorch  # pytorch = GPU stream; onnx = CPU int8 (dự phòng)
+  sample_rate: 48000
+  params:
+    style: tu_nhien  # tu_nhien | doc_truyen
+    denoise: true
+    temperature: 0.8
+    top_k: 25
+    max_new_frames: 300
+
+tts_fallback:
+  provider: subtitle_overlay  # spec 8.7.3, không phải TTS engine thứ 2
+  enabled: true
 
 embedding:
   provider: sentence_transformers
@@ -2580,9 +2589,9 @@ async def orch():
 
 ```
 Python 3.11+
-CUDA 12.x (matching driver)
+CUDA 12.8+ (Blackwell RTX 5060 Ti cần sm_120)
 llama.cpp (đã build sẵn với GGML_CUDA=ON)
-Piper TTS binary (hoặc XTTS/viXTTS tuỳ Pre-flight)
+VieNeu-TTS (pip vieneu, kéo torch 2.7+cu128, transformers 5.x, sea-g2p)
 VTube Studio (nếu dùng)
 OBS Studio (recording/streaming)
 ```

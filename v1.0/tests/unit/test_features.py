@@ -353,7 +353,8 @@ class TestFromConfig:
         loader = ConfigLoader(REPO_ROOT / "config")
         loader.load_all()
         m = FeatureManager.from_config(loader)
-        expected = 16384 - 9790 - 1000
+        # VieNeu-TTS (400MB) thay viXTTS (1790MB) từ 2026-08 → reserved giảm 9790→8400
+        expected = 16384 - 8400 - 1000
         assert m._vram_budget_mb == expected
 
     async def test_default_enabled_reflects_yaml(self) -> None:
