@@ -111,6 +111,22 @@ class TestFollowUpTopic:
         assert mp.get("follow_up_topic", ctx(working_memory_recent=["a"])) is None
 
 
+class TestRoastChat:
+    def test_returns_target_chat(self, mp: MaterialProvider) -> None:
+        m = mp.get("roast_chat",
+                   ctx(working_memory_recent=["chat viewer nói gì đó vu vơ"]))
+        assert m is not None
+        assert m["target_chat"] == "chat viewer nói gì đó vu vơ"
+
+    def test_returns_none_when_no_recent(self, mp: MaterialProvider) -> None:
+        assert mp.get("roast_chat", ctx(working_memory_recent=[])) is None
+
+    def test_caps_target_length(self, mp: MaterialProvider) -> None:
+        long_text = "x" * 500
+        m = mp.get("roast_chat", ctx(working_memory_recent=[long_text]))
+        assert len(m["target_chat"]) <= 200
+
+
 class TestUnknownCategory:
     def test_returns_none(self, mp: MaterialProvider) -> None:
         assert mp.get("random_cat_not_exist", ctx()) is None

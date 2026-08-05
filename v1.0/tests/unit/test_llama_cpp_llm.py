@@ -239,6 +239,6 @@ class TestFromLoader:
         loader.load_all()
         svc = LlamaCppLLMService.from_loader(loader)
         assert svc.base_url == "http://127.0.0.1:8080"
-        assert svc.default_max_tokens == 300
+        assert svc.default_max_tokens == 500  # bumped 2026-08-06 (Mai nói dài hơn)
         assert svc._host == "127.0.0.1"
         assert svc._port == 8080

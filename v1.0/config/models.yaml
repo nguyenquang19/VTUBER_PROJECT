@@ -17,7 +17,9 @@ llm_main:
   # Giữ path này chỉ để tham khảo, KHÔNG truyền làm CLI flag.
   prompt_cache_path: ".\\cache\\persona_prefix.bin"
   prompt_cache_all: false
-  num_predict: 300
+  num_predict: 500                # 300 → 500 (2026-08-06): Mai nói dài hơn,
+                                  # tránh cắt cụt. Câu vẫn có thể ngắn nếu ngữ cảnh
+                                  # cần, num_predict là trần chứ không phải ép.
   temperature: 0.85              # default sampling temp (prompt_manager 1.C)
   batch_size: 512
   health_timeout_s: 30

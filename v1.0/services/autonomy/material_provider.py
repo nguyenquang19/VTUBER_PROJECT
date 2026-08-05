@@ -96,8 +96,16 @@ class MaterialProvider:
             recent = ctx.working_memory_recent
             if len(recent) < self._follow_up_min:
                 return None
-            # Lấy 1-2 entry mới nhất làm snippet
             snippet = " | ".join(recent[-2:])
             return {"memory_snippet": snippet}
+
+        if category == "roast_chat":
+            # Cần ít nhất 1 chat gần đây để cà khịa
+            recent = ctx.working_memory_recent
+            if not recent:
+                return None
+            # Pick chat gần nhất (nếu list dài, dùng element cuối)
+            target = recent[-1]
+            return {"target_chat": target[:200]}   # cap length tránh prompt bloat
 
         return None

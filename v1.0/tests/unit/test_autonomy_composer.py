@@ -242,6 +242,14 @@ class TestPromptBuilder:
         )
         assert "hôm qua kể chuyện chơi game" in p
 
+    def test_roast_chat_includes_target(self) -> None:
+        p = render_prompt(
+            "roast_chat", {"target_chat": "chat viewer bảo Mai xinh"},
+            MoodState(), "(không có)", "cà khịa lại",
+        )
+        assert "chat viewer bảo Mai xinh" in p
+        assert "cà khịa" in p.lower() or "tấn công" in p.lower()
+
     def test_unknown_category_has_fallback_body(self) -> None:
         p = render_prompt(
             "random_cat", {}, MoodState(), "(không có)", "fallback",

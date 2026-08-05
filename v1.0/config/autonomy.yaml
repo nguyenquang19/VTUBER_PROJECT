@@ -64,3 +64,13 @@ autonomy:
       cooldown_seconds: 350
       mood_boost: {}
       prompt_hint: "Quay lại 1 chủ đề vừa nhắc trước đó trong session, thêm ý mới."
+
+    roast_chat:
+      weight: 0.9
+      cooldown_seconds: 300
+      mood_boost: { buc: 1.2, bon_chon: 1.1 }
+      prompt_hint: |
+        Chủ động cà khịa 1 chat gần đây — KHÔNG phải trả lời, mà MỞ LỜI tấn công/mỉa
+        mai chuyện họ nói. Cà khịa thẳng, đúng persona ngang tính (Phần A), không
+        rude quá đà (persona Phần C ranh giới #4 người tổn thương thật vẫn giữ).
+        Không hedge — chọn góc chê 1 phía.

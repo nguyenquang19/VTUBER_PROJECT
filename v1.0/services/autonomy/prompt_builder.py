@@ -34,7 +34,9 @@ def render_prompt(
         f"{body}"
         f"- KHÔNG được mở đầu bằng: {forbidden_openers}\n"
         f"\n"
-        f"Viết theo lý do trên, đúng chất Mai (persona đã dặn). 1-2 câu ngắn.\n"
+        f"Viết theo lý do trên, đúng chất Mai (persona đã dặn).\n"
+        f"Câu TỰ NHIÊN, có nội dung — kể chuyện thì có chi tiết, cà khịa thì thẳng,\n"
+        f"không cắt cụt kiểu 1 câu xong hết. Không hedge, không nước đôi.\n"
         f"Không copy nguyên seed/số liệu — diễn đạt lại. Không lặp câu mở đã cấm.\n"
         f"Vẫn xuất mood block cuối câu theo format bắt buộc."
     )
@@ -62,4 +64,9 @@ def _render_body(category: str, m: dict) -> str:
         )
     if category == "follow_up_topic":
         return f"- Chủ đề vừa nhắc: {m.get('memory_snippet', '')}.\n"
+    if category == "roast_chat":
+        return (
+            f"- Chat cần cà khịa: \"{m.get('target_chat', '')}\"\n"
+            f"- Cà khịa chủ động, không phải trả lời — mở lời tấn công/mỉa mai.\n"
+        )
     return "- (không có material cụ thể)\n"
