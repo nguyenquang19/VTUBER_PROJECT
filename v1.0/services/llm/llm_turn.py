@@ -18,6 +18,7 @@ from typing import Any, Callable
 from interfaces.filter import FilterVerdict
 from interfaces.llm import LLMService
 from orchestrator.fallback_manager import FallbackManager
+from orchestrator.logger import get_logger
 from services.llm.canned_response import CannedResponder
 from services.llm.parser import ParsedResponse, parse_response
 from services.llm.prompt_manager import PromptManager
@@ -40,6 +41,8 @@ class LLMTurnRunner:
         regenerator: Any = None,
         memory: Any = None,             # MemoryService (Phase 7.F)
         memory_extractor: Any = None,   # MemoryExtractor (Phase 7.F)
+        emotion: Any = None,            # EmotionOrchestrator (Phase 7.5.E)
+        drift_detector: Any = None,     # DriftDetector (Phase 7.5.E)
     ) -> None:
         self._svc = svc
         self._pm = prompt_manager
@@ -50,7 +53,10 @@ class LLMTurnRunner:
         self._regen = regenerator  # FilterRegenerator | None (3.B)
         self._memory = memory
         self._memory_extractor = memory_extractor
+        self._emotion = emotion
+        self._drift = drift_detector
         self.last_filter_verdict: FilterVerdict | None = None
+        self.last_drift_report: Any = None
         self._memory_writes_scheduled = 0
         self._memory_writes_skipped = 0
         self._fb.register_chain(
@@ -112,22 +118,64 @@ class LLMTurnRunner:
         viewer_id: str | None = None,
         session_id: str | None = None,
         trigger_type: str | None = None,
+        event_category: str | None = None,
     ) -> tuple[ParsedResponse, int]:
         """Trả (parsed, level_used). level_used=0 primary, 1 canned.
 
-        viewer_id/session_id/trigger_type gom vào memory entry qua extractor
-        (Phase 7.F). Nếu memory=None → skip extraction.
+        Nếu emotion orchestrator wire: peek current_mood + active_flags → dùng
+        build_request_with_mood; sau turn apply_llm_hint (Kênh B turn kế) +
+        drift detect + clear tone flags (Phase 7.5.E, spec Mục 6).
         """
-        request = self._pm.build_request(request_id, user_text)
+        request = self._build_request_maybe_with_mood(request_id, user_text, event_category)
+        # Snapshot mood ĐƯỢC GIAO (trước LLM) để drift detect sau
+        engine_mood_pre = self._emotion.current_mood() if self._emotion is not None else None
+
         result = await self._fb.execute(_CHAIN_ID, request)
         parsed: ParsedResponse = result.value
         self._pm.commit_turn(user_text, parsed.text)
         if parsed.ok:
             self._canned.update_mood(parsed.mood)
         self._record_metrics(parsed, result.level_used)
-        # Phase 7.F: auto-extract memory từ turn (fire-and-forget, KHÔNG block turn sau)
+
+        # Phase 7.5.E: LLM mood → Kênh B nudge turn kế + drift detect
+        self._apply_emotion_feedback(parsed, engine_mood_pre)
+
+        # Phase 7.F: auto-extract memory từ turn (fire-and-forget)
         self._schedule_memory_write(user_text, parsed, viewer_id, session_id, trigger_type)
         return parsed, result.level_used
+
+    def _build_request_maybe_with_mood(
+        self, request_id: str, user_text: str, event_category: str | None,
+    ):
+        if self._emotion is None:
+            return self._pm.build_request(request_id, user_text)
+        return self._pm.build_request_with_mood(
+            request_id=request_id,
+            user_text=user_text,
+            current_mood=self._emotion.current_mood(),
+            event_category=event_category,
+            tone_flags=self._emotion.active_tone_flags(),
+        )
+
+    def _apply_emotion_feedback(self, parsed: ParsedResponse, engine_mood_pre) -> None:
+        if self._emotion is None or not parsed.ok:
+            return
+        # Kênh B: nudge target theo LLM self-report cho turn kế
+        try:
+            self._emotion.apply_llm_hint(parsed.mood)
+        except Exception as e:
+            get_logger("llm_turn").warning("emotion_hint_failed", error=str(e))
+        # Drift detect (nếu có) — dùng engine_mood_pre (mood đã GIAO trước LLM)
+        if self._drift is not None and engine_mood_pre is not None:
+            try:
+                self.last_drift_report = self._drift.detect(engine_mood_pre, parsed.mood)
+            except Exception as e:
+                get_logger("llm_turn").warning("drift_detect_failed", error=str(e))
+        # Clear tone flags sau khi Prompt đã đọc (1 lần/turn)
+        try:
+            self._emotion.clear_tone_flags()
+        except Exception:
+            pass
 
     def _schedule_memory_write(
         self,

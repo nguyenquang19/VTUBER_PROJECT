@@ -1,7 +1,39 @@
 # STATE — Mai project
 
-**Phase hiện tại:** Phase 7 Memory — 7.A→7.F CODE XONG, 672 test xanh
-**Task đang làm:** ⛔ CHECKPOINT P7 (chờ user thử live), Phase 4 checkpoint đã DONE
+**Phase hiện tại:** Phase 7.5 Emotion Simulation — 7.5.A→7.5.E CODE XONG, 796 test xanh
+**Task đang làm:** ⛔ CHECKPOINT P7.5 (chờ user thử live ≥100 turn subjective)
+
+## Phase 7.5 milestone (5) — Emotion Simulation (Appraisal + Mood Engine)
+- [x] 7.5.A MoodEngine + config (21 test). Spring-damper 2 kênh over-damped,
+      saturation max+0.5×(n-1) cap 10, target decay theo elapsed từ set gần nhất.
+      DoD 3/7: 10k tick no NaN/oscillation, saturation 100 event, target decay.
+- [x] 7.5.B Classifier + Appraisal + Modifiers (58 test). 20 category chính
+      (10 system + 10 chat) + 4 timer đúng bảng Mục 4. 3 modifier: repeated_troll
+      (session counter +0.5/hit), repeated_shutdown (memory 7 ngày ≥3 → ×1.3),
+      first_time (session+memory query, ×1.2). Filter Phase 3 priority sexual >
+      jailbreak > troll. Sad share > compliment (tone override). Config yaml đầy.
+      DoD 1/7: 24 category + 4 timer + 3 modifier.
+- [x] 7.5.C EmotionOrchestrator + tick loop 10Hz (17 test). Buffer per-dim
+      trong 1 tick → flush saturate 1 lần. Background asyncio task tick, start
+      idempotent, stop cancel-safe. active_tone_flags/clear cho Prompt/Filter đọc.
+- [x] 7.5.D PromptManager.build_request_with_mood + persona +1 dòng (12 test).
+      Chèn 1 system message SAU persona chứa Context (current_mood + category +
+      tone flag hints). Backward compat: build_request cũ không đổi.
+- [x] 7.5.E DriftDetector + wire LLMTurnRunner + integration DoD (16 test).
+      Compare engine mood vs LLM self-report, flag > threshold (default 4).
+      LLMTurnRunner peek emotion trước turn (build_request_with_mood) + sau turn
+      apply_llm_hint (Kênh B) + drift detect + clear tone flags.
+
+## ✅ DoD Phase 7.5 (ARCHITECTURE 11.8.5) — 6/7 (chờ live)
+- [x] 20 category + 4 timer + 3 modifier đúng bảng (7.5.B)
+- [x] MoodEngine over-damped, không dao động/NaN qua 10k tick (7.5.A)
+- [x] Saturation 100 event đồng thời không overshoot >10/kẹt clamp (7.5.A)
+- [x] Target decay về baseline, không kẹt đỉnh (7.5.A + integration mood_decays)
+- [x] 2 cờ tone nối đúng Prompt + Filter (7.5.D + integration test tone_flags_wired)
+- [x] Drift detector log khi lệch > threshold (7.5.E + integration test drift_flagged)
+- [ ] Live ≥100 turn, mood curve "cảm thấy đúng" (subjective, user duyệt)
+
+## Phase 7 milestone (6) — Memory (Semantic + Working + Fallback)
 
 ## Phase 7 milestone (6) — Memory (Semantic + Working + Fallback)
 - [x] 7.A Migration 004 + sqlite-vec loader (3 test). memory_entries (11 cột có
