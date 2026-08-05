@@ -1,7 +1,32 @@
 # STATE — Mai project
 
-**Phase hiện tại:** Phase 7.5 Emotion Simulation — 7.5.A→7.5.E CODE XONG, 796 test xanh
-**Task đang làm:** ⛔ CHECKPOINT P7.5 (chờ user thử live ≥100 turn subjective)
+**Phase hiện tại:** Platform (Stream mode) — YouTube + Discord + Router + stream.py XONG, 839 test xanh
+**Task đang làm:** ⛔ CHECKPOINT Platform (chờ user thử live YouTube/Discord thật)
+
+## Platform milestone (4) — Stream mode: YouTube + Discord
+- [x] Platform.A YouTubeChatService (13 test). pytchat wrapper, poll 2s, parse
+      message + author + super chat amount_vnd (mapping donation appraisal).
+      Fail-safe malformed msg skip, client die → stream ends.
+- [x] Platform.B DiscordChatService (16 test). discord.py bot event-driven bridge
+      qua asyncio.Queue. Token từ env var (DISCORD_BOT_TOKEN, không hardcode).
+      Filter ignore_bots + channel_ids whitelist. Queue full → drop_newest.
+- [x] Platform.C ChatRouter (14 test). Multi-source consumer 1 task/source,
+      serialize turn qua asyncio.Lock (llama-server 1 instance). Convert
+      InputEvent → EmotionEvent (super_chat → SYSTEM donation). Speak callback
+      optional cho TTS. Fail-safe emotion/runner raise → skip event, không kill.
+- [x] Platform.D scripts/stream.py entry. CLI flags: --youtube VIDEO_ID / --discord
+      / --tts / --memory / --dashboard. Wire full stack (LLM + Emotion + TTS +
+      Memory + sources + Router). Ctrl+C stop gracefully.
+- requirements.txt: thêm pytchat 0.5.5 + discord.py 2.7 + sqlite-vec
+
+## ✅ DoD Platform — chưa formal (không nằm trong PROCESS.md, MVP)
+- [x] YouTube chat → Mai response (unit test verify router flow)
+- [x] Discord chat → Mai response (unit test verify router flow)
+- [x] Multi-source interleaved không đè turn (serialize lock test)
+- [x] Super chat → donation appraisal (unit test conversion)
+- [ ] Live test unlisted YouTube stream — chờ user chạy `python scripts/stream.py --youtube ID --tts`
+
+
 
 ## Phase 7.5 milestone (5) — Emotion Simulation (Appraisal + Mood Engine)
 - [x] 7.5.A MoodEngine + config (21 test). Spring-damper 2 kênh over-damped,

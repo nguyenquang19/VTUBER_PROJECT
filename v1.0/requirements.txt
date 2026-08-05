@@ -48,6 +48,13 @@ numpy>=1.26
 sounddevice>=0.4
 pyaudio>=0.2
 
+# Vector store (Phase 7)
+sqlite-vec>=0.1
+
+# Platform chat scrapers (Platform.A/B — stream mode)
+pytchat>=0.5.5                   # YouTube Live chat scraper (no OAuth)
+discord.py>=2.7                  # Discord bot (cần env DISCORD_BOT_TOKEN)
+
 # VTube Studio (Phase 6)
 pyvts>=0.3.2
 
