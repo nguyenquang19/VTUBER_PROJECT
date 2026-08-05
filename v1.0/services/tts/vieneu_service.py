@@ -25,6 +25,27 @@ from orchestrator.logger import get_logger
 
 _SENTINEL = object()
 _VOICE_NAME = "mai_ref"  # tên nội bộ cho enrolled voice
+_torchaudio_patched = False
+
+
+def _patch_torchaudio_load() -> None:
+    """torchaudio 2.11 bỏ backend soundfile, redirect load() sang torchcodec —
+    torchcodec cần FFmpeg DLL không có sẵn Windows. Patch load() dùng soundfile
+    trực tiếp (đủ cho VieNeu chỉ load wav ref). Idempotent.
+    """
+    global _torchaudio_patched
+    if _torchaudio_patched:
+        return
+    import torchaudio
+    import torch
+    import soundfile as sf
+
+    def _sf_load(path, *args, **kw):
+        audio, sr = sf.read(str(path), dtype="float32", always_2d=True)
+        return torch.from_numpy(audio.T), sr
+
+    torchaudio.load = _sf_load
+    _torchaudio_patched = True
 
 
 class VieNeuError(Exception):
@@ -98,6 +119,7 @@ class VieNeuTtsService(TTSService):
     # ---------- Service ----------
 
     async def start(self) -> None:
+        _patch_torchaudio_load()  # bypass torchcodec/FFmpeg trên Windows
         if self._engine is None:
             self._engine = await asyncio.to_thread(self._load_engine)
         # Enroll ref audio 1 LẦN (cache speaker_emb + ref_codes) — critical.

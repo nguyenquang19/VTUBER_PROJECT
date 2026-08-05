@@ -211,7 +211,8 @@ class TestFromLoader:
         loader.load_all()
         svc = VieNeuTtsService.from_loader(loader, engine=FakeEngine())
         assert svc.style == "tu_nhien"
-        assert svc.temperature == 0.8
+        assert svc.temperature == 0.75
+        assert svc.max_new_frames == 500
         assert svc.sample_rate == 48000
         assert svc.backend == "pytorch"
         assert str(svc.reference_audio).endswith("vi_sample.wav")

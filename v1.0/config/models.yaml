@@ -84,10 +84,10 @@ tts:
   params:
     style: tu_nhien              # "tu_nhien" | "doc_truyen"
     denoise: true                # auto denoise ref audio lúc enroll
-    temperature: 0.8
+    temperature: 0.75            # 0.8 → 0.75: ổn định hơn 1 chút, ít "vấp"
     top_k: 25
     top_p: 0.95
-    max_new_frames: 300
+    max_new_frames: 500          # 300 → 500: mỗi chunk gen dài hơn, ít gap giữa chunks
     repetition_penalty: 1.2
   latency_measured:
     ttfa_p50_ms: 308             # spike day_vieneu (10 câu VN, sau khi cache voice)
