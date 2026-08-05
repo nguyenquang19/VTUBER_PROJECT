@@ -14,6 +14,7 @@ from interfaces.base import Service
 class EventSource(str, Enum):
     CHAT_TWITCH = "chat_twitch"
     CHAT_YOUTUBE = "chat_youtube"
+    CHAT_DISCORD = "chat_discord"    # Phase Platform.B
     VOICE_OPERATOR = "voice_operator"
     SYSTEM_TIMER = "system_timer"
     DASHBOARD = "dashboard"

@@ -1,16 +1,15 @@
-# Platform chat sources cho stream mode (Phase Platform.A)
-# Set video_id / channel khi bắt đầu stream. Empty = disabled.
+# Platform chat sources cho stream mode.
+# Scope hẹp: chỉ YouTube + Discord (không Twitch/TikTok).
 
 youtube:
   enabled: false
   video_id: ""                   # VD "abc123XYZ" từ URL youtube.com/watch?v=abc123XYZ
   poll_interval_s: 2.0           # pytchat khuyến nghị 2-5s (rate-limit)
 
-# Twitch/TikTok — placeholder, chưa impl
-twitch:
+discord:
   enabled: false
-  channel: ""
-
-tiktok:
-  enabled: false
-  unique_id: ""                  # @username
+  # Token đọc từ env var (KHÔNG hardcode). Đặt trong .env hoặc shell:
+  #   $env:DISCORD_BOT_TOKEN = "your_bot_token_here"
+  token_env_var: "DISCORD_BOT_TOKEN"
+  channel_ids: []                # list int, VD [123456789012345678]. Rỗng = mọi channel bot join.
+  queue_maxsize: 500             # drop_newest khi vượt (spam protection)
