@@ -121,8 +121,10 @@ stt_fallback:
   device: cpu
 
 embedding:
-  enabled: false                 # Phase 7
+  enabled: true                  # Phase 7 (bật 2026-08 khi làm 7.C)
   provider: sentence_transformers
   model: BAAI/bge-m3
-  device: cpu
-  cache_size: 1000
+  device: cpu                    # CPU only, không đụng VRAM llama+VieNeu
+  dim: 1024                      # bge-m3 output dim (khớp memory_vectors float[1024])
+  cache_size: 1000               # LRU cache text→vec, tránh re-encode câu lặp
+  normalize: true                # unit-norm vector (cosine distance chuẩn)
