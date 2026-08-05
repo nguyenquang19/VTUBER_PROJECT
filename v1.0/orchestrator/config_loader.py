@@ -27,6 +27,7 @@ CONFIG_FILES: dict[str, str] = {
     "state_machine": "state_machine.yaml",
     "filters": "filters.yaml",
     "mood_engine": "mood_engine.yaml",         # Phase 7.5.A
+    "emotion_appraisal": "emotion_appraisal.yaml",  # Phase 7.5.B
 }
 
 ReloadCallback = Callable[[str, dict[str, Any]], None]
