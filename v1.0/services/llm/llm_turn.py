@@ -76,6 +76,10 @@ class LLMTurnRunner:
         on_token: TokenSink | None = None,
         metrics: Any = None,
         regenerator: Any = None,
+        memory: Any = None,
+        memory_extractor: Any = None,
+        emotion: Any = None,
+        drift_detector: Any = None,
     ) -> "LLMTurnRunner":
         return cls(
             svc,
@@ -87,6 +91,10 @@ class LLMTurnRunner:
             on_token=on_token,
             metrics=metrics,
             regenerator=regenerator,
+            memory=memory,
+            memory_extractor=memory_extractor,
+            emotion=emotion,
+            drift_detector=drift_detector,
         )
 
     async def _primary(self, request: Any) -> ParsedResponse:
