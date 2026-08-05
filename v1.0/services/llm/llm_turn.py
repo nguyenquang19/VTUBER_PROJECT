@@ -38,6 +38,8 @@ class LLMTurnRunner:
         on_token: TokenSink | None = None,
         metrics: Any = None,
         regenerator: Any = None,
+        memory: Any = None,             # MemoryService (Phase 7.F)
+        memory_extractor: Any = None,   # MemoryExtractor (Phase 7.F)
     ) -> None:
         self._svc = svc
         self._pm = prompt_manager
@@ -46,7 +48,11 @@ class LLMTurnRunner:
         self._on_token = on_token or (lambda _t: None)
         self._metrics = metrics
         self._regen = regenerator  # FilterRegenerator | None (3.B)
+        self._memory = memory
+        self._memory_extractor = memory_extractor
         self.last_filter_verdict: FilterVerdict | None = None
+        self._memory_writes_scheduled = 0
+        self._memory_writes_skipped = 0
         self._fb.register_chain(
             _CHAIN_ID,
             [self._primary, self._canned_handler],
@@ -99,8 +105,19 @@ class LLMTurnRunner:
         self._on_token(parsed.text)
         return parsed
 
-    async def run_turn(self, request_id: str, user_text: str) -> tuple[ParsedResponse, int]:
-        """Trả (parsed, level_used). level_used=0 primary, 1 canned."""
+    async def run_turn(
+        self,
+        request_id: str,
+        user_text: str,
+        viewer_id: str | None = None,
+        session_id: str | None = None,
+        trigger_type: str | None = None,
+    ) -> tuple[ParsedResponse, int]:
+        """Trả (parsed, level_used). level_used=0 primary, 1 canned.
+
+        viewer_id/session_id/trigger_type gom vào memory entry qua extractor
+        (Phase 7.F). Nếu memory=None → skip extraction.
+        """
         request = self._pm.build_request(request_id, user_text)
         result = await self._fb.execute(_CHAIN_ID, request)
         parsed: ParsedResponse = result.value
@@ -108,7 +125,48 @@ class LLMTurnRunner:
         if parsed.ok:
             self._canned.update_mood(parsed.mood)
         self._record_metrics(parsed, result.level_used)
+        # Phase 7.F: auto-extract memory từ turn (fire-and-forget, KHÔNG block turn sau)
+        self._schedule_memory_write(user_text, parsed, viewer_id, session_id, trigger_type)
         return parsed, result.level_used
+
+    def _schedule_memory_write(
+        self,
+        user_text: str,
+        parsed: ParsedResponse,
+        viewer_id: str | None,
+        session_id: str | None,
+        trigger_type: str | None,
+    ) -> None:
+        if self._memory is None or self._memory_extractor is None:
+            return
+        # Build TurnData local để tránh phụ thuộc circular
+        from services.memory.extractor import TurnData
+
+        dominant_name, dominant_val = _dominant_mood(parsed)
+        turn = TurnData(
+            user_input=user_text,
+            mai_output=parsed.text,
+            mood_dominant=dominant_name,
+            mood_intensity=dominant_val,
+            viewer_id=viewer_id,
+            session_id=session_id,
+            trigger_type=trigger_type,
+        )
+        entry = self._memory_extractor.extract(turn)
+        if entry is None:
+            self._memory_writes_skipped += 1
+            return
+        # asyncio.create_task = fire-and-forget; nếu write lỗi, N7 fail-safe (memory
+        # service log warning, không giết turn). Không await ở đây.
+        try:
+            import asyncio
+            asyncio.get_running_loop().create_task(
+                self._memory.write(entry), name=f"memory_write_{entry.entry_id[:8]}"
+            )
+            self._memory_writes_scheduled += 1
+        except RuntimeError:
+            # không có event loop (test sync) → skip
+            self._memory_writes_skipped += 1
 
     def _record_metrics(self, parsed: ParsedResponse, level_used: int) -> None:
         if self._metrics is None:
@@ -136,3 +194,14 @@ class LLMTurnRunner:
                 action=v.suggested_action,
                 fail_open=v.reason.startswith("fail-open"),
             )
+
+
+def _dominant_mood(parsed: ParsedResponse) -> tuple[str | None, int | None]:
+    """Trả (name, intensity) mood cao nhất, hoặc (None, None) nếu parse fail."""
+    if not parsed.ok or parsed.mood is None:
+        return None, None
+    name = parsed.mood.dominant()
+    if name == "neutral":
+        return name, 0
+    val = getattr(parsed.mood, name, 0)
+    return name, int(val)

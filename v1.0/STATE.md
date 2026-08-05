@@ -1,7 +1,39 @@
 # STATE — Mai project
 
-**Phase hiện tại:** Phase 4 TTS — ĐÃ CHUYỂN sang VieNeu-TTS v3 Turbo (2026-08)
-**Task đang làm:** ⛔ CHECKPOINT P4 — 579 test xanh (mocked); live audio user duyệt
+**Phase hiện tại:** Phase 7 Memory — 7.A→7.F CODE XONG, 672 test xanh
+**Task đang làm:** ⛔ CHECKPOINT P7 (chờ user thử live), Phase 4 checkpoint đã DONE
+
+## Phase 7 milestone (6) — Memory (Semantic + Working + Fallback)
+- [x] 7.A Migration 004 + sqlite-vec loader (3 test). memory_entries (11 cột có
+      viewer_id/session_id) + memory_vectors vec0 float[1024] cho bge-m3.
+      migration_runner._try_load_sqlite_vec() auto-load ext trước apply.
+- [x] 7.B SqliteVecStore (14 test). insert atomic 2 bảng idempotent, query_knn
+      với filter tier/viewer_id post-KNN over-fetch 3x, fetch_by_id/count/delete.
+      Sync API + check_same_thread=False (asyncio.to_thread pattern).
+- [x] 7.C BgeM3Embedder (17 test). Lazy load bge-m3 CPU, LRU cache 1000 câu,
+      embed_batch bypass cache, normalize=True (cosine chuẩn), dim validate raise sớm.
+- [x] 7.D SemanticMemoryService (16 test). impl MemoryService, hard timeout
+      150ms query qua asyncio.wait_for → N7 fail-safe trả [] không raise.
+      write không timeout. StoredEntry ↔ MemoryEntry với distance nhét metadata.
+- [x] 7.E WorkingMemoryService (11 test) + MemoryFallbackManager (10 test).
+      Deque 20 in-memory, query LIFO filter tier/viewer_id. Chain semantic → working
+      spec 8.7.6; write fan-out cả 2 tier (N7 partial success khi primary fail).
+- [x] 7.F.1 viewer_id filter interface + MemoryExtractor (16 test).
+      Regex preference (tớ/tôi/mình thích/ghét/tên/sinh nhật) → PERSISTENT tier
+      importance 0.85; SESSION tier importance 0.5; mood≥7 → high_intensity tag.
+      Content 'User: X | Mai: Y' embedding match cả 2.
+- [x] 7.F.2 Wire LLMTurnRunner + DoD integration test (5 test).
+      run_turn(viewer_id, session_id, trigger_type) → auto extract + asyncio
+      fire-and-forget write (không block turn sau). _schedule_memory_write no-op
+      nếu memory=None (backward compat).
+
+## ✅ DoD Phase 7 (ARCHITECTURE 11.8) — pass với FakeEmbedder
+- [x] Retrieve P95 <150ms (100 entry, 50 query)
+- [x] Fallback về working khi semantic timeout (SlowEmbedder 200ms > 150ms)
+- [x] Manual inject 10 → callback ≥80% (query keyword hit top_k=3)
+- [x] Multi-viewer 5 người, 3 entry/viewer → filter viewer_id không leak
+- [ ] Live test với bge-m3 thật (marker 'memory_live') — chưa viết, user chạy khi cần
+
 
 ## 📌 SWAP TTS BACKEND (2026-08): viXTTS → VieNeu-TTS v3 Turbo
 - **Lý do:** VieNeu TTFA 308ms (vs viXTTS 450ms, nhanh 32%), VRAM 0.37GB (vs 1.79GB,

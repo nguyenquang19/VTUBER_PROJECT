@@ -54,7 +54,11 @@ class SqliteVecStore:
         else:
             if db_path is None:
                 raise ValueError("cần db_path HOẶC conn")
-            self._conn = sqlite3.connect(str(db_path))
+            # check_same_thread=False: SemanticMemoryService.query chạy store ops
+            # qua asyncio.to_thread (khác thread tạo conn). Đây là pattern chuẩn
+            # SQLite + asyncio. Concurrent access an toàn vì asyncio single-loop
+            # serialize các coroutine — không có 2 to_thread cùng lúc trên 1 conn.
+            self._conn = sqlite3.connect(str(db_path), check_same_thread=False)
             self._owns_conn = True
         self._load_vec_extension()
 
