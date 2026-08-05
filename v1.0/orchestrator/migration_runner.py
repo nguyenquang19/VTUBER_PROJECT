@@ -134,6 +134,9 @@ class MigrationRunner:
         sql = (self.migrations_dir / filename).read_text(encoding="utf-8")
         conn = sqlite3.connect(self.db_path)
         try:
+            # Load sqlite-vec nếu có (Phase 7 dùng vec0). Silent no-op nếu vắng —
+            # migration cũ không cần ext.
+            self._try_load_sqlite_vec(conn)
             conn.executescript(sql)
             conn.execute(
                 "INSERT OR REPLACE INTO schema_migrations (version, applied_at, success) "
@@ -158,6 +161,18 @@ class MigrationRunner:
             raise MigrationError(f"Migration {version} fail: {e}") from e
         finally:
             conn.close()
+
+    @staticmethod
+    def _try_load_sqlite_vec(conn: sqlite3.Connection) -> None:
+        """Load sqlite-vec extension nếu package có, fail-safe."""
+        try:
+            import sqlite_vec  # type: ignore
+
+            conn.enable_load_extension(True)
+            sqlite_vec.load(conn)
+            conn.enable_load_extension(False)
+        except Exception:
+            pass  # extension không có → migration nào không dùng vec0 vẫn OK
 
     @classmethod
     def from_config(cls, loader) -> MigrationRunner:

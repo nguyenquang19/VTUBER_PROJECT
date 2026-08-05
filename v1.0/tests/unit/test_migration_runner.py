@@ -252,3 +252,73 @@ class TestRealMigration:
         runner = MigrationRunner.from_config(loader)
         assert runner.migrations_dir == Path("migrations")
         assert runner.db_path == Path("data/mai.db")
+
+
+class TestReal004Memory:
+    """Phase 7.A — 004_add_memory_tables.sql cần sqlite-vec load OK."""
+
+    def test_real_004_creates_memory_tables(self, tmp_path: Path) -> None:
+        db = tmp_path / "mai.db"
+        applied = MigrationRunner(
+            db, REPO_ROOT / "migrations", tmp_path / "backups"
+        ).initialize()
+        assert "004" in applied
+        for table in ("memory_entries", "memory_vectors"):
+            assert table_exists(db, table), f"thiếu table {table}"
+
+    def test_real_004_indexes_created(self, tmp_path: Path) -> None:
+        db = tmp_path / "mai.db"
+        MigrationRunner(db, REPO_ROOT / "migrations", tmp_path / "backups").initialize()
+        conn = sqlite3.connect(db)
+        try:
+            indexes = {
+                r[0] for r in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='index'"
+                ).fetchall()
+            }
+        finally:
+            conn.close()
+        for idx in ("idx_memory_timestamp", "idx_memory_tier",
+                    "idx_memory_viewer", "idx_memory_session"):
+            assert idx in indexes, f"thiếu index {idx}"
+
+    def test_real_004_vec_insert_and_knn(self, tmp_path: Path) -> None:
+        """Kiểm tra vec0 table thực sự dùng được (không phải table rỗng)."""
+        import sqlite_vec
+
+        db = tmp_path / "mai.db"
+        MigrationRunner(db, REPO_ROOT / "migrations", tmp_path / "backups").initialize()
+
+        conn = sqlite3.connect(db)
+        conn.enable_load_extension(True)
+        sqlite_vec.load(conn)
+        conn.enable_load_extension(False)
+        try:
+            # bge-m3 dim = 1024
+            import struct
+
+            def blob(vec):
+                return struct.pack(f"{len(vec)}f", *vec)
+
+            v1 = [0.1] * 1024
+            v2 = [0.2] * 1024
+            conn.execute(
+                "INSERT INTO memory_vectors(entry_id, embedding) VALUES (?, ?), (?, ?)",
+                ("m1", blob(v1), "m2", blob(v2)),
+            )
+            conn.commit()
+
+            # KNN query: query gần v1 hơn v2
+            rows = conn.execute(
+                """
+                SELECT entry_id, distance
+                  FROM memory_vectors
+                 WHERE embedding MATCH ? AND k = 2
+                 ORDER BY distance
+                """,
+                (blob(v1),),
+            ).fetchall()
+            assert rows[0][0] == "m1"
+            assert rows[1][0] == "m2"
+        finally:
+            conn.close()
