@@ -4,6 +4,13 @@
 const MAX_POINTS = 60;
 const series = { gpu: [], vram: [], ttft: [], ttfa: [] };
 
+// mood: 5 chiều, mỗi chiều 1 series rolling (pos). Target vẽ mức hiện tại dạng chấm.
+const MOOD_DIMS = ["vui", "buon", "buc", "bon_chon", "nguong"];
+const MOOD_COLORS = {
+  vui: "#4caf50", buon: "#5b9dff", buc: "#e57373", bon_chon: "#ffb454", nguong: "#b39ddb",
+};
+const moodSeries = { vui: [], buon: [], buc: [], bon_chon: [], nguong: [] };
+
 // ---------- tabs ----------
 document.querySelectorAll(".tabs button").forEach((btn) => {
   btn.addEventListener("click", () => {
@@ -58,6 +65,68 @@ function drawChart(canvasId, data, color, maxHint) {
 function pushPoint(arr, v) {
   arr.push(v);
   if (arr.length > MAX_POINTS) arr.shift();
+}
+
+// ---------- mood multi-line chart (y cố định 0-10) ----------
+function drawMoodChart(canvasId, seriesMap, colors, targetMap) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  const w = canvas.width, h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+  const range = 10, stepX = w / (MAX_POINTS - 1);
+  const yOf = (v) => h - (v / range) * (h - 10) - 5;
+
+  ctx.strokeStyle = "#2a2f3a"; ctx.lineWidth = 1;
+  for (let i = 0; i <= 5; i++) {
+    const y = (h / 5) * i;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+  }
+  MOOD_DIMS.forEach((dim) => {
+    const data = seriesMap[dim] || [];
+    if (data.length >= 2) {
+      ctx.strokeStyle = colors[dim]; ctx.lineWidth = 2; ctx.beginPath();
+      data.forEach((v, i) => {
+        const x = i * stepX, y = yOf(v);
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+    }
+    if (targetMap && targetMap[dim] != null) {
+      const y = yOf(Number(targetMap[dim]));
+      ctx.strokeStyle = colors[dim]; ctx.lineWidth = 1; ctx.setLineDash([4, 4]);
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  });
+}
+
+function renderMood(mood) {
+  if (!mood) return;
+  const cur = mood.current_mood || {};
+  const tgt = mood.mood_target || {};
+  MOOD_DIMS.forEach((dim) => pushPoint(moodSeries[dim], Number(cur[dim] || 0)));
+  drawMoodChart("chart-mood", moodSeries, MOOD_COLORS, tgt);
+
+  const legend = document.getElementById("mood-legend");
+  if (legend) {
+    legend.innerHTML = "";
+    MOOD_DIMS.forEach((dim) => {
+      const t = tgt[dim] != null ? ` →${Number(tgt[dim]).toFixed(1)}` : "";
+      const span = document.createElement("span");
+      span.className = "mood-key";
+      span.style.cssText = "display:inline-flex;align-items:center;gap:6px;margin:0 14px 6px 0;font-size:13px;";
+      span.innerHTML =
+        `<i style="width:12px;height:12px;border-radius:3px;display:inline-block;background:${MOOD_COLORS[dim]}"></i>` +
+        `${dim}: <b>${Number(cur[dim] || 0).toFixed(1)}</b>${t}`;
+      legend.appendChild(span);
+    });
+  }
+  const flags = document.getElementById("mood-flags");
+  if (flags) {
+    const fl = mood.active_flags || [];
+    flags.textContent = fl.length ? "tone flags: " + fl.join(", ") : "";
+  }
 }
 
 // ---------- render ----------
@@ -217,6 +286,7 @@ function render(snap) {
   renderState(snap.state, snap.watchdog);
   renderFeatures(snap.features, snap.vram);
   renderTriggers(snap.triggers);
+  renderMood(snap.mood);
 }
 
 // ---------- websocket ----------

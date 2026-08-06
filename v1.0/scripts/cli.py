@@ -359,6 +359,7 @@ async def main() -> None:
             tts_service=tts_svc,
             audio_player=audio_player,
             tts_pipeline=tts_pipeline,
+            emotion=emotion,
             push_interval_s=0.5,
         )
         dash_server.start_push_loop()

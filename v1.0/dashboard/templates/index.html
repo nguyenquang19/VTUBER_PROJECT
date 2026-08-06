@@ -23,6 +23,7 @@
   <button data-tab="triggers">Triggers</button>
   <button data-tab="filter">Filter</button>
   <button data-tab="tts">TTS</button>
+  <button data-tab="mood">Mood</button>
 </nav>
 
 <main>
@@ -124,6 +125,14 @@
       <div class="card"><div class="label">Playing</div><div class="value" id="tts-ply-on">–</div></div>
     </div>
     <div class="chart-wrap"><canvas id="chart-ttfa" width="800" height="160"></canvas><div class="chart-title">TTS TTFA ms (realtime)</div></div>
+  </section>
+
+  <!-- MOOD (mood engine — ground truth sau A1) -->
+  <section id="tab-mood" class="tab">
+    <h3>Mood hiện tại (pos, thang 0–10)</h3>
+    <div id="mood-legend" class="mood-legend"></div>
+    <div class="dim" id="mood-flags"></div>
+    <div class="chart-wrap"><canvas id="chart-mood" width="800" height="220"></canvas><div class="chart-title">Mood 5 chiều (realtime) · pos đặc, target chấm</div></div>
   </section>
 </main>
 

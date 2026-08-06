@@ -39,6 +39,7 @@ class DashboardServer:
         tts_service: Any = None,
         audio_player: Any = None,
         tts_pipeline: Any = None,
+        emotion: Any = None,
         push_interval_s: float = 1.0,
     ) -> None:
         self.features = feature_manager
@@ -53,6 +54,7 @@ class DashboardServer:
         self.tts_service = tts_service
         self.audio_player = audio_player
         self.tts_pipeline = tts_pipeline
+        self.emotion = emotion
         self.push_interval_s = push_interval_s
         self._log = get_logger("dashboard")
         self._ws_clients: set[WebSocket] = set()
@@ -144,6 +146,12 @@ class DashboardServer:
                     "sentences_total": pp.get("tts_pipeline_sentences_total", 0),
                 }
             snap["tts"] = tsnap
+
+        # Mood panel — current_mood (pos) + target + active flags (A1: mood engine
+        # là ground-truth duy nhất sau khi bỏ LLM self-report).
+        if self.emotion is not None and hasattr(self.emotion, "snapshot"):
+            with contextlib.suppress(Exception):
+                snap["mood"] = self.emotion.snapshot()
 
         if self.health is not None:
             snap["health"] = self.health.snapshot()

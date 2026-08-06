@@ -57,3 +57,24 @@ class TestWatchdogSnapshot:
         server = DashboardServer(state_machine=ConversationStateMachine(auto_cooldown=False))
         snap = await server.build_snapshot()
         assert "watchdog" not in snap
+
+
+class TestMoodSnapshot:
+    async def test_mood_section_has_five_dims(self) -> None:
+        # TASK 8: dashboard build_snapshot với emotion → snap["mood"].current_mood 5 dim
+        class FakeEmotion:
+            def snapshot(self):
+                return {
+                    "current_mood": {"vui": 6, "buon": 1, "buc": 0, "bon_chon": 3, "nguong": 2},
+                    "mood_pos": {}, "mood_target": {}, "active_flags": [],
+                }
+        server = DashboardServer(emotion=FakeEmotion())
+        snap = await server.build_snapshot()
+        assert "mood" in snap
+        for dim in ("vui", "buon", "buc", "bon_chon", "nguong"):
+            assert dim in snap["mood"]["current_mood"]
+
+    async def test_no_emotion_no_mood_section(self) -> None:
+        server = DashboardServer()
+        snap = await server.build_snapshot()
+        assert "mood" not in snap
