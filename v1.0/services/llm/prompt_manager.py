@@ -33,6 +33,7 @@ class PromptManager:
         default_temperature: float = 0.85,
         ambient_template: str | None = None,
         self_talk_history_char_cap: int = 600,
+        mood_style: Any = None,   # MoodStyleTable | None — mood → chỉ dẫn giọng
     ) -> None:
         if max_history_turns < 0:
             raise ValueError("max_history_turns không được âm")
@@ -42,6 +43,7 @@ class PromptManager:
         self._default_temperature = default_temperature
         self._ambient_template = ambient_template or _DEFAULT_AMBIENT
         self._self_talk_cap = max(0, self_talk_history_char_cap)
+        self._mood_style = mood_style
         self._history: list[ChatMessage] = []
 
     @classmethod
@@ -55,6 +57,7 @@ class PromptManager:
             ambient_template=cls._load_ambient_template(loader),
             self_talk_history_char_cap=int(
                 loader.get("models", "llm_main.self_talk_history_char_cap", 600)),
+            mood_style=_load_mood_style(loader),
         )
 
     @staticmethod
@@ -120,7 +123,9 @@ class PromptManager:
         qua prompt để LLM biết đổi tone; Filter (Phase 3) xử độc lập ở output.
         `cause` (A4): object của cảm xúc — "đang bực VÌ {ai} {gì}" thay vì "buc:7".
         """
-        context = _format_mood_context(current_mood, event_category, tone_flags, cause)
+        context = _format_mood_context(
+            current_mood, event_category, tone_flags, cause, self._mood_style,
+        )
         messages = [
             self._cache.as_message(),
             ChatMessage(role="system", content=context),
@@ -214,33 +219,46 @@ _TONE_HINTS: dict[str, str] = {
 }
 
 
-def _format_mood_context(current_mood, event_category, tone_flags, cause: Any = None) -> str:
-    """Build 1 system message chứa Context block (spec Mục 6.1).
+def _format_mood_context(
+    current_mood, event_category, tone_flags, cause: Any = None, mood_style: Any = None,
+) -> str:
+    """Build 1 system message chứa Context block — CÁCH NÓI lượt này.
 
-    Format có chủ đích ngắn — llama-server không tốn token thừa. Mood dạng
-    'vui=6 buc=3 ...' để LLM parse nhanh. A1: KHÔNG còn yêu cầu xuất mood block.
-    A4: nếu có cause, nói "cảm thấy [X] VÌ {ai} {gì}" để câu khớp LÝ DO, không chỉ số.
+    PLAN Mood→Style: BỎ số thô 'vui=6 buc=3' + tag event_category (kéo register
+    máy móc). Thay bằng:
+      - A4 cause: "đang thiên về 'bực' VÌ {ai}{gì}" (tự nhiên, có lý do)
+      - MoodStyleTable directive: chỉ dẫn giọng bằng chữ (thai_do/nhip/do_dai/tu_dem)
+    tone flag (gentle/deflect) GIỮ + thắng mood style (đã xử trong directive_for).
     """
-    mood_str = " ".join(
-        f"{d}={getattr(current_mood, d)}"
-        for d in ("vui", "buon", "buc", "bon_chon", "nguong")
-    )
-    lines = [
-        "[Context — mood ĐƯỢC GIAO, viết câu khớp mood + lý do; chỉ viết thoại]",
-        f"- current_mood: {mood_str}",
-    ]
-    # A4: object của cảm xúc — quan trọng hơn con số. Đặt sớm để LLM bám.
+    lines = ["[Context — cách nói lượt này; chỉ viết thoại]"]
+    # A4: object của cảm xúc — có lý do, đặt sớm để LLM bám.
     if cause is not None:
         try:
             dom = current_mood.dominant()
             phrase = cause.as_phrase()
-            lines.append(f"- đang thiên về '{dom}' VÌ {phrase} — viết khớp lý do này, đừng đọc số")
+            lines.append(f"- đang thiên về '{dom}' VÌ {phrase} — viết khớp lý do này")
         except Exception:
             pass
-    if event_category:
-        lines.append(f"- event_category: {event_category}")
+    # Mood → chỉ dẫn giọng bằng chữ (thay số thô). None → không bơm (baseline/flag).
+    if mood_style is not None:
+        try:
+            directive = mood_style.directive_for(current_mood, tone_flags)
+            if directive:
+                lines.append(directive)
+        except Exception:
+            pass
+    # Tone flag hints (case đặc biệt: tổn thương thật / gạ gẫm) — giữ, thắng mood style.
     if tone_flags:
         for flag in sorted(tone_flags):
             hint = _TONE_HINTS.get(flag, f"CỜ {flag}: bật.")
             lines.append(f"- {hint}")
     return "\n".join(lines)
+
+
+def _load_mood_style(loader):
+    """Load MoodStyleTable từ config (None nếu thiếu → không bơm chỉ dẫn giọng)."""
+    try:
+        from services.emotion.mood_style import MoodStyleTable
+        return MoodStyleTable.from_loader(loader)
+    except Exception:
+        return None

@@ -182,13 +182,15 @@ class TestDoDSummary:
         # 2. Flush → mood engine tick
         m = orch.flush_and_tick(dt=0.1)
         assert isinstance(m, MoodState)
-        # 3. Prompt có mood + category
+        # 3. Prompt có Context block (Mood→Style: KHÔNG còn số thô current_mood)
         req = pm.build_request_with_mood(
             "r", "next", orch.current_mood(),
             event_category=r.category,
             tone_flags=orch.active_tone_flags(),
         )
-        assert any("current_mood" in msg.content for msg in req.messages if isinstance(msg, ChatMessage))
+        assert any("[Context" in msg.content for msg in req.messages if isinstance(msg, ChatMessage))
+        # Số thô mood KHÔNG còn trong prompt
+        assert not any("current_mood" in msg.content for msg in req.messages if isinstance(msg, ChatMessage))
         # 4. A1: apply_llm_hint là no-op (Kênh B bỏ) — vẫn callable backward compat
         pre_mood = orch.current_mood()
         orch.apply_llm_hint(MoodState(vui=8))

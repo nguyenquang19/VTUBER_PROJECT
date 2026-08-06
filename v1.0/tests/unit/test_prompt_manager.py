@@ -180,6 +180,45 @@ class TestCommitSelfTalk:
         assert m.history() == []
 
 
+class TestMoodStyleInPrompt:
+    def _mgr_with_style(self):
+        from orchestrator.config_loader import ConfigLoader
+        from services.emotion.mood_style import MoodStyleTable
+        from services.llm.prompt_manager import PromptManager
+        loader = ConfigLoader(REPO_ROOT / "config")
+        loader.load_all()
+        style = MoodStyleTable.from_loader(loader)
+        return PromptManager(cache(), max_history_turns=2, mood_style=style)
+
+    def test_buc_high_injects_directive_no_raw_numbers(self) -> None:
+        from interfaces.animation import MoodState
+        m = self._mgr_with_style()
+        req = m.build_request_with_mood("r", "gì thế", MoodState(buc=9))
+        ctx = req.messages[1].content
+        assert "cộc" in ctx or "gắt" in ctx      # directive chữ
+        assert "current_mood" not in ctx          # bỏ số thô
+        assert "buc=" not in ctx and "event_category" not in ctx
+
+    def test_gentle_flag_beats_mood_style(self) -> None:
+        from interfaces.animation import MoodState
+        m = self._mgr_with_style()
+        req = m.build_request_with_mood(
+            "r", "buồn quá", MoodState(buc=9),
+            tone_flags={"force_gentle_tone"},
+        )
+        ctx = req.messages[1].content
+        assert "force_gentle_tone" in ctx        # hint gentle có
+        assert "cộc" not in ctx and "gắt" not in ctx   # directive bực bị chặn
+
+    def test_baseline_no_directive(self) -> None:
+        from interfaces.animation import MoodState
+        m = self._mgr_with_style()
+        req = m.build_request_with_mood("r", "chào", MoodState(vui=5))
+        ctx = req.messages[1].content
+        # gần baseline → không directive, chỉ header
+        assert "Đang" not in ctx or "cực kỳ" not in ctx
+
+
 class TestBuildRequest:
     def test_defaults_applied(self) -> None:
         m = mgr(default_max_tokens=222, default_temperature=0.5)
