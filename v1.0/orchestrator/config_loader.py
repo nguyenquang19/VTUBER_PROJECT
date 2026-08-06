@@ -32,6 +32,7 @@ CONFIG_FILES: dict[str, str] = {
     "autonomy": "autonomy.yaml",                     # Autonomy Engine v2
     "autonomy_content_pool": "autonomy_content_pool.yaml",
     "pacing": "pacing.yaml",                          # A3 nhịp + filler
+    "chat_salience": "chat_salience.yaml",            # C0.1 salience pool
 }
 
 ReloadCallback = Callable[[str, dict[str, Any]], None]

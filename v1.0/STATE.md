@@ -1,7 +1,24 @@
 # STATE — Mai project
 
-**Phase hiện tại:** ROADMAP_AUTONOMOUS_HOST — PHASE A XONG (A1-A4+register), 970 test xanh
-**Task đang làm:** ⛔ USER verify Phase A. Sau đó → C0 Director (reactive→host)
+**Phase hiện tại:** ROADMAP_AUTONOMOUS_HOST — Phase A xong + C0.1 xong, 991 test xanh
+**Task đang làm:** C0 Director đang build. C0.1 xong. Tiếp C0.2 ChatPulse.
+
+## C0 — Director + Chat handling (reactive→host) — ĐANG BUILD
+Bản đồ 4 mảnh tăng dần: C0.1 SaliencePool (xong) · C0.2 ChatPulse · C0.3 Director
+loop · C0.4 hợp nhất stream qua Director (CHECKPOINT bắt buộc trước — refactor lớn).
+
+### C0.1 SaliencePool (2026-08-06) — XONG
+- config/chat_salience.yaml: base_tier{chat10/question25/mention35}, superchat
+  40*log1p(amount/1000), tau=50s, dedup 0.6, cluster_coef 5, pool_max 50, floor 3.
+- services/director/salience.py SaliencePool: add (dedup-cluster Jaccard reuse
+  services.autonomy.dedup._tokenize) · current_score=(base+cluster_bonus)*exp(-age
+  /tau) · peek_top/pop_top/top_cluster/evict_stale · cap evict lowest. from_loader.
+  MVP: base_tier+amount+decay+cluster (rel_bonus regular/troll để C1).
+- config_loader đăng ký "chat_salience". test_salience.py 13 test.
+- DoD ✅: superchat 500k > chat (+ > cả mention); tin >2τ decay dưới floor không
+  surface; 20 near-dup → 1 đại diện cluster_count=20; cap evict lowest.
+- ISOLATED — chưa đụng đường stream (zero risk). Wire ở C0.4.
+- Full suite 991 pass.
 
 ## A4 Phase A — Emotion có object + grudge (2026-08-06) — HẾT PHASE A
 - [x] A4.1 EmotionCause{viewer_alias, intent_short} + sanitize_alias (classifier.py).
