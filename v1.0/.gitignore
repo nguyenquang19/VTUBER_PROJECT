@@ -17,6 +17,8 @@ data/*.db-journal
 data/*.db-wal
 data/*.db-shm
 data/qc/
+data/datasets/                 # T5 export: sft_*.jsonl / dpo_*.jsonl
+logs/*.jsonl                    # turns/pref_pairs/ratings/corrections (data train)
 logs/**/*.jsonl
 logs/**/*.log
 backups/

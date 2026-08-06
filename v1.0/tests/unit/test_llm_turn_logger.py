@@ -43,7 +43,8 @@ class TestChatReplyLogs:
         assert r["mood_dominant"] == "vui"
         assert r["mood_intensity"] == 5
         assert r["trigger_type"] == "chat_normal"
-        assert r["viewer_id"] == "u1"
+        # T4: viewer_id hashed (8 char), KHÔNG lưu id gốc
+        assert r["viewer_id"] != "u1" and len(r["viewer_id"]) == 8
         assert r["level_used"] == 0
         assert r["parse_ok"] is True
         assert "timestamp" in r
@@ -95,6 +96,14 @@ class TestChatReplyLogs:
         runner, path = _make(tmp_path, FakeLLM(VALID))
         await runner.run_turn("r1", "a")
         assert runner.last_turn_id == 1
+
+    async def test_t4_pii_masked_in_user_text(self, tmp_path: Path) -> None:
+        # T4: email/phone trong user_text bị mask trong log
+        runner, path = _make(tmp_path, FakeLLM(VALID))
+        await runner.run_turn("r1", "mail tớ abc@gmail.com nha", viewer_id="UCxxxx")
+        r = _read_lines(path)[0]
+        assert "@gmail" not in r["user_text"] and "[PII]" in r["user_text"]
+        assert "UCxxxx" not in str(r["viewer_id"])   # id gốc không lộ
 
     async def test_turn_id_auto_increment(self, tmp_path: Path) -> None:
         runner, path = _make(tmp_path, FakeLLM(VALID))

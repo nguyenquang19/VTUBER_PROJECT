@@ -420,11 +420,14 @@ class LLMTurnRunner:
         self.last_turn_id = self._turn_seq   # T3: dashboard rating gắn turn cuối
         dominant_name, dominant_val = _dominant_mood(parsed)
         raw_text = getattr(parsed, "raw", "") or ""
+        # T4: sanitize PII — hash viewer_id (không lưu channel id gốc), mask
+        # email/phone/token trong user_text.
+        from services.data.sanitize import hash_viewer_id, mask_pii
         record = {
             "schema_version": _TURN_SCHEMA_VERSION,
             "turn_id": self._turn_seq,
             "kind": kind,
-            "user_text": user_text,
+            "user_text": mask_pii(user_text),
             "mai_text": parsed.text,
             # A1.1: True khi LLM tự sinh mood block trong raw (kể cả parser đã strip
             # ra khỏi mai_text). Đây là số đo hiệu quả A1 — target 0 sau A1.
@@ -435,7 +438,7 @@ class LLMTurnRunner:
             "trigger_type": trigger_type,
             "level_used": level_used,
             "latency_ms": latency_ms,
-            "viewer_id": viewer_id,
+            "viewer_id": hash_viewer_id(viewer_id),   # T4: hash, KHÔNG lưu id gốc
             "session_id": session_id,
         }
         if extra:
@@ -457,6 +460,7 @@ class LLMTurnRunner:
         if self._pref_logger is None or not rejected or not chosen or rejected == chosen:
             return
         try:
+            from services.data.sanitize import mask_pii
             persona_v = None
             try:
                 persona_v = self._pm.version
@@ -469,7 +473,7 @@ class LLMTurnRunner:
                 "prompt_ref": {
                     "persona_version": persona_v,
                     "context_block": _context_block_of(request),
-                    "user_text": user_text,
+                    "user_text": mask_pii(user_text),
                 },
                 "rejected": rejected,
                 "chosen": chosen,
