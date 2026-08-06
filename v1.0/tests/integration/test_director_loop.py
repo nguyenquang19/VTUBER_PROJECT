@@ -233,6 +233,36 @@ class TestDirectorLoop:
             director._read_decision(director.current_segment(),
                                     pool.peek_top(1.5), 1.5).read_mode != ReadMode.SUMMARY
 
+    async def test_pulse_hype_pushes_mood_event_debounced(self) -> None:
+        # TASK 7: chat sôi (HYPE_SPAM) → 1 emotion event chat_hype (edge, debounce)
+        class FakeEmotion:
+            def __init__(self):
+                self.events = []
+            def current_mood(self):
+                from interfaces.animation import MoodState
+                return MoodState()
+            async def handle_event(self, ev):
+                self.events.append(ev.meta.get("platform_type"))
+                @dataclass
+                class P:
+                    category: str = "chat_hype"
+                return P()
+
+        emo = FakeEmotion()
+        loop, director, pool, pulse, runner, clock = _make()
+        loop._emotion = emo
+        # bơm burst hype (nhiều tin, ít người)
+        for i in range(30):
+            pulse.record(now=float(i) * 0.1, user_id=f"u{i % 2}")
+        clock["t"] = 3.0
+        await loop.tick_once()
+        assert "chat_hype" in emo.events
+        n1 = len(emo.events)
+        # tick lại cùng state → KHÔNG đẩy nữa (debounce)
+        clock["t"] = 3.5
+        await loop.tick_once()
+        assert len(emo.events) == n1
+
     async def test_baseline_updated_each_tick(self) -> None:
         # TASK 6: tick_once cập nhật baseline → accel không kẹt 1.0 khi tempo đổi
         loop, director, pool, pulse, runner, clock = _make()

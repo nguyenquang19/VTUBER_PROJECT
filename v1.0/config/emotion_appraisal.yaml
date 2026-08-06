@@ -28,6 +28,10 @@ appraisal:
   mai_self_error: {nguong: 6, bon_chon: 5}
   chat_neutral: {}                                            # fallback default
 
+  # ── C0 Task7: ChatPulse → mood (chat sôi đẩy vui/bồn_chồn) ──
+  chat_hype: {vui: 6, bon_chon: 5}        # cả đám bùng (hype-spam) → phấn khích
+  chat_lively: {vui: 4}                    # nhiều người bàn luận thật → vui nhẹ
+
   # ── Nhóm 3: Timer (4) ──
   silence_1min: {bon_chon: 4}
   silence_5min: {bon_chon: 6, buon: 4}

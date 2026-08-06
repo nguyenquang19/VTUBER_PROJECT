@@ -24,6 +24,7 @@ from typing import Any, Awaitable, Callable
 from interfaces.animation import MoodState
 from orchestrator.logger import get_logger
 from services.autonomy.material_provider import RuntimeContext
+from services.director.chat_pulse import PulseState
 from services.director.director import Director, DirectorAction, ReadMode
 
 SpeakFn = Callable[[str, str], Awaitable[None]]
@@ -64,6 +65,8 @@ class DirectorLoop:
         self._turns_read = 0
         self._turns_self = 0
         self._transitions = 0
+        self._last_pulse_state: PulseState | None = None   # Task7 edge debounce
+        self._pulse_mood_pushes = 0
 
     # ---------- lifecycle ----------
 
@@ -107,6 +110,9 @@ class DirectorLoop:
             self._pulse.update_baseline(now)
         except Exception:
             pass
+        # TASK 7: ChatPulse → mood. Chỉ đẩy khi state CHUYỂN sang hype/lively (edge,
+        # debounce — không spam mỗi tick).
+        await self._maybe_push_pulse_mood(now)
         urge_ready = False
         if self._autonomy is not None:
             try:
@@ -125,6 +131,30 @@ class DirectorLoop:
                 self._log.warning("director_execute_failed",
                                   action=dec.action.value, error=str(e))
         return dec.action
+
+    async def _maybe_push_pulse_mood(self, now: float) -> None:
+        """Task7: khi pulse chuyển sang HYPE_SPAM/LIVELY (edge) → 1 EmotionEvent
+        nudge mood (chat sôi → vui/bồn_chồn). Debounce theo state cũ."""
+        if self._emotion is None:
+            return
+        try:
+            state = self._pulse.state(now)
+        except Exception:
+            return
+        if state == self._last_pulse_state:
+            return  # không đổi → không đẩy lại
+        self._last_pulse_state = state
+        cat = {PulseState.HYPE_SPAM: "chat_hype", PulseState.LIVELY: "chat_lively"}.get(state)
+        if cat is None:
+            return
+        try:
+            from services.emotion.classifier import EmotionEvent, EventKind
+            await self._emotion.handle_event(
+                EmotionEvent(kind=EventKind.SYSTEM, meta={"platform_type": cat})
+            )
+            self._pulse_mood_pushes += 1
+        except Exception as e:
+            self._log.warning("pulse_mood_push_failed", error=str(e))
 
     # ---------- execute ----------
 
