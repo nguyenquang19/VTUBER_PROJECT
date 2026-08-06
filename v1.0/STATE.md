@@ -20,6 +20,19 @@ loop · C0.4 hợp nhất stream qua Director (CHECKPOINT bắt buộc trước 
 - ISOLATED — chưa đụng đường stream (zero risk). Wire ở C0.4.
 - Full suite 991 pass.
 
+### C0.2 ChatPulse (2026-08-06) — XONG
+- config chat_salience.yaml +pulse.*: window 60s, tempo_low 2/tempo_high 15 (/phút),
+  diversity_thr 0.4, cold_silence 90s, baseline_alpha/accel.
+- services/director/chat_pulse.py ChatPulse: record(now,user_id) rolling 60s.
+  tempo=tin/phút, diversity=unique/msg (tin ẩn danh mỗi tin=1 người, không lệch
+  hype-spam giả), accel=tempo/baseline(EMA), is_cold, state()→COLD/HYPE_SPAM/
+  LIVELY/NORMAL. clock inject. from_loader.
+- test_chat_pulse.py 13 test.
+- DoD ✅: burst 30 tin/2 user → HYPE_SPAM; 30 user → LIVELY; nguội 90s → COLD;
+  rolling prune; diversity đúng.
+- ISOLATED — zero risk. Nuôi Director (C0.3) + mood + urge ở C0.4.
+- Full suite 1004 pass.
+
 ## A4 Phase A — Emotion có object + grudge (2026-08-06) — HẾT PHASE A
 - [x] A4.1 EmotionCause{viewer_alias, intent_short} + sanitize_alias (classifier.py).
       AppraisalTable.cause_intent(cat) đọc config cause_intents (CANONICAL, KHÔNG

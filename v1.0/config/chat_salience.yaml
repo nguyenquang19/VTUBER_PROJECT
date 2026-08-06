@@ -31,3 +31,14 @@ salience:
   # backpressure tự giải quyết). peek/pop bỏ qua tin dưới floor.
   pool_max: 50
   floor: 3.0
+
+# C0.2 ChatPulse — đo độ sôi nổi chat (tempo + diversity) để Director cưỡi sóng.
+# Sôi nổi ≠ chỉ số lượng: tách hype-spam (cả đám "W"/"KEKW") vs bàn luận thật.
+pulse:
+  window_seconds: 60            # cửa sổ rolling tính tempo/diversity
+  tempo_low_per_min: 2.0        # < ngưỡng này = chat nguội (COLD)
+  tempo_high_per_min: 15.0      # >= ngưỡng này = chat sôi
+  diversity_threshold: 0.4      # unique_users/msg < ngưỡng = ít người spam nhiều = HYPE_SPAM
+  cold_silence_seconds: 90.0    # không tin nào trong X giây → Director tự nói/đổi segment
+  baseline_alpha: 0.05          # EMA làm mượt baseline_tempo (cho accel)
+  accel_hot_threshold: 1.5      # tempo/baseline > ngưỡng = "đang bùng"
