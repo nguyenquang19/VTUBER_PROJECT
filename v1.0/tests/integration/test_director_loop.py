@@ -233,6 +233,17 @@ class TestDirectorLoop:
             director._read_decision(director.current_segment(),
                                     pool.peek_top(1.5), 1.5).read_mode != ReadMode.SUMMARY
 
+    async def test_baseline_updated_each_tick(self) -> None:
+        # TASK 6: tick_once cập nhật baseline → accel không kẹt 1.0 khi tempo đổi
+        loop, director, pool, pulse, runner, clock = _make()
+        # tick vài lần lúc chat sôi để baseline hấp thụ tempo cao
+        for i in range(40):
+            pulse.record(now=float(i) * 0.1, user_id=f"u{i % 3}")
+        clock["t"] = 4.0
+        await loop.tick_once()
+        # baseline đã được set (khác None) → accel tính được (không mặc định 1.0 cứng)
+        assert pulse._baseline_tempo is not None
+
     async def test_transition_advances_segment(self) -> None:
         loop, director, pool, pulse, runner, clock = _make()
         # đang ở main (300s). Ép transition bằng cách nhảy quá giờ.

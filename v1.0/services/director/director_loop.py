@@ -102,6 +102,11 @@ class DirectorLoop:
     async def tick_once(self) -> DirectorAction:
         now = self._clock()
         self._pool.evict_stale(now)
+        # TASK 6: cập nhật baseline_tempo mỗi tick → accel phản ánh thật (không kẹt 1.0)
+        try:
+            self._pulse.update_baseline(now)
+        except Exception:
+            pass
         urge_ready = False
         if self._autonomy is not None:
             try:
