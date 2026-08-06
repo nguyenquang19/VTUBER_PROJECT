@@ -219,6 +219,24 @@ class TestMoodStyleInPrompt:
         assert "Đang" not in ctx or "cực kỳ" not in ctx
 
 
+class TestStageDirection:
+    def test_stage_direction_in_system_user_turn_clean(self) -> None:
+        # De-AI register: chỉ thị "gộp" ở SYSTEM, user turn = chat thật
+        from interfaces.animation import MoodState
+        from services.llm.prompt_manager import PromptManager
+        m = PromptManager(cache(), max_history_turns=2)
+        req = m.build_request_with_mood(
+            "r", user_text="chơi game gì thế / mai mấy tuổi",
+            current_mood=MoodState(),
+            stage_direction="Mấy người cùng hỏi — đáp GỘP 1 lần.",
+        )
+        system_ctx = req.messages[1].content   # system context
+        user_turn = req.messages[-1].content   # user
+        assert "đáp GỘP" in system_ctx          # chỉ thị ở system
+        assert "GỘP" not in user_turn           # user turn sạch
+        assert user_turn == "chơi game gì thế / mai mấy tuổi"
+
+
 class TestBuildRequest:
     def test_defaults_applied(self) -> None:
         m = mgr(default_max_tokens=222, default_temperature=0.5)

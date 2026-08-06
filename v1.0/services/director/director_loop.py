@@ -167,13 +167,18 @@ class DirectorLoop:
             await self._exec_transition(dec, now)
 
     async def _exec_read(self, dec, now: float) -> None:
+        # SUMMARY/VIBE = react cả CĂN PHÒNG (không đáp 1 tin cụ thể) → đường ambient,
+        # chỉ chỉ thị ở system, KHÔNG giả 1 user turn (giảm giọng meta).
+        if dec.read_mode in (ReadMode.SUMMARY, ReadMode.VIBE):
+            await self._exec_room_reaction(dec, now)
+            return
+
         req_id = f"read_{uuid.uuid4().hex[:8]}"
-        user_text = _compose_read_prompt(dec)
         refs = list(dec.refs)
-        # đại diện đầu để lấy viewer_id/category
         primary = refs[0] if refs else None
-        # TASK 5: history/memory dùng text CHAT GỐC, không nhiễm chuỗi ngoặc prompt.
-        # SUMMARY/VIBE không có tin cụ thể → không commit history/memory.
+        # De-AI register: user turn = CHAT THẬT; "cách xử" (gộp/ack) → stage_direction (system).
+        user_text = _read_user_text(dec)
+        stage = _stage_direction_for(dec)
         hist_text, commit_hist = _history_text_for(dec)
         parsed, _level = await self._runner.run_turn(
             request_id=req_id,
@@ -183,18 +188,26 @@ class DirectorLoop:
             event_category=None,
             history_user_text=hist_text,
             commit_history=commit_hist,
+            stage_direction=stage,
         )
-        # gỡ mọi ref đã đáp khỏi pool (summary mode refs rỗng → gỡ top)
-        if refs:
-            for r in refs:
-                self._pool.remove(r.msg_id)
-        elif dec.read_mode == ReadMode.SUMMARY:
-            # TASK 3: SUMMARY dọn sạch backlog điểm thấp → tick sau không lặp "chat trôi nhanh"
+        for r in refs:
+            self._pool.remove(r.msg_id)
+        self._turns_read += 1
+        self._director.mark_spoke(dec.action, now)
+        await self._maybe_speak(req_id, parsed)
+
+    async def _exec_room_reaction(self, dec, now: float) -> None:
+        """SUMMARY/VIBE: Mai react không khí chat qua đường ambient (chỉ thị ở prompt,
+        không user turn). Không commit history (không tin cụ thể)."""
+        req_id = f"room_{uuid.uuid4().hex[:8]}"
+        prompt = _room_reaction_prompt(dec)
+        parsed = await self._runner.run_ambient_turn(req_id, prompt)
+        # SUMMARY dọn backlog điểm thấp (Task 3); VIBE gỡ cụm đã react
+        if dec.read_mode == ReadMode.SUMMARY:
             self._pool.purge_below(self._director.summary_ceiling, now)
         else:
-            top = self._pool.peek_top(now)
-            if top is not None:
-                self._pool.remove(top.msg_id)
+            for r in list(dec.refs):
+                self._pool.remove(r.msg_id)
         self._turns_read += 1
         self._director.mark_spoke(dec.action, now)
         await self._maybe_speak(req_id, parsed)
@@ -264,29 +277,41 @@ class DirectorLoop:
         }
 
 
-def _compose_read_prompt(dec) -> str:
-    """Dựng user_text cho run_turn từ refs + read_mode (C0.2 read_chat adaptive)."""
+def _read_user_text(dec) -> str:
+    """USER turn = CHAT THẬT (SINGLE/CLUSTER/ACK). Không nhét chỉ thị vào đây."""
     refs = dec.refs
-    if dec.read_mode == ReadMode.SUMMARY or not refs:
-        return (
-            "[Chat đang trôi nhanh, nhiều tin lặt vặt. Nói 1 câu tổng kiểu 'chat "
-            "trôi nhanh quá đọc không kịp', KHÔNG đáp lẻ từng tin.]"
-        )
-    if dec.read_mode == ReadMode.VIBE:
-        return (
-            "[Chat đang bùng, cả đám spam cùng kiểu. React theo VIBE bằng 1 câu ngắn, "
-            "KHÔNG đáp lẻ từng người.]"
-        )
+    if not refs:
+        return ""
+    if dec.read_mode == ReadMode.CLUSTER and len(refs) >= 1:
+        return " / ".join(r.text for r in refs[:3])   # mấy tin cùng chủ đề, text thật
+    return refs[0].text   # SINGLE / ACK: text chat thật
+
+
+def _stage_direction_for(dec) -> str | None:
+    """Chỉ thị "cách xử" lượt này → đặt ở SYSTEM (không phải user turn)."""
+    refs = dec.refs
     if dec.read_mode == ReadMode.ACK and refs:
         r = refs[0]
         who = r.viewer_name or r.viewer_id or "một người"
-        return f"[{who} vừa superchat: \"{r.text}\". Ack ngay, cảm ơn tự nhiên đúng giọng Mai.]"
-    if dec.read_mode == ReadMode.CLUSTER and len(refs) >= 1:
-        joined = " / ".join(r.text for r in refs[:3])
-        return f"[Mấy người cùng hỏi/nói: {joined}. Đáp GỘP 1 lần, không lặp lại từng câu.]"
-    # SINGLE
-    r = refs[0]
-    return r.text
+        return f"{who} vừa SUPERCHAT (ủng hộ tiền) — ack ngay, cảm ơn tự nhiên đúng giọng Mai."
+    if dec.read_mode == ReadMode.CLUSTER:
+        return "Mấy người đang hỏi/nói cùng chủ đề — đáp GỘP 1 lần, đừng lặp lại từng câu."
+    return None   # SINGLE: không cần chỉ thị
+
+
+def _room_reaction_prompt(dec) -> str:
+    """SUMMARY/VIBE: chỉ thị react không khí chat (đường ambient, không user turn)."""
+    if dec.read_mode == ReadMode.VIBE:
+        return (
+            "[Context — Mai react KHÔNG KHÍ chat, KHÔNG trả lời ai cụ thể]\n"
+            "Chat đang bùng, cả đám spam cùng kiểu. React theo VIBE bằng 1 câu ngắn "
+            "đúng giọng Mai, KHÔNG đáp lẻ từng người. Chỉ viết thoại."
+        )
+    return (
+        "[Context — Mai react KHÔNG KHÍ chat, KHÔNG trả lời ai cụ thể]\n"
+        "Chat trôi nhanh, nhiều tin lặt vặt đọc không kịp. Nói 1 câu tổng kiểu "
+        "'chat trôi nhanh quá' đúng giọng Mai, KHÔNG đáp lẻ từng tin. Chỉ viết thoại."
+    )
 
 
 def _history_text_for(dec) -> tuple[str | None, bool]:

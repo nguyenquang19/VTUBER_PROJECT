@@ -111,20 +111,20 @@ class PromptManager:
         event_category: str | None = None,
         tone_flags: set[str] | None = None,
         cause: Any = None,        # A4: EmotionCause | None
+        stage_direction: str | None = None,   # Director: chỉ thị "cách xử" lượt này
         max_tokens: int | None = None,
         temperature: float | None = None,
     ) -> LLMRequest:
         """Request có Context block (Phase 7.5.D, spec Mục 6.1).
 
-        Chèn 1 system message sau persona chứa `current_mood` + `event_category`
-        + tone flags (+ A4 cause). LLM viết theo mood ĐÃ GIAO (không tự đoán).
-
-        `tone_flags`: set các cờ đang active (VD {"force_gentle_tone"}). Thread
-        qua prompt để LLM biết đổi tone; Filter (Phase 3) xử độc lập ở output.
-        `cause` (A4): object của cảm xúc — "đang bực VÌ {ai} {gì}" thay vì "buc:7".
+        Chèn 1 system message sau persona chứa mood directive + tone flags + cause.
+        `stage_direction` (Director): chỉ thị sân khấu ("gộp mấy tin cùng hỏi, đáp 1
+        lần") — đặt ở SYSTEM (không phải user turn) để user turn là CHAT THẬT →
+        Mai đáp tự nhiên, không sinh giọng meta.
         """
         context = _format_mood_context(
             current_mood, event_category, tone_flags, cause, self._mood_style,
+            stage_direction,
         )
         messages = [
             self._cache.as_message(),
@@ -221,6 +221,7 @@ _TONE_HINTS: dict[str, str] = {
 
 def _format_mood_context(
     current_mood, event_category, tone_flags, cause: Any = None, mood_style: Any = None,
+    stage_direction: str | None = None,
 ) -> str:
     """Build 1 system message chứa Context block — CÁCH NÓI lượt này.
 
@@ -247,6 +248,9 @@ def _format_mood_context(
                 lines.append(directive)
         except Exception:
             pass
+    # Chỉ thị sân khấu của Director (cách xử lượt này) — ở SYSTEM, không user turn.
+    if stage_direction:
+        lines.append(f"- {stage_direction}")
     # Tone flag hints (case đặc biệt: tổn thương thật / gạ gẫm) — giữ, thắng mood style.
     if tone_flags:
         for flag in sorted(tone_flags):

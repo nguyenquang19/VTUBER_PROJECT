@@ -33,12 +33,15 @@ class FakeRunner:
         self.ambient_calls: list[str] = []
         self.committed: list[str] = []
         self.hist_calls: list[tuple] = []
+        self.stage_calls: list = []
 
     async def run_turn(self, request_id, user_text, viewer_id=None,
                        trigger_type=None, event_category=None,
-                       history_user_text=None, commit_history=True):
+                       history_user_text=None, commit_history=True,
+                       stage_direction=None):
         self.read_calls.append(user_text)
         self.hist_calls.append((history_user_text, commit_history))
+        self.stage_calls.append(stage_direction)
         return FakeParsed(text=f"reply:{user_text}"), 0
 
     async def run_ambient_turn(self, request_id, prompt_text):
@@ -125,8 +128,8 @@ class TestDirectorLoop:
         # TASK 5: SINGLE commit history = text chat gốc
         assert runner.hist_calls[0] == ("Mai ơi chơi gì", True)
 
-    async def test_summary_does_not_commit_history(self) -> None:
-        # TASK 5: SUMMARY → commit_history=False (không có tin cụ thể)
+    async def test_summary_via_ambient_no_user_turn(self) -> None:
+        # De-AI register: SUMMARY react cả phòng → đường ambient (không run_turn/user turn)
         loop, director, pool, pulse, runner, clock = _make()
         distinct = [
             "trời hôm nay đẹp ghê", "ăn phở hay bún đây", "mèo nhà tao dễ thương",
@@ -139,7 +142,8 @@ class TestDirectorLoop:
             pool.add(f"c{i}", txt, now=0.0, kind="chat")
         clock["t"] = 1.0
         await loop.tick_once()
-        assert runner.hist_calls[0] == (None, False)
+        assert runner.ambient_calls          # đi đường ambient
+        assert runner.read_calls == []       # KHÔNG giả user turn
 
     async def test_superchat_acked_before_chat(self) -> None:
         loop, director, pool, pulse, runner, clock = _make()
@@ -148,19 +152,22 @@ class TestDirectorLoop:
         clock["t"] = 1.0
         action = await loop.tick_once()
         assert action == DirectorAction.ACK_DONATION
-        # ack prompt phải nói tới superchat, chưa đụng chat thường
-        assert "superchat" in runner.read_calls[0].lower() or "quà" in runner.read_calls[0]
+        # De-AI register: user turn = text chat thật; "cách xử" (ack) ở stage_direction
+        assert "quà" in runner.read_calls[0]
+        assert "superchat" in (runner.stage_calls[0] or "").lower()
         assert any(m.msg_id == "c" for m in pool.top_cluster(now=1.0, max_refs=10))
 
     async def test_ack_uses_viewer_name_not_id(self) -> None:
-        # TASK 2: prompt ack gọi tên hiển thị, không channel id
+        # TASK 2: chỉ thị ack gọi tên hiển thị (ở stage_direction), không channel id
         loop, director, pool, pulse, runner, clock = _make()
         pool.add("sc", "quà nè", now=0.0, kind="chat", viewer_id="UCxq3fZZ",
                  viewer_name="Alice", amount_vnd=500_000, is_super=True)
         clock["t"] = 1.0
         await loop.tick_once()
-        assert "Alice" in runner.read_calls[0]
-        assert "UCxq3fZZ" not in runner.read_calls[0]
+        stage = runner.stage_calls[0] or ""
+        assert "Alice" in stage
+        assert "UCxq3fZZ" not in stage
+        assert "UCxq3fZZ" not in runner.read_calls[0]   # user turn cũng không rò id
 
     async def test_dead_air_triggers_self_talk(self) -> None:
         auto = FakeAutonomy(ready=False, has_material=True)

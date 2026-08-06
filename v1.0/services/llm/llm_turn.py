@@ -139,6 +139,7 @@ class LLMTurnRunner:
         event_category: str | None = None,
         history_user_text: str | None = None,
         commit_history: bool = True,
+        stage_direction: str | None = None,
     ) -> tuple[ParsedResponse, int]:
         """Trả (parsed, level_used). level_used=0 primary, 1 canned.
 
@@ -148,7 +149,9 @@ class LLMTurnRunner:
         `commit_history=False` → KHÔNG commit history + KHÔNG extract memory
         (SUMMARY/VIBE không có tin cụ thể).
         """
-        request = self._build_request_maybe_with_mood(request_id, user_text, event_category)
+        request = self._build_request_maybe_with_mood(
+            request_id, user_text, event_category, stage_direction,
+        )
         hist_text = history_user_text if history_user_text is not None else user_text
 
         t0 = time.perf_counter()
@@ -234,9 +237,18 @@ class LLMTurnRunner:
 
     def _build_request_maybe_with_mood(
         self, request_id: str, user_text: str, event_category: str | None,
+        stage_direction: str | None = None,
     ):
         if self._emotion is None:
-            return self._pm.build_request(request_id, user_text)
+            # Không emotion nhưng vẫn cần chỉ thị sân khấu → dùng build_request_with_mood
+            # với mood neutral nếu có stage_direction; ngược lại build_request thường.
+            if stage_direction is None:
+                return self._pm.build_request(request_id, user_text)
+            from interfaces.animation import MoodState
+            return self._pm.build_request_with_mood(
+                request_id=request_id, user_text=user_text,
+                current_mood=MoodState(), stage_direction=stage_direction,
+            )
         cause = None
         try:
             cause = self._emotion.active_cause()   # A4
@@ -249,6 +261,7 @@ class LLMTurnRunner:
             event_category=event_category,
             tone_flags=self._emotion.active_tone_flags(),
             cause=cause,
+            stage_direction=stage_direction,
         )
 
     def _apply_emotion_feedback(self, parsed: ParsedResponse, engine_mood_pre) -> None:
