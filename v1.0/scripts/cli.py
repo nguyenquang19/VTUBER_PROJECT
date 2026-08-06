@@ -233,6 +233,10 @@ async def _autonomy_bg_loop(
             async with turn_lock:
                 print(f"\n[Mai tự nói ({decision.category}, urge={autonomy.urge.urge:.0f})]",
                       flush=True)
+                # FIX double-speak: ambient dùng EXPLICIT speak (dưới). Tắt streamer
+                # cũ còn sót từ lượt user trước để on_token CHỈ print, không phát TTS
+                # lần nữa qua sentence-streamer (nếu không → nói 2 lần).
+                _TurnCtx.streamer = None
                 parsed = await runner.run_ambient_turn(
                     f"ambient_cli_{autonomy.urge._ticks}", decision.prompt_text,
                 )
