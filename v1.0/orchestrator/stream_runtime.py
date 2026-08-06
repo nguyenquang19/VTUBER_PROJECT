@@ -284,6 +284,7 @@ async def build_stream_runtime(
     """Build đầy đủ stack theo flags. Raise nếu llama-server không chạy."""
     # B0: setup structlog + JSONL sinks (turns.jsonl để baseline eval)
     turn_logger = setup_from_config(loader)
+    pref_logger = _make_pref_logger(loader)   # T2: DPO pairs sink
 
     metrics = MetricsCollector()
 
@@ -334,6 +335,7 @@ async def build_stream_runtime(
         memory=memory, memory_extractor=memory_extractor,
         emotion=emotion,
         turn_logger=turn_logger,
+        pref_logger=pref_logger,
     )
 
     # ─── TTS (optional) ───
@@ -488,3 +490,15 @@ async def build_stream_runtime(
     router._process = _hook_process  # noqa: SLF001
 
     return rt
+
+
+def _make_pref_logger(loader):
+    """T2: JsonlWriter cho logs/pref_pairs.jsonl (DPO pairs). None nếu lỗi."""
+    try:
+        from pathlib import Path
+
+        from orchestrator.logger import JsonlWriter
+        log_dir = loader.get("logging", "jsonl.dir", "logs")
+        return JsonlWriter(Path(log_dir) / "pref_pairs.jsonl")
+    except Exception:
+        return None

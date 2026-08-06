@@ -227,7 +227,15 @@ class DirectorLoop:
         parsed = await self._runner.run_ambient_turn(req_id, decision.prompt_text)
         if parsed.ok and parsed.text:
             if self._autonomy.check_dedup(parsed.text):
+                rejected = parsed.text   # T2: bản trùng lặp = rejected
                 parsed = await self._runner.run_ambient_turn(req_id + "_r", decision.prompt_text)
+                # DPO pair: dedup regen (chosen = bản khác)
+                try:
+                    self._runner.log_pref_pair(
+                        rejected, parsed.text, "dedup:ambient",
+                        user_text=decision.prompt_text)
+                except Exception:
+                    pass
             self._autonomy.on_self_spoke(parsed.text)
             self._runner.commit_self_talk(parsed.text)
         self._turns_self += 1

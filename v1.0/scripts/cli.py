@@ -291,6 +291,8 @@ async def main() -> None:
 
     # B0: setup structlog + JSONL sinks (events.jsonl + turns.jsonl) từ config
     turn_logger = setup_from_config(loader)
+    from orchestrator.stream_runtime import _make_pref_logger
+    _pref_logger = _make_pref_logger(loader)   # T2: DPO pairs sink
 
     auto_continue_max = int(loader.get("system", "conversation.auto_continue_max", 0))
 
@@ -318,13 +320,13 @@ async def main() -> None:
         runner = LLMTurnRunner.from_loader(
             loader, svc, pm, fb, canned, on_token=_on_token, metrics=metrics,
             emotion=emotion,
-            turn_logger=turn_logger,
+            turn_logger=turn_logger, pref_logger=_pref_logger,
         )
         print("🧠 Autonomy engine v2 bật — Mai sẽ tự nói khi silence.")
     else:
         runner = LLMTurnRunner.from_loader(
             loader, svc, pm, fb, canned, on_token=_on_token, metrics=metrics,
-            turn_logger=turn_logger,
+            turn_logger=turn_logger, pref_logger=_pref_logger,
         )
 
     health = await svc.health_check()

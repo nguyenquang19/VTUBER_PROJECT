@@ -94,6 +94,7 @@ class LLMTurnRunner:
         memory_extractor: Any = None,   # MemoryExtractor (Phase 7.F)
         emotion: Any = None,            # EmotionOrchestrator (Phase 7.5.E)
         turn_logger: TurnLogger | None = None,   # B0: turns.jsonl sink
+        pref_logger: Any = None,        # T2: pref_pairs.jsonl (JsonlWriter | None)
     ) -> None:
         self._svc = svc
         self._pm = prompt_manager
@@ -107,6 +108,7 @@ class LLMTurnRunner:
         self._emotion = emotion
         # A1: _drift + last_drift_report ĐÃ BỎ (Kênh B tắt)
         self._turn_logger = turn_logger
+        self._pref_logger = pref_logger
         self._turn_seq = 0
         self.last_turn_id = 0          # T3: turn cuối để dashboard rating gắn vào
         self._log_cause: Any = None    # T1: cause snapshot trước khi clear
@@ -136,6 +138,7 @@ class LLMTurnRunner:
         memory_extractor: Any = None,
         emotion: Any = None,
         turn_logger: TurnLogger | None = None,
+        pref_logger: Any = None,
     ) -> "LLMTurnRunner":
         return cls(
             svc,
@@ -151,6 +154,7 @@ class LLMTurnRunner:
             memory_extractor=memory_extractor,
             emotion=emotion,
             turn_logger=turn_logger,
+            pref_logger=pref_logger,
         )
 
     async def _primary(self, request: Any) -> ParsedResponse:
@@ -246,6 +250,13 @@ class LLMTurnRunner:
             session_id=session_id,
             extra=self._build_log_extra(request, event_category, history_len_at_gen),
         )
+        # T2: filter regen → cặp DPO (rejected = bản bị chặn, chosen = bản pass)
+        if self._last_was_regen and self._last_rejected_text:
+            cats = [getattr(c, "value", str(c))
+                    for c in getattr(self.last_filter_verdict, "categories_hit", [])]
+            reason = f"filter:{cats[0]}" if cats else "filter:regen"
+            self.log_pref_pair(self._last_rejected_text, parsed.text, reason,
+                               session_id=session_id, user_text=user_text, request=request)
         return parsed, result.level_used
 
     async def run_ambient_turn(self, request_id: str, prompt_text: str) -> ParsedResponse:
@@ -433,6 +444,40 @@ class LLMTurnRunner:
             self._turn_logger.log_turn(record)
         except Exception as e:  # pragma: no cover — fail-safe
             get_logger("llm_turn").warning("turn_log_failed", error=str(e))
+
+    def log_pref_pair(
+        self, rejected: str, chosen: str, reason: str,
+        session_id: str | None = None, user_text: str | None = None,
+        request: Any = None,
+    ) -> None:
+        """T2: ghi 1 cặp DPO (chosen > rejected) vào pref_pairs.jsonl. Fail-safe.
+
+        Nguồn: filter regen (auto trong run_turn) + dedup ambient (caller gọi).
+        Cùng prompt, chosen ≠ rejected → data DPO chuẩn, không cần nhãn tay."""
+        if self._pref_logger is None or not rejected or not chosen or rejected == chosen:
+            return
+        try:
+            persona_v = None
+            try:
+                persona_v = self._pm.version
+            except Exception:
+                pass
+            record = {
+                "schema_version": 1,
+                "turn_id": self._turn_seq,
+                "session_id": session_id,
+                "prompt_ref": {
+                    "persona_version": persona_v,
+                    "context_block": _context_block_of(request),
+                    "user_text": user_text,
+                },
+                "rejected": rejected,
+                "chosen": chosen,
+                "reason": reason,
+            }
+            self._pref_logger.write(record)
+        except Exception as e:  # pragma: no cover — fail-safe
+            get_logger("llm_turn").warning("pref_pair_log_failed", error=str(e))
 
     def _build_log_extra(self, request: Any, event_category: str | None,
                          history_len: int) -> dict:
