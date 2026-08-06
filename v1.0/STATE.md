@@ -86,6 +86,19 @@ thay phần lớn; để C1 nếu cần.
 Director cần chat firehose (YouTube/Discord) để có tin trong pool. Test:
 python scripts/stream.py --youtube VIDEO_ID [--tts]. cli.py không thấy Director.
 
+## C0 AUDIT — vá 8 lỗi (2026-08-06), 1038 test xanh
+- T1 superchat ack MỌI segment (config opening/closing +ack_donation)
+- T2 ack gọi TÊN (PooledMessage.viewer_name, chat_router truyền user_name)
+- T3 SUMMARY không lặp (SaliencePool.purge_below sau summary dọn backlog thấp)
+- T4 director tick 1.5s (config riêng, tách autonomy 5s)
+- T5 history/memory sạch (run_turn +history_user_text +commit_history; SUMMARY/
+  VIBE không commit; SINGLE/ACK dùng text chat gốc, không chuỗi ngoặc prompt)
+- T6 accel baseline (DirectorLoop.tick_once gọi pulse.update_baseline)
+- T7 pulse→mood (chat_hype/chat_lively appraisal + classifier map + DirectorLoop
+  edge-debounce push EmotionEvent)
+- T8 chart mood 5 đường dashboard (emotion param + snapshot + drawMoodChart)
+Mỗi task 1 commit + test riêng. mai_llm_parse_total GIỮ (parse_ok=text non-empty).
+
 ## A4 Phase A — Emotion có object + grudge (2026-08-06) — HẾT PHASE A
 - [x] A4.1 EmotionCause{viewer_alias, intent_short} + sanitize_alias (classifier.py).
       AppraisalTable.cause_intent(cat) đọc config cause_intents (CANONICAL, KHÔNG
