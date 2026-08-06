@@ -221,12 +221,18 @@ class LLMTurnRunner:
     ):
         if self._emotion is None:
             return self._pm.build_request(request_id, user_text)
+        cause = None
+        try:
+            cause = self._emotion.active_cause()   # A4
+        except Exception:
+            pass
         return self._pm.build_request_with_mood(
             request_id=request_id,
             user_text=user_text,
             current_mood=self._emotion.current_mood(),
             event_category=event_category,
             tone_flags=self._emotion.active_tone_flags(),
+            cause=cause,
         )
 
     def _apply_emotion_feedback(self, parsed: ParsedResponse, engine_mood_pre) -> None:

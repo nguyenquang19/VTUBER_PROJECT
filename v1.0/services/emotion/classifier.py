@@ -35,6 +35,33 @@ class EmotionEvent:
     timestamp: datetime | None = None
 
 
+@dataclass
+class EmotionCause:
+    """A4: 'vì AI/vì gì' gắn với mood — object của cảm xúc, KHÔNG nguyên văn chat.
+
+    viewer_alias: tên hiển thị đã sanitize (không newline, cắt ngắn) hoặc mô tả
+                  chung ("một người trong chat"). intent_short: cụm CANONICAL từ
+                  config cause_intents (không copy câu toxic).
+    """
+    viewer_alias: str
+    intent_short: str
+
+    def as_phrase(self) -> str:
+        return f"{self.viewer_alias} {self.intent_short}".strip()
+
+
+# A4: sanitize alias — bỏ newline/ký tự điều khiển, cắt ngắn (chống inject + gọn).
+_ALIAS_MAX = 24
+
+
+def sanitize_alias(raw: str | None) -> str:
+    if not raw:
+        return "một người trong chat"
+    s = " ".join(str(raw).split())          # gộp whitespace, bỏ newline/tab
+    s = s[:_ALIAS_MAX].strip()
+    return s or "một người trong chat"
+
+
 # ---------- Regex chat content ----------
 # Compliment: từ khen phổ biến. Không cần vét cạn — miss thì rơi neutral.
 _COMPLIMENT_RE = re.compile(

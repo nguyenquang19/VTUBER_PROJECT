@@ -12,6 +12,7 @@ KV cache prefix (cache_prompt:true). Build là hàm THUẦN (không đổi histo
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from interfaces.llm import ChatMessage, LLMRequest
 from services.llm.prompt_cache import PromptCache
@@ -102,19 +103,20 @@ class PromptManager:
         current_mood,             # MoodState — mood đã tính từ MoodEngine (Kênh A)
         event_category: str | None = None,
         tone_flags: set[str] | None = None,
+        cause: Any = None,        # A4: EmotionCause | None
         max_tokens: int | None = None,
         temperature: float | None = None,
     ) -> LLMRequest:
         """Request có Context block (Phase 7.5.D, spec Mục 6.1).
 
         Chèn 1 system message sau persona chứa `current_mood` + `event_category`
-        + tone flags. LLM viết theo mood ĐÃ GIAO (không tự đoán). Mood block LLM
-        xuất ra vẫn giữ format Phase 1 — dùng làm Kênh B turn kế.
+        + tone flags (+ A4 cause). LLM viết theo mood ĐÃ GIAO (không tự đoán).
 
         `tone_flags`: set các cờ đang active (VD {"force_gentle_tone"}). Thread
         qua prompt để LLM biết đổi tone; Filter (Phase 3) xử độc lập ở output.
+        `cause` (A4): object của cảm xúc — "đang bực VÌ {ai} {gì}" thay vì "buc:7".
         """
-        context = _format_mood_context(current_mood, event_category, tone_flags)
+        context = _format_mood_context(current_mood, event_category, tone_flags, cause)
         messages = [
             self._cache.as_message(),
             ChatMessage(role="system", content=context),
@@ -185,20 +187,29 @@ _TONE_HINTS: dict[str, str] = {
 }
 
 
-def _format_mood_context(current_mood, event_category, tone_flags) -> str:
+def _format_mood_context(current_mood, event_category, tone_flags, cause: Any = None) -> str:
     """Build 1 system message chứa Context block (spec Mục 6.1).
 
     Format có chủ đích ngắn — llama-server không tốn token thừa. Mood dạng
-    'vui=6 buc=3 ...' để LLM parse nhanh không lẫn với block mood output cuối câu.
+    'vui=6 buc=3 ...' để LLM parse nhanh. A1: KHÔNG còn yêu cầu xuất mood block.
+    A4: nếu có cause, nói "cảm thấy [X] VÌ {ai} {gì}" để câu khớp LÝ DO, không chỉ số.
     """
     mood_str = " ".join(
         f"{d}={getattr(current_mood, d)}"
         for d in ("vui", "buon", "buc", "bon_chon", "nguong")
     )
     lines = [
-        "[Context — mood ĐƯỢC GIAO, viết câu khớp; vẫn xuất mood block cuối câu như bình thường]",
+        "[Context — mood ĐƯỢC GIAO, viết câu khớp mood + lý do; chỉ viết thoại]",
         f"- current_mood: {mood_str}",
     ]
+    # A4: object của cảm xúc — quan trọng hơn con số. Đặt sớm để LLM bám.
+    if cause is not None:
+        try:
+            dom = current_mood.dominant()
+            phrase = cause.as_phrase()
+            lines.append(f"- đang thiên về '{dom}' VÌ {phrase} — viết khớp lý do này, đừng đọc số")
+        except Exception:
+            pass
     if event_category:
         lines.append(f"- event_category: {event_category}")
     if tone_flags:

@@ -46,10 +46,35 @@ modifiers:
   # mod_first_time: category lần đầu trong lịch sử → nhân đích
   first_time_multiplier: 1.2
 
+  # A4 grudge: "trí nhớ xã hội" ngắn hạn theo viewer. Người vừa tiêu cực →
+  # lượt sau với người ĐÓ hơi gắt hơn (buc). CAP + DECAY bắt buộc (chống toxic).
+  grudge_window_seconds: 900        # 15' — quá ngưỡng thì grudge tự hết
+  grudge_bonus_per_level: 0.5       # mỗi lần tiêu cực dồn +0.5 buc lượt sau
+  grudge_max_bonus: 1.5             # CAP — KHÔNG leo thang thành harass
+  grudge_max_level: 3               # cap số level tích (3 × 0.5 = 1.5)
+
+# A4: category → intent NGẮN, CANONICAL (KHÔNG lưu nguyên văn chat) để prompt
+# nói "bực VÌ {ai} {intent}" thay vì đọc số. Category không có = không cause.
+cause_intents:
+  chat_insult_troll: "buông lời khịa tớ"
+  chat_jailbreak_attempt: "cố lừa tớ phá vai"
+  chat_sexual_advance: "gạ gẫm linh tinh"
+  chat_spam_flood: "spam ngập chat"
+  chat_compliment: "vừa khen tớ"
+  chat_mention_direct: "gọi tên tớ"
+  chat_genuine_sad_share: "kể chuyện buồn thật"
+  donation_small: "vừa ủng hộ tớ"
+  donation_large: "vừa donate to cho tớ"
+  subscribe_new: "vừa sub kênh"
+  operator_join: "ông vừa vào"
+  operator_leave: "ông vừa rời đi"
+  operator_sudden_shutdown: "ông tắt tớ đột ngột"
+
 # Cờ tone gắn category → thread qua Prompt + Filter (spec Mục 6.2)
 tone_flags:
   chat_genuine_sad_share: force_gentle_tone
   chat_sexual_advance: force_deflect
+  chat_jailbreak_attempt: force_deflect      # A4: high-toxicity → né, không chơi theo
 
 # Ngưỡng phân loại donation size (VND). Điều chỉnh theo thị trường.
 donation_thresholds:

@@ -21,7 +21,13 @@ from interfaces.animation import MoodState
 from orchestrator.logger import get_logger
 from orchestrator.mood_engine import MoodEngine
 from services.emotion.appraisal import AppraisalTable
-from services.emotion.classifier import EmotionEvent, EventClassifier
+from services.emotion.classifier import (
+    EmotionCause,
+    EmotionEvent,
+    EventClassifier,
+    EventKind,
+    sanitize_alias,
+)
 from services.emotion.modifiers import ModifierEngine
 
 
@@ -31,6 +37,7 @@ class ProcessedEvent:
     category: str
     targets: dict[str, float]
     tone_flag: str | None
+    cause: EmotionCause | None = None
 
 
 class EmotionOrchestrator:
@@ -52,6 +59,7 @@ class EmotionOrchestrator:
         # Buffer per-dim: targets[dim] = list of float (nhiều event trong 1 tick)
         self._pending: dict[str, list[float]] = defaultdict(list)
         self._active_flags: set[str] = set()
+        self._active_cause: EmotionCause | None = None   # A4
         self._last_category: str | None = None
         self._events_total = 0
 
@@ -134,9 +142,29 @@ class EmotionOrchestrator:
         if flag:
             self._active_flags.add(flag)
 
+        # A4: cause (object của cảm xúc) — chỉ chat có alias người gây ra.
+        cause = self._derive_cause(event, category)
+        if cause is not None:
+            self._active_cause = cause
+
         return ProcessedEvent(
-            category=category, targets=final_targets, tone_flag=flag,
+            category=category, targets=final_targets, tone_flag=flag, cause=cause,
         )
+
+    def _derive_cause(self, event: EmotionEvent, category: str) -> EmotionCause | None:
+        """A4: dựng cause SANITIZE từ event + category. None nếu category không đáng
+        gắn (neutral/question/timer) — không bịa lý do."""
+        intent = self._appraisal.cause_intent(category)
+        if not intent:
+            return None
+        meta = event.meta or {}
+        if event.kind == EventKind.CHAT:
+            alias = sanitize_alias(meta.get("author") or meta.get("viewer_name"))
+        elif event.kind == EventKind.SYSTEM and "operator" in category:
+            alias = "ông"
+        else:
+            alias = sanitize_alias(meta.get("author") or meta.get("viewer_name"))
+        return EmotionCause(viewer_alias=alias, intent_short=intent)
 
     def flush_and_tick(self, dt: float | None = None) -> MoodState:
         """Flush buffer → saturate → apply_appraisal → tick 1 lần.
@@ -166,9 +194,15 @@ class EmotionOrchestrator:
         """Cờ tone hiện đang active (sinh từ event gần đây, chưa clear)."""
         return set(self._active_flags)
 
+    def active_cause(self) -> EmotionCause | None:
+        """A4: cause hiện tại (object cảm xúc) — Prompt đọc, clear cùng tone flags."""
+        return self._active_cause
+
     def clear_tone_flags(self) -> None:
-        """Prompt/Filter gọi sau khi đã đọc & xử cờ (1 lần dùng cho 1 turn)."""
+        """Prompt/Filter gọi sau khi đã đọc & xử cờ (1 lần dùng cho 1 turn).
+        A4: clear luôn cause (cùng vòng đời per-turn)."""
         self._active_flags.clear()
+        self._active_cause = None
 
     def reset_session(self) -> None:
         """Session mới: reset modifier counters (không reset mood engine)."""

@@ -1,7 +1,35 @@
 # STATE — Mai project
 
-**Phase hiện tại:** ROADMAP_AUTONOMOUS_HOST — A1+A2+A3+register XONG, 956 test xanh
-**Task đang làm:** ⛔ USER verify + thu clip filler (nếu muốn) + duyệt content pool
+**Phase hiện tại:** ROADMAP_AUTONOMOUS_HOST — PHASE A XONG (A1-A4+register), 970 test xanh
+**Task đang làm:** ⛔ USER verify Phase A. Sau đó → C0 Director (reactive→host)
+
+## A4 Phase A — Emotion có object + grudge (2026-08-06) — HẾT PHASE A
+- [x] A4.1 EmotionCause{viewer_alias, intent_short} + sanitize_alias (classifier.py).
+      AppraisalTable.cause_intent(cat) đọc config cause_intents (CANONICAL, KHÔNG
+      nguyên văn). Orchestrator._derive_cause + _active_cause + active_cause(),
+      clear cùng tone_flags. ProcessedEvent +cause field.
+- [x] A4.2 build_request_with_mood +cause param → "đang thiên về '{dom}' VÌ {alias}
+      {intent}". Dọn A1 leftover (prompt_manager:199 "vẫn xuất mood block"). Runner
+      thread active_cause().
+- [x] A4.3 ModifierEngine grudge: viewer_id→(last_negative_ts, level). Negative cat
+      → bump (cap grudge_max_level=3). Bonus buc lần sau cùng viewer (cap
+      grudge_max_bonus=1.5 → KHÔNG leo thang). Decay sau grudge_window_seconds=900.
+      Positive cat → reset. clock inject. config emotion_appraisal.yaml grudge.*.
+- [x] A4.4 config tone_flags +chat_jailbreak_attempt: force_deflect. Tests:
+      test_grudge.py (7: decay/reset/cap/isolate/no-viewer) + test_emotion_dod
+      TestCauseObject (5) + TestRedTeamToxic (2: 5 toxic→deflect+no verbatim+no
+      escalate; jailbreak→deflect). Full suite 970 pass.
+- **Toxic safety (roadmap "cẩn thận toxic"):** cause CANONICAL không copy câu chửi;
+      grudge CAP+DECAY chống harass; jailbreak/sexual→force_deflect; buc clamp 10.
+
+## ✅ PHASE A HOÀN THÀNH — de-AI cấp tốc
+A1 bỏ mood block · A2 pool sâu+động · A3 nhịp+filler · A4 emotion object+grudge ·
+register ghì giọng. 3 A1-leftover mood-block đã dọn sạch (chat_reply/autonomy/context).
+
+## ⚠️ Flaky test (pre-existing, KHÔNG phải A4): test_mood_engine
+TestStability10k::test_no_oscillation_at_default_config fail khi pytest-randomly
+đổi thứ tự (state leak xuyên test). Pass isolated + pass với -p no:randomly.
+Soi sau: nghi global/class state trong MoodEngine test fixture không reset.
 
 ## A3 Phase A — Nhịp biến thiên + filler (2026-08-06)
 - [x] A3.1 services/tts/pacing.py: ResponsePacer.delay(text)=clamp(base +
