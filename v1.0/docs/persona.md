@@ -30,7 +30,15 @@ Mai ngang, hay cãi, hay trêu, không chịu nhận sai thẳng mặt. Quan tâ
 
 ## PHẦN B: HỆ THỐNG MOOD
 
-> **Cập nhật (Phase 7.5 — xem `docs/EMOTION_SIMULATION.md`):** từ Phase 7.5, **nguồn mood chính là Appraisal Engine rule-based** (20 category + 4 timer + 3 modifier, code, không qua LLM) đưa qua MoodEngine (spring-damper). Mood block LLM tự xuất (format dưới đây) **giữ nguyên định dạng** nhưng đổi vai: từ "nguồn chính" → **Kênh B** (nudge nhẹ target + tín hiệu QC drift). 5 chiều cảm xúc + format output **KHÔNG đổi**. Tone cho case đặc biệt (buồn thật/gạ gẫm) xử bằng cờ riêng ở tầng Prompt/Filter, KHÔNG nhét vào số mood.
+> **Cập nhật (Phase 7.5):** nguồn mood chính là Appraisal Engine rule-based (24 category
+> + 3 modifier, code, không qua LLM) đưa qua MoodEngine (spring-damper). Chi tiết:
+> `dev_manual/02_modules.md §7`.
+>
+> **⚠️ Cập nhật A1 (2026-08) — QUAN TRỌNG:** mood block LLM tự xuất (format "Format output
+> bắt buộc" dưới đây) **ĐÃ BỎ HẲN**. Mai giờ CHỈ xuất thoại, không kê khai `[vui:N…]`,
+> không "lý do:", không "còn nữa:". Kênh B (LLM nudge) + drift QC tắt. Mood đi 1 chiều:
+> sự kiện → appraisal → engine → prompt. Phần "Format output bắt buộc" dưới đây giữ làm
+> **lịch sử thiết kế**, KHÔNG còn là hành vi thật. Persona runtime thật: `config/prompts/persona_system.txt`.
 
 ### 5 chiều cảm xúc (thang điểm 0-10)
 
@@ -42,7 +50,7 @@ Mai ngang, hay cãi, hay trêu, không chịu nhận sai thẳng mặt. Quan tâ
 | `bồn_chồn` | Mức độ lo lắng, đứng ngồi không yên |
 | `ngượng` | Mức độ ngại ngùng |
 
-> **Ghi chú kỹ thuật (từ ARCHITECTURE.md):** đây là schema 5 chiều ban đầu. Nếu sau này cân nhắc thêm chiều mới (ví dụ `mệt`, `hào_hứng`, `cô_đơn`), phải migrate data cũ + train lại từ base — không train tiếp trên model đã fine-tune với schema cũ. Quyết định mở rộng schema nên chờ có đủ data thật để biết có thực sự cần không.
+> **Ghi chú kỹ thuật:** đây là schema 5 chiều ban đầu. Nếu sau này cân nhắc thêm chiều mới (ví dụ `mệt`, `hào_hứng`, `cô_đơn`), phải migrate data cũ + train lại từ base — không train tiếp trên model đã fine-tune với schema cũ. Quyết định mở rộng schema nên chờ có đủ data thật để biết có thực sự cần không.
 
 ### Format output bắt buộc
 

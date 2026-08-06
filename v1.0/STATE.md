@@ -1,11 +1,16 @@
 # STATE — Mai project
 
-**Phase hiện tại:** ROADMAP_AUTONOMOUS_HOST — Phase A xong + C0.1 xong, 991 test xanh
-**Task đang làm:** C0 Director đang build. C0.1 xong. Tiếp C0.2 ChatPulse.
+> **Tài liệu kỹ thuật canonical: `docs/dev_manual/`** (01 kiến trúc · 02 modules · 03 ops ·
+> 04 extending). File STATE này chỉ là ledger "đang ở đâu". Spec cũ (ARCHITECTURE/PROCESS/
+> EMOTION_SIMULATION…) đã xoá 2026-08-06, nội dung gộp vào dev_manual.
 
-## C0 — Director + Chat handling (reactive→host) — ĐANG BUILD
-Bản đồ 4 mảnh tăng dần: C0.1 SaliencePool (xong) · C0.2 ChatPulse · C0.3 Director
-loop · C0.4 hợp nhất stream qua Director (CHECKPOINT bắt buộc trước — refactor lớn).
+**Phase hiện tại:** A1 (de-AI) XONG + **C0 (Director) XONG & wired vào stream** + Task 8 dashboard mood.
+**Nợ kỹ thuật:** 7 lỗi audit C0 → `docs/FIX_PLAN_C0_AUDIT.md` (Task 1-7 chờ, Task 8 xong).
+**Kế tiếp:** vá P0 (superchat ack) rồi Phase B (nguồn novelty) / Phase 6 avatar.
+
+## C0 — Director + Chat handling (reactive→host) — ✅ XONG
+`services/director/`: SaliencePool + ChatPulse + Director + DirectorLoop. ChatRouter →
+intake mode. DirectorLoop là driver duy nhất (thay FIFO). Chi tiết: `dev_manual/02_modules.md §12`.
 
 ### C0.1 SaliencePool (2026-08-06) — XONG
 - config/chat_salience.yaml: base_tier{chat10/question25/mention35}, superchat

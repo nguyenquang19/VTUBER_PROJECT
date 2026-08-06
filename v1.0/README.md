@@ -4,16 +4,20 @@ AI VTuber tiếng Việt chạy 100% local trên Windows 11 / RTX 5060 Ti 16GB.
 
 ## Stack
 - **LLM:** llama.cpp (llama-server) + Gemma 4 12B Q4_K_M
-- **STT:** faster-whisper small
-- **TTS:** chốt sau Pre-flight Day 2
+- **TTS:** VieNeu-TTS v3 Turbo (48kHz, GPU streaming)
+- **STT:** faster-whisper small (Phase 5, deferred)
 - **Storage:** SQLite + sqlite-vec
-- **Dashboard:** FastAPI + Vanilla JS (Alpine.js từ Phase 6)
+- **Dashboard:** FastAPI + Vanilla JS (canvas chart, 100% local)
 
 ## Tài liệu
-- [docs/QUICKSTART.md](docs/QUICKSTART.md) — stack tổng quan
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — spec đầy đủ
-- [docs/PROCESS.md](docs/PROCESS.md) — kịch bản build từng phase
-- [docs/CLAUDE.md](docs/CLAUDE.md) — rules cho Claude Code
+
+Bộ tài liệu kỹ thuật canonical ở **[docs/dev_manual/](docs/dev_manual/README.md)** — đọc file đó trước.
+
+- [docs/dev_manual/01_architecture.md](docs/dev_manual/01_architecture.md) — kiến trúc + data flow
+- [docs/dev_manual/02_modules.md](docs/dev_manual/02_modules.md) — logic từng module
+- [docs/dev_manual/03_operations.md](docs/dev_manual/03_operations.md) — chạy / config / dashboard / debug
+- [docs/dev_manual/04_extending.md](docs/dev_manual/04_extending.md) — thêm module / đóng góp
+- [docs/CLAUDE.md](docs/CLAUDE.md) — rules N1-N8 cho AI
 - [docs/persona.md](docs/persona.md) — persona spec
 - [STATE.md](STATE.md) — trạng thái build hiện tại
 
@@ -24,4 +28,4 @@ python -m venv venv
 pip install -r requirements.txt
 ```
 
-Xem [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) Appendix B + D cho checklist đầy đủ.
+Xem [docs/dev_manual/03_operations.md](docs/dev_manual/03_operations.md) cho setup + chạy đầy đủ.

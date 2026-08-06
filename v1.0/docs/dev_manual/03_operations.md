@@ -70,7 +70,7 @@ nvidia-smi
 # Test suite:
 python -m pytest tests/ --deselect tests/integration/test_llama_server_live.py `
                         --deselect tests/integration/test_llm_live.py
-# → 927 pass expected
+# → ≥927 pass (đã thêm test director/salience/chat_pulse/director_loop sau C0)
 ```
 
 ---
@@ -182,7 +182,7 @@ Một lần cho toàn stream:
 
 Toàn bộ config ở `v1.0/config/`. Nguyên tắc N6: sửa số ở YAML, KHÔNG hardcode trong .py.
 
-### 4.1. Danh sách 12 file
+### 4.1. Danh sách 14 file
 
 | File | Vai trò | Update khi |
 |---|---|---|
@@ -197,7 +197,9 @@ Toàn bộ config ở `v1.0/config/`. Nguyên tắc N6: sửa số ở YAML, KH�
 | `emotion_appraisal.yaml` | 24 category target, tone flags, modifier params | Đổi cảm xúc theo event |
 | `chat_sources.yaml` | YouTube video_id, Discord token env var + channel_ids | Setup stream |
 | `autonomy.yaml` | Urge params, 6 category weight/cooldown/mood_boost | Tune Mai tự nói |
-| `autonomy_content_pool.yaml` | 15 share_thought seed + 10 question seed + pool policy | Đa dạng chủ đề Mai tự kể |
+| `autonomy_content_pool.yaml` | share_thought/question seed + pool policy | Đa dạng chủ đề Mai tự kể |
+| `chat_salience.yaml` | base_tier, superchat_coef, tau decay, cluster, pulse thresholds | Tune ưu tiên chat + độ sôi nổi (C0) |
+| `director.yaml` | segments (opening/main/chat/closing), dead_air, max_refs | Tune nhịp dẫn stream (C0) |
 | `prompts/persona_system.txt` | Persona A+B+C | Đổi tính cách Mai |
 | `prompts/ambient_instruction.txt` | Template Mai tự mở lời (LEGACY từ Phase 2, autonomy v2 dùng prompt_builder thay) | — |
 
@@ -249,12 +251,15 @@ filter:
 Bật kèm `--dashboard`. Realtime WebSocket push mỗi 1s.
 
 **Tabs:**
-- **Overview** — state machine hiện tại, TTFT/TTFA chart cuối
-- **LLM** — TTFT histogram, decode tps, parse ok/fail rate, fallback level distribution
-- **Triggers** — 4 type counts, skipped, interrupt, ambient
-- **Filter** — checks/hits per category, hit rate, fail-open count, regenerate outcomes
-- **TTS** — TTFA per turn, chunks played/dropped, subtitle fallback count
-- **State** — current state + duration, watchdog last check, transition history
+- **Metrics** — LLM (TTFT/decode/parse/fallback) + System (GPU/VRAM/chat rate) charts
+- **Features** — toggle + VRAM budget
+- **State Machine** — current state + duration, watchdog, transition history
+- **Triggers** — type counts, skipped, interrupt (legacy path)
+- **Filter** — checks/hits per category, hit rate, fail-open, regenerate outcomes
+- **TTS** — TTFA per turn, chunks played/dropped, subtitle fallback
+- **Mood** — chart 5 chiều realtime (pos đặc + target chấm) + tone flags. Cần
+  `DashboardServer(emotion=emotion)` (stream/cli đã wire). Đây là cách trực quan nhất
+  để debug "sao Mai đang gắt/buồn".
 
 ### 5.2. Logs JSONL
 
@@ -274,8 +279,11 @@ Query nhanh với `jq`:
 # TTFT P95 hôm nay:
 type logs\turns.jsonl | jq -s "[.[].ttft_ms] | sort | .[.length*95/100 | floor]"
 
-# Đếm drift flagged:
-type logs\events.jsonl | jq "select(.event==\"mood_drift_flagged\")" | wc -l
+# Đếm ambient (Mai tự nói) vs chat_reply:
+type logs\turns.jsonl | jq -r ".kind" | sort | uniq -c
+
+# Kiểm A1 (target 0): số turn LLM vẫn lỡ sinh mood block:
+type logs\turns.jsonl | jq "select(.raw_had_mood_block==true)" | wc -l
 ```
 
 ### 5.3. SQLite queries
@@ -326,7 +334,7 @@ venv\Scripts\Activate.ps1
 python -m pytest tests/ --tb=short -q `
   --deselect tests/integration/test_llama_server_live.py `
   --deselect tests/integration/test_llm_live.py
-# → 927 pass
+# → ≥927 pass (kèm test C0 director/salience/pulse)
 ```
 
 `--deselect` bỏ 2 file live test (cần llama-server chạy). Chạy live test riêng:

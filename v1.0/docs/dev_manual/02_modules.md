@@ -19,6 +19,11 @@ Convention: mỗi module có `Interface`, `Implementation`, `Config`, `Tests`, `
 9. [Platform inputs (YouTube/Discord/Router)](#9-platform-inputs)
 10. [Runtime composer (StreamRuntime)](#10-runtime-composer-streamruntime)
 11. [Dashboard + Metrics](#11-dashboard--metrics)
+12. [Director stack (C0)](#12-director-stack-c0) — driver + chat triage + salience + pulse
+13. [Trigger/State machine — LEGACY](#3-trigger--state-machine-phase-2) (đường cũ, không dùng ở stream)
+
+> **Lưu ý đọc:** §3 (Trigger/TurnOrchestrator) và §7.5 (Drift) là code CŨ, KHÔNG nằm trên
+> đường stream sau C0/A1. Giữ để tham chiếu `main.py`/`cli.py` cũ. Đường stream thật: §12 Director.
 
 ---
 
@@ -236,16 +241,21 @@ Health check qua `httpx` (chỉ dùng cho non-stream). `health_check()` → `Hea
 
 `PromptManager.build_request(request_id, user_text)` — bình thường: `[persona] + history + [user]`.
 
-`PromptManager.build_request_with_mood(request_id, user_text, current_mood, event_category, tone_flags)` — Phase 7.5.D: chèn 1 system message SAU persona chứa Context block:
+`PromptManager.build_request_with_mood(request_id, user_text, current_mood, event_category, tone_flags, cause)` — chèn 1 system message SAU persona chứa Context block. **A1: KHÔNG yêu cầu xuất mood block** — chỉ đưa mood để LLM viết câu KHỚP, còn Mai chỉ xuất thoại:
 
 ```
-[Context — mood ĐƯỢC GIAO, viết câu khớp; vẫn xuất mood block cuối câu như bình thường]
+[Context — mood ĐƯỢC GIAO, viết câu khớp mood + lý do; chỉ viết thoại]
 - current_mood: vui=5 buon=3 buc=4 bon_chon=3 nguong=2
+- đang thiên về 'buc' VÌ {cause} — viết khớp lý do này, đừng đọc số   (A4)
 - event_category: chat_compliment
 - CỜ force_gentle_tone: user đang tổn thương thật — BỎ giọng đùa/ngang...
 ```
 
-`build_ambient_request(request_id, silence_seconds, mood)` — Phase 2.C, dùng template `config/prompts/ambient_instruction.txt`.
+`cause` (A4) = `EmotionCause(viewer_alias, intent)` đã sanitize — inject "bực VÌ ai/gì" thay vì chỉ số.
+
+`build_ambient_request(...)` — DEAD CODE (template cũ còn chữ "kèm mood block"). Ambient thật đi qua `build_request(request_id, prompt_text)` với prompt_text do AutonomyEngine/Director dựng sẵn.
+
+`commit_self_talk(text)` — đẩy self-talk vào history cho continuity (Director gọi sau khi chốt câu tự nói).
 
 `commit_turn(user_text, assistant_text)` — append history, trim theo `max_history_turns * 2`.
 
@@ -255,15 +265,18 @@ Health check qua `httpx` (chỉ dùng cho non-stream). `health_check()` → `Hea
 
 Parse response LLM → `ParsedResponse(text, mood, reason, continuation, ok, raw)`.
 
-Handle:
-- Strip `<think>...</think>` (reasoning tags — dù đã --reasoning off vẫn defensive)
-- Strip `<|...|>` special tokens
-- Key mood alternation: có/không dấu, space/underscore → chuẩn hoá về key `vui/buon/buc/bon_chon/nguong`
-- Clamp 0-10
-- Né ngoặc vuông ngẫu nhiên trong text (chọn block nhiều mood key nhất)
-- Parse "còn nữa: có/không" cho auto-continue
+**A1: parser trả TEXT THUẦN.** Persona đã bỏ yêu cầu mood block → Mai chỉ nói thoại.
+Parser giữ khả năng strip mood block DEFENSIVE (nếu LLM lỡ sinh do prompt cũ) nhưng KHÔNG
+dùng làm control flow.
 
-Fail-safe: sai format vẫn trả text, `ok=False`, không raise.
+Handle:
+- Strip `<think>...</think>` + `<|...|>` special tokens (defensive)
+- Nếu lỡ có block `[vui:N…]` → strip khỏi text, KHÔNG bắt buộc, `mood` field giữ để backward-compat
+- `continuation` = SUY từ dấu câu cuối (`…`/`,` = còn ý), không auto-parse "còn nữa" nữa
+- `ok = bool(text non-empty)` — KHÔNG còn phụ thuộc mood block đủ 5 dim
+
+Fail-safe: sai format vẫn trả text, không raise. `raw` giữ output gốc (metric `raw_had_mood_block`
+đo hiệu quả A1 — target 0).
 
 ### 2.5. CannedResponder
 
@@ -298,9 +311,8 @@ runner = LLMTurnRunner.from_loader(
     regenerator=filter_regenerator,       # optional Phase 3.B
     memory=memory_service,                 # optional Phase 7.F
     memory_extractor=extractor,            # optional Phase 7.F
-    emotion=emotion_orchestrator,          # optional Phase 7.5.E
-    drift_detector=drift,                  # optional Phase 7.5.E
-)
+    emotion=emotion_orchestrator,          # optional Phase 7.5
+)   # A1: drift_detector ĐÃ BỎ (Kênh B tắt — không còn LLM self-report để so)
 
 parsed, level = await runner.run_turn(
     request_id="msg1",
@@ -317,10 +329,14 @@ parsed = await runner.run_ambient_turn(request_id, decision.prompt_text)
 
 Wire nhiều optional theo phase:
 - Không emotion → build_request bình thường
-- Có emotion → build_request_with_mood + apply_llm_hint sau turn + drift detect
+- Có emotion → build_request_with_mood (inject mood + cause). **A1: sau turn CHỈ
+  `clear_tone_flags()`** — Kênh B (`apply_llm_hint`) + drift ĐÃ BỎ. Mood đi 1 chiều:
+  appraisal event → engine → prompt.
 - Có memory + extractor → schedule fire-and-forget memory.write sau turn
 - Có regenerator → check filter + regen 1 lần nếu bad
-- `run_ambient_turn` KHÔNG commit history (ambient không phải reply)
+- `run_ambient_turn` KHÔNG commit history (Director gọi `commit_self_talk` riêng nếu cần)
+- `run_turn(history_user_text=…)` (nếu thêm — xem FIX_PLAN Task 5) để commit text chat gốc
+  thay vì prompt ngoặc của Director
 
 ---
 
@@ -657,7 +673,9 @@ Wire vào `LLMTurnRunner.run_turn`: sau parse → `_schedule_memory_write` fire-
 
 ## 7. Emotion Simulation (Phase 7.5)
 
-Full spec: `docs/EMOTION_SIMULATION.md`. Đây là summary implementation.
+Mood engine mô phỏng cảm xúc bằng spring-damper 5 chiều. **A1: đây là GROUND-TRUTH
+DUY NHẤT** của mood — LLM không còn tự report. Mood đi 1 chiều: sự kiện thật → appraisal
+→ engine → inject vào prompt.
 
 ### 7.1. MoodEngine (7.5.A)
 
@@ -668,8 +686,8 @@ Spring-damper 2 kênh (spec Mục 5). 5 dimension mood: `vui/buon/buc/bon_chon/n
 ```python
 engine = MoodEngine.from_loader(loader, clock=time.monotonic)
 
-engine.apply_appraisal({"buc": 8, "vui": 6})   # Kênh A (tin cao, set target)
-engine.apply_llm_hint(MoodState(vui=7))         # Kênh B (tin thấp, nudge 20%)
+engine.apply_appraisal({"buc": 8, "vui": 6})   # Kênh A (từ sự kiện thật) — DUY NHẤT còn dùng
+# apply_llm_hint (Kênh B) VẪN TỒN TẠI trong code nhưng KHÔNG được gọi nữa (A1 tắt)
 
 # Saturation nhiều event trong 1 tick:
 targets = engine.saturate({"vui": [6, 7, 5]})  # → {vui: max+0.5×(n-1) cap 10}
@@ -686,7 +704,7 @@ mood_engine:
   stiffness: 0.30                # spring pull rate
   damping: 0.75                  # over-damped nhẹ, không dao động
   target_decay_rate: 0.15        # target về baseline mỗi giây
-  llm_hint_weight: 0.20          # Kênh B nudge 20%
+  llm_hint_weight: 0.20          # (A1: Kênh B tắt — param còn nhưng không tác dụng)
   saturation_bonus: 0.5          # max + 0.5×(n-1) cap 10
   baseline: { vui: 5, buon: 3, buc: 4, bon_chon: 3, nguong: 2 }
 ```
@@ -740,42 +758,32 @@ processed = await orch.handle_event(emo_event)
 # → ProcessedEvent(category, targets, tone_flag)
 # → target buffered per-dim; tick sau flush + saturate + apply_appraisal + tick
 
-mood = orch.current_mood()                    # snapshot
+mood = orch.current_mood()                    # snapshot MoodState (dùng bởi Director/prompt)
 flags = orch.active_tone_flags()              # {"force_gentle_tone"}
 orch.clear_tone_flags()                       # Prompt/Filter đã xử
-
-orch.apply_llm_hint(mood_state)               # Kênh B từ LLM turn kế
-orch.reset_session()                          # reset modifier counters
-
+cause = orch.active_cause()                    # A4: EmotionCause(alias, intent) đã sanitize
+snap = orch.snapshot()                         # {current_mood, mood_pos, mood_target, active_flags…}
+orch.reset_session()                           # reset modifier counters
 await orch.stop()
 ```
 
-Buffer per-tick: nhiều event trong cùng 1 tick → gom targets → saturate 1 lần → apply_appraisal.
+`snapshot()` là nguồn cho **dashboard tab Mood** (xem `03_operations.md §Dashboard`).
+Buffer per-tick: nhiều event cùng 1 tick → gom targets → saturate 1 lần → apply_appraisal.
 
-### 7.5. DriftDetector (7.5.E)
+### 7.5. DriftDetector (7.5.E) — ⚠️ KHÔNG CÒN DÙNG (A1)
 
-**File:** `services/qc/drift_detector.py`
+**File:** `services/qc/drift_detector.py` (còn tồn tại, KHÔNG được wire).
 
-Compare engine mood (appraisal) vs LLM self-report. Threshold default 4.
-
-```python
-drift = DriftDetector.from_loader(loader)     # threshold từ mood_engine.yaml.drift.threshold
-report = drift.detect(engine_mood, llm_mood)
-# DriftReport(deltas, max_delta, max_dim, flagged)
-# flagged=True nếu max_delta > threshold → log warning
-```
-
-Ví dụ bắt được: appraisal `buc=8` (troll rõ) nhưng LLM `vui=8` → lệch 8, flag.
-
-Metric: `checks_total`, `flagged_total`, `flagged_rate`.
-
-Wire vào `LLMTurnRunner._apply_emotion_feedback` sau turn.
+Trước A1: so engine mood (appraisal) vs LLM self-report để bắt lệch. A1 bỏ LLM self-report
+→ không còn nguồn so → drift bị gỡ khỏi `LLMTurnRunner`. Muốn QC mood lại: dùng affect-classifier
+post-hoc trên câu Mai nói (chưa build).
 
 ---
 
 ## 8. Autonomy Engine v2
 
-Full spec: `docs/AUTONOMY_ENGINE_REDESIGN.md`. Thay hardcode `silence>60s` bằng probabilistic + category-based.
+Thay hardcode `silence>60s` bằng urge probabilistic + category-based. Ở stream, autonomy
+là **generator** cho Director (`force_generate`), không tự cầm nhịp.
 
 ### 8.1. UrgeAccumulator (Aut.A)
 
@@ -949,25 +957,26 @@ Filter: `ignore_bots=True` (default), `channel_ids` whitelist (empty = mọi cha
 
 **File:** `services/input/chat_router.py`
 
-Multi-source consumer, serialize turn qua `asyncio.Lock`.
+Multi-source consumer. **2 chế độ:**
+
+- **INTAKE mode** (stream thật, C0): cấp `pool` + `pulse` → mỗi chat chỉ (1) chạy appraisal
+  mood, (2) `_pump_intake` bơm vào `SaliencePool.add()` + `ChatPulse.record()`. **KHÔNG tự
+  đáp.** Director nhặt sau.
+- **FIFO mode** (không cấp pool/pulse — test/legacy): `_process` chạy `runner.run_turn` trực
+  tiếp trong `turn_lock` như cũ.
 
 ```python
 router = ChatRouter(
     sources=[YouTubeChatService(...), DiscordChatService(...)],
-    emotion=emotion_orchestrator,
-    runner=llm_turn_runner,
-    speak=speak_callback,      # optional TTS
+    emotion=emotion_orchestrator, runner=llm_turn_runner, speak=speak_callback,
+    pool=salience_pool, pulse=chat_pulse, turn_lock=shared_lock,   # → INTAKE mode
 )
-await router.start()  # start emotion + sources + spawn 1 consumer task/source
-# ... events dispatch automatic ...
-await router.stop()
 ```
 
-`_process(event)`: `_to_emotion_event` → `emotion.handle_event` → `runner.run_turn(viewer_id, event_category=processed.category)` → `speak(text)` nếu có TTS.
+`_pump_intake(ev)`: phân loại kind (`mention`/`question`/`chat` qua regex nhẹ), lấy
+`amount_vnd`/`is_super` từ super chat → `pool.add(...)`, `pulse.record(now, user_id)`.
 
-Serialize toàn bộ trong `async with self._turn_lock` — không chạy 2 turn cùng lúc.
-
-**Fail-safe:** emotion raise → skip event; runner raise → log + count fail, không kill router.
+**Fail-safe:** emotion raise → skip event; intake raise → log, không kill router.
 
 ---
 
@@ -993,17 +1002,22 @@ await rt.stop()
 
 **`build_stream_runtime()` factory** wire:
 1. LLM stack (health check bắt buộc, raise nếu server chưa chạy)
-2. EmotionOrchestrator + DriftDetector
+2. EmotionOrchestrator (A1: KHÔNG còn DriftDetector)
 3. Memory (nếu `enable_memory=True`, rewire `emotion._modifiers._memory`)
-4. LLMTurnRunner với tất cả optional wire
+4. LLMTurnRunner với optional wire
 5. VieNeuTtsService + AudioPlayer + TTSPipeline (nếu `enable_tts`)
-6. AutonomyEngine (nếu `enable_autonomy`)
-7. ChatRouter với sources + speak_callback
-8. Dashboard (nếu `enable_dashboard`)
+6. AutonomyEngine (nếu `enable_autonomy`) — làm **generator self_talk** cho Director
+7. **C0 Director stack:** `SaliencePool` + `ChatPulse` + `Director` + `DirectorLoop`, `turn_lock` chung
+8. ChatRouter INTAKE mode (cấp pool+pulse)
+9. Dashboard với `emotion=emotion` (nếu `enable_dashboard`) → tab Mood
 
-**Autonomy loop** trong `_autonomy_loop`: share `_turn_lock` với ChatRouter — không đè chat turn.
+**Driver:** `DirectorLoop` cầm nhịp (start ở `StreamRuntime.start` nếu có; `_autonomy_loop`
+cũ chỉ chạy khi KHÔNG có director). Share `turn_lock` chung — 1 turn tại 1 thời điểm.
 
-**Chat activity hook**: wrap `router._process` → `autonomy.on_external_activity()` + `rt.note_chat_activity()` mỗi event.
+**Chat activity hook**: wrap `router._process` → `autonomy.on_external_activity()` +
+`rt.note_chat_activity()` mỗi event.
+
+Chi tiết Director stack: xem **§12 dưới**.
 
 ---
 
@@ -1021,10 +1035,13 @@ Categories:
 - **State:** `state_transitions_total{from,to}`, `state_duration_seconds`, `watchdog_deadlocks_total`
 - **Filter:** `filter_checks_total`, `filter_hits_total{category}`, `filter_regenerate_total{outcome}`
 - **TTS:** `tts_pipeline_last_ttfa_ms`, `tts_subtitle_fallback_total`, `tts_chunks_played`, `tts_chunks_dropped`
-- **Mood:** `mood_ticks`, `mood_appraisal_applies`, `mood_llm_applies`
+- **Mood:** `mood_ticks`, `mood_appraisal_applies` (`mood_llm_applies` = 0 sau A1)
 - **Memory:** `memory_queries_total`, `memory_timeouts_total`, `memory_writes_total`
-- **Drift:** `drift_flagged_total`, `drift_flagged_rate`
 - **Autonomy:** `autonomy_generated_total`, `autonomy_skipped_no_material`, `autonomy_dedup_hits`
+- **Director/C0:** `director_segment`, `director_turns_read/self`, `director_transitions`,
+  `salience_pool_size/added/clustered/evicted`, `pulse_state/tempo/diversity`
+- ⚠️ `llm_parse_total{status}` giữ nhãn cũ "parse mood block" nhưng giờ chỉ đo text non-empty
+  (A1). `drift_*` metric CHẾT (không còn ghi).
 
 ### 11.2. DashboardServer
 
@@ -1040,7 +1057,60 @@ REST endpoints:
 
 WebSocket `/ws` — push snapshot mỗi 1s.
 
-Tabs: Overview, LLM, Triggers, Filter, TTS, State (Watchdog info).
+Tabs: Metrics (LLM+System), Features, State Machine, Triggers, Filter, TTS, **Mood**.
+Tab Mood (Task 8): `drawMoodChart` vẽ 5 đường realtime (pos đặc + target chấm) từ
+`snap.mood = emotion.snapshot()`. Cần truyền `DashboardServer(emotion=emotion)`.
+
+---
+
+## 12. Director stack (C0)
+
+**Thư mục:** `services/director/`. Biến reactive (đáp mọi tin FIFO) → host tự điều hành.
+
+### 12.1. SaliencePool (`salience.py`)
+Chấm điểm + decay + cluster chat. Chat vào pool, KHÔNG tự thành turn.
+```
+base   = base_tier[kind] + superchat_coef * log1p(amount/divisor)
+score  = (base + cluster_coef * log1p(cluster_count-1)) * exp(-age/tau)
+```
+- `add()` — tin near-duplicate (Jaccard token > threshold, dùng `DedupBuffer._tokenize`) →
+  gom vào đại diện (`cluster_count++`). Super chat gom vào tin thường → nâng base.
+- `peek_top/pop_top/top_cluster(max_refs)` — Director nhặt.
+- `evict_stale` (score < floor) + `_enforce_cap(pool_max)` — staleness + backpressure tự dọn.
+- Config `config/chat_salience.yaml §salience`.
+- ⚠️ chưa lưu `viewer_name` (FIX_PLAN Task 2), chưa có `purge_below` (Task 3).
+
+### 12.2. ChatPulse (`chat_pulse.py`)
+Đo độ sôi nổi. `tempo` (tin/phút) · `diversity` (unique_users/msg) · `state`:
+
+| tempo | diversity | state | Director |
+|---|---|---|---|
+| cao | thấp | HYPE_SPAM | react VIBE, không đáp lẻ |
+| cao | cao | LIVELY | triage gắt, đáp gọn |
+| thấp | — | COLD | self_talk / đổi segment |
+| giữa | — | NORMAL | đáp bình thường |
+
+⚠️ `accel/baseline` là dead signal (`update_baseline` chưa được gọi — FIX_PLAN Task 6).
+⚠️ pulse CHƯA feed vào mood (Task 7).
+
+### 12.3. Director (`director.py`) — pure decision engine
+`decide(now, urge_ready) → DirectorDecision(action, segment, refs, read_mode)`. Action:
+`READ_CHAT` (single/cluster/summary/vibe) · `ACK_DONATION` · `SELF_TALK` · `FOLLOW_UP` ·
+`TRANSITION` · `WAIT`. Thứ tự ưu tiên trong `decide`: hết-giờ-segment → superchat-ack →
+hype-vibe → read-chat → proactive(self_talk/transition) → wait.
+
+Chống "máy đọc chat": `max_consecutive_read_chat` → ép xen self_talk; `max_refs_per_turn`.
+Segment (`config/director.yaml`): `opening/main/chat/closing`, mỗi cái `{goal, duration,
+allowed_actions}`. ⚠️ `ack_donation` thiếu ở opening/closing (FIX_PLAN Task 1).
+
+### 12.4. DirectorLoop (`director_loop.py`) — driver
+Tick `tick_seconds` (skip nếu `turn_lock` đang giữ) → `evict_stale` → `decide` → execute:
+- `_exec_read` → dựng prompt theo read_mode → `runner.run_turn` → `pool.remove(refs)` → speak
+- `_exec_self_talk` → `autonomy.force_generate` → `run_ambient_turn` (+dedup regen) →
+  `on_self_spoke` + `commit_self_talk` → speak
+- `_exec_transition` → Mai báo chuyển phần → `advance_segment` → speak
+
+Mọi lỗi execute fail-safe: log + tiếp tick. `clock` inject cho test.
 
 ---
 
@@ -1053,5 +1123,7 @@ Tabs: Overview, LLM, Triggers, Filter, TTS, State (Watchdog info).
 5. **memory retrieve chậm** — bge-m3 chưa load (lazy). Gọi `embedder.load()` ở `start()`.
 6. **Discord bot không nhận message** — quên bật MESSAGE CONTENT INTENT ở Developer Portal.
 7. **LLM stream lỗi socket** — llama-server chưa chạy hoặc port khác. Health check trước.
-8. **Autonomy không tự nói** — check `urge.urge` (dashboard), có thể vẫn dưới `urge_floor` (30). Tune xuống hoặc `bon_chon_weight` cao.
+8. **Autonomy không tự nói** — check `urge.urge` (dashboard), có thể vẫn dưới `urge_floor` (30). Tune xuống hoặc `bon_chon_weight` cao. Ở stream thật, self_talk do **Director** quyết (dead-air/cold/urge), không phải autonomy loop.
+9. **Mai không đáp chat / đáp trễ** — Director tick = `autonomy.cfg.tick_seconds` (5s), chat chờ tới tick kế. Hạ tick (FIX_PLAN Task 4). Hoặc tin điểm thấp bị decay/evict trước khi Director nhặt (đúng thiết kế — chat rác không đáp).
+10. **Superchat không được cảm ơn** — segment hiện tại thiếu `ack_donation` trong `allowed_actions` (FIX_PLAN Task 1), hoặc ack gọi bằng channel ID thay tên (Task 2).
 9. **Mai nói ngắn** — persona đã sửa 2026-08-06. Nếu cần dài hơn: tăng `num_predict` (500 → 800), giữ `temperature` 0.85.

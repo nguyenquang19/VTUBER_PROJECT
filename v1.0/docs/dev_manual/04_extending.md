@@ -10,16 +10,16 @@ Từ CLAUDE.md:
 
 ```
 1. Đọc STATE.md → biết phase + task hiện tại
-2. Đọc spec liên quan (ARCHITECTURE.md section, persona.md nếu cần)
+2. Đọc module liên quan trong 02_modules.md (persona.md nếu cần)
 3. Viết code theo interface có sẵn, số liệu từ config
 4. Viết test cho phần vừa code
 5. Chạy test → xanh mới đi tiếp
-6. Cập nhật STATE.md (task done / phase progress)
+6. Cập nhật STATE.md + dev_manual nếu đổi logic
 7. Commit: "phaseN: <mô tả ngắn>"
 ```
 
 **Trước khi code file bất kỳ (per CLAUDE.md):**
-1. Xác nhận đã đọc section ARCHITECTURE.md tương ứng
+1. Xác nhận đã đọc module tương ứng trong `02_modules.md`
 2. List file sẽ tạo/sửa
 3. List test sẽ viết
 4. Confirm với user rồi mới code
@@ -322,24 +322,23 @@ platform.E: TwitchChatService (IRC bot)
 
 ---
 
-## 7. Thêm phase mới
-
-Nếu spec mới ngoài PROCESS.md hiện tại (VD Phase 10 Multimodal).
+## 7. Thêm phase / tính năng lớn mới
 
 ### 7.1. Design spec trước
 
-Viết file `docs/PHASE_10_MULTIMODAL.md` với:
+Viết 1 file spec tạm `docs/PHASE_X_<TÊN>.md` (như FIX_PLAN/ROADMAP) với:
 - Vấn đề gốc (why)
 - Kiến trúc (component + data flow)
 - Config schema
 - DoD (5-7 items measurable)
 - Rollback plan
 
-### 7.2. Update PROCESS.md + ARCHITECTURE.md
+### 7.2. Update dev_manual + STATE
 
-- PROCESS.md: thêm section Phase 10 (Việc / DoD / Checkpoint)
-- ARCHITECTURE.md Section 11.10: DoD milestone
-- ARCHITECTURE.md Appendix C: trade-off log nếu đổi stack
+- `01_architecture.md`: thêm layer/data-flow nếu đổi kiến trúc
+- `02_modules.md`: thêm section module mới
+- `STATE.md`: phase/task tracking
+- Sau khi ổn định, gộp spec tạm vào dev_manual rồi xoá spec tạm (như đã làm với C0/A1).
 
 ### 7.3. Chia milestone
 
@@ -519,6 +518,34 @@ router._process = _hook
 
 ---
 
+## 9b. Hai đường điều phối (QUAN TRỌNG khi sửa)
+
+Repo hiện có 2 đường sinh turn — biết mình đang sửa đường nào:
+
+| | Đường STREAM (dùng thật) | Đường LEGACY (main.py/cli.py không-director) |
+|---|---|---|
+| Entry | `scripts/stream_youtube.py` → `build_stream_runtime` | `orchestrator/main.py`, `cli.py` |
+| Driver | `services/director/director_loop.py` | `orchestrator/turn_orchestrator.py` + `trigger_manager.py` |
+| Chat | ChatRouter **intake** → SaliencePool → Director nhặt | ChatRouter **FIFO** hoặc TriggerManager |
+| State machine | Segment (Director) | 5-state `state_machine.py` |
+| Mood output | A1: không mood block, no drift | (cũ) có thể còn giả định mood block |
+
+**Khi thêm/sửa hành vi turn cho stream → sửa `services/director/`, KHÔNG sửa TriggerManager/
+TurnOrchestrator** (chúng chỉ phục vụ đường legacy/test). Lâu dài nên hợp nhất về 1 đường
+(ghi trong FIX_PLAN "Dọn ngay").
+
+### Thêm 1 DirectorAction mới
+1. Thêm enum vào `DirectorAction` (`director.py`).
+2. Thêm nhánh quyết trong `Director.decide()` (giữ thứ tự ưu tiên rõ).
+3. Thêm `_exec_<action>` trong `director_loop.py` + case trong `_execute`.
+4. Test `test_director.py` (quyết đúng) + `test_director_loop.py` (execute đúng).
+
+### Thêm 1 nguồn novelty (SourceProvider cho self_talk)
+Đổ dữ kiện vào `RuntimeContext` (material_provider) → thêm category + `MaterialProvider.get`
+case. Nguồn tắt → `get()` trả `None` → category tự loại. Xem roadmap §Phase B.
+
+---
+
 ## 10. Historical context — why some choices
 
 **Tại sao raw asyncio socket cho LLM, không httpx?**
@@ -527,11 +554,17 @@ Spike day 1 đo: httpx buffer 2200ms → TTFT 2.4s. Raw socket → 72ms warm. Xe
 **Tại sao VieNeu thay viXTTS?**
 Spike day_vieneu (2026-08): TTFA 308ms vs viXTTS 450ms (nhanh 32%), VRAM 0.37GB vs 1.79GB (nhẹ 4.8x), 48kHz, fine-tune LoRA nhẹ (viXTTS full-weight XTTS không fit 5060 Ti 16GB).
 
-**Tại sao mood engine spring-damper thay LLM tự report?**
-LLM self-report mood không có ground truth, QC vô nghĩa. Appraisal rule-based có ground truth → fine-tune data hợp lệ (Phase 8). Spec `docs/EMOTION_SIMULATION.md`.
+**Tại sao mood engine spring-damper thay LLM tự report? (A1)**
+LLM self-report mood không có ground truth + tốn attention bookkeeping → thoại máy móc.
+Appraisal rule-based có ground truth. A1 (2026-08) bỏ hẳn mood block khỏi output. Xem `02_modules.md §7`.
+
+**Tại sao Director (C0) thay FIFO chat?**
+FIFO đáp mọi tin → reactive, không ưu tiên superchat, tụt hậu khi chat đông. Director +
+SaliencePool (điểm+decay) → chọn tin đáng, tự điều hành. Xem `02_modules.md §12`.
 
 **Tại sao Autonomy v2 rewrite Phase 2 ambient?**
-`silence > 60s` step function tạo pattern máy móc rõ. Neuro-sama VOD analysis: đa dạng thời điểm + đa dạng chủ đề. Spec `docs/AUTONOMY_ENGINE_REDESIGN.md`.
+`silence > 60s` step function tạo pattern máy móc. Autonomy v2: urge probabilistic +
+category no-repeat. Ở stream, Director gọi nó qua `force_generate`.
 
 **Tại sao 4 trigger type, không thêm?**
 N1 YAGNI. Chưa cần 12 type "phòng khi có". Autonomy v2 mở rộng THÔNG MINH HƠN 1 type có sẵn, không thêm type mới.

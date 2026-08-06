@@ -14,8 +14,11 @@ salience:
     question: 25      # có dấu ? — đáng đáp hơn
     mention: 35       # gọi thẳng "Mai" — ưu tiên cao nhất trong chat thường
 
-  # Superchat/donation: 40 * log1p(amount_vnd / 1000)
-  #   20k → ~13 · 100k → ~18 · 500k → ~25   (cộng vào base_tier)
+  # Superchat/donation cộng vào base_tier: 40 * log1p(amount_vnd / 1000)
+  #   20k → +122 · 100k → +185 · 500k → +249
+  # CHỦ ĐÍCH: super chat ĐÈ MỌI THỨ (mention 35 / question 25 / chat 10) — người ta
+  # gửi tiền thì ưu tiên tuyệt đối. Ở top ~2-3 phút rồi mới decay xuống ngang chat.
+  # (Muốn super chat chỉ nhỉnh hơn mention: hạ coef xuống ~4.)
   superchat_coef: 40.0
   superchat_divisor: 1000.0
 
