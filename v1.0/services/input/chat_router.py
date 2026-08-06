@@ -195,7 +195,8 @@ class ChatRouter:
             self._pool.add(
                 msg_id=event.event_id or f"m{self._intake_pooled}",
                 text=text, now=now, kind=kind,
-                viewer_id=event.user_id, amount_vnd=amount, is_super=is_super,
+                viewer_id=event.user_id, viewer_name=event.user_name,
+                amount_vnd=amount, is_super=is_super,
             )
             self._pulse.record(now=now, user_id=event.user_id)
             self._intake_pooled += 1

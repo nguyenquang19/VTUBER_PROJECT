@@ -128,6 +128,21 @@ class TestPoolCap:
         assert "m" in ids
 
 
+class TestViewerName:
+    def test_add_stores_viewer_name(self) -> None:
+        # TASK 2: ack gọi tên, không channel id
+        p = _pool()
+        p.add("sc", "quà", now=0.0, kind="chat", viewer_id="UCxq3f",
+              viewer_name="Alice", amount_vnd=100_000, is_super=True)
+        top = p.peek_top(now=0.0)
+        assert top.viewer_name == "Alice"
+
+    def test_viewer_name_defaults_none(self) -> None:
+        p = _pool()
+        p.add("c", "chào", now=0.0, kind="chat")
+        assert p.peek_top(now=0.0).viewer_name is None
+
+
 class TestPopAndFromLoader:
     def test_pop_removes(self) -> None:
         p = _pool()

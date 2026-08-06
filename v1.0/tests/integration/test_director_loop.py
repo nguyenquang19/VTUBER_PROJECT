@@ -131,6 +131,16 @@ class TestDirectorLoop:
         assert "superchat" in runner.read_calls[0].lower() or "quà" in runner.read_calls[0]
         assert any(m.msg_id == "c" for m in pool.top_cluster(now=1.0, max_refs=10))
 
+    async def test_ack_uses_viewer_name_not_id(self) -> None:
+        # TASK 2: prompt ack gọi tên hiển thị, không channel id
+        loop, director, pool, pulse, runner, clock = _make()
+        pool.add("sc", "quà nè", now=0.0, kind="chat", viewer_id="UCxq3fZZ",
+                 viewer_name="Alice", amount_vnd=500_000, is_super=True)
+        clock["t"] = 1.0
+        await loop.tick_once()
+        assert "Alice" in runner.read_calls[0]
+        assert "UCxq3fZZ" not in runner.read_calls[0]
+
     async def test_dead_air_triggers_self_talk(self) -> None:
         auto = FakeAutonomy(ready=False, has_material=True)
         loop, director, pool, pulse, runner, clock = _make(autonomy=auto)

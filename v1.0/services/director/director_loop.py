@@ -236,7 +236,7 @@ def _compose_read_prompt(dec) -> str:
         )
     if dec.read_mode == ReadMode.ACK and refs:
         r = refs[0]
-        who = r.viewer_id or "một người"
+        who = r.viewer_name or r.viewer_id or "một người"
         return f"[{who} vừa superchat: \"{r.text}\". Ack ngay, cảm ơn tự nhiên đúng giọng Mai.]"
     if dec.read_mode == ReadMode.CLUSTER and len(refs) >= 1:
         joined = " / ".join(r.text for r in refs[:3])

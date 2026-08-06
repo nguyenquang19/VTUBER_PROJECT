@@ -31,6 +31,7 @@ class PooledMessage:
     kind: str                    # chat | question | mention
     base_score: float            # base_tier + superchat (KHÔNG gồm decay/cluster)
     created_at: float            # epoch seconds (giữ để tính age)
+    viewer_name: str | None = None   # tên hiển thị (ack gọi tên, không channel id)
     amount_vnd: int = 0
     is_super: bool = False
     cluster_count: int = 1
@@ -100,6 +101,7 @@ class SaliencePool:
         now: float,
         kind: str = "chat",
         viewer_id: str | None = None,
+        viewer_name: str | None = None,
         amount_vnd: int = 0,
         is_super: bool = False,
     ) -> PooledMessage:
@@ -125,7 +127,8 @@ class SaliencePool:
         m = PooledMessage(
             msg_id=msg_id, viewer_id=viewer_id, text=text, kind=kind,
             base_score=self._base_for(kind, amount_vnd, is_super),
-            created_at=now, amount_vnd=amount_vnd, is_super=is_super,
+            created_at=now, viewer_name=viewer_name,
+            amount_vnd=amount_vnd, is_super=is_super,
             _tokens=tokens,
         )
         self._items[msg_id] = m
