@@ -17,7 +17,7 @@ director:
     - name: opening
       goal: "chào mở màn, bắt nhịp"
       duration_seconds: 120
-      allowed_actions: [self_talk, read_chat, transition]
+      allowed_actions: [self_talk, read_chat, ack_donation, transition]
     - name: main
       goal: "nội dung chính"
       duration_seconds: 1800
@@ -29,4 +29,4 @@ director:
     - name: closing
       goal: "kết thúc, chào tạm biệt"
       duration_seconds: 120
-      allowed_actions: [self_talk, transition]
+      allowed_actions: [self_talk, ack_donation, transition]

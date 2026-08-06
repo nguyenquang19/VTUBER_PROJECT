@@ -242,3 +242,21 @@ class TestFromLoader:
         # dead-air → self_talk
         dec = d.decide(now=25.0)
         assert dec.action == DirectorAction.SELF_TALK
+
+    def test_superchat_acked_in_every_segment(self) -> None:
+        # TASK 1: superchat phải được ack ở MỌI segment (config real: opening+closing
+        # nay có ack_donation).
+        from orchestrator.config_loader import ConfigLoader
+        loader = ConfigLoader(REPO_ROOT / "config")
+        loader.load_all()
+        for seg_name in ("opening", "main", "chat", "closing"):
+            pool = SaliencePool.from_loader(loader)
+            pulse = ChatPulse.from_loader(loader)
+            d = Director.from_loader(pool, pulse, loader)
+            d.start(now=0.0)
+            while d.current_segment().name != seg_name:
+                d.advance_segment(now=0.0)
+            pool.add("sc", "quà nè", now=0.0, kind="chat",
+                     amount_vnd=500_000, is_super=True)
+            dec = d.decide(now=0.5)
+            assert dec.action == DirectorAction.ACK_DONATION, f"seg {seg_name} không ack"
