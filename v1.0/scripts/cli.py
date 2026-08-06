@@ -99,6 +99,21 @@ def _on_sentence(sent: str) -> None:
     _TurnCtx.tasks.append(task)
 
 
+async def _feed_emotion(emotion, user_text: str) -> None:
+    """Feed chat user vào appraisal engine → mood thật đổi (compliment→vui,
+    troll→bực...). Nếu thiếu, mood đứng baseline 5.0 (dashboard chỉ 1 vạch ngang).
+    Fail-safe: lỗi → bỏ qua, không giết turn."""
+    if emotion is None or not user_text:
+        return
+    try:
+        from services.emotion.classifier import EmotionEvent, EventKind
+        await emotion.handle_event(EmotionEvent(
+            kind=EventKind.CHAT, text=user_text, meta={"viewer_id": "cli_user"},
+        ))
+    except Exception:
+        pass
+
+
 async def _one_turn(
     runner: LLMTurnRunner,
     svc: LlamaCppLLMService,
@@ -294,6 +309,8 @@ async def main() -> None:
         from orchestrator.autonomy_engine import AutonomyEngine
         from orchestrator.emotion_orchestrator import EmotionOrchestrator
 
+        # KHÔNG wire filter (giống stream path): classifier dùng keyword regex
+        # (compliment/mention/sad/question) + system event → đủ làm mood đổi.
         emotion = EmotionOrchestrator.from_loader(loader, memory=None)
         await emotion.start()
         autonomy = AutonomyEngine.from_loader(loader)
@@ -392,6 +409,7 @@ async def main() -> None:
                 async with turn_lock:
                     if autonomy is not None:
                         autonomy.on_external_activity()
+                    await _feed_emotion(emotion, p)
                     await _turn_with_continue(
                         runner, svc, p, tts_pipeline, audio_player,
                         max_continue=auto_continue_max,
@@ -411,6 +429,7 @@ async def main() -> None:
                 async with turn_lock:
                     if autonomy is not None:
                         autonomy.on_external_activity()
+                    await _feed_emotion(emotion, user)
                     await _turn_with_continue(
                         runner, svc, user, tts_pipeline, audio_player,
                         max_continue=auto_continue_max,
