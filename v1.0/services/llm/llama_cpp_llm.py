@@ -50,6 +50,7 @@ class LlamaCppLLMService(LLMService):
         default_max_tokens: int = 300,
         request_timeout_s: float = 60.0,
         client: httpx.AsyncClient | None = None,
+        sampling: dict[str, Any] | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         parsed = urlparse(self.base_url)
@@ -57,6 +58,11 @@ class LlamaCppLLMService(LLMService):
         self._port = parsed.port or 8080
         self.default_max_tokens = default_max_tokens
         self.request_timeout_s = request_timeout_s
+        # Sampling register toàn cục (min_p/repeat_penalty/presence...) — chỉ giữ
+        # key có giá trị non-null để không đè default llama-server bằng None.
+        self._sampling: dict[str, Any] = {
+            k: v for k, v in (sampling or {}).items() if v is not None
+        }
         self._client = client  # httpx — CHỈ cho health, KHÔNG cho stream
         self._owns_client = client is None
         self._log = get_logger("llm")
@@ -73,10 +79,21 @@ class LlamaCppLLMService(LLMService):
     def from_loader(cls, loader, client: httpx.AsyncClient | None = None) -> LlamaCppLLMService:
         host = loader.get("models", "llm_main.host", "127.0.0.1")
         port = int(loader.get("models", "llm_main.port", 8080))
+        # Sampling register — đọc từ config, key thiếu → None (không gửi).
+        sampling = {
+            "min_p": loader.get("models", "llm_main.min_p", None),
+            "top_p": loader.get("models", "llm_main.top_p", None),
+            "top_k": loader.get("models", "llm_main.top_k", None),
+            "repeat_penalty": loader.get("models", "llm_main.repeat_penalty", None),
+            "repeat_last_n": loader.get("models", "llm_main.repeat_last_n", None),
+            "presence_penalty": loader.get("models", "llm_main.presence_penalty", None),
+            "frequency_penalty": loader.get("models", "llm_main.frequency_penalty", None),
+        }
         return cls(
             base_url=f"http://{host}:{port}",
             default_max_tokens=int(loader.get("models", "llm_main.num_predict", 300)),
             client=client,
+            sampling=sampling,
         )
 
     # ---------- Service ----------
@@ -146,6 +163,8 @@ class LlamaCppLLMService(LLMService):
             "stream": True,
             "cache_prompt": True,
         }
+        # Sampling register toàn cục (min_p/repeat_penalty/presence...) — de-AI giọng.
+        payload.update(self._sampling)
         if request.stop_sequences:
             payload["stop"] = request.stop_sequences
 

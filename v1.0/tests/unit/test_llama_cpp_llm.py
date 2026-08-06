@@ -111,6 +111,24 @@ class TestStreaming:
         tokens = [t async for t in svc.generate_stream(req())]
         assert all(t.request_id == "r1" for t in tokens)
 
+    async def test_sampling_params_in_payload(self) -> None:
+        # de-AI register: min_p/repeat_penalty/presence_penalty vào payload
+        svc, writer = make_service(http_response(sse_body(chat_stream(["ok"]))))
+        svc._sampling = {"min_p": 0.05, "repeat_penalty": 1.08, "presence_penalty": 0.3}
+        _ = [t async for t in svc.generate_stream(req())]
+        body = sent_payload(writer)
+        assert body["min_p"] == 0.05
+        assert body["repeat_penalty"] == 1.08
+        assert body["presence_penalty"] == 0.3
+
+    async def test_sampling_none_not_sent(self) -> None:
+        # key None → KHÔNG gửi (không đè default llama-server)
+        svc, writer = make_service(http_response(sse_body(chat_stream(["ok"]))))
+        # constructor lọc None
+        svc2 = LlamaCppLLMService(base_url="http://t:8080",
+                                  sampling={"min_p": 0.05, "top_k": None})
+        assert "top_k" not in svc2._sampling and svc2._sampling["min_p"] == 0.05
+
     async def test_payload_uses_chat_endpoint_and_cache_prompt(self) -> None:
         svc, writer = make_service(http_response(sse_body(chat_stream(["ok"]))))
         _ = [t async for t in svc.generate_stream(req(max_tokens=123, temperature=0.7))]

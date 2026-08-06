@@ -21,6 +21,13 @@ llm_main:
                                   # tránh cắt cụt. Câu vẫn có thể ngắn nếu ngữ cảnh
                                   # cần, num_predict là trần chứ không phải ép.
   temperature: 0.85              # default sampling temp (prompt_manager 1.C)
+  # Sampling register — đòn mạnh chống lặp từ + câu đều đều máy móc (de-AI giọng).
+  # null = không gửi (dùng default llama-server). Tune theo transcript.
+  min_p: 0.05                    # cắt đuôi xác suất thấp — mạch lạc hơn top_p ở temp cao
+  repeat_penalty: 1.08           # phạt lặp token (1.0=tắt; 1.05-1.15 hợp lý; cao quá → gượng)
+  repeat_last_n: 256             # cửa sổ xét lặp
+  presence_penalty: 0.3          # phạt token ĐÃ xuất hiện → đẩy đa dạng từ vựng
+  frequency_penalty: 0.0         # phạt theo TẦN SUẤT (0=tắt; bật nếu vẫn lặp cụm)
   batch_size: 512
   health_timeout_s: 30
   # Persona prefix (system message) — giữ byte-ổn định để llama-server KV-cache
