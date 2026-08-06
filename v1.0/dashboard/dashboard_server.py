@@ -247,8 +247,12 @@ class DashboardServer:
                 while True:
                     # giữ kết nối; client không cần gửi gì, nhưng đọc để phát hiện disconnect
                     await websocket.receive_text()
-            except WebSocketDisconnect:
+            except (WebSocketDisconnect, asyncio.CancelledError):
+                # disconnect bình thường HOẶC server shutdown (cancel) → im lặng,
+                # không đổ traceback ASGI lúc quit.
                 pass
+            except Exception:
+                pass   # kết nối lỗi bất kỳ → dọn client, không giết server
             finally:
                 self._ws_clients.discard(websocket)
 
