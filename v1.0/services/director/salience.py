@@ -144,11 +144,18 @@ class SaliencePool:
 
     def evict_stale(self, now: float) -> int:
         """Bỏ tin đã decay dưới floor. Trả số tin evict."""
-        stale = [k for k, m in self._items.items() if self.current_score(m, now) < self._floor]
-        for k in stale:
+        return self.purge_below(self._floor, now)
+
+    def purge_below(self, score_ceiling: float, now: float) -> int:
+        """Xoá mọi tin có current_score < ceiling. Trả số tin xoá.
+
+        TASK 3: sau khi Mai nói 1 câu SUMMARY (chat trôi nhanh), dọn luôn backlog
+        điểm thấp để tick sau không lặp lại 'chat trôi nhanh quá'."""
+        low = [k for k, m in self._items.items() if self.current_score(m, now) < score_ceiling]
+        for k in low:
             del self._items[k]
-        self._evicted += len(stale)
-        return len(stale)
+        self._evicted += len(low)
+        return len(low)
 
     # ---------- read ----------
 

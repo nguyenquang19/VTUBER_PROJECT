@@ -148,6 +148,9 @@ class DirectorLoop:
         if refs:
             for r in refs:
                 self._pool.remove(r.msg_id)
+        elif dec.read_mode == ReadMode.SUMMARY:
+            # TASK 3: SUMMARY dọn sạch backlog điểm thấp → tick sau không lặp "chat trôi nhanh"
+            self._pool.purge_below(self._director.summary_ceiling, now)
         else:
             top = self._pool.peek_top(now)
             if top is not None:

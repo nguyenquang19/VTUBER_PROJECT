@@ -127,6 +127,11 @@ class Director:
         self._seg_started_at = now
         self._last_speak_ts = now
 
+    @property
+    def summary_ceiling(self) -> float:
+        """Ngưỡng điểm cho SUMMARY — DirectorLoop dùng để purge backlog thấp (Task 3)."""
+        return self._summary_ceiling
+
     def current_segment(self) -> Segment:
         return self._segments[self._seg_idx]
 

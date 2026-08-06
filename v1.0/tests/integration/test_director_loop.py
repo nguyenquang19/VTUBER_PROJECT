@@ -187,6 +187,31 @@ class TestDirectorLoop:
         assert maxstreak <= 3
         assert DirectorAction.SELF_TALK in actions
 
+    async def test_summary_purges_backlog_no_repeat(self) -> None:
+        # TASK 3: 1 SUMMARY dọn sạch backlog thấp → tick kế KHÔNG lại SUMMARY
+        from services.director.director import ReadMode
+        loop, director, pool, pulse, runner, clock = _make()
+        distinct = [
+            "trời hôm nay đẹp ghê", "ăn phở hay bún đây", "mèo nhà tao dễ thương",
+            "deadline sắp tới rồi", "cà phê sáng ngon quá", "đi ngủ đây bye",
+            "game mới hay không", "nhạc gì đang nghe vậy", "mưa to quá trời",
+            "học bài chán ghê", "code lỗi hoài à", "đói bụng muốn xỉu",
+            "xem phim gì tối nay", "cuối tuần đi đâu chơi", "buồn ngủ dã man",
+        ]
+        for i, txt in enumerate(distinct):
+            pool.add(f"c{i}", txt, now=0.0, kind="chat")
+        clock["t"] = 1.0
+        action = await loop.tick_once()
+        assert action == DirectorAction.READ_CHAT
+        # backlog điểm thấp đã bị purge → pool còn rất ít / rỗng
+        assert pool.size() <= 1
+        # tick kế: không còn backlog → không SUMMARY (WAIT hoặc self_talk)
+        clock["t"] = 1.5
+        action2 = await loop.tick_once()
+        assert action2 != DirectorAction.READ_CHAT or \
+            director._read_decision(director.current_segment(),
+                                    pool.peek_top(1.5), 1.5).read_mode != ReadMode.SUMMARY
+
     async def test_transition_advances_segment(self) -> None:
         loop, director, pool, pulse, runner, clock = _make()
         # đang ở main (300s). Ép transition bằng cách nhảy quá giờ.
