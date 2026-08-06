@@ -209,6 +209,30 @@ class TestPromptBuilder:
         assert '"chào cậu..."' in p
         # A1: KHÔNG còn dặn xuất mood block
         assert "mood block" not in p.lower()
+
+    def test_no_raw_mood_numbers_in_selftalk(self) -> None:
+        # T5 Mood→Style: self-talk KHÔNG rò "vui=6 buc=4"
+        p = render_prompt(
+            category="share_thought", material={"topic_seed": "abc"},
+            mood=MoodState(vui=6, buc=4), forbidden_openers="x", prompt_hint="y",
+        )
+        for tok in ("vui=", "buc=", "buon=", "bon_chon=", "nguong=", "Mood:"):
+            assert tok not in p
+
+    def test_mood_style_directive_in_selftalk(self) -> None:
+        # T5: có mood_style table → directive giọng bằng chữ
+        from orchestrator.config_loader import ConfigLoader
+        from services.emotion.mood_style import MoodStyleTable
+        loader = ConfigLoader(REPO_ROOT / "config")
+        loader.load_all()
+        style = MoodStyleTable.from_loader(loader)
+        p = render_prompt(
+            category="share_thought", material={"topic_seed": "abc"},
+            mood=MoodState(buc=9), forbidden_openers="x", prompt_hint="y",
+            mood_style=style,
+        )
+        assert "cộc" in p or "gắt" in p
+        assert "buc=" not in p
         assert "format bắt buộc" not in p.lower()
 
     def test_share_thought_includes_seed(self) -> None:

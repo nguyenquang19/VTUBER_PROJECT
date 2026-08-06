@@ -8,13 +8,11 @@ Anti-repeat opener chèn TƯỜNG MINH trong prompt (Bước 3).
 """
 from __future__ import annotations
 
+from typing import Any
+
 from interfaces.animation import MoodState
 
 _MOOD_DIMS = ("vui", "buon", "buc", "bon_chon", "nguong")
-
-
-def _mood_str(m: MoodState) -> str:
-    return " ".join(f"{d}={getattr(m, d)}" for d in _MOOD_DIMS)
 
 
 def render_prompt(
@@ -23,14 +21,27 @@ def render_prompt(
     mood: MoodState,
     forbidden_openers: str,
     prompt_hint: str,
+    mood_style: Any = None,
 ) -> str:
-    """Render Vietnamese instruction. Caller inject vào messages[user] hoặc system."""
+    """Render Vietnamese instruction. Caller inject vào messages[user] hoặc system.
+
+    T5 Mood→Style: KHÔNG còn nhét số thô 'vui=6 buc=4'. Nếu có mood_style →
+    directive giọng bằng chữ; không thì bỏ hẳn dòng mood (persona default).
+    """
     body = _render_body(category, material)
+    mood_line = ""
+    if mood_style is not None:
+        try:
+            directive = mood_style.directive_for(mood, None)
+            if directive:
+                mood_line = f"{directive}\n"
+        except Exception:
+            mood_line = ""
     return (
         f"[Context — Mai tự lên tiếng lượt này, KHÔNG phải trả lời chat]\n"
         f"- Lý do: {category}\n"
         f"- Hint: {prompt_hint}\n"
-        f"- Mood: {_mood_str(mood)}\n"
+        f"{mood_line}"
         f"{body}"
         f"- KHÔNG được mở đầu bằng: {forbidden_openers}\n"
         f"\n"

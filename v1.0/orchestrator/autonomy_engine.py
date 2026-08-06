@@ -328,10 +328,12 @@ class AutonomyEngine:
         dedup_buffer: DedupBuffer | None = None,
         clock=None,
         rng: random.Random | None = None,
+        mood_style: Any = None,   # MoodStyleTable | None — self-talk cũng đúng giọng
     ) -> None:
         self.cfg = cfg
         self._rng = rng or random.Random()
         self._clock = clock or time.time
+        self._mood_style = mood_style
 
         self.urge = UrgeAccumulator(cfg.urge, clock=self._clock, rng=self._rng)
         self.selector = CategorySelector(cfg, clock=self._clock, rng=self._rng)
@@ -362,12 +364,19 @@ class AutonomyEngine:
         dedup_thr = float(loader.get(
             "autonomy_content_pool", "dedup.token_overlap_threshold", 0.6,
         ))
+        # T5: mood_style để self-talk cũng đổi giọng theo mood (None-safe)
+        try:
+            from services.emotion.mood_style import MoodStyleTable
+            mood_style = MoodStyleTable.from_loader(loader)
+        except Exception:
+            mood_style = None
         return cls(
             cfg=cfg,
             material_provider=mp,
             opener_tracker=OpenerTracker(window=opener_win, words_per_opener=opener_words),
             dedup_buffer=DedupBuffer(window=dedup_win, threshold=dedup_thr),
             rng=rng,
+            mood_style=mood_style,
         )
 
     # ---------- lifecycle hooks (caller gọi) ----------
@@ -442,6 +451,7 @@ class AutonomyEngine:
             mood=mood,
             forbidden_openers=self.opener.forbidden_list(),
             prompt_hint=self.cfg.categories[chosen_cat].prompt_hint,
+            mood_style=self._mood_style,
         )
         self._generated_total += 1
         return AmbientDecision(

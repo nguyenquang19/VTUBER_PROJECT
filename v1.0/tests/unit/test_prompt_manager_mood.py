@@ -23,10 +23,12 @@ def pm(tmp_path: Path) -> PromptManager:
 
 class TestFormatMoodContext:
     def test_basic_shape(self) -> None:
+        # Mood→Style: BỎ số thô current_mood + event_category khỏi prompt
         m = MoodState(vui=6, buon=2, buc=4, bon_chon=3, nguong=1)
         s = _format_mood_context(m, "chat_compliment", None)
-        assert "current_mood: vui=6 buon=2 buc=4 bon_chon=3 nguong=1" in s
-        assert "event_category: chat_compliment" in s
+        assert "[Context" in s
+        assert "current_mood" not in s
+        assert "event_category" not in s
 
     def test_no_category(self) -> None:
         m = MoodState()
@@ -63,7 +65,8 @@ class TestBuildRequestWithMood:
         assert len(req.messages) == 3
         assert req.messages[0].role == "system"     # persona
         assert req.messages[1].role == "system"     # context mood
-        assert "current_mood" in req.messages[1].content
+        assert "[Context" in req.messages[1].content
+        assert "current_mood" not in req.messages[1].content   # Mood→Style: bỏ số thô
         assert req.messages[2].role == "user"
         assert req.messages[2].content == "cậu ơi"
 

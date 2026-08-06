@@ -259,11 +259,11 @@ class TestEndToEndPipeline:
             ),
         )
         assert decision is not None
-        # Prompt phải chứa lý do + mood + KHÔNG-mở-bằng
+        # Prompt phải chứa lý do + KHÔNG-mở-bằng. T5 Mood→Style: KHÔNG rò số thô.
         assert decision.category in engine.cfg.categories
         assert "Context" in decision.prompt_text
         assert f"Lý do: {decision.category}" in decision.prompt_text
-        assert "vui=6" in decision.prompt_text
+        assert "vui=6" not in decision.prompt_text and "Mood:" not in decision.prompt_text
         assert "KHÔNG được mở đầu" in decision.prompt_text
 
     async def test_dedup_regen_flow(self) -> None:
