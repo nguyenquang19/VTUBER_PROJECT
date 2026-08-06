@@ -38,6 +38,9 @@ def render_prompt(
         f"Câu TỰ NHIÊN, có nội dung — kể chuyện thì có chi tiết, cà khịa thì thẳng,\n"
         f"không cắt cụt kiểu 1 câu xong hết. Không hedge, không nước đôi.\n"
         f"Không copy nguyên seed — diễn đạt lại bằng giọng mình.\n"
+        f"CẤM BỊA: chỉ dùng dữ kiện ở trên. KHÔNG bịa ra người xem cụ thể đang làm gì, "
+        f"KHÔNG bịa tên/biệt danh, donation, hay sự kiện không được cho. Nếu không có "
+        f"ai/gì cụ thể để nói thì nói về CHÍNH MÌNH hoặc hỏi chat vu vơ.\n"
         f"Không lặp câu mở đã cấm. Chỉ viết thoại, KHÔNG kê khai cảm xúc bằng số."
     )
 

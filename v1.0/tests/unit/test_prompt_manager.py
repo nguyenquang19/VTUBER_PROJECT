@@ -62,6 +62,8 @@ class TestPromptCache:
         assert "Mai" in c.text
         assert "vui:N" not in c.text
         assert "Định dạng trả lời BẮT BUỘC" not in c.text
+        # A5: persona có rào chống bịa
+        assert "KHÔNG BỊA" in c.text
 
 
 class TestBuildMessages:

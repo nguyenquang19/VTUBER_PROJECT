@@ -219,6 +219,14 @@ class TestPromptBuilder:
         assert "hôm nay trời mát" in p
         assert "share_thought" in p
 
+    def test_prompt_has_no_fabrication_guardrail(self) -> None:
+        # A5: mọi prompt autonomy phải có rào chống bịa viewer/sự kiện.
+        p = render_prompt(
+            "share_thought", {"topic_seed": "abc"},
+            MoodState(), "(không có)", "kể chuyện",
+        )
+        assert "CẤM BỊA" in p
+
     def test_ask_chat_includes_seed_and_kind(self) -> None:
         p = render_prompt(
             "ask_chat", {"question_seed": "cậu thức đêm sao", "question_kind": "personal"},

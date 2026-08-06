@@ -22,9 +22,25 @@
 - **Toxic safety (roadmap "cẩn thận toxic"):** cause CANONICAL không copy câu chửi;
       grudge CAP+DECAY chống harass; jailbreak/sexual→force_deflect; buc clamp 10.
 
+## A5 — Anti-confabulation (2026-08-06) — user phát hiện Mai BỊA viewer
+- Triệu chứng: autonomy turn Mai bịa "ông nội avatar ngầu vào chat như mất sóng"
+  — người không có thật. Root-cause B roadmap ("nói chay = xổ số"). Memory tắt +
+  operator_online=False hardcode → không dữ kiện thật → LLM confabulate.
+- User quyết ranh giới: CẤM bịa người/sự kiện thật, CHO tưởng tượng về bản thân.
+- [x] A5.1 persona_system.txt +# KHÔNG BỊA: cấm bịa viewer/donation/sự kiện cụ
+      thể khi không có dữ kiện; ĐƯỢC mơ mộng về CHÍNH MÌNH + hỏi chat vu vơ.
+- [x] A5.2 prompt_builder render_prompt +dòng CẤM BỊA (salience cao cho self-talk).
+- [x] A5.3 autonomy_content_pool: thay 4 seed assert-viewer ('để ý regular quen
+      mặt', 'quan sát đám cú đêm định trêu', 'nhớ hôm trước có người trêu', 'đoán
+      nghề nghiệp') → seed general/câu-hỏi an toàn. Pool 54 seed.
+- Tests: test_prompt_manager +assert KHÔNG BỊA; test_autonomy_composer +assert
+      CẤM BỊA. Full suite 971 pass.
+- **LƯU Ý:** đây là band-aid tầng gần. Chữa GỐC là Phase B (nguồn novelty thật) —
+      Mai react cái CÓ THẬT thay vì tự nói chay. Deferred theo roadmap.
+
 ## ✅ PHASE A HOÀN THÀNH — de-AI cấp tốc
 A1 bỏ mood block · A2 pool sâu+động · A3 nhịp+filler · A4 emotion object+grudge ·
-register ghì giọng. 3 A1-leftover mood-block đã dọn sạch (chat_reply/autonomy/context).
+A5 anti-confabulation · register ghì giọng. 3 A1-leftover mood-block dọn sạch.
 
 ## ⚠️ Flaky test (pre-existing, KHÔNG phải A4): test_mood_engine
 TestStability10k::test_no_oscillation_at_default_config fail khi pytest-randomly
