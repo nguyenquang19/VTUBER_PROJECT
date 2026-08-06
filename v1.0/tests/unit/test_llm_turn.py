@@ -108,14 +108,15 @@ class TestFallbackToCanned:
         assert pm.history()[-1].content == "CANNED"
 
 
-class TestParseFailStillPrimary:
-    async def test_malformed_output_ok_false_level0(self) -> None:
+class TestPrimaryTextOnly:
+    async def test_text_only_output_is_ok_after_a1(self) -> None:
+        # A1: text non-empty → ok=True, mood=neutral. Không có mood block cũng OK.
         runner, pm, canned, _ = make_runner(FakeLLM(["chỉ có text, không mood block"]))
         parsed, level = await runner.run_turn("r1", "chào")
-        assert level == 0  # primary vẫn chạy, chỉ parse fail
-        assert parsed.ok is False
+        assert level == 0
+        assert parsed.ok is True
         assert parsed.text == "chỉ có text, không mood block"
-        # mood không cập nhật vì ok False
+        # mood neutral → không update canned (A1: chỉ update khi có tín hiệu mood).
         assert canned.pick() == "CANNED"
 
 

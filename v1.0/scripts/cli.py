@@ -44,6 +44,7 @@ if hasattr(sys.stdin, "reconfigure"):
 from dashboard.dashboard_server import DashboardServer  # noqa: E402
 from orchestrator.config_loader import ConfigLoader  # noqa: E402
 from orchestrator.fallback_manager import FallbackManager  # noqa: E402
+from orchestrator.logger import setup_from_config  # noqa: E402
 from orchestrator.metrics_collector import MetricsCollector  # noqa: E402
 from services.llm.canned_response import CannedResponder  # noqa: E402
 from services.llm.llama_cpp_llm import LlamaCppLLMService  # noqa: E402
@@ -267,6 +268,9 @@ async def main() -> None:
     loader = ConfigLoader(REPO_ROOT / "config")
     loader.load_all()
 
+    # B0: setup structlog + JSONL sinks (events.jsonl + turns.jsonl) từ config
+    turn_logger = setup_from_config(loader)
+
     auto_continue_max = int(loader.get("system", "conversation.auto_continue_max", 0))
 
     metrics = MetricsCollector()
@@ -283,20 +287,21 @@ async def main() -> None:
     if args.autonomy:
         from orchestrator.autonomy_engine import AutonomyEngine
         from orchestrator.emotion_orchestrator import EmotionOrchestrator
-        from services.qc.drift_detector import DriftDetector
 
         emotion = EmotionOrchestrator.from_loader(loader, memory=None)
-        drift = DriftDetector.from_loader(loader)
         await emotion.start()
         autonomy = AutonomyEngine.from_loader(loader)
+        # A1: drift_detector đã bỏ (Kênh B tắt, LLM không tự report mood)
         runner = LLMTurnRunner.from_loader(
             loader, svc, pm, fb, canned, on_token=_on_token, metrics=metrics,
-            emotion=emotion, drift_detector=drift,
+            emotion=emotion,
+            turn_logger=turn_logger,
         )
         print("🧠 Autonomy engine v2 bật — Mai sẽ tự nói khi silence.")
     else:
         runner = LLMTurnRunner.from_loader(
             loader, svc, pm, fb, canned, on_token=_on_token, metrics=metrics,
+            turn_logger=turn_logger,
         )
 
     health = await svc.health_check()

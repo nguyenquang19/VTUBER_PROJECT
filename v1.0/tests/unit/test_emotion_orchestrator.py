@@ -135,12 +135,11 @@ class TestTickLoop:
 
 
 class TestLLMHint:
-    async def test_apply_llm_hint_proxies_to_engine(self, orch: EmotionOrchestrator) -> None:
-        pre = orch._engine.target["vui"]
+    async def test_apply_llm_hint_is_noop_after_a1(self, orch: EmotionOrchestrator) -> None:
+        # A1 (ROADMAP §PHASE A): Kênh B bỏ. apply_llm_hint no-op, target không đổi.
+        pre_target = dict(orch._engine.target)
         orch.apply_llm_hint(MoodState(vui=10))
-        # Kênh B nudge nhẹ (weight 0.2) — target tăng nhưng chưa tới 10
-        assert orch._engine.target["vui"] > pre
-        assert orch._engine.target["vui"] < 10
+        assert orch._engine.target == pre_target
 
 
 class TestFlags:

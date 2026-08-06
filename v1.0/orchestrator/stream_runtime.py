@@ -2,7 +2,7 @@
 
 Bao gồm:
 - LLM stack (LlamaCppLLMService + PromptManager + Canned + Runner)
-- EmotionOrchestrator (mood engine + appraisal + drift)
+- EmotionOrchestrator (mood engine + appraisal)
 - MemoryFallbackManager (optional)
 - TTSPipeline (optional, speak callback)
 - ChatRouter (sources → emotion + runner)
@@ -31,7 +31,7 @@ from interfaces.input import InputService
 from orchestrator.autonomy_engine import AutonomyEngine
 from orchestrator.emotion_orchestrator import EmotionOrchestrator
 from orchestrator.fallback_manager import FallbackManager
-from orchestrator.logger import get_logger
+from orchestrator.logger import get_logger, setup_from_config
 from orchestrator.metrics_collector import MetricsCollector
 from services.autonomy.material_provider import RuntimeContext
 from services.input.chat_router import ChatRouter
@@ -39,7 +39,6 @@ from services.llm.canned_response import CannedResponder
 from services.llm.llama_cpp_llm import LlamaCppLLMService
 from services.llm.llm_turn import LLMTurnRunner
 from services.llm.prompt_manager import PromptManager
-from services.qc.drift_detector import DriftDetector
 
 
 SpeakFn = Callable[[str, str], Awaitable[None]]
@@ -265,6 +264,9 @@ async def build_stream_runtime(
     cfg: StreamRuntimeConfig,
 ) -> StreamRuntime:
     """Build đầy đủ stack theo flags. Raise nếu llama-server không chạy."""
+    # B0: setup structlog + JSONL sinks (turns.jsonl để baseline eval)
+    turn_logger = setup_from_config(loader)
+
     metrics = MetricsCollector()
 
     # ─── LLM stack ───
@@ -280,8 +282,8 @@ async def build_stream_runtime(
     fb = FallbackManager()
 
     # ─── Emotion ───
+    # A1: drift_detector đã bỏ (Kênh B tắt, LLM không tự report mood)
     emotion = EmotionOrchestrator.from_loader(loader, memory=None)
-    drift = DriftDetector.from_loader(loader)
 
     # ─── Memory (optional) ───
     memory = None
@@ -312,7 +314,8 @@ async def build_stream_runtime(
         on_token=cfg.on_token or (lambda _t: None),
         metrics=metrics,
         memory=memory, memory_extractor=memory_extractor,
-        emotion=emotion, drift_detector=drift,
+        emotion=emotion,
+        turn_logger=turn_logger,
     )
 
     # ─── TTS (optional) ───

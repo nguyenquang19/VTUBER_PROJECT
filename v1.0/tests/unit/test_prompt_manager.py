@@ -57,10 +57,11 @@ class TestPromptCache:
             PromptCache.from_file(tmp_path / "khong_ton_tai.txt")
 
     def test_real_config_file_loads(self) -> None:
-        # file thật config/prompts/persona_system.txt phải load + có nội dung persona
+        # A1: persona đã BỎ mood block instruction. Verify KHÔNG còn khuôn.
         c = PromptCache.from_file(REPO_ROOT / "config" / "prompts" / "persona_system.txt")
         assert "Mai" in c.text
-        assert "vui:N" in c.text  # có khuôn mood block
+        assert "vui:N" not in c.text
+        assert "Định dạng trả lời BẮT BUỘC" not in c.text
 
 
 class TestBuildMessages:

@@ -1,16 +1,12 @@
 """Parser output LLM (ARCHITECTURE 7.4/8.2, persona.md Phần B, milestone 1.D).
 
-Tách output thô của Mai thành:
-- text: câu Mai NÓI (đã bỏ mood block + meta + reasoning nếu rò)
-- mood: MoodState (interfaces/animation.py — key KHÔNG dấu)
-- reason: nội dung dòng "lý do:"
-- continuation: cờ "còn nữa: có/không" (Phase 2 CONTINUATION dùng sau; giờ chỉ parse)
+**A1 (ROADMAP_AUTONOMOUS_HOST §PHASE A):** persona đã BỎ yêu cầu mood block —
+Mai chỉ nói thoại. Parser giữ khả năng strip mood block DEFENSIVE (nếu LLM lỡ
+vẫn sinh do prompt cũ trong ngữ cảnh) nhưng KHÔNG còn dùng nó làm control flow.
+`ok` = True miễn có text non-empty. `mood` = MoodState() default nếu không có
+block. `continuation` = suy từ dấu câu cuối (roadmap A1: bỏ auto-parse "còn nữa").
 
-Nguyên tắc **fail-safe** (N7 cho phần non-filter): model sai format thì VẪN trả text
-để còn nói được, chỉ đánh `ok=False` + mood neutral. Không raise.
-
-Chấp nhận key mood có dấu / không dấu / space / underscore (persona.md ghi chú):
-  buồn≡buon, bực≡buc, bồn_chồn≡"bồn chồn"≡bon_chon, ngượng≡nguong.
+Nguyên tắc **fail-safe** (N7): sai format thì vẫn trả text để nói được. Không raise.
 """
 from __future__ import annotations
 
@@ -47,7 +43,7 @@ class ParsedResponse(BaseModel):
     mood: MoodState
     reason: str = ""
     continuation: bool = False
-    ok: bool = False  # True khi mood block đủ 5 chiều parse được
+    ok: bool = False  # A1: True khi text non-empty (mood block không còn bắt buộc).
     raw: str = ""
 
 
@@ -91,6 +87,18 @@ def _strip_meta_lines(text: str) -> str:
     return "\n".join(keep).strip()
 
 
+def _infer_continuation(text: str) -> bool:
+    """A1: suy 'còn nữa' từ dấu câu cuối text (roadmap khuyến, bỏ auto-parse).
+
+    True khi kết thúc bằng dấu bỏ lửng (', ', '...', '…') → LLM ngụ ý còn ý.
+    False cho câu kết bằng '.', '!', '?' hoặc không dấu.
+    """
+    if not text:
+        return False
+    stripped = text.rstrip()
+    return stripped.endswith((",", "...", "…"))
+
+
 def parse_response(raw: str) -> ParsedResponse:
     """Parse output thô → ParsedResponse. Không bao giờ raise (fail-safe)."""
     cleaned = _strip_reasoning(raw or "")
@@ -109,15 +117,23 @@ def parse_response(raw: str) -> ParsedResponse:
 
     if best_block is None:
         text = _strip_meta_lines(cleaned)
-        return ParsedResponse(text=text, mood=MoodState(), raw=raw)
+        return ParsedResponse(
+            text=text,
+            mood=MoodState(),
+            continuation=_infer_continuation(text),
+            ok=bool(text.strip()),  # A1: ok = text non-empty
+            raw=raw,
+        )
 
+    # DEFENSIVE (A1): LLM lỡ vẫn xuất mood block → strip khỏi text, KHÔNG dùng
+    # làm control flow. mood field vẫn giữ để backward compat với caller cũ đọc.
     text = cleaned[: best_block.start()].strip()
     tail = cleaned[best_block.end():]
     return ParsedResponse(
         text=text,
         mood=MoodState(**best_mood),
         reason=_parse_reason(tail),
-        continuation=_parse_continuation(tail),
-        ok=len(best_mood) == 5,
+        continuation=_parse_continuation(tail) or _infer_continuation(text),
+        ok=bool(text),  # A1: ok = text non-empty (không còn phụ thuộc mood block đủ 5)
         raw=raw,
     )

@@ -13,18 +13,27 @@ N8: dùng lại FallbackManager generic, không tự viết vòng retry.
 """
 from __future__ import annotations
 
+import re
+import time
 from typing import Any, Callable
 
 from interfaces.filter import FilterVerdict
 from interfaces.llm import LLMService
 from orchestrator.fallback_manager import FallbackManager
-from orchestrator.logger import get_logger
+from orchestrator.logger import TurnLogger, get_logger
 from services.llm.canned_response import CannedResponder
 from services.llm.parser import ParsedResponse, parse_response
 from services.llm.prompt_manager import PromptManager
 
 _CHAIN_ID = "llm"
 TokenSink = Callable[[str], None]
+
+# A1.1: detect mood block trong RAW output LLM để đo hiệu quả A1 (root cause #1).
+# parsed.text đã bị parser strip mood block, không phản ánh LLM có tự report hay không.
+_RAW_MOOD_BLOCK_RE = re.compile(
+    r"\[\s*(?:vui|bu[ồo]n|b[ựu]c|b[ồo]n[ _]ch[ồo]n|ng[ưu][ợơo]ng|neutral)\s*:\s*-?\d+",
+    re.IGNORECASE,
+)
 
 
 class LLMTurnRunner:
@@ -42,7 +51,7 @@ class LLMTurnRunner:
         memory: Any = None,             # MemoryService (Phase 7.F)
         memory_extractor: Any = None,   # MemoryExtractor (Phase 7.F)
         emotion: Any = None,            # EmotionOrchestrator (Phase 7.5.E)
-        drift_detector: Any = None,     # DriftDetector (Phase 7.5.E)
+        turn_logger: TurnLogger | None = None,   # B0: turns.jsonl sink
     ) -> None:
         self._svc = svc
         self._pm = prompt_manager
@@ -54,9 +63,10 @@ class LLMTurnRunner:
         self._memory = memory
         self._memory_extractor = memory_extractor
         self._emotion = emotion
-        self._drift = drift_detector
+        # A1: _drift + last_drift_report ĐÃ BỎ (Kênh B tắt)
+        self._turn_logger = turn_logger
+        self._turn_seq = 0
         self.last_filter_verdict: FilterVerdict | None = None
-        self.last_drift_report: Any = None
         self._memory_writes_scheduled = 0
         self._memory_writes_skipped = 0
         self._fb.register_chain(
@@ -79,7 +89,7 @@ class LLMTurnRunner:
         memory: Any = None,
         memory_extractor: Any = None,
         emotion: Any = None,
-        drift_detector: Any = None,
+        turn_logger: TurnLogger | None = None,
     ) -> "LLMTurnRunner":
         return cls(
             svc,
@@ -94,7 +104,7 @@ class LLMTurnRunner:
             memory=memory,
             memory_extractor=memory_extractor,
             emotion=emotion,
-            drift_detector=drift_detector,
+            turn_logger=turn_logger,
         )
 
     async def _primary(self, request: Any) -> ParsedResponse:
@@ -135,21 +145,34 @@ class LLMTurnRunner:
         drift detect + clear tone flags (Phase 7.5.E, spec Mục 6).
         """
         request = self._build_request_maybe_with_mood(request_id, user_text, event_category)
-        # Snapshot mood ĐƯỢC GIAO (trước LLM) để drift detect sau
-        engine_mood_pre = self._emotion.current_mood() if self._emotion is not None else None
 
+        t0 = time.perf_counter()
         result = await self._fb.execute(_CHAIN_ID, request)
+        latency_ms = int((time.perf_counter() - t0) * 1000)
         parsed: ParsedResponse = result.value
         self._pm.commit_turn(user_text, parsed.text)
-        if parsed.ok:
+        # A1: canned mood update chỉ khi có tín hiệu mood (defensive).
+        if parsed.ok and parsed.mood.dominant() != "neutral":
             self._canned.update_mood(parsed.mood)
         self._record_metrics(parsed, result.level_used)
 
-        # Phase 7.5.E: LLM mood → Kênh B nudge turn kế + drift detect
-        self._apply_emotion_feedback(parsed, engine_mood_pre)
+        # A1: chỉ clear tone flags (Kênh B + drift ĐÃ BỎ)
+        self._apply_emotion_feedback(parsed, None)
 
         # Phase 7.F: auto-extract memory từ turn (fire-and-forget)
         self._schedule_memory_write(user_text, parsed, viewer_id, session_id, trigger_type)
+
+        # B0: baseline transcript sink
+        self._log_turn(
+            kind="chat_reply",
+            user_text=user_text,
+            parsed=parsed,
+            trigger_type=trigger_type,
+            level_used=result.level_used,
+            latency_ms=latency_ms,
+            viewer_id=viewer_id,
+            session_id=session_id,
+        )
         return parsed, result.level_used
 
     async def run_ambient_turn(self, request_id: str, prompt_text: str) -> ParsedResponse:
@@ -165,21 +188,32 @@ class LLMTurnRunner:
         - KHÔNG memory_extract (ambient không có user_text để extract preference)
         """
         request = self._pm.build_request(request_id, prompt_text)
+        t0 = time.perf_counter()
         result = await self._fb.execute(_CHAIN_ID, request)
+        latency_ms = int((time.perf_counter() - t0) * 1000)
         parsed: ParsedResponse = result.value
-        if parsed.ok:
+        # A1: canned mood update chỉ khi parsed.mood có tín hiệu (defensive — LLM
+        # cũ vẫn có thể sinh block). Không còn required path.
+        if parsed.ok and parsed.mood.dominant() != "neutral":
             self._canned.update_mood(parsed.mood)
         self._record_metrics(parsed, result.level_used)
-        # Emotion feedback: apply_llm_hint (Kênh B) + clear tone flags
-        if self._emotion is not None and parsed.ok:
-            try:
-                self._emotion.apply_llm_hint(parsed.mood)
-            except Exception as e:
-                get_logger("llm_turn").warning("ambient_emotion_hint_failed", error=str(e))
+        # A1: Kênh B bỏ. Chỉ clear tone flags (Prompt đã đọc 1 lần/turn).
+        if self._emotion is not None:
             try:
                 self._emotion.clear_tone_flags()
             except Exception:
                 pass
+        # B0: ambient transcript sink (kind=ambient để eval tách chat_reply vs Mai tự nói)
+        self._log_turn(
+            kind="ambient",
+            user_text=None,
+            parsed=parsed,
+            trigger_type=None,
+            level_used=result.level_used,
+            latency_ms=latency_ms,
+            viewer_id=None,
+            session_id=None,
+        )
         return parsed
 
     def _build_request_maybe_with_mood(
@@ -196,20 +230,13 @@ class LLMTurnRunner:
         )
 
     def _apply_emotion_feedback(self, parsed: ParsedResponse, engine_mood_pre) -> None:
-        if self._emotion is None or not parsed.ok:
+        """A1: chỉ còn clear_tone_flags. Kênh B (apply_llm_hint) + drift detect ĐÃ BỎ.
+
+        Mood engine giờ chỉ đi 1 chiều: appraisal event (Kênh A) → engine → prompt.
+        LLM không còn tự report mood → không có gì để nudge ngược.
+        """
+        if self._emotion is None:
             return
-        # Kênh B: nudge target theo LLM self-report cho turn kế
-        try:
-            self._emotion.apply_llm_hint(parsed.mood)
-        except Exception as e:
-            get_logger("llm_turn").warning("emotion_hint_failed", error=str(e))
-        # Drift detect (nếu có) — dùng engine_mood_pre (mood đã GIAO trước LLM)
-        if self._drift is not None and engine_mood_pre is not None:
-            try:
-                self.last_drift_report = self._drift.detect(engine_mood_pre, parsed.mood)
-            except Exception as e:
-                get_logger("llm_turn").warning("drift_detect_failed", error=str(e))
-        # Clear tone flags sau khi Prompt đã đọc (1 lần/turn)
         try:
             self._emotion.clear_tone_flags()
         except Exception:
@@ -253,6 +280,49 @@ class LLMTurnRunner:
         except RuntimeError:
             # không có event loop (test sync) → skip
             self._memory_writes_skipped += 1
+
+    def _log_turn(
+        self,
+        *,
+        kind: str,
+        user_text: str | None,
+        parsed: ParsedResponse,
+        trigger_type: str | None,
+        level_used: int,
+        latency_ms: int | None,
+        viewer_id: str | None,
+        session_id: str | None,
+    ) -> None:
+        """Ghi 1 record turn vào turns.jsonl (B0 baseline sink).
+
+        Fail-safe: sink lỗi chỉ log warning, KHÔNG raise (không giết turn).
+        """
+        if self._turn_logger is None:
+            return
+        self._turn_seq += 1
+        dominant_name, dominant_val = _dominant_mood(parsed)
+        raw_text = getattr(parsed, "raw", "") or ""
+        record = {
+            "turn_id": self._turn_seq,
+            "kind": kind,
+            "user_text": user_text,
+            "mai_text": parsed.text,
+            # A1.1: True khi LLM tự sinh mood block trong raw (kể cả parser đã strip
+            # ra khỏi mai_text). Đây là số đo hiệu quả A1 — target 0 sau A1.
+            "raw_had_mood_block": bool(_RAW_MOOD_BLOCK_RE.search(raw_text)),
+            "parse_ok": parsed.ok,
+            "mood_dominant": dominant_name,
+            "mood_intensity": dominant_val,
+            "trigger_type": trigger_type,
+            "level_used": level_used,
+            "latency_ms": latency_ms,
+            "viewer_id": viewer_id,
+            "session_id": session_id,
+        }
+        try:
+            self._turn_logger.log_turn(record)
+        except Exception as e:  # pragma: no cover — fail-safe
+            get_logger("llm_turn").warning("turn_log_failed", error=str(e))
 
     def _record_metrics(self, parsed: ParsedResponse, level_used: int) -> None:
         if self._metrics is None:

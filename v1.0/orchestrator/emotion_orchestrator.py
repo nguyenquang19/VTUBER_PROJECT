@@ -150,8 +150,13 @@ class EmotionOrchestrator:
         return self._engine.tick(dt or self._dt)
 
     def apply_llm_hint(self, mood_state: MoodState) -> None:
-        """Kênh B: LLM self-report từ turn kế → nudge target nhẹ."""
-        self._engine.apply_llm_hint(mood_state)
+        """A1 (ROADMAP_AUTONOMOUS_HOST §PHASE A): Kênh B ĐÃ BỎ — no-op.
+
+        Giữ signature để backward compat với caller cũ. LLM không còn tự report
+        mood (persona đã xoá mood block instruction). Mood engine giờ chỉ đi 1
+        chiều: appraisal event → engine → prompt.
+        """
+        return
 
     def current_mood(self) -> MoodState:
         """Snapshot mood hiện tại (không tick). Prompt/Animation gọi."""

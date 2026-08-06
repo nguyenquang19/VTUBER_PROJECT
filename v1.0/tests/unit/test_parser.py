@@ -82,9 +82,10 @@ class TestReason:
 
 class TestFailSafe:
     def test_no_mood_block_returns_text(self) -> None:
+        # A1: ok = True miễn text non-empty. Mood block không còn bắt buộc.
         r = parse_response("Chào cậu, tớ đây.")
         assert r.text == "Chào cậu, tớ đây."
-        assert r.ok is False
+        assert r.ok is True
         assert r.mood.dominant() == "neutral"
 
     def test_empty_input(self) -> None:
@@ -92,23 +93,23 @@ class TestFailSafe:
         assert r.text == ""
         assert r.ok is False
 
-    def test_partial_mood_not_ok_but_kept(self) -> None:
+    def test_partial_mood_kept_ok_true_when_text(self) -> None:
+        # A1: dù partial mood, có text → ok True (mood vẫn parse defensive).
         r = parse_response("hi\n[vui:5 buon:2]")
-        assert r.ok is False
+        assert r.ok is True
         assert r.mood.vui == 5
         assert r.mood.buon == 2
 
     def test_malformed_value_ignored(self) -> None:
-        # bực:abc không phải số → không bắt; còn lại 4 key → ok False
         r = parse_response("hi\n[vui:1 buồn:2 bực:abc bồn_chồn:3 ngượng:4]")
-        assert r.ok is False
+        assert r.ok is True  # A1
         assert r.mood.buc == 0  # không parse được → default
         assert r.mood.bon_chon == 3
 
     def test_meta_lines_stripped_when_no_block(self) -> None:
         r = parse_response("Câu nói.\nlý do: abc\ncòn nữa: có")
         assert r.text == "Câu nói."
-        assert r.ok is False
+        assert r.ok is True  # A1: có text
 
 
 class TestClampAndEdges:

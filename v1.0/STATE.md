@@ -1,7 +1,57 @@
 # STATE — Mai project
 
-**Phase hiện tại:** Autonomy v2 — Aut.A→Aut.E CODE XONG, 923 test xanh
-**Task đang làm:** ⛔ CHECKPOINT Autonomy (chờ user thử live subjective ≥2h)
+**Phase hiện tại:** ROADMAP_AUTONOMOUS_HOST — A1 CODE XONG, 940 test xanh
+**Task đang làm:** ⛔ USER chạy stream verify A1 (raw_had_mood_block should = 0/N)
+
+## A1 Phase A — Bỏ mood block (2026-08-06)
+- [x] A1.1 Metric raw_had_mood_block. _log_turn regex parsed.raw để đo LLM có tự
+      sinh block không (parser đã strip khỏi mai_text). eval_transcript ưu tiên
+      field mới, fallback regex mai_text cho log cũ.
+- [x] A1.2 persona_system.txt XOÁ khối "Định dạng BẮT BUỘC" + khuôn mood block +
+      "lý do:/còn nữa:". Chỉ thị mood chỉ dặn "khớp mood ĐƯỢC GIAO, không kê khai
+      số". Tự nhiên qua giọng và cách nói.
+- [x] A1.3 parser.py `ok` = True miễn text non-empty (không còn phụ thuộc mood
+      block đủ 5). Defensive vẫn strip block nếu LLM lỡ sinh. `continuation` suy
+      từ dấu câu cuối (endswith ",", "…", "...").
+- [x] A1.4 llm_turn._apply_emotion_feedback CHỈ còn clear_tone_flags. Kênh B
+      (apply_llm_hint) + drift detect ĐÃ BỎ. Canned mood update chỉ khi dominant
+      != neutral (defensive).
+- [x] A1.5 EmotionOrchestrator.apply_llm_hint no-op (giữ signature backward compat).
+- [x] A1.6 XOÁ services/qc/drift_detector.py + test_drift_detector.py (8 test).
+      Bỏ import + usage khỏi cli.py, stream_runtime.py, test_emotion_dod.py.
+      LLMTurnRunner bỏ param drift_detector + attr _drift + last_drift_report.
+- [x] A1.7 Fix 4 test đụng semantic mới: parser ok logic (2), apply_llm_hint no-op
+      (1), persona assertion (1).
+- [x] Full suite 940 pass (giảm 9 từ 949 do xoá 8 test drift_detector + 1 test
+      apply_llm_hint đổi assertion).
+
+## Next roadmap
+- User chạy stream test A1: eval_transcript raw_had_mood_block phải ~= 0 (LLM
+  hết tự sinh block). Nếu vẫn có → prompt chưa vào cache, thử clear KV cache
+  llama-server hoặc kiểm persona_system.txt đã load đúng chưa.
+- A2 Content pool sâu + động (3-4h) — sau khi A1 verify xong.
+- A3 Nhịp biến thiên + filler (2-3h).
+- A4 Emotion có object (4-6h).
+- Sau Phase A → C0 Director + Chat handling (4-7 ngày, thứ biến reactive→host).
+
+## ROADMAP AUTONOMOUS HOST — B0 Baseline (2026-08-06)
+- [x] B0.1 LLMTurnRunner._log_turn wire (run_turn + run_ambient_turn), turn_logger param
+      optional (backward compat). Schema: turn_id, kind (chat_reply|ambient), user_text,
+      mai_text, parse_ok, mood_dominant, mood_intensity, trigger_type, level_used,
+      latency_ms, viewer_id, session_id, timestamp. Fail-safe sink lỗi warning không kill.
+- [x] B0.2 scripts/eval_transcript.py — 4 metric: opener_repeat_ratio (3 từ đầu),
+      dead_air (gap timestamp > threshold s, default 10), mood_exposition_count
+      (regex mood block [vui:N ...]), turn_counts. CLI --file/--since/--json.
+- [x] B0.3 22 test mới (15 test_eval_transcript + 7 test_llm_turn_logger).
+- [x] B0.4 docs/baselines/README.md — quy trình + template YYYYMMDD_<tag>.md.
+- [x] B0.5 Wire setup_from_config + turn_logger= vào scripts/cli.py và
+      orchestrator/stream_runtime.py. logging.yaml đã có turns_file.
+- [ ] User chạy stream 30' → dán số vào docs/baselines/2026MMDD_pre_a1.md
+
+## Next (roadmap)
+- A1 bỏ mood block khỏi output (persona_system.txt + parser + llm_turn +
+  emotion_orchestrator.apply_llm_hint + XOÁ drift_detector). CHỈ làm sau khi có
+  baseline.
 
 ## Autonomy v2 milestone (5) — Mai tự nói probabilistic + category-based
 - [x] Aut.A UrgeAccumulator + CategorySelector + config (21 test).

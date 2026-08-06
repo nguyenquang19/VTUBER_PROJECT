@@ -6,10 +6,10 @@ DoD 7 items:
 3. Saturation 100 event — covered ở test_mood_engine + test_emotion_orchestrator
 4. Target decay — covered ở test_mood_engine
 5. 2 cờ tone nối Prompt + Filter — INTEGRATION test dưới đây
-6. Drift detector log khi lệch — INTEGRATION test dưới đây
+6. ~~Drift detector~~ — A1 (ROADMAP_AUTONOMOUS_HOST): bỏ Kênh B + drift detector.
 7. Live ≥100 turn subjective — SKIP (user duyệt)
 
-Test này focus items 5+6 + end-to-end mood evolution.
+Test này focus items 5 + end-to-end mood evolution (item 6 đã xoá).
 """
 from __future__ import annotations
 
@@ -26,7 +26,6 @@ from services.emotion.classifier import EmotionEvent, EventClassifier, EventKind
 from services.emotion.modifiers import ModifierEngine
 from services.llm.prompt_cache import PromptCache
 from services.llm.prompt_manager import PromptManager
-from services.qc.drift_detector import DriftDetector
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -127,53 +126,8 @@ class TestToneFlagsWiredToPrompt:
         assert "force_deflect" not in ctx
 
 
-# ---------- DoD 6: Drift detector log khi lệch ----------
-
-
-class TestDriftDetectorEndToEnd:
-    async def test_drift_flagged_when_engine_says_troll_but_llm_says_happy(
-        self, orch: EmotionOrchestrator,
-    ) -> None:
-        """Appraisal buc→8 (troll rõ) nhưng LLM tự bịa vui=8 → flag."""
-        # Setup: troll event → engine mood buc cao
-        class Fake:
-            def check(self, t):
-                from types import SimpleNamespace
-                return SimpleNamespace(passed=False,
-                                       categories_hit=[SimpleNamespace(value="insult")])
-        orch._classifier._filter = Fake()
-
-        await orch.handle_event(chat("ngu ơi"))
-        # Tick nhiều lần để mood position chạm target
-        for _ in range(30):
-            orch.flush_and_tick(dt=0.1)
-        engine_mood = orch.current_mood()
-        assert engine_mood.buc >= 5  # position đã lên gần target 8
-
-        # LLM tự bịa vui cao — drift detector flag
-        drift = DriftDetector(threshold=4)
-        llm_report = MoodState(vui=8, buc=0)  # trái ngược thực tế
-        report = drift.detect(engine_mood, llm_report)
-        assert report.flagged is True
-
-    async def test_no_drift_when_llm_aligns_with_engine(
-        self, orch: EmotionOrchestrator,
-    ) -> None:
-        """LLM report gần với engine → không flag."""
-        await orch.handle_event(chat("Mai giỏi quá"))
-        for _ in range(30):
-            orch.flush_and_tick(dt=0.1)
-        engine_mood = orch.current_mood()
-
-        drift = DriftDetector(threshold=4)
-        # LLM report gần engine (chênh ≤ 2)
-        llm_report = MoodState(
-            vui=min(10, engine_mood.vui + 1),
-            nguong=engine_mood.nguong,
-            buc=engine_mood.buc,
-        )
-        report = drift.detect(engine_mood, llm_report)
-        assert report.flagged is False
+# ---------- DoD 6 (drift detector) — ĐÃ XOÁ ở A1 (ROADMAP §PHASE A) ----------
+# Kênh B tắt hoàn toàn. LLM không còn tự report mood → không có gì để drift-detect.
 
 
 # ---------- End-to-end mood evolution ----------
@@ -235,12 +189,11 @@ class TestDoDSummary:
             tone_flags=orch.active_tone_flags(),
         )
         assert any("current_mood" in msg.content for msg in req.messages if isinstance(msg, ChatMessage))
-        # 4. Apply LLM hint (Kênh B)
+        # 4. A1: apply_llm_hint là no-op (Kênh B bỏ) — vẫn callable backward compat
+        pre_mood = orch.current_mood()
         orch.apply_llm_hint(MoodState(vui=8))
-        # 5. Drift detect
-        drift = DriftDetector(threshold=4)
-        report = drift.detect(orch.current_mood(), MoodState(vui=0))
-        assert report is not None
+        assert orch.current_mood() == pre_mood  # không đổi
+        # 5. Drift detect ĐÃ XOÁ — không còn cần vì Kênh B tắt
         # 6. Clear tone flags after turn
         orch.clear_tone_flags()
         assert orch.active_tone_flags() == set()
