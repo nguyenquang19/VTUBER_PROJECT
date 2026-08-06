@@ -194,6 +194,8 @@ class StreamRuntime:
 
             # Confirm spoke: reset urge + record opener + dedup
             self._autonomy.on_self_spoke(parsed.text)
+            # A6: ghi self-talk vào history → chat đáp lại sẽ khớp continuity
+            self._runner.commit_self_talk(parsed.text)
 
             # TTS phát audio (nếu wire)
             if self._speak is not None and parsed.text:

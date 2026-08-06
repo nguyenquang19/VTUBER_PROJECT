@@ -216,6 +216,14 @@ class LLMTurnRunner:
         )
         return parsed
 
+    def commit_self_talk(self, text: str) -> None:
+        """A6: đẩy self-talk (ambient) vào history để lượt chat sau khớp continuity.
+        Delegate PromptManager. Caller gọi sau khi chốt text cuối (sau dedup regen)."""
+        try:
+            self._pm.commit_self_talk(text)
+        except Exception as e:
+            get_logger("llm_turn").warning("commit_self_talk_failed", error=str(e))
+
     def _build_request_maybe_with_mood(
         self, request_id: str, user_text: str, event_category: str | None,
     ):

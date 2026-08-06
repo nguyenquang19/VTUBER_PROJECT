@@ -32,6 +32,7 @@ class PromptManager:
         default_max_tokens: int = 300,
         default_temperature: float = 0.85,
         ambient_template: str | None = None,
+        self_talk_history_char_cap: int = 600,
     ) -> None:
         if max_history_turns < 0:
             raise ValueError("max_history_turns không được âm")
@@ -40,6 +41,7 @@ class PromptManager:
         self._default_max_tokens = default_max_tokens
         self._default_temperature = default_temperature
         self._ambient_template = ambient_template or _DEFAULT_AMBIENT
+        self._self_talk_cap = max(0, self_talk_history_char_cap)
         self._history: list[ChatMessage] = []
 
     @classmethod
@@ -51,6 +53,8 @@ class PromptManager:
             default_max_tokens=int(loader.get("models", "llm_main.num_predict", 300)),
             default_temperature=float(loader.get("models", "llm_main.temperature", 0.85)),
             ambient_template=cls._load_ambient_template(loader),
+            self_talk_history_char_cap=int(
+                loader.get("models", "llm_main.self_talk_history_char_cap", 600)),
         )
 
     @staticmethod
@@ -164,6 +168,29 @@ class PromptManager:
         """Ghi lượt vừa hoàn tất vào history rồi cắt bớt theo cửa sổ."""
         self._history.append(ChatMessage(role="user", content=user_text))
         self._history.append(ChatMessage(role="assistant", content=assistant_text))
+        self._trim()
+
+    def commit_self_talk(self, text: str) -> None:
+        """A6: ghi lượt Mai TỰ NÓI (ambient) vào history để giữ continuity.
+
+        Không có user turn (Mai nói không ai hỏi). Vấn đề: nếu KHÔNG ghi, chat
+        đáp lại self-talk sẽ trớt quớt vì LLM không thấy Mai vừa nói gì.
+
+        Merge vào assistant cuối nếu liên tiếp (2 assistant liền → vỡ chat
+        template Gemma) + cap độ dài (giữ lý do gốc: chống bloat khi im lặng dài,
+        nhiều self-talk dồn). Cap=0 → tắt ghi self-talk (backward compat option).
+        """
+        text = (text or "").strip()
+        if not text or self._self_talk_cap == 0:
+            return
+        if self._history and self._history[-1].role == "assistant":
+            merged = (self._history[-1].content + "\n" + text).strip()
+            if len(merged) > self._self_talk_cap:
+                merged = merged[-self._self_talk_cap:]
+            self._history[-1] = ChatMessage(role="assistant", content=merged)
+        else:
+            capped = text[-self._self_talk_cap:] if len(text) > self._self_talk_cap else text
+            self._history.append(ChatMessage(role="assistant", content=capped))
         self._trim()
 
     def _trim(self) -> None:

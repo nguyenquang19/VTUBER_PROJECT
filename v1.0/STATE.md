@@ -38,9 +38,22 @@
 - **LƯU Ý:** đây là band-aid tầng gần. Chữa GỐC là Phase B (nguồn novelty thật) —
       Mai react cái CÓ THẬT thay vì tự nói chay. Deferred theo roadmap.
 
+## A6 — Continuity fix (2026-08-06) — user phát hiện self-talk không khớp chat sau
+- Triệu chứng: Mai tự nói "tớ thấy bị bỏ rơi" → chat đáp "ai dám bỏ rơi cậu" →
+  Mai "cậu nói gì lạ thế?" như chưa từng nói. run_ambient_turn CỐ Ý không commit
+  history (sợ bloat) → LLM lượt sau không thấy Mai vừa nói gì → đáp trớt quớt.
+- [x] A6.1 PromptManager.commit_self_talk: ghi self-talk (không user turn). MERGE
+      vào assistant cuối nếu liên tiếp (tránh 2 assistant liền vỡ Gemma template)
+      + cap char (self_talk_history_char_cap=600, giữ lý do chống bloat). Cap=0 tắt.
+- [x] A6.2 LLMTurnRunner.commit_self_talk delegate. Wire cli.py + stream_runtime.
+      _execute_ambient sau on_self_spoke (final text sau dedup regen, 1 commit).
+- [x] A6.3 test_prompt_manager TestCommitSelfTalk (7): lone assistant, visible in
+      next request, merge no-double-assistant, cap bound, cap=0 disable. 978 pass.
+
 ## ✅ PHASE A HOÀN THÀNH — de-AI cấp tốc
 A1 bỏ mood block · A2 pool sâu+động · A3 nhịp+filler · A4 emotion object+grudge ·
-A5 anti-confabulation · register ghì giọng. 3 A1-leftover mood-block dọn sạch.
+A5 anti-confabulation · A6 continuity self-talk · register ghì giọng.
+3 A1-leftover mood-block dọn sạch.
 
 ## ⚠️ Flaky test (pre-existing, KHÔNG phải A4): test_mood_engine
 TestStability10k::test_no_oscillation_at_default_config fail khi pytest-randomly

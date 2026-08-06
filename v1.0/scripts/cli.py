@@ -242,6 +242,8 @@ async def _autonomy_bg_loop(
                             f"ambient_cli_{autonomy.urge._ticks}_r", decision.prompt_text,
                         )
                     autonomy.on_self_spoke(parsed.text)
+                    # A6: ghi self-talk vào history → chat đáp lại sẽ khớp continuity
+                    runner.commit_self_talk(parsed.text)
                     if tts_pipeline is not None:
                         try:
                             await tts_pipeline.speak(

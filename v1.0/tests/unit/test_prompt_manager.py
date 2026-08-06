@@ -122,6 +122,64 @@ class TestHistoryWindow:
             PromptManager(cache(), max_history_turns=-1)
 
 
+class TestCommitSelfTalk:
+    def test_appends_lone_assistant(self) -> None:
+        m = mgr()
+        m.commit_self_talk("tớ thấy hơi bị bỏ rơi")
+        hist = m.history()
+        assert len(hist) == 1
+        assert hist[0].role == "assistant"
+        assert hist[0].content == "tớ thấy hơi bị bỏ rơi"
+
+    def test_self_talk_visible_in_next_request(self) -> None:
+        # BUG A6: chat đáp lại self-talk phải thấy self-talk trong history.
+        m = mgr()
+        m.commit_self_talk("tớ thấy bị bỏ rơi")
+        msgs = m.build_messages("ai dám bỏ rơi cậu")
+        contents = [x.content for x in msgs]
+        assert "tớ thấy bị bỏ rơi" in contents          # Mai nhớ mình vừa nói
+        assert "ai dám bỏ rơi cậu" in contents
+
+    def test_consecutive_self_talk_merges_no_double_assistant(self) -> None:
+        # 2 assistant liền → vỡ Gemma template. Phải merge thành 1.
+        m = mgr()
+        m.commit_self_talk("câu tự nói 1")
+        m.commit_self_talk("câu tự nói 2")
+        hist = m.history()
+        roles = [x.role for x in hist]
+        assert roles == ["assistant"]                   # merge, không phải 2
+        assert "câu tự nói 1" in hist[0].content
+        assert "câu tự nói 2" in hist[0].content
+
+    def test_after_reply_new_self_talk_is_separate(self) -> None:
+        m = mgr()
+        m.commit_self_talk("tự nói A")
+        m.commit_turn("chat hỏi", "Mai đáp")            # user + assistant
+        m.commit_self_talk("tự nói B")                  # sau assistant(đáp) → merge vào đó
+        roles = [x.role for x in m.history()]
+        # không có 2 assistant liền nhau bất kỳ đâu
+        for i in range(1, len(roles)):
+            assert not (roles[i] == "assistant" and roles[i - 1] == "assistant")
+
+    def test_cap_bounds_merged_length(self) -> None:
+        m = mgr(self_talk_history_char_cap=50)
+        for _ in range(20):
+            m.commit_self_talk("x" * 40)
+        hist = m.history()
+        assert len(hist) == 1
+        assert len(hist[0].content) <= 50               # cap giữ, không bloat
+
+    def test_cap_zero_disables(self) -> None:
+        m = mgr(self_talk_history_char_cap=0)
+        m.commit_self_talk("không ghi")
+        assert m.history() == []
+
+    def test_empty_text_noop(self) -> None:
+        m = mgr()
+        m.commit_self_talk("   ")
+        assert m.history() == []
+
+
 class TestBuildRequest:
     def test_defaults_applied(self) -> None:
         m = mgr(default_max_tokens=222, default_temperature=0.5)
