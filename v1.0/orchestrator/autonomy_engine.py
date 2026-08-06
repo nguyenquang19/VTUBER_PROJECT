@@ -391,7 +391,18 @@ class AutonomyEngine:
         """
         if not self.urge.should_speak_now():
             return None
+        return self._pick_and_render(mood, ctx)
 
+    def force_generate(
+        self, mood: MoodState, ctx: RuntimeContext,
+    ) -> AmbientDecision | None:
+        """C0.4: Director đã QUYẾT self_talk (dead-air/cold) → sinh bỏ qua gate urge.
+        Vẫn None nếu không cat nào có material (không bịa từ số 0)."""
+        return self._pick_and_render(mood, ctx)
+
+    def _pick_and_render(
+        self, mood: MoodState, ctx: RuntimeContext,
+    ) -> AmbientDecision | None:
         chosen_cat: str | None = None
         chosen_material: dict | None = None
         # Loop tối đa 2×len(categories) để tìm cat có material (weighted random

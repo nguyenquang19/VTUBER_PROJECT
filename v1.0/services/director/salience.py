@@ -174,6 +174,10 @@ class SaliencePool:
         )
         return ranked[:max(1, max_refs)]
 
+    def remove(self, msg_id: str) -> bool:
+        """Gỡ 1 tin khỏi pool (Director đã đáp). Trả True nếu có gỡ."""
+        return self._items.pop(msg_id, None) is not None
+
     def size(self) -> int:
         return len(self._items)
 

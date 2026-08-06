@@ -32,6 +32,12 @@ class ChatRouter:
         emotion: EmotionOrchestrator,
         runner: LLMTurnRunner,
         speak: SpeakFn | None = None,
+        # C0.4: intake mode — nếu cấp pool+pulse, chat KHÔNG tự đáp mà bơm vào
+        # SaliencePool + ChatPulse để Director cầm nhịp (bỏ FIFO). None = FIFO cũ.
+        pool: Any = None,
+        pulse: Any = None,
+        chat_pulse_hook: Callable[[], None] | None = None,
+        turn_lock: asyncio.Lock | None = None,
     ) -> None:
         if not sources:
             raise ValueError("cần ít nhất 1 InputService")
@@ -39,9 +45,14 @@ class ChatRouter:
         self._emotion = emotion
         self._runner = runner
         self._speak = speak
+        self._pool = pool
+        self._pulse = pulse
+        self._intake_mode = pool is not None and pulse is not None
+        self._extra_activity_hook = chat_pulse_hook
 
         self._running = False
-        self._turn_lock = asyncio.Lock()
+        # C0.4: share turn_lock với DirectorLoop nếu được cấp (1 driver duy nhất)
+        self._turn_lock = turn_lock or asyncio.Lock()
         self._consumers: list[asyncio.Task] = []
         self._log = get_logger("chat_router")
 
@@ -49,6 +60,7 @@ class ChatRouter:
         self._turns_run = 0
         self._turns_failed = 0
         self._speak_calls = 0
+        self._intake_pooled = 0
 
     # ---------- Lifecycle ----------
 
@@ -127,7 +139,7 @@ class ChatRouter:
             )
 
     async def _process(self, event: InputEvent) -> None:
-        """1 event → emotion.handle_event + runner.run_turn (serialize qua lock)."""
+        """1 event → emotion + (intake: bơm pool/pulse) HOẶC (FIFO: run_turn)."""
         emo_event = _to_emotion_event(event)
         try:
             processed = await self._emotion.handle_event(emo_event)
@@ -137,6 +149,12 @@ class ChatRouter:
                 event_id=event.event_id, error=str(e),
             )
             return   # skip event, không giết router
+
+        # C0.4 intake mode: bơm vào SaliencePool + ChatPulse, KHÔNG tự đáp.
+        # Director loop sẽ nhặt từ pool khi quyết read_chat.
+        if self._intake_mode:
+            self._intake(event, emo_event)
+            return
 
         async with self._turn_lock:
             try:
@@ -166,7 +184,46 @@ class ChatRouter:
                     self._log.warning("router_speak_failed", error=str(e))
 
 
+    def _intake(self, event: InputEvent, emo_event: EmotionEvent) -> None:
+        """C0.4: đẩy chat vào SaliencePool + ChatPulse (không sinh turn)."""
+        now = event.timestamp.timestamp() if event.timestamp else _now_ts()
+        is_super = bool(emo_event.meta.get("platform_type") == "donation")
+        amount = int(emo_event.meta.get("amount_vnd", 0) or 0)
+        text = event.content or ""
+        kind = _classify_kind(text)
+        try:
+            self._pool.add(
+                msg_id=event.event_id or f"m{self._intake_pooled}",
+                text=text, now=now, kind=kind,
+                viewer_id=event.user_id, amount_vnd=amount, is_super=is_super,
+            )
+            self._pulse.record(now=now, user_id=event.user_id)
+            self._intake_pooled += 1
+            if self._extra_activity_hook is not None:
+                self._extra_activity_hook()
+        except Exception as e:
+            self._log.warning("router_intake_failed", event_id=event.event_id, error=str(e))
+
+
 # ---------- Helpers ----------
+
+
+_MENTION_KW = ("mai",)
+
+
+def _now_ts() -> float:
+    import time
+    return time.time()
+
+
+def _classify_kind(text: str) -> str:
+    """kind cho SaliencePool base_tier: mention > question > chat (rẻ, regex nhẹ)."""
+    low = (text or "").lower()
+    if any(kw in low for kw in _MENTION_KW):
+        return "mention"
+    if "?" in text:
+        return "question"
+    return "chat"
 
 
 def _to_emotion_event(ev: InputEvent) -> EmotionEvent:

@@ -72,6 +72,7 @@ class StreamRuntime:
         dashboard_task: asyncio.Task | None = None,
         speak: SpeakFn | None = None,
         filler: Any = None,   # A3 FillerManager (metrics only; wiring ở speak wrapper)
+        director_loop: Any = None,   # C0.4 DirectorLoop — turn driver (thay autonomy loop)
         cfg: StreamRuntimeConfig | None = None,
     ) -> None:
         self._loader = loader
@@ -88,6 +89,7 @@ class StreamRuntime:
         self._dashboard_task = dashboard_task
         self._speak = speak
         self._filler = filler
+        self._director_loop = director_loop
         self.cfg = cfg or StreamRuntimeConfig()
 
         self._running = False
@@ -104,21 +106,28 @@ class StreamRuntime:
             return
         await self._router.start()
         self._running = True
-        # Autonomy tick loop nếu bật + có engine
-        if self.cfg.enable_autonomy and self._autonomy is not None:
+        # C0.4: DirectorLoop cầm nhịp (thay autonomy loop cũ). Fallback: autonomy loop
+        # nếu không có director (backward compat / test).
+        if self._director_loop is not None:
+            await self._director_loop.start()
+        elif self.cfg.enable_autonomy and self._autonomy is not None:
             self._autonomy_task = asyncio.create_task(
                 self._autonomy_loop(), name="autonomy_tick",
             )
         self._log.info(
             "stream_runtime_ready",
             tts=self.cfg.enable_tts, memory=self.cfg.enable_memory,
+            director=self._director_loop is not None,
             autonomy=self.cfg.enable_autonomy and self._autonomy is not None,
         )
 
     async def stop(self) -> None:
         self._running = False
         self._stop_event.set()
-        # Cancel autonomy first
+        # Stop director loop (C0.4) hoặc autonomy loop cũ
+        if self._director_loop is not None:
+            with contextlib.suppress(Exception):
+                await self._director_loop.stop()
         if self._autonomy_task is not None and not self._autonomy_task.done():
             self._autonomy_task.cancel()
             with contextlib.suppress(Exception):
@@ -257,6 +266,9 @@ class StreamRuntime:
             m.update(self._autonomy.get_metrics())
         if self._filler is not None:
             m.update(self._filler.get_metrics())
+        if self._director_loop is not None:
+            with contextlib.suppress(Exception):
+                m.update(self._director_loop.get_metrics())
         return m
 
 
@@ -421,9 +433,28 @@ async def build_stream_runtime(
     if cfg.enable_autonomy:
         autonomy = AutonomyEngine.from_loader(loader)
 
-    # ─── ChatRouter ───
+    # ─── C0.4: Director stack — cầm nhịp thay FIFO ───
+    from services.director.chat_pulse import ChatPulse
+    from services.director.director import Director
+    from services.director.director_loop import DirectorLoop
+    from services.director.salience import SaliencePool
+
+    pool = SaliencePool.from_loader(loader)
+    pulse = ChatPulse.from_loader(loader)
+    director = Director.from_loader(pool, pulse, loader)
+    turn_lock = asyncio.Lock()   # 1 lock chung: ChatRouter intake + DirectorLoop
+
+    # ─── ChatRouter (intake mode: bơm pool+pulse, KHÔNG tự đáp) ───
     router = ChatRouter(
         sources=sources, emotion=emotion, runner=runner, speak=speak_callback,
+        pool=pool, pulse=pulse, turn_lock=turn_lock,
+    )
+
+    director_loop = DirectorLoop(
+        director=director, pool=pool, pulse=pulse, runner=runner,
+        emotion=emotion, autonomy=autonomy, speak=speak_callback,
+        turn_lock=turn_lock,
+        tick_seconds=float(autonomy.cfg.tick_seconds) if autonomy is not None else 1.0,
     )
 
     # ─── Dashboard (optional) ───
@@ -438,17 +469,20 @@ async def build_stream_runtime(
         chat_router=router, autonomy=autonomy,
         tts_svc=tts_svc, audio_player=audio_player, tts_pipeline=tts_pipeline,
         memory=memory, metrics=metrics, dashboard_task=dashboard_task,
-        speak=speak_callback, filler=filler, cfg=cfg,
+        speak=speak_callback, filler=filler, director_loop=director_loop, cfg=cfg,
     )
-    # Hook chat activity vào autonomy engine — chat đến → reset silence
-    if autonomy is not None:
-        _orig_process = router._process  # noqa: SLF001
+    # DirectorLoop dùng runtime ctx của rt (silence/chat_count/memory) cho self_talk material
+    director_loop._runtime_ctx_fn = rt._build_runtime_context  # noqa: SLF001
 
-        async def _hook_process(event):
+    # Hook chat activity — chat đến → reset silence + đếm activity (cho ChatPulse/urge)
+    _orig_process = router._process  # noqa: SLF001
+
+    async def _hook_process(event):
+        if autonomy is not None:
             autonomy.on_external_activity()
-            rt.note_chat_activity()
-            await _orig_process(event)
+        rt.note_chat_activity()
+        await _orig_process(event)
 
-        router._process = _hook_process  # noqa: SLF001
+    router._process = _hook_process  # noqa: SLF001
 
     return rt

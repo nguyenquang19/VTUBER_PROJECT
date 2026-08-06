@@ -52,11 +52,39 @@ loop · C0.4 hợp nhất stream qua Director (CHECKPOINT bắt buộc trước 
 - ISOLATED — CHƯA cắm vào stream. C0.4 = wire (refactor lớn, CHECKPOINT trước).
 - Full suite 1018 pass.
 
-### ⛔ C0.4 — CHECKPOINT BẮT BUỘC trước khi làm
-Wire stream qua Director thay ChatRouter FIFO: chat→TriggerManager triage→
-SaliencePool; Director loop drive turn (read_chat nhặt pool / self_talk qua autonomy
-/ ack donation / transition). Đây là REFACTOR đường đang chạy — rủi ro cao. Hỏi
-user + chốt cách hợp nhất (bỏ FIFO cũ hay Director cầm lock) TRƯỚC khi code.
+### C0.4 Hợp nhất — Director cầm nhịp, bỏ FIFO (2026-08-06) — XONG
+User chốt: Director cầm nhịp luôn, bỏ FIFO + wire logic + test Fake LLM.
+- SaliencePool.remove(msg_id). ChatRouter intake mode (pool+pulse inject +
+  shared turn_lock): chat → emotion.handle_event + pool.add(kind detect) +
+  pulse.record, KHÔNG run_turn. pool/pulse=None → FIFO cũ (backward compat test).
+- AutonomyEngine.force_generate (bỏ gate urge — Director đã quyết self_talk).
+  Refactor maybe_generate → _pick_and_render dùng chung.
+- services/director/director_loop.py DirectorLoop: turn driver DUY NHẤT. tick→
+  evict_stale→decide(urge_ready)→execute qua turn_lock. READ/ACK: _compose_read_
+  prompt từ refs (single/cluster/summary/vibe/ack)→run_turn→pool.remove. SELF_TALK:
+  force_generate→run_ambient_turn→commit_self_talk. TRANSITION: announce→advance.
+  clock inject, fail-safe N7.
+- stream_runtime: build tạo pool/pulse/director/director_loop, ChatRouter intake,
+  StreamRuntime.start/stop chạy DirectorLoop THAY autonomy loop (fallback autonomy
+  nếu director_loop=None). director_loop._runtime_ctx_fn = rt._build_runtime_context.
+- tests/integration/test_director_loop.py 8 test FakeLLM: read gỡ pool; superchat
+  ack first; dead-air→self_talk; no-material no-crash; no-infinite-read→self_talk;
+  transition advance; ChatRouter intake→pool không turn.
+- Full suite 1025 pass.
+- **cli.py --autonomy KHÔNG dùng Director** (REPL text, không có chat firehose) —
+  vẫn autonomy loop cũ. Director chỉ ở scripts/stream.py (--youtube/--discord).
+  User verify Director qua stream entry, KHÔNG qua cli.
+
+## ✅ C0 HOÀN THÀNH — reactive→host
+SaliencePool (điểm+decay+cluster) · ChatPulse (tempo/diversity) · Director loop
+(segment+action table) · Hợp nhất (Director cầm nhịp, bỏ FIFO). Mai giờ CHỦ ĐỘNG
+đạo diễn: nhặt tin đáng đáp, gộp cụm, cưỡi sóng chat, tự nói khi nguội, chuyển
+segment. TriggerManager full triage (spam/rate) chưa cắm — pool cluster+decay đã
+thay phần lớn; để C1 nếu cần.
+
+## ⚠️ Verify C0 cần chat sources thật
+Director cần chat firehose (YouTube/Discord) để có tin trong pool. Test:
+python scripts/stream.py --youtube VIDEO_ID [--tts]. cli.py không thấy Director.
 
 ## A4 Phase A — Emotion có object + grudge (2026-08-06) — HẾT PHASE A
 - [x] A4.1 EmotionCause{viewer_alias, intent_short} + sanitize_alias (classifier.py).
