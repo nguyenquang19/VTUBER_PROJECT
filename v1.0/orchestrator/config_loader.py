@@ -34,6 +34,7 @@ CONFIG_FILES: dict[str, str] = {
     "pacing": "pacing.yaml",                          # A3 nhịp + filler
     "chat_salience": "chat_salience.yaml",            # C0.1 salience pool
     "director": "director.yaml",                       # C0.3 director loop
+    "mood_style": "mood_style.yaml",                   # mood → chỉ dẫn giọng
 }
 
 ReloadCallback = Callable[[str, dict[str, Any]], None]
