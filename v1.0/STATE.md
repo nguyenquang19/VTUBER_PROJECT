@@ -33,6 +33,31 @@ loop · C0.4 hợp nhất stream qua Director (CHECKPOINT bắt buộc trước 
 - ISOLATED — zero risk. Nuôi Director (C0.3) + mood + urge ở C0.4.
 - Full suite 1004 pass.
 
+### C0.3 Director loop (2026-08-06) — XONG
+- config/director.yaml: segments opening/main/chat/closing {goal,duration,allowed_
+  actions}, dead_air_seconds=20, max_consecutive_read_chat=3, max_refs=3,
+  backlog_summary_threshold=12, summary_score_ceiling=15.
+- services/director/director.py Director: PURE decision engine (KHÔNG LLM/tick).
+  decide(now,urge_ready)→DirectorDecision(action, segment, refs, read_mode, reason).
+  Action: READ_CHAT/ACK_DONATION/SELF_TALK/FOLLOW_UP/TRANSITION/WAIT.
+  ReadMode: SINGLE/CLUSTER/SUMMARY/VIBE/ACK (gộp C0.2-roadmap "read_chat kéo bao nhiêu").
+  Rule ưu tiên: hết-giờ-segment→TRANSITION · superchat→ACK chen hàng · HYPE_SPAM→VIBE ·
+  pool top + chưa consec-cap→READ · COLD/dead-air/consec-cap/urge→SELF_TALK.
+  consecutive_read_chat cap (chống chuỗi read vô hạn). advance_segment/mark_spoke.
+  clock inject. from_loader. config_loader đăng ký "director".
+- test_director.py 14 test gồm 1h sim.
+- DoD ✅: 1h sim chạm hết segment + không dead-air>20s + read_chat cap 3; superchat
+  ACK chen hàng; HYPE_SPAM→vibe; cluster refs≤3; backlog điểm thấp→summary;
+  consec cap→ép self_talk; transition khi hết giờ.
+- ISOLATED — CHƯA cắm vào stream. C0.4 = wire (refactor lớn, CHECKPOINT trước).
+- Full suite 1018 pass.
+
+### ⛔ C0.4 — CHECKPOINT BẮT BUỘC trước khi làm
+Wire stream qua Director thay ChatRouter FIFO: chat→TriggerManager triage→
+SaliencePool; Director loop drive turn (read_chat nhặt pool / self_talk qua autonomy
+/ ack donation / transition). Đây là REFACTOR đường đang chạy — rủi ro cao. Hỏi
+user + chốt cách hợp nhất (bỏ FIFO cũ hay Director cầm lock) TRƯỚC khi code.
+
 ## A4 Phase A — Emotion có object + grudge (2026-08-06) — HẾT PHASE A
 - [x] A4.1 EmotionCause{viewer_alias, intent_short} + sanitize_alias (classifier.py).
       AppraisalTable.cause_intent(cat) đọc config cause_intents (CANONICAL, KHÔNG

@@ -1,0 +1,32 @@
+# director.yaml — C0.3 Director loop (ROADMAP_AUTONOMOUS_HOST §C0.4)
+#
+# Đạo diễn: biến reactive (đáp mọi tin) → host (biết NÊN làm gì). State machine
+# segment + bảng action + vài rule if/else. KHÔNG utility-scoring nhiều chiều,
+# KHÔNG gọi LLM mỗi tick — chỉ chốt action rồi caller mới sinh thoại.
+
+director:
+  dead_air_seconds: 20            # DoD: không để dead-air > 20s → tự nói
+  max_consecutive_read_chat: 3    # đáp chat liên tiếp quá N → ép xen chủ động
+  max_refs_per_turn: 3            # read_chat gộp tối đa 3 tin (chống "máy đọc chat")
+  backlog_summary_threshold: 12   # pool > N tin + điểm top thấp → 1 câu tổng, không đáp lẻ
+  summary_score_ceiling: 15.0     # top score dưới ngưỡng này (khi backlog cao) → summary
+
+  # Segment: mỗi phần {goal, duration_seconds, allowed_actions}. Duration là
+  # kế hoạch — Director tự chuyển khi hết giờ (Mai thông báo). Số thật tune sau.
+  segments:
+    - name: opening
+      goal: "chào mở màn, bắt nhịp"
+      duration_seconds: 120
+      allowed_actions: [self_talk, read_chat, transition]
+    - name: main
+      goal: "nội dung chính"
+      duration_seconds: 1800
+      allowed_actions: [read_chat, self_talk, follow_up, ack_donation, transition]
+    - name: chat
+      goal: "tương tác chat tập trung"
+      duration_seconds: 600
+      allowed_actions: [read_chat, ack_donation, self_talk, transition]
+    - name: closing
+      goal: "kết thúc, chào tạm biệt"
+      duration_seconds: 120
+      allowed_actions: [self_talk, transition]
