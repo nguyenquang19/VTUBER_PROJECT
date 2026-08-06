@@ -33,6 +33,62 @@ async function post(url) {
 document.getElementById("btn-estop").addEventListener("click", () => post("/api/emergency_stop"));
 document.getElementById("btn-resume").addEventListener("click", () => post("/api/resume"));
 
+// ---------- Review tab (T3 rating + T7 correction) ----------
+async function postJson(url, body) {
+  try {
+    const r = await fetch(url, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    return await r.json();
+  } catch (e) { return { ok: false, reason: String(e) }; }
+}
+
+function rate(rating) {
+  const el = document.getElementById("rate-status");
+  postJson("/api/rate", { rating }).then((r) => {
+    el.textContent = r.ok ? `✓ ${rating} → turn #${r.turn_id}` : `✗ ${r.reason}`;
+  });
+}
+document.getElementById("btn-rate-good").addEventListener("click", () => rate("good"));
+document.getElementById("btn-rate-bad").addEventListener("click", () => rate("bad"));
+document.getElementById("btn-rate-flag").addEventListener("click", () => rate("flag"));
+
+async function loadRecentTurns() {
+  const list = document.getElementById("review-list");
+  list.innerHTML = "Đang tải…";
+  let data;
+  try { data = (await (await fetch("/api/recent_turns?n=20")).json()).turns; }
+  catch (e) { list.innerHTML = "Lỗi tải: " + e; return; }
+  if (!data || !data.length) { list.innerHTML = "<em>Chưa có turn nào.</em>"; return; }
+  list.innerHTML = "";
+  data.reverse().forEach((t) => {   // mới nhất trên cùng
+    const div = document.createElement("div");
+    div.className = "review-item";
+    div.innerHTML =
+      `<div class="review-meta">#${t.turn_id} · ${t.kind}</div>` +
+      (t.user_text ? `<div class="review-user">👤 ${escapeHtml(t.user_text)}</div>` : "") +
+      `<textarea class="review-edit">${escapeHtml(t.mai_text || "")}</textarea>` +
+      `<div><button class="btn-save-correct">💾 Lưu sửa</button>` +
+      `<span class="save-status"></span></div>`;
+    const ta = div.querySelector(".review-edit");
+    const status = div.querySelector(".save-status");
+    div.querySelector(".btn-save-correct").addEventListener("click", () => {
+      postJson("/api/correct", { turn_id: t.turn_id, corrected_text: ta.value }).then((r) => {
+        status.textContent = r.ok ? " ✓ đã lưu" : " ✗ " + r.reason;
+      });
+    });
+    list.appendChild(div);
+  });
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"]/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+document.getElementById("btn-review-refresh").addEventListener("click", loadRecentTurns);
+// auto-load khi mở tab Review
+document.querySelector('[data-tab="review"]').addEventListener("click", loadRecentTurns);
+
 // ---------- tiny canvas line chart ----------
 function drawChart(canvasId, data, color, maxHint) {
   const canvas = document.getElementById(canvasId);

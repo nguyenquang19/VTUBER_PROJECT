@@ -383,6 +383,8 @@ async def main() -> None:
             audio_player=audio_player,
             tts_pipeline=tts_pipeline,
             emotion=emotion,
+            runner=runner,
+            data_dir=loader.get("logging", "jsonl.dir", "logs"),
             push_interval_s=0.5,
         )
         dash_server.start_push_loop()

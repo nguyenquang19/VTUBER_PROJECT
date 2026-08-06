@@ -465,7 +465,8 @@ async def build_stream_runtime(
     dashboard_task = None
     if cfg.enable_dashboard:
         from dashboard.dashboard_server import DashboardServer
-        ds = DashboardServer(metrics=metrics, emotion=emotion)
+        ds = DashboardServer(metrics=metrics, emotion=emotion, runner=runner,
+                             data_dir=loader.get("logging", "jsonl.dir", "logs"))
         dashboard_task = asyncio.create_task(ds.serve(), name="dashboard")
 
     rt = StreamRuntime(

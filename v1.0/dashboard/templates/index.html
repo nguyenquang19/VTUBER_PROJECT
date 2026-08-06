@@ -24,6 +24,7 @@
   <button data-tab="filter">Filter</button>
   <button data-tab="tts">TTS</button>
   <button data-tab="mood">Mood</button>
+  <button data-tab="review">Review</button>
 </nav>
 
 <main>
@@ -133,6 +134,18 @@
     <div id="mood-legend" class="mood-legend"></div>
     <div class="dim" id="mood-flags"></div>
     <div class="chart-wrap"><canvas id="chart-mood" width="800" height="220"></canvas><div class="chart-title">Mood 5 chiều (realtime) · pos đặc, target chấm</div></div>
+  </section>
+
+  <section id="tab-review" class="tab">
+    <h3>Review — chấm điểm + sửa câu Mai (data fine-tune)</h3>
+    <div class="dim" style="margin-bottom:8px;">
+      <button id="btn-rate-good">👍 good</button>
+      <button id="btn-rate-bad">👎 bad</button>
+      <button id="btn-rate-flag">🚩 flag</button>
+      <span id="rate-status" style="margin-left:12px;"></span>
+      <button id="btn-review-refresh" style="float:right;">↻ Tải turn gần nhất</button>
+    </div>
+    <div id="review-list"></div>
   </section>
 </main>
 

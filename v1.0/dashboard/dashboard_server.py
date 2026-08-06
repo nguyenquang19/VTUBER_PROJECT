@@ -13,7 +13,9 @@ import contextlib
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from datetime import datetime, timezone
+
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -40,6 +42,8 @@ class DashboardServer:
         audio_player: Any = None,
         tts_pipeline: Any = None,
         emotion: Any = None,
+        runner: Any = None,           # T3/T7: LLMTurnRunner (last_turn_id) — data label
+        data_dir: str = "logs",       # nơi ghi ratings/corrections
         push_interval_s: float = 1.0,
     ) -> None:
         self.features = feature_manager
@@ -55,6 +59,10 @@ class DashboardServer:
         self.audio_player = audio_player
         self.tts_pipeline = tts_pipeline
         self.emotion = emotion
+        self.runner = runner
+        self._data_dir = Path(data_dir)
+        self._ratings_writer = None       # lazy JsonlWriter
+        self._corrections_writer = None
         self.push_interval_s = push_interval_s
         self._log = get_logger("dashboard")
         self._ws_clients: set[WebSocket] = set()
@@ -238,6 +246,40 @@ class DashboardServer:
                 return b""
             return self.metrics.prometheus_text()
 
+        # ── T3: operator chấm điểm turn gần nhất ──
+        @app.post("/api/rate")
+        async def api_rate(request: Request) -> JSONResponse:
+            body = await _json(request)
+            rating = str(body.get("rating", "")).strip()
+            if rating not in ("good", "bad", "flag"):
+                return JSONResponse({"ok": False, "reason": "rating không hợp lệ"}, status_code=400)
+            turn_id = self._last_turn_id()
+            if turn_id is None:
+                return JSONResponse({"ok": False, "reason": "chưa có turn"}, status_code=400)
+            self._write_rating({"turn_id": turn_id, "rating": rating,
+                                "ts": _now_iso()})
+            return JSONResponse({"ok": True, "turn_id": turn_id, "rating": rating})
+
+        # ── T7: operator sửa trực tiếp câu Mai (data vàng nhất) ──
+        @app.get("/api/recent_turns")
+        async def api_recent_turns(n: int = 20) -> JSONResponse:
+            return JSONResponse({"turns": self._recent_turns(min(max(1, n), 100))})
+
+        @app.post("/api/correct")
+        async def api_correct(request: Request) -> JSONResponse:
+            body = await _json(request)
+            try:
+                turn_id = int(body.get("turn_id"))
+            except (TypeError, ValueError):
+                return JSONResponse({"ok": False, "reason": "turn_id sai"}, status_code=400)
+            corrected = str(body.get("corrected_text", "")).strip()
+            if not corrected:
+                return JSONResponse({"ok": False, "reason": "corrected_text rỗng"}, status_code=400)
+            original = self._original_of(turn_id)
+            self._write_correction({"turn_id": turn_id, "original": original,
+                                    "corrected": corrected, "ts": _now_iso()})
+            return JSONResponse({"ok": True, "turn_id": turn_id})
+
         @app.websocket("/ws")
         async def ws(websocket: WebSocket) -> None:
             await websocket.accept()
@@ -257,6 +299,49 @@ class DashboardServer:
                 self._ws_clients.discard(websocket)
 
         return app
+
+    # ---------- T3/T7 data label helpers ----------
+
+    def _last_turn_id(self) -> int | None:
+        tid = getattr(self.runner, "last_turn_id", 0) if self.runner else 0
+        return tid if tid else None
+
+    def _ratings(self):
+        if self._ratings_writer is None:
+            from orchestrator.logger import JsonlWriter
+            self._ratings_writer = JsonlWriter(self._data_dir / "ratings.jsonl")
+        return self._ratings_writer
+
+    def _corrections(self):
+        if self._corrections_writer is None:
+            from orchestrator.logger import JsonlWriter
+            self._corrections_writer = JsonlWriter(self._data_dir / "corrections.jsonl")
+        return self._corrections_writer
+
+    def _write_rating(self, rec: dict) -> None:
+        try:
+            self._ratings().write(rec)
+        except Exception as e:
+            self._log.warning("rating_write_failed", error=str(e))
+
+    def _write_correction(self, rec: dict) -> None:
+        try:
+            self._corrections().write(rec)
+        except Exception as e:
+            self._log.warning("correction_write_failed", error=str(e))
+
+    def _recent_turns(self, n: int) -> list[dict]:
+        """Tail turns.jsonl → N turn gần nhất (turn_id, kind, user_text, mai_text)."""
+        recs = _tail_jsonl(self._data_dir / "turns.jsonl", n)
+        return [{"turn_id": r.get("turn_id"), "kind": r.get("kind"),
+                 "user_text": r.get("user_text"), "mai_text": r.get("mai_text")}
+                for r in recs]
+
+    def _original_of(self, turn_id: int) -> str | None:
+        for r in _tail_jsonl(self._data_dir / "turns.jsonl", 200):
+            if r.get("turn_id") == turn_id:
+                return r.get("mai_text")
+        return None
 
     # ---------- push loop ----------
 
@@ -285,3 +370,34 @@ class DashboardServer:
             with contextlib.suppress(asyncio.CancelledError):
                 await self._push_task
             self._push_task = None
+
+
+async def _json(request: Request) -> dict:
+    try:
+        return await request.json()
+    except Exception:
+        return {}
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _tail_jsonl(path: Path, n: int) -> list[dict]:
+    """Đọc N dòng cuối JSONL → list dict (mới nhất cuối). Lỗi/thiếu file → []."""
+    import json
+    try:
+        if not path.exists():
+            return []
+        lines = path.read_text(encoding="utf-8").splitlines()
+        out = []
+        for line in lines[-n:]:
+            line = line.strip()
+            if line:
+                try:
+                    out.append(json.loads(line))
+                except Exception:
+                    continue
+        return out
+    except Exception:
+        return []
