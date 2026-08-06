@@ -1,7 +1,33 @@
 # STATE — Mai project
 
-**Phase hiện tại:** ROADMAP_AUTONOMOUS_HOST — A1+A2 CODE XONG, 942 test xanh
-**Task đang làm:** ⛔ USER chạy stream verify A1+A2 + duyệt content pool (lọc tay seed)
+**Phase hiện tại:** ROADMAP_AUTONOMOUS_HOST — A1+A2+A3+register XONG, 956 test xanh
+**Task đang làm:** ⛔ USER verify + thu clip filler (nếu muốn) + duyệt content pool
+
+## A3 Phase A — Nhịp biến thiên + filler (2026-08-06)
+- [x] A3.1 services/tts/pacing.py: ResponsePacer.delay(text)=clamp(base +
+      per_char*len + question_bonus + gauss(0,σ), min, max) → phá nhịp đều nhau.
+      FillerManager.maybe_pick(now)->clip|None: probability gate + frequency_cap
+      /phút (rolling 60s) + cooldown + no_repeat rotation. RNG inject, pure logic.
+- [x] config/pacing.yaml (N6) + đăng ký "pacing" vào config_loader CONFIG_FILES.
+- [x] A3.2 stream_runtime wrap _speak → _paced_speak (delay → filler decision →
+      _play_filler_clip → raw speak). Phủ CẢ chat reply lẫn ambient (chung _speak).
+      _play_filler_clip: soundfile load wav mono → AudioChunk enqueue TRƯỚC câu,
+      fail-safe (file thiếu/sr mismatch → skip, N7). Filler metrics qua get_metrics.
+- [x] A3.3 test_pacing.py (14 test): delay σ>0, scale độ dài, question bonus,
+      clamp bounds, disabled→0. Filler: cap/phút, cooldown, no-repeat, pool rỗng
+      →None, probability gate. Full suite 956 pass (+14).
+- **CHƯA làm (không chặn A3):** wiring pacing vào cli.py REPL (dev tool, P6 tránh
+      churn). Đường production stream_runtime đã có.
+
+## ⚠️ ASSET cần user: clip filler
+- config/pacing.yaml `filler.clips: []` RỖNG → filler NO-OP tới khi có clip.
+- User thu 3-5 clip ngắn ("ừm", "à", cười khẽ), MONO WAV, sample rate = 48000
+  (khớp VieNeu player, khác sr → tự skip). Điền path vào clips. Delay đã chạy sẵn.
+
+## ⚠️ Register (văn phong) — ĐÃ LÀM 2026-08-06
+- persona_system.txt +# Văn phong (câu ngắn, cấm từ nối văn viết, dùng từ nói) +
+  3 few-shot mẫu giọng. Sampling giữ 0.85 (register là bài toán prompt). Chờ
+  user verify buổi sạch xem còn "trang trọng hoá" không.
 
 ## A2 Phase A — Content pool sâu + động (2026-08-06)
 - [x] A2.1 autonomy_content_pool.yaml: share_thought 15→55 idea-seed (nhóm theo

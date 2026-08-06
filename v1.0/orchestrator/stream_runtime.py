@@ -71,6 +71,7 @@ class StreamRuntime:
         metrics: MetricsCollector,
         dashboard_task: asyncio.Task | None = None,
         speak: SpeakFn | None = None,
+        filler: Any = None,   # A3 FillerManager (metrics only; wiring ở speak wrapper)
         cfg: StreamRuntimeConfig | None = None,
     ) -> None:
         self._loader = loader
@@ -86,6 +87,7 @@ class StreamRuntime:
         self._metrics = metrics
         self._dashboard_task = dashboard_task
         self._speak = speak
+        self._filler = filler
         self.cfg = cfg or StreamRuntimeConfig()
 
         self._running = False
@@ -251,6 +253,8 @@ class StreamRuntime:
         }
         if self._autonomy is not None:
             m.update(self._autonomy.get_metrics())
+        if self._filler is not None:
+            m.update(self._filler.get_metrics())
         return m
 
 
@@ -354,6 +358,62 @@ async def build_stream_runtime(
             audio_player = None
             tts_pipeline = None
 
+    # ─── A3: Response pacing + filler ───
+    # Wrap speak_callback: delay biến thiên trước khi nói + filler audio (nếu có clip).
+    # Áp cho CẢ chat reply lẫn ambient (dùng chung _speak boundary).
+    from services.tts.pacing import FillerManager, ResponsePacer
+
+    pacer = ResponsePacer.from_loader(loader)
+    filler = FillerManager.from_loader(loader)
+
+    async def _play_filler_clip(req_id: str, clip_path: str) -> None:
+        """Load clip wav → enqueue AudioPlayer TRƯỚC câu. Fail-safe: lỗi → skip (N7)."""
+        if audio_player is None:
+            return
+        try:
+            import numpy as np
+            import soundfile as sf
+            from interfaces.tts import AudioChunk
+
+            data, sr = sf.read(clip_path, dtype="float32", always_2d=False)
+            if getattr(data, "ndim", 1) > 1:
+                data = data[:, 0]  # mono hoá
+            if sr != audio_player.sample_rate:
+                # tránh phát sai cao độ — bỏ qua, cảnh báo (user thu clip đúng sr)
+                get_logger("stream_runtime").warning(
+                    "filler_sr_mismatch_skip", clip=clip_path,
+                    clip_sr=sr, player_sr=audio_player.sample_rate,
+                )
+                return
+            fid = f"{req_id}_filler"
+            dur_ms = int(len(data) / max(1, sr) * 1000)
+            await audio_player.enqueue(AudioChunk(
+                request_id=fid, chunk_index=0,
+                audio_bytes=np.asarray(data, dtype=np.float32).tobytes(),
+                is_final=False, duration_ms=dur_ms,
+            ))
+            # final marker để AudioPlayer reset current sau filler
+            await audio_player.enqueue(AudioChunk(
+                request_id=fid, chunk_index=1, audio_bytes=b"",
+                is_final=True, duration_ms=0,
+            ))
+        except Exception as e:
+            get_logger("stream_runtime").warning("filler_play_failed", error=str(e))
+
+    if speak_callback is not None:
+        _raw_speak = speak_callback
+
+        async def _paced_speak(req_id: str, text: str) -> None:
+            d = pacer.delay(text)
+            if d > 0:
+                await asyncio.sleep(d)
+            clip = filler.maybe_pick(time.time())
+            if clip is not None:
+                await _play_filler_clip(req_id, clip)
+            await _raw_speak(req_id, text)
+
+        speak_callback = _paced_speak
+
     # ─── Autonomy ───
     autonomy = None
     if cfg.enable_autonomy:
@@ -376,7 +436,7 @@ async def build_stream_runtime(
         chat_router=router, autonomy=autonomy,
         tts_svc=tts_svc, audio_player=audio_player, tts_pipeline=tts_pipeline,
         memory=memory, metrics=metrics, dashboard_task=dashboard_task,
-        speak=speak_callback, cfg=cfg,
+        speak=speak_callback, filler=filler, cfg=cfg,
     )
     # Hook chat activity vào autonomy engine — chat đến → reset silence
     if autonomy is not None:

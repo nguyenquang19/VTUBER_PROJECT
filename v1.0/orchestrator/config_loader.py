@@ -31,6 +31,7 @@ CONFIG_FILES: dict[str, str] = {
     "chat_sources": "chat_sources.yaml",             # Platform.A stream mode
     "autonomy": "autonomy.yaml",                     # Autonomy Engine v2
     "autonomy_content_pool": "autonomy_content_pool.yaml",
+    "pacing": "pacing.yaml",                          # A3 nhịp + filler
 }
 
 ReloadCallback = Callable[[str, dict[str, Any]], None]
