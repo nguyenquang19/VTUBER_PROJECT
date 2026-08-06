@@ -5,6 +5,7 @@
 # KHÔNG gọi LLM mỗi tick — chỉ chốt action rồi caller mới sinh thoại.
 
 director:
+  tick_seconds: 1.5               # nhịp Director hỏi decide() — TÁCH khỏi autonomy (5s)
   dead_air_seconds: 20            # DoD: không để dead-air > 20s → tự nói
   max_consecutive_read_chat: 3    # đáp chat liên tiếp quá N → ép xen chủ động
   max_refs_per_turn: 3            # read_chat gộp tối đa 3 tin (chống "máy đọc chat")

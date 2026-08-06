@@ -450,18 +450,20 @@ async def build_stream_runtime(
         pool=pool, pulse=pulse, turn_lock=turn_lock,
     )
 
+    # TASK 4: director tick TÁCH khỏi autonomy (autonomy 5s làm chat chờ lâu).
+    director_tick = float(loader.get("director", "director.tick_seconds", 1.5))
     director_loop = DirectorLoop(
         director=director, pool=pool, pulse=pulse, runner=runner,
         emotion=emotion, autonomy=autonomy, speak=speak_callback,
         turn_lock=turn_lock,
-        tick_seconds=float(autonomy.cfg.tick_seconds) if autonomy is not None else 1.0,
+        tick_seconds=director_tick,
     )
 
     # ─── Dashboard (optional) ───
     dashboard_task = None
     if cfg.enable_dashboard:
         from dashboard.dashboard_server import DashboardServer
-        ds = DashboardServer(metrics=metrics)
+        ds = DashboardServer(metrics=metrics, emotion=emotion)
         dashboard_task = asyncio.create_task(ds.serve(), name="dashboard")
 
     rt = StreamRuntime(
