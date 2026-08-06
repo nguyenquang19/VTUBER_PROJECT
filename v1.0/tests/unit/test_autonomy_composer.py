@@ -193,19 +193,23 @@ class TestCheckDedup:
 
 
 class TestPromptBuilder:
-    def test_complain_silence_includes_data(self) -> None:
+    def test_complain_silence_uses_phrases_not_raw_numbers(self) -> None:
+        # A2: prompt dùng phrase, KHÔNG số thô.
         p = render_prompt(
             category="complain_silence",
-            material={"silence_seconds": 90, "chat_count_10min": 2},
+            material={"silence_phrase": "im lặng hơi lâu rồi đấy",
+                      "chat_phrase": "chat chỉ lác đác vài người"},
             mood=MoodState(vui=5, bon_chon=6),
             forbidden_openers='"chào cậu..."',
             prompt_hint="càm ràm nhẹ",
         )
         assert "complain_silence" in p
-        assert "90s" in p
-        assert "2 tin" in p
-        assert "bon_chon=6" in p
+        assert "im lặng hơi lâu rồi đấy" in p
+        assert "chat chỉ lác đác vài người" in p
         assert '"chào cậu..."' in p
+        # A1: KHÔNG còn dặn xuất mood block
+        assert "mood block" not in p.lower()
+        assert "format bắt buộc" not in p.lower()
 
     def test_share_thought_includes_seed(self) -> None:
         p = render_prompt(
@@ -225,11 +229,13 @@ class TestPromptBuilder:
 
     def test_call_operator_online_vs_offline(self) -> None:
         p_on = render_prompt(
-            "call_operator", {"operator_online": True, "ignored_streak": 2},
+            "call_operator",
+            {"operator_online": True, "ignored_phrase": "đã gọi mấy lần mà chưa thấy ông đâu"},
             MoodState(), "(không có)", "gọi ông",
         )
         p_off = render_prompt(
-            "call_operator", {"operator_online": False, "ignored_streak": 0},
+            "call_operator",
+            {"operator_online": False, "ignored_phrase": "vừa mới lên tiếng"},
             MoodState(), "(không có)", "gọi ông",
         )
         assert "đang online" in p_on

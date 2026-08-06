@@ -38,9 +38,16 @@ def ctx(**over) -> RuntimeContext:
 
 
 class TestComplainSilence:
-    def test_returns_silence_and_chat_count(self, mp: MaterialProvider) -> None:
+    def test_returns_natural_phrases_not_raw_numbers(self, mp: MaterialProvider) -> None:
+        # A2: trả LỜI TỰ NHIÊN, không số thô.
         m = mp.get("complain_silence", ctx(silence_seconds=90.5, chat_count_last_10min=2))
-        assert m == {"silence_seconds": 90, "chat_count_10min": 2}
+        assert set(m.keys()) == {"silence_phrase", "chat_phrase"}
+        # phrase non-empty, không chứa chữ số
+        assert m["silence_phrase"] and not any(c.isdigit() for c in m["silence_phrase"])
+        assert m["chat_phrase"] and not any(c.isdigit() for c in m["chat_phrase"])
+        # 90s im lặng → band cuối "hơi lâu"; 2 tin → band "lác đác"
+        assert "lâu" in m["silence_phrase"]
+        assert "lác đác" in m["chat_phrase"]
 
     def test_never_none(self, mp: MaterialProvider) -> None:
         """Silence + chat count luôn có (từ ctx), không trả None."""
@@ -84,10 +91,14 @@ class TestAskChat:
 
 
 class TestCallOperator:
-    def test_returns_operator_state(self, mp: MaterialProvider) -> None:
+    def test_returns_operator_state_with_phrase(self, mp: MaterialProvider) -> None:
+        # A2: ignored → phrase, không số thô.
         m = mp.get("call_operator",
                    ctx(operator_online=False, consecutive_ignored=3))
-        assert m == {"operator_online": False, "ignored_streak": 3}
+        assert m["operator_online"] is False
+        assert "ignored_phrase" in m and "ignored_streak" not in m
+        assert not any(c.isdigit() for c in m["ignored_phrase"])
+        assert "lơ" in m["ignored_phrase"]  # 3 > 2 → band cuối "gọi hoài mà ông lơ luôn"
 
 
 class TestFollowUpTopic:
@@ -147,3 +158,38 @@ class TestFromLoader:
         # ask_chat có pool opinion
         m = mp.get("ask_chat", ctx())
         assert m is not None
+
+
+class TestA2DoD:
+    """DoD A2 (ROADMAP §PHASE A): no seed lặp trong 20; không đọc số liệu thô."""
+
+    def _real_mp(self) -> MaterialProvider:
+        from orchestrator.config_loader import ConfigLoader
+        loader = ConfigLoader(REPO_ROOT / "config")
+        loader.load_all()
+        return MaterialProvider.from_loader(loader)
+
+    def test_share_thought_no_repeat_within_20(self) -> None:
+        # DoD (a): 100 lần tự nói, không seed nào lặp trong window 20.
+        mp = self._real_mp()
+        seeds: list[str] = []
+        for _ in range(100):
+            m = mp.get("share_thought", ctx())
+            assert m is not None
+            seeds.append(m["topic_seed"])
+        # kiểm mọi cửa sổ trượt 20 phần tử không có trùng
+        window = 20
+        for i in range(len(seeds)):
+            chunk = seeds[max(0, i - window + 1): i + 1]
+            assert len(chunk) == len(set(chunk)), f"seed lặp trong window tại idx {i}"
+
+    def test_no_raw_numbers_in_any_material(self) -> None:
+        # DoD (b): material cho prompt không chứa số thô.
+        mp = self._real_mp()
+        for c in ("complain_silence", "call_operator"):
+            m = mp.get(c, ctx(silence_seconds=200, chat_count_last_10min=50,
+                              consecutive_ignored=9))
+            assert m is not None
+            for v in m.values():
+                if isinstance(v, str):
+                    assert not any(ch.isdigit() for ch in v), f"{c} còn số thô: {v}"

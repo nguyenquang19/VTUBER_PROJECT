@@ -37,17 +37,18 @@ def render_prompt(
         f"Viết theo lý do trên, đúng chất Mai (persona đã dặn).\n"
         f"Câu TỰ NHIÊN, có nội dung — kể chuyện thì có chi tiết, cà khịa thì thẳng,\n"
         f"không cắt cụt kiểu 1 câu xong hết. Không hedge, không nước đôi.\n"
-        f"Không copy nguyên seed/số liệu — diễn đạt lại. Không lặp câu mở đã cấm.\n"
-        f"Vẫn xuất mood block cuối câu theo format bắt buộc."
+        f"Không copy nguyên seed — diễn đạt lại bằng giọng mình.\n"
+        f"Không lặp câu mở đã cấm. Chỉ viết thoại, KHÔNG kê khai cảm xúc bằng số."
     )
 
 
 def _render_body(category: str, m: dict) -> str:
     """Phần data-cụ-thể per-category — nhét dữ kiện thật vào slot."""
     if category == "complain_silence":
+        # A2: lời tự nhiên, KHÔNG số thô.
         return (
-            f"- Số liệu thật: đã im lặng {m.get('silence_seconds', 0)}s, "
-            f"chat có {m.get('chat_count_10min', 0)} tin trong 10 phút qua.\n"
+            f"- Tình hình: {m.get('silence_phrase', '')}, "
+            f"{m.get('chat_phrase', '')}.\n"
         )
     if category == "share_thought":
         return f"- Hạt giống chủ đề: \"{m.get('topic_seed', '')}\".\n"
@@ -57,10 +58,9 @@ def _render_body(category: str, m: dict) -> str:
             f"\"{m.get('question_seed', '')}\".\n"
         )
     if category == "call_operator":
-        online = "đang online" if m.get("operator_online") else "chưa thấy"
+        online = "đang online" if m.get("operator_online") else "chưa thấy đâu"
         return (
-            f"- Trạng thái ông: {online}. "
-            f"Số lần tự nói mà chưa được reply: {m.get('ignored_streak', 0)}.\n"
+            f"- Trạng thái ông: {online}. {m.get('ignored_phrase', '')}.\n"
         )
     if category == "follow_up_topic":
         return f"- Chủ đề vừa nhắc: {m.get('memory_snippet', '')}.\n"

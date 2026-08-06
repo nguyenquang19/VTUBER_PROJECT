@@ -1,7 +1,35 @@
 # STATE — Mai project
 
-**Phase hiện tại:** ROADMAP_AUTONOMOUS_HOST — A1 CODE XONG, 940 test xanh
-**Task đang làm:** ⛔ USER chạy stream verify A1 (raw_had_mood_block should = 0/N)
+**Phase hiện tại:** ROADMAP_AUTONOMOUS_HOST — A1+A2 CODE XONG, 942 test xanh
+**Task đang làm:** ⛔ USER chạy stream verify A1+A2 + duyệt content pool (lọc tay seed)
+
+## A2 Phase A — Content pool sâu + động (2026-08-06)
+- [x] A2.1 autonomy_content_pool.yaml: share_thought 15→55 idea-seed (nhóm theo
+      chủ đề: AI/lore, ông, chat, đời thường, stream, cảm xúc, triết lý vu vơ),
+      question_pool opinion 6→14 + personal 4→8 + thêm kind "light" (4). Thêm
+      slot_language bands (silence/chat_activity/ignored → phrase). no_repeat 8→20.
+- [x] A2.2 material_provider: _band_phrase(value, bands) map SỐ→LỜI. complain_silence
+      trả silence_phrase+chat_phrase, call_operator trả ignored_phrase (bỏ raw int).
+      from_loader đọc slot_language, default bands nếu config thiếu (fail-safe).
+- [x] A2.3 prompt_builder: XOÁ dòng "Vẫn xuất mood block cuối câu" (A1 SÓT đường
+      autonomy!) → "chỉ viết thoại, không kê khai số". _render_body dùng phrase
+      thay {silence}s/{ignored} — hết số thô trong prompt.
+- [x] A2.4 tests: cập nhật test_material_provider + test_autonomy_composer. Thêm
+      TestA2DoD: (a) 100 lần share_thought no lặp trong window 20; (b) material
+      không chứa số thô. Full suite 942 pass (+2 test DoD).
+- **CỐ Ý HOÃN (N1/P6):** tag seed theo {segment, action_type} — segment chưa tồn
+      tại (đẻ ở C0 Director). Mood-tag hoãn tới khi thấy pool lôi seed sai mood.
+      Không build hạ tầng chưa ai dùng.
+- **BUG A1 phát hiện+vá:** đường Mai-tự-nói (prompt_builder) vẫn ép mood block →
+      A1 chỉ dọn đường chat_reply. A2.3 dọn nốt.
+
+## ⚠️ Register (văn phong) — user feedback 2026-08-06, CHƯA làm
+- User: sau A1 tự nhiên hơn nhưng "câu văn phức tạp hoá / trang trọng hoá".
+- Chẩn: KHÔNG phải do chưa fine-tune (roadmap cấm fine-tune trước A+C). Là
+  register mặc định instruct model + prompt chưa ghì giọng nói + sampling.
+- Fix rẻ (~30ph, bước riêng): thêm ràng buộc khẩu ngữ vào persona (câu ngắn,
+  cấm từ văn viết "tuy nhiên/chính vì vậy"), + 2-3 few-shot mẫu giọng đúng, +
+  cân nhắc temperature/sampling. LÀM SAU khi user duyệt A1+A2.
 
 ## A1 Phase A — Bỏ mood block (2026-08-06)
 - [x] A1.1 Metric raw_had_mood_block. _log_turn regex parsed.raw để đo LLM có tự

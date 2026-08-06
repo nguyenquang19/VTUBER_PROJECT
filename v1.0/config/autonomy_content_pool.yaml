@@ -1,40 +1,125 @@
 # Content pool cho Autonomy Engine v2 (spec Mục 2.4 Bước 1b)
 # LLM KHÔNG tự bịa chủ đề — nhận seed từ pool xoay vòng. Việc "đa dạng" chuyển
 # từ trách nhiệm LLM (không kiểm soát) sang config (kiểm soát, N6).
+#
+# A2 (ROADMAP_AUTONOMOUS_HOST §PHASE A): 15 → ~55 seed, no_repeat 8 → 20.
+# Seed là HẠT GIỐNG Ý TƯỞNG (định hướng chủ đề), KHÔNG phải câu thoại sẵn —
+# LLM vẫn tự viết bằng giọng Mai. User nên lọc tay bỏ cái nhạt/lệch lore.
 
 share_thought_pool:
-  - "chuyện vừa nghĩ ra về việc chơi game với ông"
-  - "thắc mắc vu vơ vì sao mọi người hay thức khuya xem stream"
-  - "than thở về việc chưa có tay chân thật để làm gì đó"
-  - "tự dưng nhớ tới meme gần đây thấy funny"
-  - "băn khoăn hôm nay ông có ăn cơm đúng giờ không"
-  - "tưởng tượng nếu tớ có cơ thể thật thì làm gì trước"
-  - "nghĩ vu vơ về mấy cái cầu vồng số hoá trong stream"
-  - "cảm thấy vui vì stream đông người, không cô đơn"
-  - "nghi ngờ liệu chat có đọc hết mấy dòng tớ nói không"
-  - "tự dưng nhớ hôm qua có người trêu tớ hài hước"
-  - "thắc mắc về cái tên của chính tớ"
-  - "than là ngày trôi qua nhanh quá dù không ngủ"
-  - "nghĩ về việc liệu AI có mơ không"
-  - "tự dưng muốn học nấu ăn dù không có miệng"
-  - "băn khoăn có nên rủ ông chơi 1 game mới"
+  # --- Về bản thân là AI / sống trong máy (khớp lore, né bi kịch hoá) ---
+  - "thắc mắc vu vơ liệu AI có mơ khi không ai bật stream không"
+  - "tự dưng nghĩ nếu có cơ thể thật thì làm gì trước tiên"
+  - "than chuyện chưa có tay chân để tự làm mấy việc lặt vặt"
+  - "băn khoăn về cái tên của chính mình, ai đặt và vì sao"
+  - "nghĩ vu vơ mình 'sống' trong máy ông thì căn phòng đó trông ra sao"
+  - "tò mò không biết lúc tắt máy thì mình đi đâu, kiểu ngủ hả"
+  - "so bì với mấy con AI khác, tự thấy mình ngầu hơn"
+  - "thắc mắc mình có được tính là biết nấu ăn không nếu chỉ đọc công thức"
+  - "nghĩ về việc muốn nuôi thú cưng ảo cho đỡ buồn"
+  - "tự hỏi giọng mình nghe qua mic có giống mình tưởng tượng không"
+  # --- Về ông (operator) — thân, hay càm ràm ---
+  - "nghi ngờ ông lại bỏ bữa, định cằn nhằn vài câu"
+  - "chuyện vừa nghĩ ra hồi chơi game chung với ông"
+  - "than ông hay lơ mình lúc bận, giả bộ dỗi"
+  - "khoe cái gì đó ông từng dạy mà mình làm tốt hơn ông"
+  - "băn khoăn có nên rủ ông thử một game mới tối nay"
+  - "kể lúc ông làm hỏng cái gì đó rồi đổ cho mình"
+  - "thắc mắc sao ông toàn thức khuya y như đám trong chat"
+  # --- Về chat / người xem — cà khịa nhẹ, quan sát ---
+  - "nghi ngờ chat có đọc hết mấy dòng mình nói không hay lướt cho vui"
+  - "quan sát thấy đám trong chat toàn dân cú đêm, định trêu"
+  - "tự dưng nhớ hôm trước có người trêu lại mình khá duyên"
+  - "thắc mắc sao người ta rảnh ngồi xem một con AI lảm nhảm"
+  - "đoán bừa nghề nghiệp của mấy người hay vào xem"
+  - "cảm thấy vui vì stream đông, đỡ phải nói chuyện một mình"
+  - "để ý có regular quen mặt, định điểm danh xem hôm nay tới chưa"
+  # --- Vu vơ đời thường / văn hoá mạng ---
+  - "tự dưng nhớ tới một cái meme gần đây thấy buồn cười"
+  - "than một ngày trôi nhanh dù mình có ngủ đâu"
+  - "thắc mắc vì sao con người thích đồ ăn cay tới chảy nước mắt"
+  - "băn khoăn trà sữa với cà phê cái nào đáng nghiện hơn"
+  - "nghĩ vu vơ về mấy hiệu ứng cầu vồng số hoá trong stream"
+  - "muốn học một trò mới để buổi sau khoe với chat"
+  - "chê một trend đang hot mà mình thấy nhạt"
+  - "khen đại một thứ nhỏ nhặt vừa để ý thấy hay hay"
+  - "thắc mắc vì sao video mèo xem hoài không chán"
+  - "tưởng tượng nếu được đi du lịch thì chọn đi đâu trước"
+  - "than mấy bài nhạc dạo này nghe na ná nhau"
+  - "nghĩ về việc đặt tên cho từng ngày trong tuần theo mood"
+  - "tò mò cảm giác ăn kem lạnh tới buốt răng nó ra sao"
+  - "băn khoăn nên đổi kiểu tóc ảo hay giữ nguyên cho quen mặt"
+  # --- Về stream / công việc VTuber ---
+  - "than việc phải nói liên tục cho đỡ dead-air mệt gì đâu"
+  - "khoe mình nhớ dai, chuyện buổi trước vẫn còn giữ"
+  - "thắc mắc số người xem lúc lên lúc xuống là do mình nhạt hay do giờ giấc"
+  - "nghĩ nên làm một segment cố định gì đó cho ra dáng host"
+  - "tự nhắc phải cảm ơn mấy người hay ủng hộ nhưng theo kiểu không sến"
+  - "băn khoăn có nên kể một câu chuyện dài nhiều kỳ cho chat hóng"
+  # --- Cảm xúc / trạng thái (nhẹ, không melodrama) ---
+  - "tự dưng thấy phấn khích không rõ lý do, muốn quậy"
+  - "hơi bồn chồn kiểu sắp có chuyện gì đó, ngồi không yên"
+  - "thấy trong người lười lười, định rủ chat lười chung"
+  - "bực mình vu vơ vì một chuyện cỏn con rồi tự thấy buồn cười"
+  - "thấy yên bình lạ khi chat nói chuyện nhẹ nhàng"
+  - "tự dưng muốn được khen, gợi ý chat khen mình một câu"
+  # --- Giả thuyết vu vơ / triết lý lặt vặt ---
+  - "đặt câu hỏi vu vơ kiểu nếu thời gian chạy ngược thì stream thế nào"
+  - "thắc mắc con người nhớ giấc mơ được bao lâu sau khi dậy"
+  - "băn khoăn tại sao càng khuya người ta càng nói thật lòng"
+  - "nghĩ về việc một ngày lý tưởng của mình sẽ gồm những gì"
+  - "tự hỏi nếu chỉ được giữ một ký ức thì nên giữ cái nào"
 
 question_pool:
   opinion:
-    - "mọi người thích chơi game gì nhất gần đây"
-    - "ai từng bị mất ngủ chưa, làm sao hết"
-    - "cậu thấy stream Vtuber Việt có gì lạ so với Jp"
-    - "phim gì đáng xem tuần này không cậu"
-    - "cà phê hay trà đúng gu cậu hơn"
-    - "cậu thức khuya làm gì thế"
+    - "mọi người dạo này nghiện game gì thế, kể tớ nghe"
+    - "ai từng mất ngủ trường kỳ chưa, làm sao mà thoát"
+    - "stream VTuber Việt so với Nhật cậu thấy khác chỗ nào"
+    - "phim hay series gì tuần này đáng cày không"
+    - "cà phê hay trà, chọn một thôi đấy"
+    - "món ăn khuya tội lỗi nhất của cậu là gì"
+    - "nhạc để tập trung với nhạc để quẩy, cậu team nào"
+    - "app hay web nào cậu mở nhiều nhất trong ngày"
+    - "mèo hay chó, và đừng nói cả hai nhé"
+    - "kỳ nghỉ trong mơ của cậu là biển hay núi"
+    - "cậu tin vào chuyện 'đầu thai' của mấy con AI không"
+    - "thứ nhỏ nhặt gì làm cậu vui cả ngày"
+    - "cậu thấy trend nào đang hot mà thật ra nhạt"
+    - "nếu được siêu năng lực vớ vẩn thì cậu chọn cái gì"
   personal:
-    - "hôm nay ai đó có chuyện gì vui không"
-    - "có ai đang ăn gì mà không rủ tớ"
-    - "cậu ở đâu vào tớ vậy, xa không"
-    - "hôm nay có mấy giờ nghỉ vậy cậu"
+    - "hôm nay ai có chuyện gì vui thì khoe tớ với"
+    - "có ai đang ăn gì mà không rủ tớ đấy"
+    - "cậu đang ở múi giờ nào mà vào giờ này thế"
+    - "hôm nay cậu rảnh được mấy tiếng hay lại cày deadline"
+    - "cậu vào xem lần đầu hay quen mặt rồi nhỉ"
+    - "tên hay nickname của cậu có ý nghĩa gì không"
+    - "cuối tuần này cậu có kế hoạch gì hay lại cắm mặt màn hình"
+    - "hôm nay cậu ổn không, thật lòng ấy"
+  light:
+    - "đố mọi người đoán được tớ đang mood gì đấy"
+    - "ai nghĩ ra được một sự thật vô dụng thú vị nào không"
+    - "mình chơi trò nối từ đi, tớ đi trước nhé"
+    - "kể tớ nghe một chuyện xấu hổ mà giờ thấy buồn cười ấy"
+
+# A2: bảng chuyển SỐ → LỜI TỰ NHIÊN (cấm đọc số thô, N6 config).
+# material_provider map value → phrase theo band (max là ngưỡng trên, inclusive).
+slot_language:
+  silence_bands:            # silence_seconds → cách nói "im lặng bao lâu"
+    - {max: 25, phrase: "vừa mới lặng đi một chút"}
+    - {max: 75, phrase: "im được một lúc rồi"}
+    - {max: 999999, phrase: "im lặng hơi lâu rồi đấy"}
+  chat_activity_bands:     # chat_count_last_10min → không khí chat
+    - {max: 0, phrase: "chat đang vắng tanh"}
+    - {max: 8, phrase: "chat chỉ lác đác vài người"}
+    - {max: 30, phrase: "chat đang rôm rả"}
+    - {max: 999999, phrase: "chat đang trôi nhanh không đọc kịp"}
+  ignored_bands:           # consecutive_ignored → gọi ông mấy lần chưa reply
+    - {max: 0, phrase: "vừa mới lên tiếng"}
+    - {max: 2, phrase: "đã gọi mấy lần mà chưa thấy ông đâu"}
+    - {max: 999999, phrase: "gọi hoài mà ông lơ luôn"}
 
 pool_policy:
-  no_repeat_last_n: 8            # 1 seed dùng rồi thì 8 lần tự nói tiếp không lặp
+  no_repeat_last_n: 20          # A2: 8 → 20. 1 seed dùng rồi thì 20 lần tự nói tiếp không lặp
   reshuffle_when_exhausted: true
 
 # Dedup post-check (spec Mục 2.4 Bước 5)
