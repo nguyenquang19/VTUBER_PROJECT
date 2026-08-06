@@ -137,20 +137,26 @@ class LLMTurnRunner:
         session_id: str | None = None,
         trigger_type: str | None = None,
         event_category: str | None = None,
+        history_user_text: str | None = None,
+        commit_history: bool = True,
     ) -> tuple[ParsedResponse, int]:
         """Trả (parsed, level_used). level_used=0 primary, 1 canned.
 
-        Nếu emotion orchestrator wire: peek current_mood + active_flags → dùng
-        build_request_with_mood; sau turn apply_llm_hint (Kênh B turn kế) +
-        drift detect + clear tone flags (Phase 7.5.E, spec Mục 6).
+        `user_text`: đưa vào PROMPT cho LLM (có thể là marker "[Mấy người hỏi...]").
+        TASK 5: `history_user_text` — text CHAT GỐC dùng để commit_turn + memory
+        (tránh nhiễm history/memory bằng chuỗi ngoặc prompt). None → dùng user_text.
+        `commit_history=False` → KHÔNG commit history + KHÔNG extract memory
+        (SUMMARY/VIBE không có tin cụ thể).
         """
         request = self._build_request_maybe_with_mood(request_id, user_text, event_category)
+        hist_text = history_user_text if history_user_text is not None else user_text
 
         t0 = time.perf_counter()
         result = await self._fb.execute(_CHAIN_ID, request)
         latency_ms = int((time.perf_counter() - t0) * 1000)
         parsed: ParsedResponse = result.value
-        self._pm.commit_turn(user_text, parsed.text)
+        if commit_history:
+            self._pm.commit_turn(hist_text, parsed.text)
         # A1: canned mood update chỉ khi có tín hiệu mood (defensive).
         if parsed.ok and parsed.mood.dominant() != "neutral":
             self._canned.update_mood(parsed.mood)
@@ -159,8 +165,10 @@ class LLMTurnRunner:
         # A1: chỉ clear tone flags (Kênh B + drift ĐÃ BỎ)
         self._apply_emotion_feedback(parsed, None)
 
-        # Phase 7.F: auto-extract memory từ turn (fire-and-forget)
-        self._schedule_memory_write(user_text, parsed, viewer_id, session_id, trigger_type)
+        # Phase 7.F: auto-extract memory từ turn (fire-and-forget) — dùng text gốc,
+        # skip khi commit_history=False (không có tin cụ thể để nhớ).
+        if commit_history:
+            self._schedule_memory_write(hist_text, parsed, viewer_id, session_id, trigger_type)
 
         # B0: baseline transcript sink
         self._log_turn(

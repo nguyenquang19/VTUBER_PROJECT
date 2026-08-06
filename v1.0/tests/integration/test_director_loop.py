@@ -32,10 +32,13 @@ class FakeRunner:
         self.read_calls: list[str] = []
         self.ambient_calls: list[str] = []
         self.committed: list[str] = []
+        self.hist_calls: list[tuple] = []
 
     async def run_turn(self, request_id, user_text, viewer_id=None,
-                       trigger_type=None, event_category=None):
+                       trigger_type=None, event_category=None,
+                       history_user_text=None, commit_history=True):
         self.read_calls.append(user_text)
+        self.hist_calls.append((history_user_text, commit_history))
         return FakeParsed(text=f"reply:{user_text}"), 0
 
     async def run_ambient_turn(self, request_id, prompt_text):
@@ -119,6 +122,24 @@ class TestDirectorLoop:
         assert action == DirectorAction.READ_CHAT
         assert runner.read_calls == ["Mai ơi chơi gì"]
         assert pool.size() == 0   # đã gỡ
+        # TASK 5: SINGLE commit history = text chat gốc
+        assert runner.hist_calls[0] == ("Mai ơi chơi gì", True)
+
+    async def test_summary_does_not_commit_history(self) -> None:
+        # TASK 5: SUMMARY → commit_history=False (không có tin cụ thể)
+        loop, director, pool, pulse, runner, clock = _make()
+        distinct = [
+            "trời hôm nay đẹp ghê", "ăn phở hay bún đây", "mèo nhà tao dễ thương",
+            "deadline sắp tới rồi", "cà phê sáng ngon quá", "đi ngủ đây bye",
+            "game mới hay không", "nhạc gì đang nghe vậy", "mưa to quá trời",
+            "học bài chán ghê", "code lỗi hoài à", "đói bụng muốn xỉu",
+            "xem phim gì tối nay", "cuối tuần đi chơi", "buồn ngủ dã man",
+        ]
+        for i, txt in enumerate(distinct):
+            pool.add(f"c{i}", txt, now=0.0, kind="chat")
+        clock["t"] = 1.0
+        await loop.tick_once()
+        assert runner.hist_calls[0] == (None, False)
 
     async def test_superchat_acked_before_chat(self) -> None:
         loop, director, pool, pulse, runner, clock = _make()

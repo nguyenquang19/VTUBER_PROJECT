@@ -137,12 +137,17 @@ class DirectorLoop:
         refs = list(dec.refs)
         # đại diện đầu để lấy viewer_id/category
         primary = refs[0] if refs else None
+        # TASK 5: history/memory dùng text CHAT GỐC, không nhiễm chuỗi ngoặc prompt.
+        # SUMMARY/VIBE không có tin cụ thể → không commit history/memory.
+        hist_text, commit_hist = _history_text_for(dec)
         parsed, _level = await self._runner.run_turn(
             request_id=req_id,
             user_text=user_text,
             viewer_id=primary.viewer_id if primary else None,
             trigger_type="director_read",
             event_category=None,
+            history_user_text=hist_text,
+            commit_history=commit_hist,
         )
         # gỡ mọi ref đã đáp khỏi pool (summary mode refs rỗng → gỡ top)
         if refs:
@@ -247,3 +252,18 @@ def _compose_read_prompt(dec) -> str:
     # SINGLE
     r = refs[0]
     return r.text
+
+
+def _history_text_for(dec) -> tuple[str | None, bool]:
+    """TASK 5: (history_user_text, commit_history) — text chat GỐC cho history/memory.
+
+    SINGLE/ACK → text chat thật. CLUSTER → câu gọn ghép refs. SUMMARY/VIBE →
+    (None, False): không có tin cụ thể, KHÔNG commit history/memory."""
+    refs = dec.refs
+    if dec.read_mode in (ReadMode.SUMMARY, ReadMode.VIBE) or not refs:
+        return None, False
+    if dec.read_mode == ReadMode.CLUSTER:
+        joined = " / ".join(r.text for r in refs[:3])
+        return f"(mấy người cùng hỏi) {joined}", True
+    # SINGLE / ACK → text chat gốc
+    return refs[0].text, True

@@ -45,6 +45,31 @@ def make_runner(fake, responses=None, timeout_primary=5.0, timeout_canned=0.5):
     return runner, pm, canned, seen
 
 
+class TestHistoryUserText:
+    async def test_history_uses_history_text_not_prompt(self) -> None:
+        # TASK 5: prompt có ngoặc nhưng history/commit dùng text chat gốc
+        runner, pm, canned, seen = make_runner(FakeLLM(VALID))
+        await runner.run_turn(
+            "r1", user_text="[Mấy người cùng hỏi: X / Y]",
+            history_user_text="chơi game gì thế",
+        )
+        hist = [m.content for m in pm.history()]
+        assert "chơi game gì thế" in hist
+        assert not any("Mấy người cùng hỏi" in c for c in hist)
+
+    async def test_commit_history_false_skips_history(self) -> None:
+        # TASK 5: SUMMARY/VIBE → commit_history=False → history KHÔNG thêm turn
+        runner, pm, canned, seen = make_runner(FakeLLM(VALID))
+        await runner.run_turn("r1", user_text="[chat trôi nhanh]", commit_history=False)
+        assert pm.history() == []
+
+    async def test_default_backward_compat(self) -> None:
+        # Không truyền → dùng user_text như cũ
+        runner, pm, canned, seen = make_runner(FakeLLM(VALID))
+        await runner.run_turn("r1", "câu chào bình thường")
+        assert any("câu chào bình thường" in m.content for m in pm.history())
+
+
 class TestPrimarySuccess:
     async def test_returns_parsed_level0(self) -> None:
         runner, pm, canned, seen = make_runner(FakeLLM(VALID))
