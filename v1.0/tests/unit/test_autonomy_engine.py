@@ -108,6 +108,15 @@ class TestSelfCooldown:
         u.on_self_spoke()
         assert u.urge == 0.0
 
+    def test_external_activity_resets_urge(self) -> None:
+        # FIX: user gõ → urge về 0 (Mai không tự nói đè lên khi đang chat)
+        clock = FakeClock()
+        u = UrgeAccumulator(urge_cfg(), clock=clock)
+        u.urge = 70.0
+        u.on_external_activity()
+        assert u.urge == 0.0
+        assert not u.should_speak_now()
+
     def test_urge_stays_low_during_cooldown(self) -> None:
         """DoD 3: sau on_self_spoke, urge không tăng trong self_cooldown_seconds."""
         clock = FakeClock()

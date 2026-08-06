@@ -177,9 +177,15 @@ class UrgeAccumulator:
         self.urge = 0.0
 
     def on_external_activity(self) -> None:
-        """Chat/operator lên tiếng — reset silence timer + nag counter."""
+        """Chat/operator lên tiếng — reset silence timer + nag counter + URGE.
+
+        FIX (2026-08): trước đây KHÔNG reset urge → urge tích dồn qua cuộc trò
+        chuyện, Mai tự nói ĐÈ ngay sau khi user vừa nhắn (thay vì đáp), làm loạn
+        thứ tự + mất mạch. Có người đang chat = không cần lấp im lặng → urge về 0,
+        chỉ tích lại khi im lặng mới xuất hiện."""
         self.last_external_activity_ts = self._clock()
         self.consecutive_ignored = 0
+        self.urge = 0.0
 
     def _self_cooldown_remaining(self, now: float) -> float:
         elapsed = now - self.last_self_speak_ts
