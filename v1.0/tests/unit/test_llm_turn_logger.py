@@ -51,6 +51,51 @@ class TestChatReplyLogs:
         # VALID có mood block trong raw → field phải True
         assert r["raw_had_mood_block"] is True
 
+    async def test_t1_enriched_fields(self, tmp_path: Path) -> None:
+        # T1: SFT record đủ field train
+        runner, path = _make(tmp_path, FakeLLM(VALID))
+        await runner.run_turn("r1", "chào", trigger_type="chat_normal")
+        r = _read_lines(path)[0]
+        assert r["schema_version"] == 2
+        assert "persona_version" in r
+        assert r["history_len"] == 0          # chưa có history lúc gen
+        assert r["was_regen"] is False
+        assert r["event_category"] is None
+        # emotion=None → mood_state/mood_cause null, không crash
+        assert r["mood_state"] is None
+
+    async def test_t1_director_read_kind(self, tmp_path: Path) -> None:
+        runner, path = _make(tmp_path, FakeLLM(VALID))
+        await runner.run_turn("r1", "hỏi gì đó", trigger_type="director_read")
+        assert _read_lines(path)[0]["kind"] == "director_read"
+
+    async def test_t1_mood_state_and_context_with_emotion(self, tmp_path: Path) -> None:
+        # Có emotion → mood_state + context_block được log
+        from interfaces.animation import MoodState
+
+        class FakeEmotion:
+            def current_mood(self): return MoodState(buc=9)
+            def active_cause(self): return None
+            def active_tone_flags(self): return set()
+            def clear_tone_flags(self): pass
+
+        path = tmp_path / "turns.jsonl"
+        tl = TurnLogger(JsonlWriter(path))
+        pm = PromptManager(PromptCache("persona test"), max_history_turns=4)
+        runner = LLMTurnRunner(FakeLLM(VALID), pm, FallbackManager(),
+                               CannedResponder({"default": ["C"]}, rng=random.Random(0)),
+                               turn_logger=tl, emotion=FakeEmotion())
+        await runner.run_turn("r1", "gì thế")
+        r = _read_lines(path)[0]
+        assert r["mood_state"] == {"vui": 0, "buon": 0, "buc": 9, "bon_chon": 0, "nguong": 0}
+        assert r["context_block"] is not None and "[Context" in r["context_block"]
+
+    async def test_t1_last_turn_id_tracked(self, tmp_path: Path) -> None:
+        # T3 chuẩn bị: last_turn_id trỏ turn cuối
+        runner, path = _make(tmp_path, FakeLLM(VALID))
+        await runner.run_turn("r1", "a")
+        assert runner.last_turn_id == 1
+
     async def test_turn_id_auto_increment(self, tmp_path: Path) -> None:
         runner, path = _make(tmp_path, FakeLLM(VALID))
         await runner.run_turn("r1", "một")

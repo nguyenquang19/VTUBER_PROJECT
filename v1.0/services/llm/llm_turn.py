@@ -35,6 +35,48 @@ _RAW_MOOD_BLOCK_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Phase 8 data pipeline: schema version cho turns.jsonl (versioned để export parse đúng).
+_TURN_SCHEMA_VERSION = 2
+_MOOD_DIMS = ("vui", "buon", "buc", "bon_chon", "nguong")
+
+
+def _context_block_of(request: Any) -> str | None:
+    """Rút system message '[Context...]' đã render (mood directive + cause + stage)."""
+    try:
+        for m in getattr(request, "messages", []):
+            content = getattr(m, "content", "")
+            if getattr(m, "role", "") == "system" and content.startswith("[Context"):
+                return content
+    except Exception:
+        pass
+    return None
+
+
+def _mood_dict(mood: Any) -> dict | None:
+    try:
+        return {d: int(getattr(mood, d, 0)) for d in _MOOD_DIMS}
+    except Exception:
+        return None
+
+
+def _cause_dict(cause: Any) -> dict | None:
+    if cause is None:
+        return None
+    try:
+        return {"alias": cause.viewer_alias, "intent": cause.intent_short}
+    except Exception:
+        return None
+
+
+def _verdict_dict(verdict: Any, was_regen: bool) -> dict | None:
+    if verdict is None:
+        return None
+    try:
+        cats = [getattr(c, "value", str(c)) for c in getattr(verdict, "categories_hit", [])]
+        return {"passed": bool(getattr(verdict, "passed", True)), "categories": cats, "regen": was_regen}
+    except Exception:
+        return None
+
 
 class LLMTurnRunner:
     def __init__(
@@ -66,7 +108,11 @@ class LLMTurnRunner:
         # A1: _drift + last_drift_report ĐÃ BỎ (Kênh B tắt)
         self._turn_logger = turn_logger
         self._turn_seq = 0
+        self.last_turn_id = 0          # T3: turn cuối để dashboard rating gắn vào
+        self._log_cause: Any = None    # T1: cause snapshot trước khi clear
         self.last_filter_verdict: FilterVerdict | None = None
+        self._last_was_regen = False
+        self._last_rejected_text: str | None = None
         self._memory_writes_scheduled = 0
         self._memory_writes_skipped = 0
         self._fb.register_chain(
@@ -117,11 +163,18 @@ class LLMTurnRunner:
 
         # 3.B: filter+regen (optional). Nếu bad → regen thay parsed; verdict lộ ra
         # last_filter_verdict để caller (dashboard/QC) đọc.
+        # T1/T2 data: bắt was_regen + rejected_text (bản đầu bị chặn) để log + DPO pair.
+        self._last_was_regen = False
+        self._last_rejected_text = None
         if self._regen is not None:
+            pre_text = parsed.text
             parsed, verdict = await self._regen.check_and_maybe_regen(
                 request, parsed, on_token=self._on_token
             )
             self.last_filter_verdict = verdict
+            if parsed.text != pre_text:
+                self._last_was_regen = True
+                self._last_rejected_text = pre_text
         return parsed
 
     async def _canned_handler(self, request: Any) -> ParsedResponse:
@@ -153,6 +206,13 @@ class LLMTurnRunner:
             request_id, user_text, event_category, stage_direction,
         )
         hist_text = history_user_text if history_user_text is not None else user_text
+        # T1: snapshot cause + history_len TRƯỚC khi clear/commit (clear_tone_flags
+        # ở _apply_emotion_feedback xoá cause; commit làm history_len đổi).
+        try:
+            self._log_cause = self._emotion.active_cause() if self._emotion else None
+        except Exception:
+            self._log_cause = None
+        history_len_at_gen = len(self._pm.history())
 
         t0 = time.perf_counter()
         result = await self._fb.execute(_CHAIN_ID, request)
@@ -173,9 +233,10 @@ class LLMTurnRunner:
         if commit_history:
             self._schedule_memory_write(hist_text, parsed, viewer_id, session_id, trigger_type)
 
-        # B0: baseline transcript sink
+        # B0 + T1: transcript sink làm giàu (SFT record)
+        log_kind = "director_read" if trigger_type == "director_read" else "chat_reply"
         self._log_turn(
-            kind="chat_reply",
+            kind=log_kind,
             user_text=user_text,
             parsed=parsed,
             trigger_type=trigger_type,
@@ -183,6 +244,7 @@ class LLMTurnRunner:
             latency_ms=latency_ms,
             viewer_id=viewer_id,
             session_id=session_id,
+            extra=self._build_log_extra(request, event_category, history_len_at_gen),
         )
         return parsed, result.level_used
 
@@ -199,6 +261,12 @@ class LLMTurnRunner:
         - KHÔNG memory_extract (ambient không có user_text để extract preference)
         """
         request = self._pm.build_request(request_id, prompt_text)
+        # T1: ambient — cause snapshot + history_len trước clear
+        try:
+            self._log_cause = self._emotion.active_cause() if self._emotion else None
+        except Exception:
+            self._log_cause = None
+        history_len_at_gen = len(self._pm.history())
         t0 = time.perf_counter()
         result = await self._fb.execute(_CHAIN_ID, request)
         latency_ms = int((time.perf_counter() - t0) * 1000)
@@ -214,7 +282,7 @@ class LLMTurnRunner:
                 self._emotion.clear_tone_flags()
             except Exception:
                 pass
-        # B0: ambient transcript sink (kind=ambient để eval tách chat_reply vs Mai tự nói)
+        # B0 + T1: ambient transcript sink (kind=ambient tách với chat_reply)
         self._log_turn(
             kind="ambient",
             user_text=None,
@@ -224,6 +292,7 @@ class LLMTurnRunner:
             latency_ms=latency_ms,
             viewer_id=None,
             session_id=None,
+            extra=self._build_log_extra(request, None, history_len_at_gen),
         )
         return parsed
 
@@ -327,17 +396,21 @@ class LLMTurnRunner:
         latency_ms: int | None,
         viewer_id: str | None,
         session_id: str | None,
+        extra: dict | None = None,
     ) -> None:
-        """Ghi 1 record turn vào turns.jsonl (B0 baseline sink).
+        """Ghi 1 record turn vào turns.jsonl (B0 baseline + Phase 8 data pipeline).
 
-        Fail-safe: sink lỗi chỉ log warning, KHÔNG raise (không giết turn).
+        Fail-safe: sink lỗi chỉ log warning, KHÔNG raise (không giết turn). Mọi field
+        làm giàu (T1) lấy best-effort — lỗi lấy field nào → null, không giết log.
         """
         if self._turn_logger is None:
             return
         self._turn_seq += 1
+        self.last_turn_id = self._turn_seq   # T3: dashboard rating gắn turn cuối
         dominant_name, dominant_val = _dominant_mood(parsed)
         raw_text = getattr(parsed, "raw", "") or ""
         record = {
+            "schema_version": _TURN_SCHEMA_VERSION,
             "turn_id": self._turn_seq,
             "kind": kind,
             "user_text": user_text,
@@ -354,10 +427,36 @@ class LLMTurnRunner:
             "viewer_id": viewer_id,
             "session_id": session_id,
         }
+        if extra:
+            record.update(extra)
         try:
             self._turn_logger.log_turn(record)
         except Exception as e:  # pragma: no cover — fail-safe
             get_logger("llm_turn").warning("turn_log_failed", error=str(e))
+
+    def _build_log_extra(self, request: Any, event_category: str | None,
+                         history_len: int) -> dict:
+        """T1: gom field làm giàu SFT record (best-effort, không raise)."""
+        extra: dict = {"persona_version": None, "context_block": None,
+                       "mood_state": None, "mood_cause": None,
+                       "event_category": event_category, "history_len": history_len,
+                       "was_regen": bool(self._last_was_regen), "filter_verdict": None}
+        try:
+            extra["persona_version"] = self._pm.version
+        except Exception:
+            pass
+        extra["context_block"] = _context_block_of(request)
+        if self._emotion is not None:
+            try:
+                extra["mood_state"] = _mood_dict(self._emotion.current_mood())
+            except Exception:
+                pass
+            try:
+                extra["mood_cause"] = _cause_dict(self._log_cause)
+            except Exception:
+                pass
+        extra["filter_verdict"] = _verdict_dict(self.last_filter_verdict, self._last_was_regen)
+        return extra
 
     def _record_metrics(self, parsed: ParsedResponse, level_used: int) -> None:
         if self._metrics is None:
