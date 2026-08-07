@@ -113,9 +113,10 @@ table.features th { color: var(--dim); font-weight: 500; font-size: 11px; text-t
 .review-meta { color: var(--dim); font-size: 11px; margin-bottom: 6px; font-family: ui-monospace, monospace; }
 .review-user { font-size: 13px; margin-bottom: 8px; color: var(--dim); }
 .review-edit {
-  width: 100%; min-height: 56px; box-sizing: border-box; background: #10131a; color: var(--text);
-  border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px;
-  font-family: inherit; font-size: 13px; line-height: 1.5; resize: vertical;
+  display: block; width: 100%; min-height: 120px; box-sizing: border-box;
+  background: #10131a; color: var(--text);
+  border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin-bottom: 10px;
+  font-family: inherit; font-size: 15px; line-height: 1.6; resize: vertical;
 }
 .review-edit:focus { outline: none; border-color: var(--accent); }
 .review-item .btn-row, .review-item > div:last-child { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
