@@ -65,6 +65,7 @@ async function loadRecentTurns() {
   data.reverse().forEach((t) => {   // mới nhất trên cùng
     const div = document.createElement("div");
     div.className = "review-item";
+    div.dataset.kind = t.kind || "";
     div.innerHTML =
       `<div class="review-meta">#${t.turn_id} · ${t.kind}</div>` +
       (t.user_text ? `<div class="review-user">👤 ${escapeHtml(t.user_text)}</div>` : "") +
