@@ -253,7 +253,15 @@ class DashboardServer:
             rating = str(body.get("rating", "")).strip()
             if rating not in ("good", "bad", "flag"):
                 return JSONResponse({"ok": False, "reason": "rating không hợp lệ"}, status_code=400)
-            turn_id = self._last_turn_id()
+            # turn_id cụ thể (bấm trên 1 item Review) hoặc turn cuối (chấm live)
+            turn_id = body.get("turn_id")
+            if turn_id is None:
+                turn_id = self._last_turn_id()
+            else:
+                try:
+                    turn_id = int(turn_id)
+                except (TypeError, ValueError):
+                    turn_id = None
             if turn_id is None:
                 return JSONResponse({"ok": False, "reason": "chưa có turn"}, status_code=400)
             self._write_rating({"turn_id": turn_id, "rating": rating,

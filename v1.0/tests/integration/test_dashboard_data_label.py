@@ -38,6 +38,14 @@ class TestRating:
         c = TestClient(_server(tmp_path, last_turn_id=0).app)
         assert c.post("/api/rate", json={"rating": "good"}).status_code == 400
 
+    def test_rate_specific_turn_id(self, tmp_path: Path) -> None:
+        # bấm 👍 trên 1 item Review → rate đúng turn_id đó, không phải turn cuối
+        c = TestClient(_server(tmp_path, last_turn_id=99).app)
+        r = c.post("/api/rate", json={"rating": "bad", "turn_id": 3})
+        assert r.status_code == 200 and r.json()["turn_id"] == 3
+        recs = _read(tmp_path / "ratings.jsonl")
+        assert recs[0]["turn_id"] == 3 and recs[0]["rating"] == "bad"
+
 
 class TestCorrection:
     def test_correct_writes_with_original(self, tmp_path: Path) -> None:

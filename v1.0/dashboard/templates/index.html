@@ -139,11 +139,15 @@
   <section id="tab-review" class="tab">
     <h3>Review — chấm điểm + sửa câu Mai (data fine-tune)</h3>
     <div class="dim" style="margin-bottom:8px;">
+      <b>Chấm nhanh turn CUỐI (live):</b>
       <button id="btn-rate-good">👍 good</button>
       <button id="btn-rate-bad">👎 bad</button>
       <button id="btn-rate-flag">🚩 flag</button>
       <span id="rate-status" style="margin-left:12px;"></span>
-      <button id="btn-review-refresh" style="float:right;">↻ Tải turn gần nhất</button>
+      <button id="btn-review-refresh" style="float:right;">↻ Tải lại hàng đợi</button>
+    </div>
+    <div class="dim" style="margin-bottom:6px; font-size:12px;">
+      Danh sách dưới = hàng đợi. Mỗi turn: 👍👎🚩 hoặc sửa câu → xử xong item rớt khỏi list.
     </div>
     <div id="review-list"></div>
   </section>

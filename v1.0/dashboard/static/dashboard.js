@@ -69,13 +69,31 @@ async function loadRecentTurns() {
       `<div class="review-meta">#${t.turn_id} · ${t.kind}</div>` +
       (t.user_text ? `<div class="review-user">👤 ${escapeHtml(t.user_text)}</div>` : "") +
       `<textarea class="review-edit">${escapeHtml(t.mai_text || "")}</textarea>` +
-      `<div><button class="btn-save-correct">💾 Lưu sửa</button>` +
+      `<div>` +
+      `<button class="btn-item-good">👍</button>` +
+      `<button class="btn-item-bad">👎</button>` +
+      `<button class="btn-item-flag">🚩</button>` +
+      `<button class="btn-save-correct">💾 Lưu sửa</button>` +
+      `<button class="btn-skip">Bỏ qua</button>` +
       `<span class="save-status"></span></div>`;
     const ta = div.querySelector(".review-edit");
     const status = div.querySelector(".save-status");
+    // xử xong 1 item → mờ dần rồi bỏ khỏi list (hàng đợi việc)
+    const done = () => { div.style.opacity = "0.4"; setTimeout(() => div.remove(), 350); };
+    const rateItem = (rating) => {
+      postJson("/api/rate", { turn_id: t.turn_id, rating }).then((r) => {
+        status.textContent = r.ok ? ` ✓ ${rating}` : " ✗ " + r.reason;
+        if (r.ok) done();
+      });
+    };
+    div.querySelector(".btn-item-good").addEventListener("click", () => rateItem("good"));
+    div.querySelector(".btn-item-bad").addEventListener("click", () => rateItem("bad"));
+    div.querySelector(".btn-item-flag").addEventListener("click", () => rateItem("flag"));
+    div.querySelector(".btn-skip").addEventListener("click", done);
     div.querySelector(".btn-save-correct").addEventListener("click", () => {
       postJson("/api/correct", { turn_id: t.turn_id, corrected_text: ta.value }).then((r) => {
         status.textContent = r.ok ? " ✓ đã lưu" : " ✗ " + r.reason;
+        if (r.ok) done();   // sửa xong cũng rớt khỏi hàng đợi
       });
     });
     list.appendChild(div);
