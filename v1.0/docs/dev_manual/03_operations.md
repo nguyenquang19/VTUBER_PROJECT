@@ -182,7 +182,7 @@ Một lần cho toàn stream:
 
 Toàn bộ config ở `v1.0/config/`. Nguyên tắc N6: sửa số ở YAML, KHÔNG hardcode trong .py.
 
-### 4.1. Danh sách 14 file
+### 4.1. Danh sách 15 file
 
 | File | Vai trò | Update khi |
 |---|---|---|
@@ -200,6 +200,10 @@ Toàn bộ config ở `v1.0/config/`. Nguyên tắc N6: sửa số ở YAML, KH�
 | `autonomy_content_pool.yaml` | share_thought/question seed + pool policy | Đa dạng chủ đề Mai tự kể |
 | `chat_salience.yaml` | base_tier, superchat_coef, tau decay, cluster, pulse thresholds | Tune ưu tiên chat + độ sôi nổi (C0) |
 | `director.yaml` | segments (opening/main/chat/closing), dead_air, max_refs | Tune nhịp dẫn stream (C0) |
+| `mood_style.yaml` | mood → chỉ dẫn giọng (5 chiều × 3 band × 4 trục) + inject_floor | Tune giọng theo mood (hot-reload) |
+
+> `models.yaml.llm_main` giờ có `min_p / top_p / top_k / repeat_penalty / presence_penalty`
+> (de-AI giọng, gửi thẳng vào payload llama-server). Tune ở đây nếu câu chữ còn cứng/lặp.
 | `prompts/persona_system.txt` | Persona A+B+C | Đổi tính cách Mai |
 | `prompts/ambient_instruction.txt` | Template Mai tự mở lời (LEGACY từ Phase 2, autonomy v2 dùng prompt_builder thay) | — |
 

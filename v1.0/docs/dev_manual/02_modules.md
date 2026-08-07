@@ -241,17 +241,19 @@ Health check qua `httpx` (chỉ dùng cho non-stream). `health_check()` → `Hea
 
 `PromptManager.build_request(request_id, user_text)` — bình thường: `[persona] + history + [user]`.
 
-`PromptManager.build_request_with_mood(request_id, user_text, current_mood, event_category, tone_flags, cause)` — chèn 1 system message SAU persona chứa Context block. **A1: KHÔNG yêu cầu xuất mood block** — chỉ đưa mood để LLM viết câu KHỚP, còn Mai chỉ xuất thoại:
+`PromptManager.build_request_with_mood(...)` — chèn 1 system message SAU persona chứa Context block. **A1 + mood_style (2026-08-07): KHÔNG còn số thô + KHÔNG event_category.** Mood engine → `MoodStyleTable.directive_for()` → **chỉ dẫn giọng bằng CHỮ**:
 
 ```
-[Context — mood ĐƯỢC GIAO, viết câu khớp mood + lý do; chỉ viết thoại]
-- current_mood: vui=5 buon=3 buc=4 bon_chon=3 nguong=2
-- đang thiên về 'buc' VÌ {cause} — viết khớp lý do này, đừng đọc số   (A4)
-- event_category: chat_compliment
+[Context — cách nói lượt này; chỉ viết thoại]
+- đang thiên về 'bực' VÌ {cause} — viết khớp lý do này            (A4)
+- Đang khá bực: cộc, gắt, mỉa, không xuống nước. Đốp lại ngay. Câu cụt. Hay dùng: hứ, gì, thôi đi.   (mood_style directive)
 - CỜ force_gentle_tone: user đang tổn thương thật — BỎ giọng đùa/ngang...
 ```
 
-`cause` (A4) = `EmotionCause(viewer_alias, intent)` đã sanitize — inject "bực VÌ ai/gì" thay vì chỉ số.
+- `cause` (A4) = `EmotionCause(alias, intent)` sanitize → "bực VÌ ai/gì".
+- **`MoodStyleTable`** (`services/emotion/mood_style.py`, config `mood_style.yaml`): chọn chiều
+  trội + band (mid/high/peak) → chỉ dẫn 4 trục (thai_do/nhip/do_dai/tu_dem). Vùng chết quanh
+  baseline → không bơm. `tone_flag` (gentle/deflect) THẮNG mood style. Chi tiết `PLAN_MOOD_STYLE.md`.
 
 `build_ambient_request(...)` — DEAD CODE (template cũ còn chữ "kèm mood block"). Ambient thật đi qua `build_request(request_id, prompt_text)` với prompt_text do AutonomyEngine/Director dựng sẵn.
 
