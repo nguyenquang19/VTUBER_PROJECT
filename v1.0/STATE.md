@@ -4,6 +4,25 @@
 > 04 extending). File STATE này chỉ là ledger "đang ở đâu". Spec cũ (ARCHITECTURE/PROCESS/
 > EMOTION_SIMULATION…) đã xoá 2026-08-06, nội dung gộp vào dev_manual.
 
+## Phase 8 — Data pipeline fine-tune (2026-08-07) — XONG, data collection LIVE
+Thu data train NGAY (không log = mất vĩnh viễn). 1089 test xanh.
+- T1 turns.jsonl làm giàu (schema_version 2, context_block, mood_state, cause,
+  was_regen, filter_verdict, persona_version, history_len) → SFT pairs.
+- T2 pref_pairs.jsonl: filter regen + dedup ambient → DPO pair miễn phí (chosen>rejected).
+- T4 sanitize PII: hash viewer_id + mask email/phone/token. .gitignore data files.
+- T3 dashboard rating 👍👎🚩 → ratings.jsonl (/api/rate, last_turn_id).
+- T7 dashboard tab Review sửa trực tiếp câu Mai → corrections.jsonl (/api/correct,
+  /api/recent_turns) — DATA VÀNG NHẤT (target SFT + cặp DPO gốc→sửa).
+- T5 scripts/export_dataset.py → sft_*.jsonl + dpo_*.jsonl (lọc canned/bad/blocked,
+  correction override target). T6 retention qua .gitignore + schema_version.
+- **CHƯA fine-tune** (Phase 9): chờ đủ ~2-5k turn good + input ổn định (mood_style
+  + sampling tune xong). Fine-tune trên input đang đổi = phí.
+
+## Register de-AI (2026-08-06/07) — mood→giọng + sampling + director prompt
+- mood_style.yaml: mood engine → chỉ dẫn giọng bằng chữ (bỏ số thô vui=N).
+- sampling: min_p/repeat_penalty/presence vào payload (config models.yaml).
+- Director read: chỉ thị sân khấu → system, user turn = chat thật (bớt giọng meta).
+
 **Phase hiện tại:** A1 (de-AI) XONG + **C0 (Director) XONG & wired vào stream** + Task 8 dashboard mood.
 **Nợ kỹ thuật:** 7 lỗi audit C0 → `docs/FIX_PLAN_C0_AUDIT.md` (Task 1-7 chờ, Task 8 xong).
 **Kế tiếp:** vá P0 (superchat ack) rồi Phase B (nguồn novelty) / Phase 6 avatar.
