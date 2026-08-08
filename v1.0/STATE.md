@@ -4,6 +4,34 @@
 > 04 extending). File STATE này chỉ là ledger "đang ở đâu". Spec cũ (ARCHITECTURE/PROCESS/
 > EMOTION_SIMULATION…) đã xoá 2026-08-06, nội dung gộp vào dev_manual.
 
+## Master Plan M1 — Agent State và Event Ledger (2026-08-08) — XONG
+
+- M1.1 tạo interface `AgentStateService`/`EventLedgerService`, frozen dataclass/enums cho
+  grounded event, provenance, topic/open thread và immutable snapshot. `agent_state.yaml`
+  cấu hình toàn bộ cap/TTL/dedup/payload/context; reducer deterministic không gọi LLM.
+- M1.2 `EventLedger` append event UTC, giữ thứ tự event out-of-order, dedup ID, prune TTL,
+  enforce cap và metric `mai_agent_events_total{outcome,reason}`. Clock inject giúp test
+  không phụ thuộc thời gian thật; duplicate/expired/cap đều có drop reason.
+- M1.3 producer chỉ publish sau bước thành công: ChatRouter ghi chat/donation sau emotion;
+  EmotionOrchestrator ghi appraisal; LLMTurnRunner ghi final speech; DirectorLoop ghi action
+  và self-talk; StreamRuntime ghi environment observation từ component thật. Mọi lỗi record
+  đều fail-safe, không giết turn.
+- M1.4 mỗi stream runtime tạo đúng một shared AgentState cho router/emotion/runner/director/
+  dashboard. Dashboard chỉ nhận `to_dict()` tách rời; mutation phía consumer không đổi state.
+  Topic reducer giữ chủ đề grounded trước đó cho follow-up và không cho event cũ ghi đè mới.
+- M1.5 `AgentContextRenderer` chọn 3–6 event theo overlap/recency/kind, giới hạn độ dài,
+  kèm producer/source ID; thiếu 3 fact thì không render và không tự pad. Feature
+  `agent_context` mặc định OFF; ledger/state vẫn chạy, handler bật/tắt prompt cho turn kế tiếp.
+- DoD integration `chat → reply → follow-up` giữ đúng topic “cà phê”, có 2 chat + 2 emotion
+  + 2 speech grounded, không chứa raw viewer ID hay fact ngoài input. Donation, Director action,
+  self-talk, environment, snapshot immutability và source failure đều có test.
+- M1 targeted/affected suite: `249 passed, 1 warning`. CI gate:
+  `1159 passed, 5 deselected, 1 warning` trong 49.41s. Full regression:
+  `1164 passed, 1 warning` trong 98.72s. Warning còn lại là Starlette deprecate `httpx`
+  TestClient đã có từ trước, không ảnh hưởng runtime.
+- Commits: `e925e85` (M1.1), `7343035` (M1.2), `1abecab` (M1.3–M1.4),
+  `85d0ed0` (M1.5). **Dừng chờ user review; chưa bắt đầu M2.**
+
 ## Master Plan M0.5 — CI, docs và smoke live (2026-08-08) — XONG
 
 - GitHub Actions chạy trên `windows-latest`, Python 3.11, cache pip theo

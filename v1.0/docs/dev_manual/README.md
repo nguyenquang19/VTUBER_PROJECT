@@ -23,6 +23,7 @@ Có mood engine, memory, autonomy tự nói, và pipeline thu data fine-tune đa
 | **Mood → giọng nói (`mood_style`)** | ✅ | `mood_style.yaml` + `services/emotion/mood_style.py`; `_format_mood_context` bỏ số thô `vui=N`+event_category, bơm chỉ dẫn chữ (thai_do/nhip/do_dai/tu_dem) |
 | Emotion / Mood engine (spring-damper + appraisal) | ✅ | Mood 1 chiều: sự kiện→engine→prompt→giọng. DriftDetector gỡ |
 | Autonomy v2 | ✅ | Ở stream là **generator** cho Director (`force_generate`) |
+| **M1 Agent State + Event Ledger** | ✅ | Shared grounded state, bounded/dedup/TTL, dashboard snapshot; context toggle OFF |
 | **C0 Director** (Salience+ChatPulse+Director+DirectorLoop) | 🟡 | Built+wired, thay FIFO. **7 lỗi** → `FIX_PLAN_C0_AUDIT.md` (Task 8 xong) |
 | Chat salience / triage | 🟡 | Điểm+decay+cluster chạy; **chưa có cổng chống spam** ở intake |
 | TTS (VieNeu streaming) | ✅ | Giọng ưng nhưng **phẳng 1 tông** — chưa prosody theo mood |
@@ -83,11 +84,11 @@ Sửa gì đụng LLM turn / dashboard → giữ nguyên các sink data này (fa
 
 ## 5. Việc đang mở (thứ tự đề xuất cho AI)
 
-1. **Vá C0** — `FIX_PLAN_C0_AUDIT.md` P0 (superchat ack Task 1-2 ra tiền; SUMMARY/history…).
-2. **Tune** — chỉnh chữ `mood_style.yaml` + số sampling từ transcript thật (hot-reload, không restart).
-3. **Reliability supervisor** — launcher auto-restart + watchdog (để chạy 1h không người).
-4. **Avatar (P6)** — VTube Studio + lip-sync (lớp mặt, làm sau lõi).
-5. **Fine-tune (P9)** — chỉ khi đủ ~2-5k turn good VÀ input đã chốt (mood_style+sampling tune xong).
+1. **M2 GoalManager + Agenda policy** — chỉ bắt đầu sau khi M1 được user review.
+2. **Vá C0** — `FIX_PLAN_C0_AUDIT.md` P0 (superchat ack Task 1-2 ra tiền; SUMMARY/history…).
+3. **Tune** — chỉnh chữ `mood_style.yaml` + số sampling từ transcript thật (hot-reload, không restart).
+4. **Reliability supervisor** — launcher auto-restart + watchdog (để chạy 1h không người).
+5. **Avatar/Fine-tune** — làm sau lõi và khi dữ liệu đủ gate.
 
 ## 6. Convention + lưu ý
 

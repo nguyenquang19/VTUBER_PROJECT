@@ -205,13 +205,14 @@ Một lần cho toàn stream:
 
 Toàn bộ config ở `v1.0/config/`. Nguyên tắc N6: sửa số ở YAML, KHÔNG hardcode trong .py.
 
-### 4.1. Danh sách 15 file
+### 4.1. Các file config chính
 
 | File | Vai trò | Update khi |
 |---|---|---|
 | `system.yaml` | Paths, event bus, resources (VRAM budget), state machine timeout, features toggle | Đổi máy / thay hardware |
 | `models.yaml` | LLM (Gemma path, port, flags), TTS (VieNeu params), embedding (bge-m3) | Tune LLM/TTS latency-quality |
 | `logging.yaml` | Log level, JSONL rotation size | Debug session |
+| `agent_state.yaml` | Event cap/TTL/dedup + giới hạn context 3–6 mục | Tune working-state/context |
 | `features.yaml` | Feature toggle default state | Enable/disable memory, dashboard mặc định |
 | `triggers.yaml` | 4 trigger type priority, rate limit, spam patterns, ambient threshold | Tune anti-spam |
 | `state_machine.yaml` | Cooldown 500ms, interrupt policy, watchdog threshold | Debug state hang |
@@ -269,6 +270,25 @@ filter:
   max_regenerate_attempts: 1    # ↑ = thử regen nhiều lần
 ```
 
+**Agent state/context (M1):**
+
+```yaml
+# config/agent_state.yaml
+agent_state:
+  recent_events_max: 64
+  recent_event_ttl_s: 1800
+  open_threads_max: 8
+  open_thread_ttl_s: 900
+context:
+  min_items: 3
+  max_items: 6
+  relevance_window_s: 900
+```
+
+`agent_context` mặc định OFF trong `features.yaml`. Ledger/state vẫn ghi event khi OFF; chỉ
+system message grounded context không được đưa vào prompt. Bật từ tab Features hoặc API toggle
+khi muốn rollout, rồi theo dõi `mai_agent_events_total{outcome,reason}` và snapshot `agent`.
+
 ---
 
 ## 5. Monitoring
@@ -287,6 +307,8 @@ Bật kèm `--dashboard`. Realtime WebSocket push mỗi 1s.
 - **Mood** — chart 5 chiều realtime (pos đặc + target chấm) + tone flags. Cần
   `DashboardServer(emotion=emotion)` (stream/cli đã wire). Đây là cách trực quan nhất
   để debug "sao Mai đang gắt/buồn".
+- Snapshot WebSocket/API có `agent` (topic, open thread, recent grounded events, phase,
+  environment, last speech) và `agent_metrics`; dashboard không thể mutate state nguồn.
 
 ### 5.2. Logs JSONL
 

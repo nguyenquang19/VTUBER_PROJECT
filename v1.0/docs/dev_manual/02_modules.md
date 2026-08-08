@@ -1021,18 +1021,19 @@ await rt.stop()
 ```
 
 **`build_stream_runtime()` factory** wire:
-1. LLM stack (health check bắt buộc, raise nếu server chưa chạy)
-2. EmotionOrchestrator (A1: KHÔNG còn DriftDetector)
-3. Memory (nếu `enable_memory=True`, rewire `emotion._modifiers._memory`)
-4. `FeatureManager` + `RuleFilter` + `FilterRegenerator`; `filter_rule` quyết định
+1. Shared `EventLedger` + `AgentState` (M1), metrics accepted/dropped và environment startup
+2. LLM stack (health check bắt buộc, raise nếu server chưa chạy)
+3. EmotionOrchestrator (A1: KHÔNG còn DriftDetector)
+4. Memory (nếu `enable_memory=True`, rewire `emotion._modifiers._memory`)
+5. `FeatureManager` + `RuleFilter` + `FilterRegenerator`; `filter_rule` quyết định
    regenerator có gắn vào runner lúc startup hay không
-5. LLMTurnRunner với UUID session mới cho mỗi runtime và optional wire; handler
+6. LLMTurnRunner với UUID session mới cho mỗi runtime và optional wire; handler
    FeatureManager bật/tắt filter cho turn kế tiếp
-6. VieNeuTtsService + AudioPlayer + TTSPipeline (nếu `enable_tts`)
-7. AutonomyEngine (nếu `enable_autonomy`) — làm **generator self_talk** cho Director
-8. **C0 Director stack:** `SaliencePool` + `ChatPulse` + `Director` + `DirectorLoop`, `turn_lock` chung
-9. ChatRouter INTAKE mode (cấp pool+pulse)
-10. Dashboard với FeatureManager + filter/regenerator + `emotion` (nếu
+7. VieNeuTtsService + AudioPlayer + TTSPipeline (nếu `enable_tts`)
+8. AutonomyEngine (nếu `enable_autonomy`) — làm **generator self_talk** cho Director
+9. **C0 Director stack:** `SaliencePool` + `ChatPulse` + `Director` + `DirectorLoop`, `turn_lock` chung
+10. ChatRouter INTAKE mode (cấp pool+pulse)
+11. Dashboard với FeatureManager + filter/regenerator + `emotion` + read-only agent snapshot (nếu
     `enable_dashboard`) → toggle thật, tab Filter và tab Mood
 
 **Driver:** `DirectorLoop` cầm nhịp (start ở `StreamRuntime.start` nếu có; `_autonomy_loop`
@@ -1064,6 +1065,7 @@ Categories:
 - **Autonomy:** `autonomy_generated_total`, `autonomy_skipped_no_material`, `autonomy_dedup_hits`
 - **Director/C0:** `director_segment`, `director_turns_read/self`, `director_transitions`,
   `salience_pool_size/added/clustered/evicted`, `pulse_state/tempo/diversity`
+- **Agent/M1:** `mai_agent_events_total{outcome,reason}`; snapshot accepted/dropped theo reason
 - ⚠️ `llm_parse_total{status}` giữ nhãn cũ "parse mood block" nhưng giờ chỉ đo text non-empty
   (A1). `drift_*` metric CHẾT (không còn ghi).
 
@@ -1083,6 +1085,8 @@ REST endpoints:
 - `POST /api/correct` — bắt buộc `{session_id, turn_id, corrected_text}` và lookup đúng cặp
 
 WebSocket `/ws` — push snapshot mỗi 1s.
+
+Snapshot có thêm `agent` (immutable working state đã chuyển thành dict) và `agent_metrics`.
 
 Tabs: Metrics (LLM+System), Features, State Machine, Triggers, Filter, TTS, **Mood**.
 Tab Mood (Task 8): `drawMoodChart` vẽ 5 đường realtime (pos đặc + target chấm) từ
@@ -1138,6 +1142,28 @@ Tick `tick_seconds` (skip nếu `turn_lock` đang giữ) → `evict_stale` → `
 - `_exec_transition` → Mai báo chuyển phần → `advance_segment` → speak
 
 Mọi lỗi execute fail-safe: log + tiếp tick. `clock` inject cho test.
+
+---
+
+## 13. Agent working state (M1)
+
+**Thư mục:** `services/agent/`; interface: `interfaces/agent.py`.
+
+- `types.py`: frozen dataclass/enums cho `GroundedEvent`, provenance, topic, open thread và
+  `AgentStateSnapshot`. Mapping/list payload được freeze đệ quy; `to_dict()` trả bản tách rời.
+- `event_ledger.py`: append event theo UTC, sắp được event out-of-order, dedup bằng event ID,
+  TTL/cap cấu hình và metric accepted/dropped. Clock inject để test không phụ thuộc thời gian thật.
+- `agent_state.py`: reducer deterministic. Chat mới cập nhật topic; câu follow-up có dấu hiệu
+  tham chiếu giữ topic grounded trước đó; event cũ không ghi đè state mới. Open thread có TTL/cap.
+- `context_renderer.py`: chấm điểm bằng token overlap + recency + loại event, render 3–6 mục
+  có provenance. Không đủ minimum thì trả `None`, không pad bằng fact giả.
+
+Producer chỉ publish **sau thành công**: ChatRouter (chat/donation), EmotionOrchestrator,
+LLMTurnRunner (`speech_final`), DirectorLoop (action/self-talk) và StreamRuntime
+(`environment_observed`). Mọi lỗi record/render đều bị cô lập, không làm chết turn.
+
+Feature `agent_context` chỉ điều khiển prompt injection, không tắt ledger/state. Mặc định OFF;
+FeatureManager handler có thể bật/tắt cho turn kế tiếp mà không restart.
 
 ---
 

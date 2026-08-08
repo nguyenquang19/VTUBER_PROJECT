@@ -1,6 +1,6 @@
 # 01 — Kiến trúc & Data Flow
 
-> Canonical. Phản ánh code THẬT tại 2026-08-06 (sau A1 + C0 Director). Nếu doc lệch
+> Canonical. Phản ánh code THẬT tại 2026-08-08 (sau M1 Agent State). Nếu doc lệch
 > code, code đúng — sửa doc.
 
 ## 1. Mai là gì
@@ -48,9 +48,11 @@ LAYER 5 — Runtime composer + DRIVER
 LAYER 4 — Services
   LLM stack (P1) · TTS pipeline (P4) · Emotion Orchestrator (P7.5)
   Memory Fallback (P7) · Autonomy Engine v2 (Aut) · Director stack (C0)
+  AgentState + EventLedger + AgentContextRenderer (M1)
 
 LAYER 3 — Interfaces (interfaces/*.py ABC)
   LLMService · TTSService · MemoryService · MoodState · FilterService · InputService
+  AgentStateService · EventLedgerService
 
 LAYER 2 — Foundation (Phase 0)
   ConfigLoader · Logger · EventBus · StateMachine · FallbackManager
@@ -98,7 +100,9 @@ pytchat poll → YouTubeChatService._to_event() → InputEvent(
 ChatRouter._consume → _process(event) [đã bọc hook: autonomy.on_external_activity()
   + rt.note_chat_activity()]:
   1. emotion.handle_event(_to_emotion_event(ev))  → cập nhật mood (appraisal, xem Bước 3)
-  2. _pump_intake(ev):
+  2. ghi `emotion_applied` + `chat_received`/`donation_received` vào shared AgentState
+     (chỉ sau khi emotion thành công; lỗi state fail-safe, không giết turn)
+  3. _pump_intake(ev):
        pool.add(msg_id, text, now, kind=chat|question|mention, viewer_id, amount_vnd, is_super)
        pulse.record(now, user_id)
   → KẾT THÚC. Không sinh turn. Tin nằm trong SaliencePool chờ Director nhặt.
@@ -139,13 +143,15 @@ DirectorLoop._exec_read:
   parsed,_ = runner.run_turn(user_text, viewer_id=refs[0].viewer_id, trigger_type="director_read")
       LLMTurnRunner.run_turn:
         _build_request_maybe_with_mood → PromptManager.build_request_with_mood:
-          [persona cache] + [Context: current_mood + cause + tone_flags] + history + [user]
+          [persona cache] + [Context: current_mood + cause + tone_flags]
+          + [Grounded context 3–6 item nếu feature `agent_context` bật] + history + [user]
         FallbackManager.execute("llm"): L0 LlamaCpp stream (raw socket, cache_prompt)
                                         L1 CannedResponder (nếu timeout)
         parser.parse_response → text THUẦN (A1: mood block nếu lỡ có thì strip, không dùng)
         pm.commit_turn(user_text, parsed.text)   # history, trim 12 turn
         _apply_emotion_feedback → CHỈ clear_tone_flags (Kênh B + drift đã bỏ)
         _schedule_memory_write → MemoryExtractor → asyncio.create_task(memory.write)  # bg
+        ghi `speech_final` vào shared AgentState sau khi có output cuối
   pool.remove(refs)                        # gỡ tin đã đáp
   director.mark_spoke(READ_CHAT)           # đếm consecutive_read_chat
   await speak(parsed.text)
@@ -181,6 +187,32 @@ Autonomy engine (Urge/Selector/Material/Opener/Dedup) chi tiết ở `02_modules
 
 > Lưu ý: `StreamRuntime._autonomy_loop()` (bản cũ tự cầm nhịp) chỉ chạy khi KHÔNG có
 > DirectorLoop (backward-compat/test). Ở stream thật, Director cầm nhịp.
+
+---
+
+## 6.1. Grounded Agent State (M1)
+
+`StreamRuntime` tạo đúng **một** `AgentState`, dùng chung cho ChatRouter,
+EmotionOrchestrator, LLMTurnRunner, DirectorLoop và DashboardServer:
+
+```text
+successful source step
+  → GroundedEvent(kind, source, UTC timestamp, confidence, bounded payload, provenance)
+  → EventLedger append/dedup/prune/cap
+  → AgentStateReducer
+  → immutable AgentStateSnapshot
+```
+
+State giữ `current_topic`, open thread có TTL, `active_goal_ref` dành cho M2, event gần đây,
+environment summary, stream phase và câu Mai vừa nói. Event out-of-order vẫn vào ledger theo
+thời gian nhưng không được ghi đè topic/speech mới hơn. Payload và snapshot đều bất biến;
+dashboard chỉ nhận bản `to_dict()` tách rời.
+
+`agent_context` mặc định **OFF**. Khi operator bật, renderer rule-based chọn tối đa 3–6 event
+liên quan trong cửa sổ cấu hình, luôn kèm producer/source ID. Thiếu 3 fact thì không render;
+không gọi thêm LLM và không tự bịa dữ kiện để lấp chỗ trống.
+
+Config: `config/agent_state.yaml`; toggle: `config/features.yaml.features.agent_context`.
 
 ---
 
