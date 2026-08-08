@@ -91,6 +91,7 @@ class StreamRuntime:
         conversation_context: Any = None,
         repair_policy: Any = None,
         behavior_library: Any = None,
+        relationship_manager: Any = None,
         cfg: StreamRuntimeConfig | None = None,
     ) -> None:
         self._loader = loader
@@ -118,6 +119,7 @@ class StreamRuntime:
         self._conversation_context = conversation_context
         self._repair_policy = repair_policy
         self._behavior_library = behavior_library
+        self._relationship_manager = relationship_manager
         self.cfg = cfg or StreamRuntimeConfig()
 
         self._running = False
@@ -146,6 +148,8 @@ class StreamRuntime:
             await self._repair_policy.start()
         if self._behavior_library is not None:
             await self._behavior_library.start()
+        if self._relationship_manager is not None:
+            await self._relationship_manager.start()
         await self._router.start()
         self._running = True
         # C0.4: DirectorLoop cầm nhịp (thay autonomy loop cũ). Fallback: autonomy loop
@@ -217,6 +221,9 @@ class StreamRuntime:
         if self._behavior_library is not None:
             with contextlib.suppress(Exception):
                 await self._behavior_library.stop()
+        if self._relationship_manager is not None:
+            with contextlib.suppress(Exception):
+                await self._relationship_manager.stop()
         if self._goal_manager is not None:
             with contextlib.suppress(Exception):
                 await self._goal_manager.stop()
@@ -346,6 +353,9 @@ class StreamRuntime:
         if self._goal_proposal is not None:
             with contextlib.suppress(Exception):
                 m.update(self._goal_proposal.get_metrics())
+        if self._relationship_manager is not None:
+            with contextlib.suppress(Exception):
+                m.update(self._relationship_manager.get_metrics())
         return m
 
     @property
@@ -444,6 +454,42 @@ async def build_stream_runtime(
         audit_sink=agent_state.record, agenda_policy=agenda_policy,
     )
     agent_state.add_event_listener(goal_manager.handle_event)
+
+    # M7: pseudonymous relationship persistence is independent from semantic memory.
+    from orchestrator.migration_runner import MigrationRunner
+    from services.relationship.manager import RelationshipManager
+    from services.relationship.store import RelationshipStore
+    try:
+        relationship_status = await feature_manager.get_status("relationship_memory")
+        relationship_enabled = relationship_status in (
+            FeatureStatus.ENABLED, FeatureStatus.DEGRADED,
+        )
+    except KeyError:
+        get_logger("stream_runtime").warning("relationship_memory_feature_missing")
+        relationship_enabled = False
+    MigrationRunner.from_config(loader).initialize()
+    relationship_manager = RelationshipManager.from_loader(
+        loader,
+        store=RelationshipStore(loader.get("system", "paths.db_file", "data/mai.db")),
+        metrics=metrics,
+        enabled=relationship_enabled,
+    )
+
+    async def _enable_relationship_memory() -> None:
+        relationship_manager.set_enabled(True)
+
+    async def _disable_relationship_memory() -> None:
+        relationship_manager.set_enabled(False)
+
+    async def _relationship_memory_health() -> bool:
+        return relationship_manager.enabled
+
+    feature_manager.attach_handlers(
+        "relationship_memory",
+        enable=_enable_relationship_memory,
+        disable=_disable_relationship_memory,
+        health=_relationship_memory_health,
+    )
 
     # ─── LLM stack ───
     llm_svc = LlamaCppLLMService.from_loader(loader)
@@ -571,7 +617,6 @@ async def build_stream_runtime(
     memory = None
     memory_extractor = None
     if cfg.enable_memory:
-        from orchestrator.migration_runner import MigrationRunner
         from services.memory.embedder import BgeM3Embedder
         from services.memory.extractor import MemoryExtractor
         from services.memory.memory_fallback import MemoryFallbackManager
@@ -821,6 +866,7 @@ async def build_stream_runtime(
     router = ChatRouter(
         sources=sources, emotion=emotion, runner=runner, speak=speak_callback,
         pool=pool, pulse=pulse, turn_lock=turn_lock, agent_state=agent_state,
+        relationship_manager=relationship_manager,
     )
 
     # TASK 4: director tick TÁCH khỏi autonomy (autonomy 5s làm chat chờ lâu).
@@ -946,6 +992,7 @@ async def build_stream_runtime(
         conversation_context=conversation_context,
         repair_policy=repair_policy,
         behavior_library=behavior_library,
+        relationship_manager=relationship_manager,
     )
     # DirectorLoop dùng runtime ctx của rt (silence/chat_count/memory) cho self_talk material
     director_loop._runtime_ctx_fn = rt._build_runtime_context  # noqa: SLF001

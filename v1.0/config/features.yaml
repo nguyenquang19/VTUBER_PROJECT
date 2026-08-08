@@ -175,6 +175,14 @@ features:
     depends_on: []
     conflicts_with: []
 
+  relationship_memory:
+    enabled: true               # M7 pseudonymous profiles + grounded operator-reviewed context
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: agent
+    depends_on: []
+    conflicts_with: []
+
   speculative_decoding:
     enabled: false              # v2.3 bỏ E4B draft model → tạm off, bật lại nếu add E4B
     vram_cost_mb: 700

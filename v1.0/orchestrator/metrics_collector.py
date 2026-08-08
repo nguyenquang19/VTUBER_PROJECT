@@ -207,6 +207,13 @@ class MetricsCollector:
             registry=self.registry,
         )
         self._natural_timing: dict[tuple[str, str], int] = {}
+        self.relationship_events_total_c = Counter(
+            "mai_relationship_events_total",
+            "Privacy-safe relationship lifecycle outcomes",
+            ["outcome", "reason"],
+            registry=self.registry,
+        )
+        self._relationship_events: dict[tuple[str, str], int] = {}
 
         # --- 3 "metric giả" cho Phase 0 (chưa có service thật) ---
         # DoD: "Metric giả cập nhật realtime trên chart"
@@ -325,6 +332,17 @@ class MetricsCollector:
         return {
             f"{kind}:{reason}": count
             for (kind, reason), count in sorted(self._natural_timing.items())
+        }
+
+    def record_relationship_event(self, outcome: str, reason: str) -> None:
+        key = (str(outcome), str(reason))
+        self._relationship_events[key] = self._relationship_events.get(key, 0) + 1
+        self.relationship_events_total_c.labels(outcome=key[0], reason=key[1]).inc()
+
+    def relationship_snapshot(self) -> dict[str, int]:
+        return {
+            f"{outcome}:{reason}": count
+            for (outcome, reason), count in sorted(self._relationship_events.items())
         }
 
     def director_action_snapshot(self) -> dict[str, int]:

@@ -26,6 +26,7 @@ CONFIG_FILES: dict[str, str] = {
     "agent_state": "agent_state.yaml",            # M1 grounded working state
     "agent_goals": "agent_goals.yaml",            # M2 goal/agenda policy
     "hosting": "hosting.yaml",                    # M5 mood/persona/proactive hosting
+    "relationships": "relationships.yaml",        # M7 privacy-safe social history
     "features": "features.yaml",
     "triggers": "triggers.yaml",
     "state_machine": "state_machine.yaml",

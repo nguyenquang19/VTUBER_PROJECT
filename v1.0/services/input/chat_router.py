@@ -46,6 +46,7 @@ class ChatRouter:
         chat_pulse_hook: Callable[[], None] | None = None,
         turn_lock: asyncio.Lock | None = None,
         agent_state: Any = None,
+        relationship_manager: Any = None,
     ) -> None:
         if not sources:
             raise ValueError("cần ít nhất 1 InputService")
@@ -58,6 +59,7 @@ class ChatRouter:
         self._intake_mode = pool is not None and pulse is not None
         self._extra_activity_hook = chat_pulse_hook
         self._agent_state = agent_state
+        self._relationship_manager = relationship_manager
 
         self._running = False
         # C0.4: share turn_lock với DirectorLoop nếu được cấp (1 driver duy nhất)
@@ -160,6 +162,7 @@ class ChatRouter:
             return   # skip event, không giết router
 
         self._record_chat_event(event, emo_event, processed.category)
+        self._record_relationship_interaction(event)
 
         # C0.4 intake mode: bơm vào SaliencePool + ChatPulse, KHÔNG tự đáp.
         # Director loop sẽ nhặt từ pool khi quyết read_chat.
@@ -260,6 +263,18 @@ class ChatRouter:
             ))
         except Exception as exc:
             self._log.warning("router_speech_complete_event_failed", error=str(exc))
+
+    def _record_relationship_interaction(self, event: InputEvent) -> None:
+        if self._relationship_manager is None:
+            return
+        try:
+            self._relationship_manager.observe_interaction(
+                raw_viewer_id=event.user_id,
+                event_id=event.event_id or "",
+                occurred_at=event.timestamp,
+            )
+        except Exception as exc:
+            self._log.warning("router_relationship_failed", error=str(exc))
 
 
     def _intake(self, event: InputEvent, emo_event: EmotionEvent) -> None:
