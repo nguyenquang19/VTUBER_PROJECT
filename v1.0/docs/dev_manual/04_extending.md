@@ -413,8 +413,9 @@ phase7.D: SemanticMemoryService (async wrapper + hard timeout 150ms)
   - write(): embed → insert atomic
   - query(): hard timeout 150ms qua asyncio.wait_for, N7 fail-safe → trả []
   ...
-- 16 unit test cover: lifecycle, write, query timeout, forget
-- Full suite 629 pass.
+- Unit test cover: lifecycle, write, query timeout, forget
+- Full suite: `python -m pytest tests -m "not llm and not slow" --tb=short -q`
+  phải trả exit code 0; không ghi số pass cứng trong tài liệu.
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
 ```

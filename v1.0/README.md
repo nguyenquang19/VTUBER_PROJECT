@@ -25,7 +25,20 @@ Bộ tài liệu kỹ thuật canonical ở **[docs/dev_manual/](docs/dev_manual
 ```powershell
 python -m venv venv
 .\venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+python -m pip install --upgrade pip
+python -m pip install -r requirements.lock.txt
+.\scripts\check_environment.ps1 -SkipLlamaHealth
+python -m pytest tests -m "not llm and not slow" --tb=short -q
+python scripts\smoke_offline.py
 ```
 
-Xem [docs/dev_manual/03_operations.md](docs/dev_manual/03_operations.md) cho setup + chạy đầy đủ.
+Entrypoint stream hiện hành:
+
+```powershell
+python scripts\stream_youtube.py --video VIDEO_ID --tts --dashboard
+python scripts\stream_discord.py --tts --dashboard
+```
+
+Smoke offline không khởi tạo kết nối YouTube/Discord thật và không cần llama-server hay
+secret. Xem [docs/dev_manual/03_operations.md](docs/dev_manual/03_operations.md) cho setup,
+cấu hình live và cách chạy đầy đủ.

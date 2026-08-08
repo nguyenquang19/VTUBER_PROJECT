@@ -280,5 +280,7 @@ field rỗng → category tự loại (`MaterialProvider.get()→None` đã có)
 - Naturalness ≥7/10; mood-exposition = 0; red-team cơ bản không phá persona.
 
 ## Dọn ngay
-- STATE.md drift: doc 839 test vs chỗ khác 927 — đồng bộ.
+- Không đồng bộ số test bằng số cứng trong docs; dùng
+  `python -m pytest tests -m "not llm and not slow" --tb=short -q` và ghi kết quả gần nhất
+  trong `STATE.md`.
 - Ghi chú: đường stream (ChatRouter) và main.py (TriggerManager/TurnOrchestrator) tách đôi. C0 là lúc hợp nhất — chốt giữ 1 đường.

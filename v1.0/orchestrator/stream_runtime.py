@@ -137,7 +137,7 @@ class StreamRuntime:
                 await self._director_loop.stop()
         if self._autonomy_task is not None and not self._autonomy_task.done():
             self._autonomy_task.cancel()
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(asyncio.CancelledError, Exception):
                 await self._autonomy_task
             self._autonomy_task = None
         # Stop router (cascades sources + emotion)
@@ -161,7 +161,7 @@ class StreamRuntime:
         # Dashboard
         if self._dashboard_task is not None and not self._dashboard_task.done():
             self._dashboard_task.cancel()
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(asyncio.CancelledError, Exception):
                 await self._dashboard_task
         # LLM
         with contextlib.suppress(Exception):

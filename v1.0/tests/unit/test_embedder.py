@@ -1,6 +1,7 @@
 """Test BgeM3Embedder với FakeModel (không tải bge-m3 thật) — Phase 7.C."""
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 import numpy as np
@@ -14,8 +15,7 @@ DIM = 1024
 
 
 class FakeModel:
-    """Model giả — không cần sentence-transformers/HF. Encode deterministic:
-    hash(text) % 100 làm seed, mọi dimension bằng seed."""
+    """Model giả — không cần sentence-transformers/HF, encode ổn định giữa process."""
 
     def __init__(self, dim: int = DIM) -> None:
         self.dim = dim
@@ -31,8 +31,9 @@ class FakeModel:
         return arrs
 
     def _one(self, text: str) -> np.ndarray:
-        seed = (hash(text) % 100) / 100.0
-        return np.full(self.dim, seed, dtype=np.float32)
+        digest = hashlib.sha256(text.encode("utf-8")).digest()
+        values = np.frombuffer(digest, dtype=np.uint8).astype(np.float32) / 255.0
+        return np.resize(values, self.dim).astype(np.float32)
 
 
 def make(model: FakeModel | None = None, **over) -> BgeM3Embedder:

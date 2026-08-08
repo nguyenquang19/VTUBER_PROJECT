@@ -34,7 +34,9 @@ Có mood engine, memory, autonomy tự nói, và pipeline thu data fine-tune đa
 | Avatar (Phase 6) | ⬜ | Chưa có gì |
 | STT (P5) / **Fine-tune (P9)** | ⬜ | P9 chờ đủ data + input chốt |
 
-**Test suite:** ~1089 pass (theo STATE 08-07; tăng liên tục khi thêm module).
+**Test suite:** không ghi số cứng vì tăng theo milestone. Lấy trạng thái hiện tại bằng
+`python -m pytest tests -m "not llm and not slow" --tb=short -q`; xem `STATE.md` cho
+kết quả regression gần nhất.
 
 **Mức độ hoàn thiện (honest):**
 - **Cái "não" (LLM+chat+mood+giọng+director+autonomy+data): ~85%** — register đã de-AI, data pipeline chạy.

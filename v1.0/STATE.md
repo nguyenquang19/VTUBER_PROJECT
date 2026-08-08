@@ -4,6 +4,28 @@
 > 04 extending). File STATE này chỉ là ledger "đang ở đâu". Spec cũ (ARCHITECTURE/PROCESS/
 > EMOTION_SIMULATION…) đã xoá 2026-08-06, nội dung gộp vào dev_manual.
 
+## Master Plan M0.5 — CI, docs và smoke live (2026-08-08) — XONG
+
+- GitHub Actions chạy trên `windows-latest`, Python 3.11, cache pip theo
+  `requirements-ci.txt`; dependency CI tối thiểu loại llama.cpp, CUDA/TTS, embedding model
+  và SDK platform live. Unit/integration gate loại marker `llm`/`slow`, xuất JUnit XML và
+  upload artifact `pytest-results` để quan sát số test, lỗi và thời gian.
+- `scripts/smoke_offline.py` kiểm dashboard qua ASGI không bind port, xác thực cấu hình
+  YouTube/Discord bằng client inject, không kết nối platform thật và không đọc/in secret;
+  output Text/JSON có tổng `pass/skip/fail` và exit code cho automation.
+- Smoke graceful shutdown hủy cả autonomy/dashboard pending task. `StreamRuntime.stop()`
+  bắt rõ `asyncio.CancelledError` trên Python 3.11 thay vì để cancellation thoát khỏi cleanup.
+- Fresh-clone docs dùng `requirements.lock.txt`, preflight, CI gate và smoke command;
+  entrypoint canonical là `stream_youtube.py`/`stream_discord.py`. Dev manual không còn
+  dùng số pass cứng; kết quả gần nhất chỉ ghi trong ledger này.
+- Fake embedder test chuyển từ process-randomized `hash() % 100` sang SHA-256 để loại va
+  chạm/flaky CI; không thay đổi embedding production.
+- Targeted M0.5/regression liên quan: `28 passed`. Smoke local: `3 PASS`, `1 SKIP`
+  (YouTube disabled), `0 FAIL`. CI gate: `1129 passed, 5 deselected, 1 warning` trong
+  42.80s. Full regression: `1134 passed, 1 warning` trong 94.12s. Warning còn lại là
+  Starlette deprecate `httpx` TestClient, không ảnh hưởng runtime.
+- **M0 hoàn tất:** dừng chờ user review; chưa bắt đầu M1.
+
 ## Master Plan M0.4 — Privacy, retention và data integrity (2026-08-08) — XONG
 
 - `config/data_privacy.yaml` là policy canonical: salt local, operator consent notice,

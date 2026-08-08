@@ -85,8 +85,15 @@ nvidia-smi
 # → VRAM idle <500MB
 
 # Test suite:
-python -m pytest tests -m "not llm" --tb=short -q
+python -m pytest tests -m "not llm and not slow" --tb=short -q
 # Exit code 0; không dùng số test hardcode vì suite tăng theo milestone.
+
+# Smoke offline: dashboard ASGI, config YouTube/Discord và graceful cancellation.
+# Không bind port, không kết nối platform thật, không yêu cầu secret hay llama-server.
+python scripts\smoke_offline.py
+
+# JSON machine-readable cho automation:
+python scripts\smoke_offline.py --output-format Json
 ```
 
 ---
@@ -374,6 +381,20 @@ python scripts\test_phases.py 7 7.5 # Phase 7 + 7.5
 ```powershell
 python -m pytest tests/unit/test_mood_engine.py::TestStability10k::test_10k_ticks_no_nan -v
 ```
+
+### 7.4. CI offline
+
+Workflow `.github/workflows/ci.yml` chạy trên Windows với Python 3.11 và cache pip theo
+`requirements-ci.txt`. Dependency CI cố ý không chứa llama.cpp, CUDA/TTS, embedding model
+hoặc SDK platform live. Lệnh quality gate là:
+
+```powershell
+python -m pytest tests -m "not llm and not slow" --tb=short -q `
+  --junitxml=test-results/pytest.xml
+```
+
+JUnit XML được upload thành artifact `pytest-results` để theo dõi số test, lỗi và thời gian
+theo từng run. Các test marker `llm` phải chạy riêng khi llama-server đã sẵn sàng.
 
 ---
 

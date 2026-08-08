@@ -1,0 +1,15 @@
+# Minimal, reproducible dependency set for unit/integration CI.
+# Deliberately excludes llama.cpp, CUDA, TTS, embedding models and live chat SDKs.
+fastapi==0.141.1
+httpx==0.28.1
+hypothesis==6.165.2
+numpy==2.4.6
+prometheus_client==0.26.0
+pydantic==2.13.4
+pytest==9.1.1
+pytest-asyncio==1.4.0
+PyYAML==6.0.3
+sqlite-vec==0.1.9
+structlog==26.1.0
+transitions==0.9.3
+watchdog==6.0.0
