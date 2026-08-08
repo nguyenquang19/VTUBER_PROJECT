@@ -42,3 +42,27 @@ class ShutdownCoordinatorService(Service):
     @abstractmethod
     async def shutdown(self) -> dict[str, Any]:
         """Run shutdown once and return the durable shutdown report."""
+
+
+class OperatorControlService(Service):
+    @abstractmethod
+    async def pause(self, reason: str) -> bool:
+        """Pause agent action production while keeping observability online."""
+
+    @abstractmethod
+    async def resume(self, reason: str) -> bool:
+        """Resume action production after an operator pause."""
+
+    @abstractmethod
+    def record_operator_action(self, action: str, target: str, outcome: str) -> None:
+        """Append a privacy-safe operator audit event."""
+
+    @abstractmethod
+    def snapshot(self) -> dict[str, Any]:
+        """Return pause state, action queue, and recent audit entries."""
+
+
+class OperationsSnapshotService(Service):
+    @abstractmethod
+    async def snapshot(self) -> dict[str, Any]:
+        """Read the latest durable operations snapshot asynchronously."""

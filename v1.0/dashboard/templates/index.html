@@ -154,6 +154,12 @@
   </section>
 
   <section id="tab-agent" class="tab">
+    <h3>Runtime control</h3>
+    <div><span id="agent-runtime" class="badge off">runtime: unknown</span>
+      <button id="btn-agent-pause">Pause agent</button>
+      <button id="btn-agent-resume">Resume agent</button>
+      <span id="agent-control-status" class="dim"></span>
+    </div>
     <h3>Agenda hiện tại</h3>
     <div id="goal-active" class="goal-card"><em>Chưa có goal active.</em></div>
     <h3>Operator pin</h3>
@@ -165,6 +171,14 @@
     </div>
     <h3>Candidate / suspended</h3>
     <div id="goal-queue"></div>
+    <h3>Open threads</h3>
+    <div id="agent-threads"></div>
+    <h3>Environment state</h3>
+    <pre id="agent-environment" class="dim">No environment snapshot.</pre>
+    <h3>Action queue</h3>
+    <div id="agent-action-queue"></div>
+    <h3>Operator audit</h3>
+    <div id="agent-audit"></div>
     <h3>Relationship records (pseudonymous)</h3>
     <div class="dim">Mọi preference/note cần grounded event ID. Không hiển thị platform ID hoặc tên thật.</div>
     <button id="btn-narrative-add">Add grounded narrative</button>

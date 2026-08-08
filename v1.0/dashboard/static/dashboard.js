@@ -32,6 +32,14 @@ async function post(url) {
 }
 document.getElementById("btn-estop").addEventListener("click", () => post("/api/emergency_stop"));
 document.getElementById("btn-resume").addEventListener("click", () => post("/api/resume"));
+document.getElementById("btn-agent-pause").addEventListener("click", async () => {
+  const result = await postJson("/api/agent/pause", { reason: "dashboard operator pause" });
+  setText("agent-control-status", result.ok ? "✓ paused" : "✗ " + result.reason);
+});
+document.getElementById("btn-agent-resume").addEventListener("click", async () => {
+  const result = await postJson("/api/agent/resume", { reason: "dashboard operator resume" });
+  setText("agent-control-status", result.ok ? "✓ resumed" : "✗ " + result.reason);
+});
 
 document.getElementById("btn-goal-pin").addEventListener("click", async () => {
   const result = await postJson("/api/goals/pin", {
@@ -409,6 +417,45 @@ function renderGoals(goals) {
   });
 }
 
+function renderAgentOperations(runtime, agent, operations) {
+  runtime = runtime || { online: false, controls_available: false, mode: "standalone" };
+  operations = operations || { paused: true, action_queue: [], audit: [] };
+  const badge = document.getElementById("agent-runtime");
+  badge.textContent = runtime.online ? `runtime: online (${runtime.mode || "embedded"})` : "runtime: offline (standalone)";
+  badge.className = runtime.online ? "badge on" : "badge off";
+  const controls = !!runtime.controls_available;
+  document.getElementById("btn-agent-pause").disabled = !controls || !!operations.paused;
+  document.getElementById("btn-agent-resume").disabled = !controls || !operations.paused;
+  document.getElementById("btn-goal-pin").disabled = !controls;
+
+  const threads = document.getElementById("agent-threads");
+  threads.innerHTML = "";
+  ((agent && agent.open_threads) || []).forEach((thread) => {
+    const row = document.createElement("div"); row.className = "goal-card";
+    row.textContent = `${thread.kind || "thread"}: ${thread.summary || thread.thread_id || "unknown"}`;
+    threads.appendChild(row);
+  });
+  if (!threads.children.length) threads.innerHTML = "<em>No open threads.</em>";
+  const environment = (agent && agent.environment_summary) || null;
+  document.getElementById("agent-environment").textContent = environment ? JSON.stringify(environment, null, 2) : "No environment snapshot.";
+
+  const queue = document.getElementById("agent-action-queue"); queue.innerHTML = "";
+  (operations.action_queue || []).forEach((item) => {
+    const row = document.createElement("div"); row.className = "goal-card";
+    row.textContent = `${item.kind || "action"}: ${item.id || item.pending_count || "pending"} ${item.status || ""}`;
+    queue.appendChild(row);
+  });
+  if (!queue.children.length) queue.innerHTML = "<em>Action queue empty/unavailable.</em>";
+
+  const audit = document.getElementById("agent-audit"); audit.innerHTML = "";
+  (operations.audit || []).slice(-20).reverse().forEach((item) => {
+    const row = document.createElement("div"); row.className = "dim";
+    row.textContent = `${item.timestamp || ""} · ${item.action || "event"} · ${item.target || ""} · ${item.outcome || ""}`;
+    audit.appendChild(row);
+  });
+  if (!audit.children.length) audit.innerHTML = "<em>No operator audit events.</em>";
+}
+
 function renderRelationships(data) {
   const list = document.getElementById("relationship-list");
   if (!list || !data) return;
@@ -538,6 +585,7 @@ function render(snap) {
   renderTriggers(snap.triggers);
   renderMood(snap.mood);
   renderGoals(snap.goals);
+  renderAgentOperations(snap.runtime, snap.agent, snap.operations);
   renderRelationships(snap.relationships);
 }
 

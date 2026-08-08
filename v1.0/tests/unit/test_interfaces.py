@@ -25,7 +25,10 @@ from interfaces.filter import FilterCategory, FilterService, FilterVerdict
 from interfaces.input import EventSource, InputEvent, InputService
 from interfaces.llm import LLMRequest, LLMService, LLMToken
 from interfaces.memory import MemoryEntry, MemoryService, MemoryTier
-from interfaces.operations import HealthSupervisorService, ShutdownCoordinatorService
+from interfaces.operations import (
+    HealthSupervisorService, OperationsSnapshotService, OperatorControlService,
+    ShutdownCoordinatorService,
+)
 from interfaces.stt import NullSTTService, STTService, TranscriptChunk
 from interfaces.tts import AudioChunk, TTSRequest, TTSService
 
@@ -104,6 +107,11 @@ class TestServiceContract:
             (HealthSupervisorService, "snapshot"),
             (ShutdownCoordinatorService, "register_step"),
             (ShutdownCoordinatorService, "shutdown"),
+            (OperatorControlService, "pause"),
+            (OperatorControlService, "resume"),
+            (OperatorControlService, "record_operator_action"),
+            (OperatorControlService, "snapshot"),
+            (OperationsSnapshotService, "snapshot"),
         ],
     )
     def test_interface_declares_spec_method(self, iface, method) -> None:
@@ -124,6 +132,8 @@ class TestServiceContract:
             ConversationRepairService,
             HealthSupervisorService,
             ShutdownCoordinatorService,
+            OperatorControlService,
+            OperationsSnapshotService,
         ],
     )
     def test_all_interfaces_inherit_service_base(self, iface) -> None:

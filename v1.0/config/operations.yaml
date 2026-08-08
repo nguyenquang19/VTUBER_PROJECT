@@ -19,6 +19,7 @@ shutdown:
 dashboard_standalone:
   open_browser: true
   browser_delay_s: 0.8
+  operator_audit_file: "logs/operations/operator_audit.jsonl"
 
 emergency_stop:
   cancel_goal_on_resume_if_expired: true

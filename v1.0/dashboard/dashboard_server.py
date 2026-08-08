@@ -52,6 +52,9 @@ class DashboardServer:
         agent_state: Any = None,      # M1: shared grounded state, read-only snapshot
         goal_manager: Any = None,     # M2: read + audited operator controls
         relationship_manager: Any = None,  # M7: audited social record controls
+        control_plane: Any = None,          # M9: pause/resume/action queue/audit
+        snapshot_provider: Any = None,      # M9: standalone read-only provider
+        health_supervisor: Any = None,      # M9: bounded recovery snapshot
         data_dir: str = "logs",       # nơi ghi ratings/corrections
         push_interval_s: float = 1.0,
         host: str = "127.0.0.1",
@@ -74,6 +77,9 @@ class DashboardServer:
         self.agent_state = agent_state
         self.goal_manager = goal_manager
         self.relationship_manager = relationship_manager
+        self.control_plane = control_plane
+        self.snapshot_provider = snapshot_provider
+        self.health_supervisor = health_supervisor
         self._data_dir = Path(data_dir)
         self._ratings_writer = None       # lazy JsonlWriter
         self._corrections_writer = None
@@ -115,6 +121,9 @@ class DashboardServer:
 
     async def build_snapshot(self) -> dict[str, Any]:
         snap: dict[str, Any] = {}
+        if self.snapshot_provider is not None:
+            with contextlib.suppress(Exception):
+                snap.update(await self.snapshot_provider.snapshot())
 
         if self.sm is not None:
             snap["state"] = {
@@ -218,6 +227,27 @@ class DashboardServer:
             with contextlib.suppress(Exception):
                 snap["relationships"] = self.relationship_manager.snapshot().to_dict()
                 snap["relationship_metrics"] = self.relationship_manager.get_metrics()
+        if self.health_supervisor is not None:
+            with contextlib.suppress(Exception):
+                snap["health_supervisor"] = self.health_supervisor.snapshot()
+        if self.control_plane is not None:
+            with contextlib.suppress(Exception):
+                snap["operations"] = self.control_plane.snapshot()
+            controls_available = bool(
+                (snap.get("operations") or {}).get("available", False)
+            )
+            snap["runtime"] = {
+                **dict(snap.get("runtime") or {}),
+                "online": controls_available,
+                "mode": "embedded" if controls_available else "embedded_starting",
+                "controls_available": controls_available,
+            }
+        else:
+            snap.setdefault("runtime", {
+                "online": False,
+                "mode": "standalone",
+                "controls_available": False,
+            })
         return snap
 
     # ---------- app ----------
@@ -311,6 +341,7 @@ class DashboardServer:
                     {"ok": False, "reason": "invalid or rejected operator goal"},
                     status_code=400,
                 )
+            self._audit_control("pin_goal", goal.goal_id, "completed")
             return JSONResponse({"ok": True, "goal": goal.to_dict()})
 
         @app.post("/api/goals/{goal_id}/complete")
@@ -320,6 +351,7 @@ class DashboardServer:
             body = await _json(request)
             reason = str(body.get("reason") or "operator complete").strip()
             ok = self.goal_manager.operator_complete(goal_id, reason=reason)
+            self._audit_control("complete_goal", goal_id, "completed" if ok else "not_found")
             return JSONResponse(
                 {"ok": ok, "goal_id": goal_id, "reason": reason if ok else "unknown goal"},
                 status_code=200 if ok else 404,
@@ -332,10 +364,35 @@ class DashboardServer:
             body = await _json(request)
             reason = str(body.get("reason") or "operator cancel").strip()
             ok = self.goal_manager.operator_cancel(goal_id, reason=reason)
+            self._audit_control("cancel_goal", goal_id, "completed" if ok else "not_found")
             return JSONResponse(
                 {"ok": ok, "goal_id": goal_id, "reason": reason if ok else "unknown goal"},
                 status_code=200 if ok else 404,
             )
+
+        @app.post("/api/agent/pause")
+        async def api_agent_pause(request: Request) -> JSONResponse:
+            if self.control_plane is None:
+                return JSONResponse(
+                    {"ok": False, "reason": "runtime_offline"}, status_code=503,
+                )
+            body = await _json(request)
+            ok = await self.control_plane.pause(
+                str(body.get("reason") or "dashboard operator pause"),
+            )
+            return JSONResponse({"ok": ok, "operations": self.control_plane.snapshot()})
+
+        @app.post("/api/agent/resume")
+        async def api_agent_resume(request: Request) -> JSONResponse:
+            if self.control_plane is None:
+                return JSONResponse(
+                    {"ok": False, "reason": "runtime_offline"}, status_code=503,
+                )
+            body = await _json(request)
+            ok = await self.control_plane.resume(
+                str(body.get("reason") or "dashboard operator resume"),
+            )
+            return JSONResponse({"ok": ok, "operations": self.control_plane.snapshot()})
 
         @app.get("/api/relationships")
         async def api_relationships() -> JSONResponse:
@@ -599,6 +656,11 @@ class DashboardServer:
             self._corrections().write(rec)
         except Exception as e:
             self._log.warning("correction_write_failed", error=str(e))
+
+    def _audit_control(self, action: str, target: str, outcome: str) -> None:
+        if self.control_plane is not None:
+            with contextlib.suppress(Exception):
+                self.control_plane.record_operator_action(action, target, outcome)
 
     def _recent_turns(self, n: int) -> list[dict]:
         """Tail turns.jsonl → N turn gần nhất với composite identity."""

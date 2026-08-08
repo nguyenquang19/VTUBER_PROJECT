@@ -235,6 +235,13 @@ class MetricsCollector:
             registry=self.registry,
         )
         self._shutdown_steps: dict[tuple[str, str], int] = {}
+        self.operator_controls_total_c = Counter(
+            "mai_operator_controls_total",
+            "Audited live operator control outcomes",
+            ["action", "outcome"],
+            registry=self.registry,
+        )
+        self._operator_controls: dict[tuple[str, str], int] = {}
 
         # --- 3 "metric giả" cho Phase 0 (chưa có service thật) ---
         # DoD: "Metric giả cập nhật realtime trên chart"
@@ -399,6 +406,17 @@ class MetricsCollector:
         return {
             f"{step}:{outcome}": count
             for (step, outcome), count in sorted(self._shutdown_steps.items())
+        }
+
+    def record_operator_control(self, action: str, outcome: str) -> None:
+        key = (str(action), str(outcome))
+        self._operator_controls[key] = self._operator_controls.get(key, 0) + 1
+        self.operator_controls_total_c.labels(action=key[0], outcome=key[1]).inc()
+
+    def operator_control_snapshot(self) -> dict[str, int]:
+        return {
+            f"{action}:{outcome}": count
+            for (action, outcome), count in sorted(self._operator_controls.items())
         }
 
     def director_action_snapshot(self) -> dict[str, int]:

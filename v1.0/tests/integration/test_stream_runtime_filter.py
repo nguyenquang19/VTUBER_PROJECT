@@ -97,6 +97,9 @@ def _loader(tmp_path: Path, *, filter_enabled: bool) -> ConfigLoader:
     operations_path = config_dir / "operations.yaml"
     operations = yaml.safe_load(operations_path.read_text(encoding="utf-8"))
     operations["shutdown"]["snapshot_file"] = str(tmp_path / "last_runtime_snapshot.json")
+    operations["dashboard_standalone"]["operator_audit_file"] = str(
+        tmp_path / "operator_audit.jsonl"
+    )
     operations_path.write_text(
         yaml.safe_dump(operations, allow_unicode=True, sort_keys=False),
         encoding="utf-8",
@@ -211,6 +214,7 @@ class TestRuntimeFilterWiring:
                 "dashboard", "input_router", "llm_main",
             }
             assert runtime._llama_process_manager.started is True
+            assert dashboard["control_plane"] is runtime._control_plane
             assert runtime.agent_state.snapshot().active_goal_ref is None
             assert runtime.goal_proposal.enabled is False
 

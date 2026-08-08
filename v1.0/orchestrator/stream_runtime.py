@@ -97,6 +97,7 @@ class StreamRuntime:
         llama_process_manager: Any = None,
         dashboard_ref: dict[str, Any] | None = None,
         shutdown_coordinator: Any = None,
+        control_plane: Any = None,
         cfg: StreamRuntimeConfig | None = None,
     ) -> None:
         self._loader = loader
@@ -129,6 +130,7 @@ class StreamRuntime:
         self._llama_process_manager = llama_process_manager
         self._dashboard_ref = dashboard_ref
         self._shutdown_coordinator = shutdown_coordinator
+        self._control_plane = control_plane
         self.cfg = cfg or StreamRuntimeConfig()
 
         self._running = False
@@ -159,6 +161,8 @@ class StreamRuntime:
             await self._behavior_library.start()
         if self._relationship_manager is not None:
             await self._relationship_manager.start()
+        if self._control_plane is not None:
+            await self._control_plane.start()
         await self._router.start()
         self._running = True
         # C0.4: DirectorLoop cầm nhịp (thay autonomy loop cũ). Fallback: autonomy loop
@@ -233,6 +237,7 @@ class StreamRuntime:
         for service in (
             self._goal_proposal, self._thread_extractor, self._conversation_context,
             self._repair_policy, self._behavior_library, self._relationship_manager,
+            self._control_plane,
         ):
             if service is not None:
                 with contextlib.suppress(Exception):
@@ -298,6 +303,9 @@ class StreamRuntime:
             ),
             "health_supervisor": (
                 self._health_supervisor.snapshot() if self._health_supervisor is not None else None
+            ),
+            "operations": (
+                self._control_plane.snapshot() if self._control_plane is not None else None
             ),
             "metrics": self.get_metrics(),
         }
@@ -430,6 +438,9 @@ class StreamRuntime:
         if self._health_supervisor is not None:
             with contextlib.suppress(Exception):
                 m.update(self._health_supervisor.get_metrics())
+        if self._control_plane is not None:
+            with contextlib.suppress(Exception):
+                m.update(self._control_plane.get_metrics())
         return m
 
     @property
@@ -1062,6 +1073,49 @@ async def build_stream_runtime(
         health=_natural_timing_health,
     )
 
+    # ─── M9 operator control plane ───
+    control_plane = None
+    if operations_enabled:
+        from services.operations.control_plane import RuntimeControlPlane
+
+        async def _pause_agent_actions() -> None:
+            await director_loop.stop()
+
+        async def _resume_agent_actions() -> None:
+            await director_loop.start()
+
+        def _action_queue() -> list[dict[str, Any]]:
+            snapshot = goal_manager.snapshot()
+            queue: list[dict[str, Any]] = []
+            for goal in (
+                *((snapshot.active,) if snapshot.active else ()),
+                *snapshot.candidates,
+                *snapshot.suspended,
+            ):
+                queue.append({
+                    "kind": "goal",
+                    "id": goal.goal_id,
+                    "status": goal.status.value,
+                    "priority": goal.priority,
+                    "reason": goal.reason,
+                })
+            queue.append({
+                "kind": "chat_pool",
+                "pending_count": len(getattr(pool, "_items", {})),
+            })
+            return queue
+
+        control_plane = RuntimeControlPlane(
+            pause_action=_pause_agent_actions,
+            resume_action=_resume_agent_actions,
+            queue_provider=_action_queue,
+            audit_path=loader.get(
+                "operations", "dashboard_standalone.operator_audit_file",
+                "logs/operations/operator_audit.jsonl",
+            ),
+            metrics=metrics,
+        )
+
     # ─── Dashboard (optional) ───
     dashboard_task = None
     dashboard_ref: dict[str, Any] | None = None
@@ -1075,6 +1129,7 @@ async def build_stream_runtime(
             agent_state=agent_state,
             goal_manager=goal_manager,
             relationship_manager=relationship_manager,
+            control_plane=control_plane,
             data_dir=loader.get("logging", "jsonl.dir", "logs"),
             host=loader.get("system", "dashboard.host", "127.0.0.1"),
             port=int(loader.get("system", "dashboard.port", 7860)),
@@ -1135,6 +1190,7 @@ async def build_stream_runtime(
             health_supervisor.register_target(
                 "dashboard", _dashboard_health, _restart_dashboard,
             )
+            dashboard_server.health_supervisor = health_supervisor
 
     rt = StreamRuntime(
         loader=loader, llm_svc=llm_svc, runner=runner, emotion=emotion,
@@ -1155,6 +1211,7 @@ async def build_stream_runtime(
         health_supervisor=health_supervisor,
         llama_process_manager=llama_process_manager,
         dashboard_ref=dashboard_ref,
+        control_plane=control_plane,
     )
     if operations_enabled:
         from orchestrator.logger import flush_logging
