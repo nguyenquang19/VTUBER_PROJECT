@@ -15,7 +15,8 @@ from pydantic import ValidationError
 from interfaces.animation import AnimationCommand, AnimationService, MoodState
 from interfaces.agent import (
     AgentStateService, EventLedgerService, GoalManagerService, GoalProposalService,
-    OpenThreadManagerService, SessionRecapService, ThreadExtractionService,
+    ConversationContextService, OpenThreadManagerService, SessionRecapService,
+    ThreadExtractionService,
 )
 from interfaces.base import HealthState, HealthStatus, Service
 from interfaces.filter import FilterCategory, FilterService, FilterVerdict
@@ -90,6 +91,7 @@ class TestServiceContract:
             (ThreadExtractionService, "set_enabled"),
             (SessionRecapService, "handle_event"),
             (SessionRecapService, "snapshot"),
+            (ConversationContextService, "render"),
         ],
     )
     def test_interface_declares_spec_method(self, iface, method) -> None:
@@ -106,6 +108,7 @@ class TestServiceContract:
             OpenThreadManagerService,
             ThreadExtractionService,
             SessionRecapService,
+            ConversationContextService,
         ],
     )
     def test_all_interfaces_inherit_service_base(self, iface) -> None:

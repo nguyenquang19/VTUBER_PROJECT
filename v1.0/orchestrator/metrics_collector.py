@@ -153,6 +153,13 @@ class MetricsCollector:
             "Characters retained in the bounded session recap",
             registry=self.registry,
         )
+        self.conversation_context_chars_h = Histogram(
+            "mai_conversation_context_chars",
+            "Rendered grounded conversation context size in characters",
+            buckets=[200, 400, 600, 800, 1000, 1200, 1400, 1800],
+            registry=self.registry,
+        )
+        self._context_chars_last = 0
 
         # --- 3 "metric giả" cho Phase 0 (chưa có service thật) ---
         # DoD: "Metric giả cập nhật realtime trên chart"
@@ -194,6 +201,10 @@ class MetricsCollector:
 
     def set_session_recap_chars(self, chars: int) -> None:
         self.session_recap_chars_g.set(max(0, int(chars)))
+
+    def observe_context_chars(self, chars: int) -> None:
+        self._context_chars_last = max(0, int(chars))
+        self.conversation_context_chars_h.observe(self._context_chars_last)
 
     def director_action_snapshot(self) -> dict[str, int]:
         return {

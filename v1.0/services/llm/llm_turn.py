@@ -106,6 +106,7 @@ class LLMTurnRunner:
         session_id: str | None = None,
         agent_state: Any = None,
         agent_context_renderer: Any = None,
+        conversation_context_renderer: Any = None,
     ) -> None:
         self._svc = svc
         self._pm = prompt_manager
@@ -123,6 +124,7 @@ class LLMTurnRunner:
         self.session_id = session_id or str(uuid.uuid4())
         self._agent_state = agent_state
         self._agent_context_renderer = agent_context_renderer
+        self._conversation_context_renderer = conversation_context_renderer
         self._turn_seq = 0
         self.last_turn_id = 0          # T3: turn cuối để dashboard rating gắn vào
         self._log_cause: Any = None    # T1: cause snapshot trước khi clear
@@ -153,6 +155,13 @@ class LLMTurnRunner:
     def set_agent_context_renderer(self, renderer: Any = None) -> None:
         self._agent_context_renderer = renderer
 
+    @property
+    def conversation_context_enabled(self) -> bool:
+        return self._conversation_context_renderer is not None
+
+    def set_conversation_context_renderer(self, renderer: Any = None) -> None:
+        self._conversation_context_renderer = renderer
+
     def _reset_filter_tracking(self) -> None:
         self.last_filter_verdict = None
         self._last_filter_initial_verdict = None
@@ -178,6 +187,7 @@ class LLMTurnRunner:
         session_id: str | None = None,
         agent_state: Any = None,
         agent_context_renderer: Any = None,
+        conversation_context_renderer: Any = None,
     ) -> "LLMTurnRunner":
         return cls(
             svc,
@@ -197,6 +207,7 @@ class LLMTurnRunner:
             session_id=session_id,
             agent_state=agent_state,
             agent_context_renderer=agent_context_renderer,
+            conversation_context_renderer=conversation_context_renderer,
         )
 
     async def _primary(self, request: Any) -> ParsedResponse:
@@ -495,10 +506,13 @@ class LLMTurnRunner:
         )
 
     def _render_agent_context(self, query: str) -> str | None:
-        if self._agent_state is None or self._agent_context_renderer is None:
+        if self._agent_state is None:
+            return None
+        renderer = self._conversation_context_renderer or self._agent_context_renderer
+        if renderer is None:
             return None
         try:
-            return self._agent_context_renderer.render(self._agent_state.snapshot(), query)
+            return renderer.render(self._agent_state.snapshot(), query)
         except Exception as exc:
             get_logger("llm_turn").warning("agent_context_render_failed", error=str(exc))
             return None

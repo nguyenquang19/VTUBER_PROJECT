@@ -88,6 +88,7 @@ class StreamRuntime:
         goal_manager: Any = None,
         goal_proposal: Any = None,
         thread_extractor: Any = None,
+        conversation_context: Any = None,
         cfg: StreamRuntimeConfig | None = None,
     ) -> None:
         self._loader = loader
@@ -112,6 +113,7 @@ class StreamRuntime:
         self._goal_manager = goal_manager
         self._goal_proposal = goal_proposal
         self._thread_extractor = thread_extractor
+        self._conversation_context = conversation_context
         self.cfg = cfg or StreamRuntimeConfig()
 
         self._running = False
@@ -134,6 +136,8 @@ class StreamRuntime:
             await self._goal_proposal.start()
         if self._thread_extractor is not None:
             await self._thread_extractor.start()
+        if self._conversation_context is not None:
+            await self._conversation_context.start()
         await self._router.start()
         self._running = True
         # C0.4: DirectorLoop cầm nhịp (thay autonomy loop cũ). Fallback: autonomy loop
@@ -196,6 +200,9 @@ class StreamRuntime:
         if self._thread_extractor is not None:
             with contextlib.suppress(Exception):
                 await self._thread_extractor.stop()
+        if self._conversation_context is not None:
+            with contextlib.suppress(Exception):
+                await self._conversation_context.stop()
         if self._goal_manager is not None:
             with contextlib.suppress(Exception):
                 await self._goal_manager.stop()
@@ -490,6 +497,18 @@ async def build_stream_runtime(
     except KeyError:
         get_logger("stream_runtime").warning("agent_context_feature_missing")
         agent_context_enabled = False
+    from services.agent.conversation_context import ConversationContextComposer
+    conversation_context = ConversationContextComposer.from_loader(
+        loader, goal_provider=goal_manager.snapshot, metrics=metrics,
+    )
+    try:
+        continuity_status = await feature_manager.get_status("conversation_continuity")
+        continuity_enabled = continuity_status in (
+            FeatureStatus.ENABLED, FeatureStatus.DEGRADED,
+        )
+    except KeyError:
+        get_logger("stream_runtime").warning("conversation_continuity_feature_missing")
+        continuity_enabled = False
 
     # ─── Output filter (M0.2) ───
     # Tạo service cả khi feature đang OFF để dashboard có thể bật runtime về sau.
@@ -554,6 +573,23 @@ async def build_stream_runtime(
         session_id=session_id,
         agent_state=agent_state,
         agent_context_renderer=agent_context_renderer if agent_context_enabled else None,
+        conversation_context_renderer=conversation_context if continuity_enabled else None,
+    )
+
+    async def _enable_conversation_continuity() -> None:
+        runner.set_conversation_context_renderer(conversation_context)
+
+    async def _disable_conversation_continuity() -> None:
+        runner.set_conversation_context_renderer(None)
+
+    async def _conversation_continuity_health() -> bool:
+        return runner.conversation_context_enabled
+
+    feature_manager.attach_handlers(
+        "conversation_continuity",
+        enable=_enable_conversation_continuity,
+        disable=_disable_conversation_continuity,
+        health=_conversation_continuity_health,
     )
 
     async def _enable_agent_context() -> None:
@@ -767,6 +803,7 @@ async def build_stream_runtime(
         goal_manager=goal_manager,
         goal_proposal=goal_proposal,
         thread_extractor=thread_extractor,
+        conversation_context=conversation_context,
     )
     # DirectorLoop dùng runtime ctx của rt (silence/chat_count/memory) cho self_talk material
     director_loop._runtime_ctx_fn = rt._build_runtime_context  # noqa: SLF001

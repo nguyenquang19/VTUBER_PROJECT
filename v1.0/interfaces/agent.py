@@ -152,3 +152,9 @@ class SessionRecapService(Service):
     @abstractmethod
     def snapshot(self) -> "SessionRecap":
         """Return an immutable recap containing no full transcript."""
+
+
+class ConversationContextService(Service):
+    @abstractmethod
+    def render(self, state: "AgentStateSnapshot", query: str = "") -> str:
+        """Render bounded grounded continuity context for one LLM turn."""

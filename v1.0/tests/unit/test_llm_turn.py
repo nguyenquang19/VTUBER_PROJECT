@@ -87,6 +87,28 @@ class TestDirectedTurn:
             for message in request.messages
         )
 
+    async def test_conversation_context_is_injected_as_system_message(self) -> None:
+        class State:
+            def snapshot(self):
+                from services.agent.types import AgentStateSnapshot
+                return AgentStateSnapshot()
+
+        class Composer:
+            def render(self, _state, query):
+                return f"[Conversation continuity] query={query}"
+
+        fake = FakeLLM(VALID)
+        runner, _pm, *_ = make_runner(fake)
+        runner._agent_state = State()
+        runner.set_conversation_context_renderer(Composer())
+        await runner.run_turn("c1", "nãy cậu bảo gì")
+        request = fake.requests[0]
+        assert any(
+            message.role == "system" and "[Conversation continuity]" in message.content
+            for message in request.messages
+        )
+        assert request.messages[-1].role == "user"
+
 
 class TestPrimarySuccess:
     async def test_returns_parsed_level0(self) -> None:
