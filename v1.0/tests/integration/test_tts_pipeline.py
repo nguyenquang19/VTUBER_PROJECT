@@ -208,3 +208,17 @@ class TestEdges:
             await player.stop()
         # ít nhất 1 câu bắt đầu; ít hơn 3 câu xong nếu cancel kịp
         assert primary.calls <= 3
+
+    async def test_cancel_all_uses_active_turn_id_and_cancels_sentence_synthesis(self) -> None:
+        pipe, primary, player, _backend, _m = make_pipeline(chunk_delay=0.03)
+        await player.start()
+        try:
+            task = asyncio.create_task(pipe.speak("r-live", "mot. hai. ba."))
+            await asyncio.sleep(0.02)
+            await pipe.cancel_all()
+            await asyncio.wait_for(task, timeout=2.0)
+            await asyncio.sleep(0)
+        finally:
+            await player.stop()
+        assert "r-live#0" in primary.cancelled
+        assert player.get_metrics()["audio_queue_size"] == 0

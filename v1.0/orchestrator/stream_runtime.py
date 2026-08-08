@@ -98,6 +98,7 @@ class StreamRuntime:
         dashboard_ref: dict[str, Any] | None = None,
         shutdown_coordinator: Any = None,
         control_plane: Any = None,
+        emergency_controller: Any = None,
         cfg: StreamRuntimeConfig | None = None,
     ) -> None:
         self._loader = loader
@@ -131,6 +132,7 @@ class StreamRuntime:
         self._dashboard_ref = dashboard_ref
         self._shutdown_coordinator = shutdown_coordinator
         self._control_plane = control_plane
+        self._emergency_controller = emergency_controller
         self.cfg = cfg or StreamRuntimeConfig()
 
         self._running = False
@@ -163,6 +165,8 @@ class StreamRuntime:
             await self._relationship_manager.start()
         if self._control_plane is not None:
             await self._control_plane.start()
+        if self._emergency_controller is not None:
+            await self._emergency_controller.start()
         await self._router.start()
         self._running = True
         # C0.4: DirectorLoop cầm nhịp (thay autonomy loop cũ). Fallback: autonomy loop
@@ -237,7 +241,7 @@ class StreamRuntime:
         for service in (
             self._goal_proposal, self._thread_extractor, self._conversation_context,
             self._repair_policy, self._behavior_library, self._relationship_manager,
-            self._control_plane,
+            self._control_plane, self._emergency_controller,
         ):
             if service is not None:
                 with contextlib.suppress(Exception):
@@ -306,6 +310,10 @@ class StreamRuntime:
             ),
             "operations": (
                 self._control_plane.snapshot() if self._control_plane is not None else None
+            ),
+            "emergency": (
+                self._emergency_controller.snapshot()
+                if self._emergency_controller is not None else None
             ),
             "metrics": self.get_metrics(),
         }
@@ -441,6 +449,9 @@ class StreamRuntime:
         if self._control_plane is not None:
             with contextlib.suppress(Exception):
                 m.update(self._control_plane.get_metrics())
+        if self._emergency_controller is not None:
+            with contextlib.suppress(Exception):
+                m.update(self._emergency_controller.get_metrics())
         return m
 
     @property
@@ -817,6 +828,7 @@ async def build_stream_runtime(
     audio_player = None
     tts_pipeline = None
     speak_callback: SpeakFn | None = None
+    emergency_ref: dict[str, Any] = {"controller": None}
     if cfg.enable_tts:
         from services.tts.audio_player import AudioPlayer
         from services.tts.subtitle_fallback import SubtitleFallbackService
@@ -904,13 +916,22 @@ async def build_stream_runtime(
         _raw_speak = speak_callback
 
         async def _paced_speak(req_id: str, text: str) -> None:
+            emergency = emergency_ref.get("controller")
+            if emergency is not None and not emergency.permits_speech():
+                return
             plan = natural_timing.plan(req_id, text, pacer)
             if plan.delay_seconds > 0:
                 await asyncio.sleep(plan.delay_seconds)
+            if emergency is not None and not emergency.permits_speech():
+                return
             if plan.allow_filler:
                 clip = filler.maybe_pick(time.time())
                 if clip is not None:
                     await _play_filler_clip(req_id, clip)
+            if emergency is not None and not emergency.permits_speech():
+                if audio_player is not None:
+                    await audio_player.cancel_all()
+                return
             await _raw_speak(req_id, text)
             if tts_pipeline is not None:
                 natural_timing.observe_ttfa(
@@ -1192,6 +1213,55 @@ async def build_stream_runtime(
             )
             dashboard_server.health_supervisor = health_supervisor
 
+    emergency_controller = None
+    if operations_enabled:
+        from services.operations.emergency_control import EmergencyController
+
+        async def _emergency_pause_actions() -> None:
+            if control_plane is not None:
+                await control_plane.pause("emergency stop")
+            else:
+                await director_loop.stop()
+
+        async def _emergency_resume_actions() -> None:
+            if control_plane is not None:
+                await control_plane.resume("emergency resume")
+            else:
+                await director_loop.start()
+
+        async def _cancel_speech_now() -> None:
+            if tts_pipeline is not None:
+                await tts_pipeline.cancel_all()
+            elif audio_player is not None:
+                await audio_player.cancel_all()
+
+        async def _prune_expired_goals() -> None:
+            goal_manager.snapshot()
+
+        emergency_controller = EmergencyController(
+            pause_actions=_emergency_pause_actions,
+            resume_actions=_emergency_resume_actions,
+            cancel_speech=_cancel_speech_now,
+            # M6 is deferred; future environment executor must use this controller's gate.
+            prune_stale_work=_prune_expired_goals,
+            pause_recovery=(
+                health_supervisor.pause_recovery if health_supervisor is not None else None
+            ),
+            resume_recovery=(
+                health_supervisor.resume_recovery if health_supervisor is not None else None
+            ),
+            audit=(
+                control_plane.record_operator_action if control_plane is not None else None
+            ),
+            metrics=metrics,
+            reason_max_chars=int(loader.get(
+                "operations", "emergency_stop.reason_max_chars", 240,
+            )),
+        )
+        emergency_ref["controller"] = emergency_controller
+        if dashboard_server is not None:
+            dashboard_server.emergency_controller = emergency_controller
+
     rt = StreamRuntime(
         loader=loader, llm_svc=llm_svc, runner=runner, emotion=emotion,
         chat_router=router, autonomy=autonomy,
@@ -1212,6 +1282,7 @@ async def build_stream_runtime(
         llama_process_manager=llama_process_manager,
         dashboard_ref=dashboard_ref,
         control_plane=control_plane,
+        emergency_controller=emergency_controller,
     )
     if operations_enabled:
         from orchestrator.logger import flush_logging

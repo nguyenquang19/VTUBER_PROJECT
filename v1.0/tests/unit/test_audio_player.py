@@ -79,6 +79,20 @@ class TestSequential:
 
 
 class TestCancel:
+    async def test_cancel_all_stops_backend_and_drains_queue(self) -> None:
+        be = FakeBackend(per_chunk_delay_s=0.3)
+        p = AudioPlayer(sample_rate=24000, backend=be)
+        await p.start()
+        try:
+            for i in range(5):
+                await p.enqueue(chunk(f"r{i}", 0))
+            await asyncio.sleep(0.02)
+            await p.cancel_all()
+            assert p.get_metrics()["audio_queue_size"] == 0
+            assert be.stops >= 1
+        finally:
+            await p.stop()
+
     async def test_cancel_drops_pending_of_same_request(self) -> None:
         be = FakeBackend(per_chunk_delay_s=0.05)
         p = AudioPlayer(sample_rate=24000, backend=be)

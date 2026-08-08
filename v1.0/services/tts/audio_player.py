@@ -127,6 +127,19 @@ class AudioPlayer:
         if self._current_request_id == request_id:
             self._backend.stop()
 
+    async def cancel_all(self) -> None:
+        """Immediately stop playback and discard every queued audio chunk."""
+        if self._current_request_id is not None:
+            self._cancelled_ids.add(self._current_request_id)
+        self._backend.stop()
+        while True:
+            try:
+                chunk = self._queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+            if isinstance(chunk, AudioChunk):
+                self._cancelled_ids.add(chunk.request_id)
+
     @property
     def is_playing(self) -> bool:
         return self._current_request_id is not None

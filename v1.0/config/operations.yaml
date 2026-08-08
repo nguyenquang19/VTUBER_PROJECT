@@ -23,6 +23,7 @@ dashboard_standalone:
 
 emergency_stop:
   cancel_goal_on_resume_if_expired: true
+  reason_max_chars: 240
 
 soak:
   duration_s: 7200

@@ -55,6 +55,7 @@ class DashboardServer:
         control_plane: Any = None,          # M9: pause/resume/action queue/audit
         snapshot_provider: Any = None,      # M9: standalone read-only provider
         health_supervisor: Any = None,      # M9: bounded recovery snapshot
+        emergency_controller: Any = None,   # M9: fail-closed output latch
         data_dir: str = "logs",       # nơi ghi ratings/corrections
         push_interval_s: float = 1.0,
         host: str = "127.0.0.1",
@@ -80,6 +81,7 @@ class DashboardServer:
         self.control_plane = control_plane
         self.snapshot_provider = snapshot_provider
         self.health_supervisor = health_supervisor
+        self.emergency_controller = emergency_controller
         self._data_dir = Path(data_dir)
         self._ratings_writer = None       # lazy JsonlWriter
         self._corrections_writer = None
@@ -230,6 +232,9 @@ class DashboardServer:
         if self.health_supervisor is not None:
             with contextlib.suppress(Exception):
                 snap["health_supervisor"] = self.health_supervisor.snapshot()
+        if self.emergency_controller is not None:
+            with contextlib.suppress(Exception):
+                snap["emergency"] = self.emergency_controller.snapshot()
         if self.control_plane is not None:
             with contextlib.suppress(Exception):
                 snap["operations"] = self.control_plane.snapshot()
@@ -305,6 +310,9 @@ class DashboardServer:
 
         @app.post("/api/emergency_stop")
         async def api_emergency_stop() -> JSONResponse:
+            if self.emergency_controller is not None:
+                ok = await self.emergency_controller.trigger("dashboard emergency stop")
+                return JSONResponse({"ok": ok, "emergency": self.emergency_controller.snapshot()})
             if self.emergency is not None:
                 await self.emergency.trigger()
             elif self.sm is not None:
@@ -315,6 +323,12 @@ class DashboardServer:
 
         @app.post("/api/resume")
         async def api_resume() -> JSONResponse:
+            if self.emergency_controller is not None:
+                ok = await self.emergency_controller.resume("dashboard operator resume")
+                return JSONResponse(
+                    {"ok": ok, "emergency": self.emergency_controller.snapshot()},
+                    status_code=200 if ok else 409,
+                )
             if self.sm is None:
                 return JSONResponse({"ok": False, "reason": "no state machine"}, status_code=503)
             from transitions.core import MachineError

@@ -49,6 +49,7 @@ class TTSPipeline:
         self._log = get_logger("tts_pipeline")
 
         self._cancelled: set[str] = set()
+        self._active_request_id: str | None = None
 
         self._requests_total = 0
         self._sentences_total = 0
@@ -89,7 +90,8 @@ class TTSPipeline:
     async def _stream_to_player(self, svc, request: TTSRequest) -> AudioChunk | None:
         first_chunk: AudioChunk | None = None
         async for chunk in svc.synthesize_stream(request):
-            if request.request_id in self._cancelled:
+            turn_request_id = request.request_id.split("#", 1)[0]
+            if turn_request_id in self._cancelled:
                 await svc.cancel(request.request_id)
                 break
             if chunk.audio_bytes and first_chunk is None:
@@ -113,7 +115,11 @@ class TTSPipeline:
         if self._speak_lock is None:
             self._speak_lock = asyncio.Lock()
         async with self._speak_lock:
-            await self._speak_locked(request_id, text)
+            self._active_request_id = request_id
+            try:
+                await self._speak_locked(request_id, text)
+            finally:
+                self._active_request_id = None
 
     async def _speak_locked(self, request_id: str, text: str) -> None:
         self._cancelled.discard(request_id)
@@ -150,6 +156,14 @@ class TTSPipeline:
         # audio player: cancel mọi sub-request khớp prefix
         for i in range(64):  # tối đa 64 câu — quá đủ
             await self._player.cancel_current(f"{request_id}#{i}")
+
+    async def cancel_all(self) -> None:
+        """Cancel synthesis/playback without stopping the reusable services."""
+        request_id = self._active_request_id
+        if request_id is not None:
+            await self.cancel(request_id)
+        if hasattr(self._player, "cancel_all"):
+            await self._player.cancel_all()
 
     def get_metrics(self) -> dict[str, Any]:
         return {

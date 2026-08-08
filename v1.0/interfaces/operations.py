@@ -66,3 +66,25 @@ class OperationsSnapshotService(Service):
     @abstractmethod
     async def snapshot(self) -> dict[str, Any]:
         """Read the latest durable operations snapshot asynchronously."""
+
+
+class EmergencyControlService(Service):
+    @abstractmethod
+    async def trigger(self, reason: str = "emergency stop") -> bool:
+        """Latch action output off and cancel in-flight side effects."""
+
+    @abstractmethod
+    async def resume(self, reason: str = "operator resume") -> bool:
+        """Prune stale work and reopen action output."""
+
+    @abstractmethod
+    def permits_speech(self) -> bool:
+        """Return whether new speech may cross the output boundary."""
+
+    @abstractmethod
+    def permits_environment_action(self) -> bool:
+        """Return whether a future environment action may execute."""
+
+    @abstractmethod
+    def snapshot(self) -> dict[str, Any]:
+        """Return the latched state and counters."""
