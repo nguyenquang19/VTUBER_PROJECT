@@ -65,6 +65,12 @@ autonomy:
       mood_boost: {}
       prompt_hint: "Quay lại 1 chủ đề vừa nhắc trước đó trong session, thêm ý mới."
 
+    environment_reaction:
+      weight: 1.0
+      cooldown_seconds: 180
+      mood_boost: {vui: 1.1, bon_chon: 1.1}
+      prompt_hint: "Bình luận đúng một quan sát môi trường đã được ghi nhận, không suy diễn thêm."
+
     roast_chat:
       weight: 0.9
       cooldown_seconds: 300

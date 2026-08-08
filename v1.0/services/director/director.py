@@ -68,6 +68,11 @@ class DirectorDecision:
     read_mode: ReadMode | None = None
     next_segment: str | None = None   # khi action=TRANSITION
     goal_id: str | None = None
+    proactive_source: str | None = None
+    proactive_source_id: str | None = None
+    proactive_category: str | None = None
+    proactive_evidence_ids: tuple[str, ...] = ()
+    proactive_summary: str = ""
 
 
 class Director:
@@ -83,6 +88,7 @@ class Director:
         summary_score_ceiling: float = 15.0,
         ask_follow_up_before_expiry_s: float = 20.0,
         mood_policy: Any = None,
+        proactive_policy: Any = None,
         clock: Any = None,
     ) -> None:
         if not segments:
@@ -97,6 +103,7 @@ class Director:
         self._summary_ceiling = float(summary_score_ceiling)
         self._ask_follow_up_before_expiry_s = max(0.0, float(ask_follow_up_before_expiry_s))
         self._mood_policy = mood_policy
+        self._proactive_policy = proactive_policy
         self._clock = clock or time.time
 
         self._seg_idx = 0
@@ -109,6 +116,7 @@ class Director:
     def from_loader(
         cls, pool: SaliencePool, pulse: ChatPulse, loader, clock: Any = None,
         mood_policy: Any = None,
+        proactive_policy: Any = None,
     ) -> "Director":
         d = loader.get("director", "director", {}) or {}
         segs_raw = d.get("segments", []) or []
@@ -134,6 +142,7 @@ class Director:
                 d.get("arbiter", {}).get("ask_follow_up_before_expiry_s", 20.0)
             ),
             mood_policy=mood_policy,
+            proactive_policy=proactive_policy,
             clock=clock,
         )
 
@@ -256,12 +265,24 @@ class Director:
             or director_input.urge_ready
             or self._mood_proactive_ready(director_input)
         )
+        proactive = self._proactive_choice(
+            director_input, allowed, silence_ready=proactive_trigger,
+        )
+        if proactive is not None:
+            return DirectorDecision(
+                action=proactive.action, segment=seg.name, reason=proactive.reason,
+                proactive_source=proactive.source.value,
+                proactive_source_id=proactive.source_id,
+                proactive_category=proactive.category,
+                proactive_evidence_ids=proactive.evidence_ids,
+                proactive_summary=proactive.summary,
+            )
+        if self._proactive_policy is None and director_input.agent_state.open_threads:
+            return DirectorDecision(
+                action=DirectorAction.WAIT, segment=seg.name,
+                reason="open_thread_blocks_self_talk",
+            )
         if proactive_trigger:
-            if director_input.agent_state.open_threads:
-                return DirectorDecision(
-                    action=DirectorAction.WAIT, segment=seg.name,
-                    reason="open_thread_blocks_self_talk",
-                )
             if "self_talk" in allowed:
                 reason = (
                     "consec_read_chat_break" if consec_hit else
@@ -286,6 +307,31 @@ class Director:
             return self._read_decision(seg, top, director_input)
 
         return DirectorDecision(action=DirectorAction.WAIT, segment=seg.name, reason="idle")
+
+    def _proactive_choice(
+        self, value: DirectorInput, allowed: set[str], *, silence_ready: bool,
+    ) -> Any:
+        if self._proactive_policy is None:
+            return None
+        try:
+            return self._proactive_policy.choose(
+                value, allowed_actions=allowed, silence_ready=silence_ready,
+            )
+        except Exception:
+            return None
+
+    def mark_proactive_used(self, decision: DirectorDecision, now: float) -> None:
+        if (
+            self._proactive_policy is None or not decision.proactive_source
+            or not decision.proactive_source_id
+        ):
+            return
+        try:
+            self._proactive_policy.mark_source_used(
+                decision.proactive_source, decision.proactive_source_id, now,
+            )
+        except Exception:
+            pass
 
     def _mood_proactive_ready(self, value: DirectorInput) -> bool:
         if self._mood_policy is None:

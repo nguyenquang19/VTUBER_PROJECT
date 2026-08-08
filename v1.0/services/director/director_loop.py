@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import time
 import uuid
+from dataclasses import replace
 from typing import Any, Awaitable, Callable
 
 from interfaces.animation import MoodState
@@ -324,7 +325,17 @@ class DirectorLoop:
             return
         mood = self._current_mood()
         ctx = self._runtime_ctx_fn() if self._runtime_ctx_fn else RuntimeContext()
-        decision = self._autonomy.force_generate(mood, ctx)
+        if dec.proactive_source == "open_thread" and dec.proactive_summary:
+            ctx = replace(
+                ctx,
+                working_memory_recent=[*ctx.working_memory_recent, dec.proactive_summary],
+            )
+        elif dec.proactive_source == "environment" and dec.proactive_summary:
+            ctx = replace(ctx, environment_summary=dec.proactive_summary)
+        decision = (
+            self._autonomy.force_generate_for(dec.proactive_category, mood, ctx)
+            if dec.proactive_category else self._autonomy.force_generate(mood, ctx)
+        )
         if decision is None:
             # không có material → coi như đã "nói" để reset dead-air, tránh spin
             self._director.mark_spoke(dec.action, now)
@@ -347,7 +358,9 @@ class DirectorLoop:
             self._record_self_talk(req_id, parsed.text, now)
         self._turns_self += 1
         self._director.mark_spoke(dec.action, now)
-        await self._maybe_speak(req_id, parsed, dec.action, [])
+        spoken = await self._maybe_speak(req_id, parsed, dec.action, [])
+        if spoken and dec.proactive_source:
+            self._director.mark_proactive_used(dec, now)
 
     async def _exec_transition(self, dec, now: float) -> None:
         req_id = f"trans_{uuid.uuid4().hex[:8]}"
@@ -376,16 +389,17 @@ class DirectorLoop:
         refs: list[Any],
         *,
         goal_id: str | None = None,
-    ) -> None:
+    ) -> bool:
         if not getattr(parsed, "ok", False) or not getattr(parsed, "text", ""):
-            return
+            return False
         if self._speak is not None:
             try:
                 await self._speak(req_id, parsed.text)
             except Exception as e:
                 self._log.warning("director_speak_failed", error=str(e))
-                return
+                return False
         self._record_speech_completed(req_id, action, refs, goal_id=goal_id)
+        return True
 
     def _record_speech_completed(
         self, request_id: str, action: Any, refs: list[Any], *, goal_id: str | None = None,

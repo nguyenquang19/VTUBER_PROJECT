@@ -34,3 +34,10 @@ mood_policy:
       agenda: {answer_follow_up: 12}
       director: {read_chat: 18, self_talk: -30, follow_up: -10}
 
+proactive_policy:
+  enabled: true
+  source_cooldown_seconds: 90
+  open_thread_category: follow_up_topic
+  environment_category: environment_reaction
+  silence_category: complain_silence
+  environment_summary_max_chars: 220

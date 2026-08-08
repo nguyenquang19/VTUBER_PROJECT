@@ -83,4 +83,9 @@ def _render_body(category: str, m: dict) -> str:
             f"- Chat cần cà khịa: \"{m.get('target_chat', '')}\"\n"
             f"- Cà khịa chủ động, không phải trả lời — mở lời tấn công/mỉa mai.\n"
         )
+    if category == "environment_reaction":
+        return (
+            f"- Quan sát môi trường đã xác thực: {m.get('environment_summary', '')}\n"
+            f"- Chỉ bình luận điều đã ghi; không suy đoán nguyên nhân hoặc sự kiện tiếp theo.\n"
+        )
     return "- (không có material cụ thể)\n"

@@ -754,11 +754,26 @@ async def build_stream_runtime(
     from services.director.action_context import ActionContextBuilder
     from services.director.director import Director
     from services.director.director_loop import DirectorLoop
+    from services.director.proactive_policy import ProactiveHostingPolicy
     from services.director.salience import SaliencePool
 
     pool = SaliencePool.from_loader(loader)
     pulse = ChatPulse.from_loader(loader)
-    director = Director.from_loader(pool, pulse, loader, mood_policy=mood_policy)
+    try:
+        proactive_status = await feature_manager.get_status("proactive_hosting")
+        proactive_enabled = proactive_status in (
+            FeatureStatus.ENABLED, FeatureStatus.DEGRADED,
+        )
+    except KeyError:
+        get_logger("stream_runtime").warning("proactive_hosting_feature_missing")
+        proactive_enabled = False
+    proactive_policy = ProactiveHostingPolicy.from_loader(
+        loader, metrics=metrics, enabled=proactive_enabled,
+    )
+    director = Director.from_loader(
+        pool, pulse, loader, mood_policy=mood_policy,
+        proactive_policy=proactive_policy,
+    )
     action_context_builder = ActionContextBuilder.from_loader(loader)
     turn_lock = asyncio.Lock()   # 1 lock chung: ChatRouter intake + DirectorLoop
     try:
@@ -818,6 +833,22 @@ async def build_stream_runtime(
         enable=_enable_mood_behavior_policy,
         disable=_disable_mood_behavior_policy,
         health=_mood_behavior_policy_health,
+    )
+
+    async def _enable_proactive_hosting() -> None:
+        proactive_policy.set_enabled(True)
+
+    async def _disable_proactive_hosting() -> None:
+        proactive_policy.set_enabled(False)
+
+    async def _proactive_hosting_health() -> bool:
+        return proactive_policy.enabled
+
+    feature_manager.attach_handlers(
+        "proactive_hosting",
+        enable=_enable_proactive_hosting,
+        disable=_disable_proactive_hosting,
+        health=_proactive_hosting_health,
     )
 
     # ─── Dashboard (optional) ───

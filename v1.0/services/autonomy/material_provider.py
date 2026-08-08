@@ -52,6 +52,7 @@ class RuntimeContext:
     operator_online: bool = False
     consecutive_ignored: int = 0
     working_memory_recent: list[str] = field(default_factory=list)
+    environment_summary: str | None = None
 
 
 class MaterialProvider:
@@ -149,5 +150,9 @@ class MaterialProvider:
             # Pick chat gần nhất (nếu list dài, dùng element cuối)
             target = recent[-1]
             return {"target_chat": target[:200]}   # cap length tránh prompt bloat
+
+        if category == "environment_reaction":
+            summary = " ".join(str(ctx.environment_summary or "").split())
+            return {"environment_summary": summary[:220]} if summary else None
 
         return None

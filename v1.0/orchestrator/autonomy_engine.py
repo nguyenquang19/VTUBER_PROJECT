@@ -415,6 +415,29 @@ class AutonomyEngine:
         Vẫn None nếu không cat nào có material (không bịa từ số 0)."""
         return self._pick_and_render(mood, ctx)
 
+    def force_generate_for(
+        self, category: str, mood: MoodState, ctx: RuntimeContext,
+    ) -> AmbientDecision | None:
+        """Render one Director-selected grounded category without random fallback."""
+        config = self.cfg.categories.get(category)
+        if config is None:
+            return None
+        material = self.material.get(category, ctx)
+        if material is None:
+            self._skipped_no_material += 1
+            return None
+        self.selector.mark_used(category)
+        prompt_text = render_prompt(
+            category=category,
+            material=material,
+            mood=mood,
+            forbidden_openers=self.opener.forbidden_list(),
+            prompt_hint=config.prompt_hint,
+            mood_style=self._mood_style,
+        )
+        self._generated_total += 1
+        return AmbientDecision(category, prompt_text, mood, material)
+
     def _pick_and_render(
         self, mood: MoodState, ctx: RuntimeContext,
     ) -> AmbientDecision | None:

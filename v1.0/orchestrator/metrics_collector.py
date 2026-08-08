@@ -181,6 +181,13 @@ class MetricsCollector:
             registry=self.registry,
         )
         self._mood_adjustments: dict[tuple[str, str], int] = {}
+        self.proactive_candidates_total_c = Counter(
+            "mai_proactive_candidates_total",
+            "Grounded proactive candidate selection and completion",
+            ["source", "outcome"],
+            registry=self.registry,
+        )
+        self._proactive_candidates: dict[tuple[str, str], int] = {}
 
         # --- 3 "metric giả" cho Phase 0 (chưa có service thật) ---
         # DoD: "Metric giả cập nhật realtime trên chart"
@@ -263,6 +270,17 @@ class MetricsCollector:
         return {
             f"{target}:{reason}": count
             for (target, reason), count in sorted(self._mood_adjustments.items())
+        }
+
+    def record_proactive_candidate(self, source: str, outcome: str) -> None:
+        key = (str(source), str(outcome))
+        self._proactive_candidates[key] = self._proactive_candidates.get(key, 0) + 1
+        self.proactive_candidates_total_c.labels(source=key[0], outcome=key[1]).inc()
+
+    def proactive_candidate_snapshot(self) -> dict[str, int]:
+        return {
+            f"{source}:{outcome}": count
+            for (source, outcome), count in sorted(self._proactive_candidates.items())
         }
 
     def director_action_snapshot(self) -> dict[str, int]:
