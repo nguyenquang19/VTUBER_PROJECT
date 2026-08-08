@@ -26,6 +26,12 @@ _TEMPLATES = _DASHBOARD_DIR / "templates"
 _STATIC = _DASHBOARD_DIR / "static"
 
 
+def _string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
+
+
 class DashboardServer:
     def __init__(
         self,
@@ -45,6 +51,7 @@ class DashboardServer:
         runner: Any = None,           # T3/T7: LLMTurnRunner (last_turn_id) — data label
         agent_state: Any = None,      # M1: shared grounded state, read-only snapshot
         goal_manager: Any = None,     # M2: read + audited operator controls
+        relationship_manager: Any = None,  # M7: audited social record controls
         data_dir: str = "logs",       # nơi ghi ratings/corrections
         push_interval_s: float = 1.0,
     ) -> None:
@@ -64,6 +71,7 @@ class DashboardServer:
         self.runner = runner
         self.agent_state = agent_state
         self.goal_manager = goal_manager
+        self.relationship_manager = relationship_manager
         self._data_dir = Path(data_dir)
         self._ratings_writer = None       # lazy JsonlWriter
         self._corrections_writer = None
@@ -176,6 +184,10 @@ class DashboardServer:
             with contextlib.suppress(Exception):
                 snap["goals"] = self.goal_manager.snapshot().to_dict()
                 snap["goal_metrics"] = self.goal_manager.get_metrics()
+        if self.relationship_manager is not None:
+            with contextlib.suppress(Exception):
+                snap["relationships"] = self.relationship_manager.snapshot().to_dict()
+                snap["relationship_metrics"] = self.relationship_manager.get_metrics()
         return snap
 
     # ---------- app ----------
@@ -294,6 +306,66 @@ class DashboardServer:
                 {"ok": ok, "goal_id": goal_id, "reason": reason if ok else "unknown goal"},
                 status_code=200 if ok else 404,
             )
+
+        @app.get("/api/relationships")
+        async def api_relationships() -> JSONResponse:
+            if self.relationship_manager is None:
+                return JSONResponse({"ok": False, "reason": "no relationship manager"}, status_code=503)
+            return JSONResponse({"ok": True, **self.relationship_manager.snapshot().to_dict()})
+
+        @app.post("/api/relationships/{viewer_id}/profile")
+        async def api_relationship_profile(viewer_id: str, request: Request) -> JSONResponse:
+            if self.relationship_manager is None:
+                return JSONResponse({"ok": False, "reason": "no relationship manager"}, status_code=503)
+            body = await _json(request)
+            profile = self.relationship_manager.update_profile(
+                viewer_id,
+                preferences=_string_list(body.get("preferences")),
+                boundaries=_string_list(body.get("boundaries")),
+                tone=str(body.get("tone") or "").strip() or None,
+                evidence_refs=_string_list(body.get("evidence_refs")),
+                reason=str(body.get("reason") or "").strip(),
+            )
+            return JSONResponse(
+                {"ok": profile is not None, "profile": profile.to_dict() if profile else None},
+                status_code=200 if profile else 400,
+            )
+
+        @app.post("/api/relationships/{viewer_id}/notes")
+        async def api_relationship_note(viewer_id: str, request: Request) -> JSONResponse:
+            if self.relationship_manager is None:
+                return JSONResponse({"ok": False, "reason": "no relationship manager"}, status_code=503)
+            body = await _json(request)
+            note = self.relationship_manager.create_note(
+                viewer_id, summary=str(body.get("summary") or ""),
+                evidence_refs=_string_list(body.get("evidence_refs")),
+                reason=str(body.get("reason") or "").strip(),
+            )
+            return JSONResponse(
+                {"ok": note is not None, "note": note.to_dict() if note else None},
+                status_code=200 if note else 400,
+            )
+
+        @app.post("/api/relationships/notes/{note_id}/review")
+        async def api_relationship_note_review(note_id: str, request: Request) -> JSONResponse:
+            if self.relationship_manager is None:
+                return JSONResponse({"ok": False, "reason": "no relationship manager"}, status_code=503)
+            body = await _json(request)
+            approve = body.get("approve") is True
+            ok = self.relationship_manager.review_note(
+                note_id, approve=approve, reason=str(body.get("reason") or "").strip(),
+            )
+            return JSONResponse({"ok": ok}, status_code=200 if ok else 400)
+
+        @app.delete("/api/relationships/notes/{note_id}")
+        async def api_relationship_note_delete(note_id: str, request: Request) -> JSONResponse:
+            if self.relationship_manager is None:
+                return JSONResponse({"ok": False, "reason": "no relationship manager"}, status_code=503)
+            body = await _json(request)
+            ok = self.relationship_manager.delete_note(
+                note_id, reason=str(body.get("reason") or "").strip(),
+            )
+            return JSONResponse({"ok": ok}, status_code=200 if ok else 400)
 
         @app.get("/metrics", response_class=PlainTextResponse)
         async def metrics_endpoint() -> bytes:

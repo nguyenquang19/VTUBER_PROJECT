@@ -473,6 +473,9 @@ async def build_stream_runtime(
         store=RelationshipStore(loader.get("system", "paths.db_file", "data/mai.db")),
         metrics=metrics,
         enabled=relationship_enabled,
+        evidence_exists=lambda event_id: any(
+            item.event_id == event_id for item in agent_state.snapshot().recent_events
+        ),
     )
 
     async def _enable_relationship_memory() -> None:
@@ -974,6 +977,7 @@ async def build_stream_runtime(
                              emotion=emotion, runner=runner,
                              agent_state=agent_state,
                              goal_manager=goal_manager,
+                             relationship_manager=relationship_manager,
                              data_dir=loader.get("logging", "jsonl.dir", "logs"))
         dashboard_task = asyncio.create_task(ds.serve(), name="dashboard")
 

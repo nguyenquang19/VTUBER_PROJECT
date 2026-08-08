@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 from interfaces.base import Service
 
 if TYPE_CHECKING:
-    from services.relationship.types import RelationshipSnapshot, ViewerProfile
+    from services.relationship.types import RelationshipNote, RelationshipSnapshot, ViewerProfile
 
 
 class RelationshipService(Service):
@@ -31,3 +31,24 @@ class RelationshipService(Service):
     @abstractmethod
     def set_enabled(self, enabled: bool) -> None:
         """Enable or disable future relationship collection/context use."""
+
+    @abstractmethod
+    def update_profile(
+        self, viewer_id: str, *, preferences: list[str], boundaries: list[str],
+        tone: str | None, evidence_refs: list[str], reason: str,
+    ) -> "ViewerProfile | None":
+        """Apply operator-confirmed attributes backed by grounded event references."""
+
+    @abstractmethod
+    def create_note(
+        self, viewer_id: str, *, summary: str, evidence_refs: list[str], reason: str,
+    ) -> "RelationshipNote | None":
+        """Create a pending evidence-backed note for operator review."""
+
+    @abstractmethod
+    def review_note(self, note_id: str, *, approve: bool, reason: str) -> bool:
+        """Approve or reject one note with an audit record."""
+
+    @abstractmethod
+    def delete_note(self, note_id: str, *, reason: str) -> bool:
+        """Delete one note with an audit record."""

@@ -52,6 +52,16 @@ async function postJson(url, body) {
   } catch (e) { return { ok: false, reason: String(e) }; }
 }
 
+async function deleteJson(url, body) {
+  try {
+    const r = await fetch(url, {
+      method: "DELETE", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    return await r.json();
+  } catch (e) { return { ok: false, reason: String(e) }; }
+}
+
 function rate(rating) {
   const el = document.getElementById("rate-status");
   postJson("/api/rate", { rating }).then((r) => {
@@ -390,6 +400,68 @@ function renderGoals(goals) {
   });
 }
 
+function renderRelationships(data) {
+  const list = document.getElementById("relationship-list");
+  if (!list || !data) return;
+  list.innerHTML = "";
+  const notes = data.notes || [];
+  (data.profiles || []).forEach((profile) => {
+    const card = document.createElement("div");
+    card.className = "relationship-card";
+    const ownNotes = notes.filter((note) => note.viewer_id === profile.viewer_id);
+    card.innerHTML =
+      `<b>${escapeHtml(profile.viewer_id)}</b> · ${profile.interaction_count} interactions` +
+      `<div class="dim">preferences: ${escapeHtml((profile.confirmed_preferences || []).join(", ") || "none")}` +
+      ` · boundaries: ${escapeHtml((profile.boundaries || []).join(", ") || "none")}` +
+      ` · tone: ${escapeHtml(profile.tone || "none")}</div>` +
+      `<button class="rel-profile">Edit confirmed profile</button>` +
+      `<button class="rel-note">Add grounded note</button>` +
+      `<div class="relationship-notes"></div>`;
+    card.querySelector(".rel-profile").addEventListener("click", async () => {
+      const evidence = prompt("Grounded event ID:", "") || "";
+      if (!evidence) return;
+      await postJson(`/api/relationships/${encodeURIComponent(profile.viewer_id)}/profile`, {
+        preferences: (prompt("Preferences, comma-separated:", "") || "").split(",").map((v) => v.trim()).filter(Boolean),
+        boundaries: (prompt("Boundaries, comma-separated:", "") || "").split(",").map((v) => v.trim()).filter(Boolean),
+        tone: prompt("Tone (optional):", "") || null,
+        evidence_refs: [evidence], reason: "dashboard operator confirmation",
+      });
+    });
+    card.querySelector(".rel-note").addEventListener("click", async () => {
+      const summary = prompt("Relationship note:", "") || "";
+      const evidence = prompt("Grounded event ID:", "") || "";
+      if (!summary || !evidence) return;
+      await postJson(`/api/relationships/${encodeURIComponent(profile.viewer_id)}/notes`, {
+        summary, evidence_refs: [evidence], reason: "dashboard operator note",
+      });
+    });
+    const noteList = card.querySelector(".relationship-notes");
+    ownNotes.forEach((note) => {
+      const row = document.createElement("div");
+      row.className = "relationship-note";
+      row.innerHTML = `<span>[${escapeHtml(note.status)}] ${escapeHtml(note.summary)} ` +
+        `(${escapeHtml((note.evidence_refs || []).join(", "))})</span>`;
+      if (note.status === "pending") {
+        const approve = document.createElement("button"); approve.textContent = "Approve";
+        approve.addEventListener("click", () => postJson(
+          `/api/relationships/notes/${encodeURIComponent(note.note_id)}/review`,
+          { approve: true, reason: "dashboard operator approval" },
+        ));
+        row.appendChild(approve);
+      }
+      const remove = document.createElement("button"); remove.textContent = "Delete";
+      remove.addEventListener("click", () => deleteJson(
+        `/api/relationships/notes/${encodeURIComponent(note.note_id)}`,
+        { reason: "dashboard operator delete" },
+      ));
+      row.appendChild(remove);
+      noteList.appendChild(row);
+    });
+    list.appendChild(card);
+  });
+  if (!(data.profiles || []).length) list.innerHTML = "<em>Chưa có viewer profile.</em>";
+}
+
 function render(snap) {
   renderMetrics(snap.metrics);
   renderLLM(snap.llm);
@@ -400,6 +472,7 @@ function render(snap) {
   renderTriggers(snap.triggers);
   renderMood(snap.mood);
   renderGoals(snap.goals);
+  renderRelationships(snap.relationships);
 }
 
 // ---------- websocket ----------

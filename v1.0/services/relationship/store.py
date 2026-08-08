@@ -6,7 +6,7 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 
-from services.relationship.types import ViewerProfile
+from services.relationship.types import RelationshipNote, ReviewStatus, ViewerProfile
 
 
 class RelationshipStore:
@@ -74,6 +74,85 @@ class RelationshipStore:
         ).fetchall()
         return tuple(_profile(row) for row in rows)
 
+    def update_profile_attributes(
+        self, viewer_id: str, *, preferences: tuple[str, ...], boundaries: tuple[str, ...],
+        tone: str | None, updated_at: datetime,
+    ) -> ViewerProfile | None:
+        self._conn.execute(
+            """
+            UPDATE viewer_profiles SET confirmed_preferences_json = ?, boundaries_json = ?,
+                tone = ?, updated_at = ? WHERE viewer_id = ?
+            """,
+            (
+                json.dumps(preferences, ensure_ascii=False),
+                json.dumps(boundaries, ensure_ascii=False), tone,
+                updated_at.isoformat(), viewer_id,
+            ),
+        )
+        self._conn.commit()
+        return self.get_profile(viewer_id)
+
+    def insert_note(self, note: RelationshipNote) -> None:
+        self._conn.execute(
+            """
+            INSERT INTO relationship_notes(
+                note_id, viewer_id, summary, evidence_json, status, source,
+                created_at, expires_at, reviewed_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                note.note_id, note.viewer_id, note.summary,
+                json.dumps(note.evidence_refs, ensure_ascii=False), note.status.value,
+                note.source, note.created_at.isoformat(), note.expires_at.isoformat(),
+                note.reviewed_at.isoformat() if note.reviewed_at else None,
+            ),
+        )
+        self._conn.commit()
+
+    def get_note(self, note_id: str) -> RelationshipNote | None:
+        row = self._conn.execute(
+            "SELECT * FROM relationship_notes WHERE note_id = ?", (note_id,),
+        ).fetchone()
+        return _note(row) if row is not None else None
+
+    def list_notes(self, viewer_id: str | None = None) -> tuple[RelationshipNote, ...]:
+        if viewer_id is None:
+            rows = self._conn.execute(
+                "SELECT * FROM relationship_notes ORDER BY created_at DESC, note_id"
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT * FROM relationship_notes WHERE viewer_id = ? "
+                "ORDER BY created_at DESC, note_id", (viewer_id,),
+            ).fetchall()
+        return tuple(_note(row) for row in rows)
+
+    def review_note(self, note_id: str, status: ReviewStatus, reviewed_at: datetime) -> bool:
+        cursor = self._conn.execute(
+            "UPDATE relationship_notes SET status = ?, reviewed_at = ? WHERE note_id = ?",
+            (status.value, reviewed_at.isoformat(), note_id),
+        )
+        self._conn.commit()
+        return cursor.rowcount > 0
+
+    def delete_note(self, note_id: str) -> bool:
+        cursor = self._conn.execute(
+            "DELETE FROM relationship_notes WHERE note_id = ?", (note_id,),
+        )
+        self._conn.commit()
+        return cursor.rowcount > 0
+
+    def write_audit(
+        self, *, audit_id: str, action: str, viewer_id: str | None,
+        target_id: str | None, reason: str, created_at: datetime,
+    ) -> None:
+        self._conn.execute(
+            "INSERT INTO relationship_audit(audit_id, action, viewer_id, target_id, reason, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (audit_id, action, viewer_id, target_id, reason, created_at.isoformat()),
+        )
+        self._conn.commit()
+
     def prune_seen_events(self, before: datetime) -> int:
         cursor = self._conn.execute(
             "DELETE FROM relationship_seen_events WHERE occurred_at < ?", (before.isoformat(),),
@@ -94,3 +173,17 @@ def _profile(row: sqlite3.Row) -> ViewerProfile:
         tone=str(row["tone"]) if row["tone"] is not None else None,
     )
 
+
+def _note(row: sqlite3.Row) -> RelationshipNote:
+    return RelationshipNote(
+        note_id=str(row["note_id"]), viewer_id=str(row["viewer_id"]),
+        summary=str(row["summary"]),
+        evidence_refs=tuple(json.loads(row["evidence_json"] or "[]")),
+        status=ReviewStatus(str(row["status"])), source=str(row["source"]),
+        created_at=datetime.fromisoformat(str(row["created_at"])),
+        expires_at=datetime.fromisoformat(str(row["expires_at"])),
+        reviewed_at=(
+            datetime.fromisoformat(str(row["reviewed_at"]))
+            if row["reviewed_at"] is not None else None
+        ),
+    )

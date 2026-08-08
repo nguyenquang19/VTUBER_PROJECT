@@ -129,3 +129,5 @@ table.features th { color: var(--dim); font-weight: 500; font-size: 11px; text-t
 .goal-card small { color: var(--dim); display: block; margin-top: 5px; }
 .goal-form { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
 .goal-form input { min-width: 260px; flex: 1; background: #10131a; color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.relationship-card { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: var(--radius); padding: 12px 14px; margin: 10px 0; }
+.relationship-note { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; font-size: 12px; }
