@@ -160,6 +160,13 @@ class MetricsCollector:
             registry=self.registry,
         )
         self._context_chars_last = 0
+        self.conversation_repairs_total_c = Counter(
+            "mai_conversation_repairs_total",
+            "Conversation repair decisions",
+            ["kind"],
+            registry=self.registry,
+        )
+        self._repair_counts: dict[str, int] = {}
 
         # --- 3 "metric giả" cho Phase 0 (chưa có service thật) ---
         # DoD: "Metric giả cập nhật realtime trên chart"
@@ -205,6 +212,11 @@ class MetricsCollector:
     def observe_context_chars(self, chars: int) -> None:
         self._context_chars_last = max(0, int(chars))
         self.conversation_context_chars_h.observe(self._context_chars_last)
+
+    def record_repair(self, kind: str) -> None:
+        key = str(kind)
+        self._repair_counts[key] = self._repair_counts.get(key, 0) + 1
+        self.conversation_repairs_total_c.labels(kind=key).inc()
 
     def director_action_snapshot(self) -> dict[str, int]:
         return {

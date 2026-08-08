@@ -6,6 +6,7 @@ from services.agent.conversation_context import (
     ConversationContextComposer, ConversationContextConfig,
 )
 from services.agent.goal_types import Goal, GoalKind, GoalSnapshot, GoalSource, GoalStatus
+from services.agent.repair_policy import ConversationRepairPolicy, RepairPolicyConfig
 from services.agent.types import (
     AgentEventKind, AgentEventSource, AgentStateSnapshot, EventProvenance,
     GroundedEvent, OpenThread, SessionRecap, SessionRecapItem, ThreadEvidence,
@@ -82,3 +83,18 @@ async def test_context_composer_service_lifecycle() -> None:
     await composer.start()
     assert (await composer.health_check()).is_ok
     await composer.stop()
+
+
+def test_repair_instruction_is_rendered_inside_grounded_context() -> None:
+    policy = ConversationRepairPolicy(
+        RepairPolicyConfig(), clock=lambda: NOW + timedelta(minutes=1),
+    )
+    composer = ConversationContextComposer(
+        ConversationContextConfig(1400, 3, 180), repair_policy=policy,
+    )
+    context = composer.render(
+        AgentStateSnapshot(recent_events=(_event(1, "coffee only"),)),
+        "Nãy cậu bảo trời mưa đúng không?",
+    )
+    assert "Repair policy [missing_evidence" in context
+    assert "not certain" in context

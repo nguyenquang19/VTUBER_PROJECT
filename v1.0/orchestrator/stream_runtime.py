@@ -89,6 +89,7 @@ class StreamRuntime:
         goal_proposal: Any = None,
         thread_extractor: Any = None,
         conversation_context: Any = None,
+        repair_policy: Any = None,
         cfg: StreamRuntimeConfig | None = None,
     ) -> None:
         self._loader = loader
@@ -114,6 +115,7 @@ class StreamRuntime:
         self._goal_proposal = goal_proposal
         self._thread_extractor = thread_extractor
         self._conversation_context = conversation_context
+        self._repair_policy = repair_policy
         self.cfg = cfg or StreamRuntimeConfig()
 
         self._running = False
@@ -138,6 +140,8 @@ class StreamRuntime:
             await self._thread_extractor.start()
         if self._conversation_context is not None:
             await self._conversation_context.start()
+        if self._repair_policy is not None:
+            await self._repair_policy.start()
         await self._router.start()
         self._running = True
         # C0.4: DirectorLoop cầm nhịp (thay autonomy loop cũ). Fallback: autonomy loop
@@ -203,6 +207,9 @@ class StreamRuntime:
         if self._conversation_context is not None:
             with contextlib.suppress(Exception):
                 await self._conversation_context.stop()
+        if self._repair_policy is not None:
+            with contextlib.suppress(Exception):
+                await self._repair_policy.stop()
         if self._goal_manager is not None:
             with contextlib.suppress(Exception):
                 await self._goal_manager.stop()
@@ -498,8 +505,11 @@ async def build_stream_runtime(
         get_logger("stream_runtime").warning("agent_context_feature_missing")
         agent_context_enabled = False
     from services.agent.conversation_context import ConversationContextComposer
+    from services.agent.repair_policy import ConversationRepairPolicy
+    repair_policy = ConversationRepairPolicy.from_loader(loader, metrics=metrics)
     conversation_context = ConversationContextComposer.from_loader(
         loader, goal_provider=goal_manager.snapshot, metrics=metrics,
+        repair_policy=repair_policy,
     )
     try:
         continuity_status = await feature_manager.get_status("conversation_continuity")
@@ -804,6 +814,7 @@ async def build_stream_runtime(
         goal_proposal=goal_proposal,
         thread_extractor=thread_extractor,
         conversation_context=conversation_context,
+        repair_policy=repair_policy,
     )
     # DirectorLoop dùng runtime ctx của rt (silence/chat_count/memory) cho self_talk material
     director_loop._runtime_ctx_fn = rt._build_runtime_context  # noqa: SLF001

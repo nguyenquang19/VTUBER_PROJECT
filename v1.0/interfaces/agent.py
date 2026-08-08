@@ -158,3 +158,9 @@ class ConversationContextService(Service):
     @abstractmethod
     def render(self, state: "AgentStateSnapshot", query: str = "") -> str:
         """Render bounded grounded continuity context for one LLM turn."""
+
+
+class ConversationRepairService(Service):
+    @abstractmethod
+    def decide(self, state: "AgentStateSnapshot", query: str) -> object | None:
+        """Return a deterministic repair decision when evidence is unsafe to assert."""

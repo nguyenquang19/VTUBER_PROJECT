@@ -46,10 +46,12 @@ class ConversationContextComposer(ConversationContextService):
         *,
         goal_provider: Callable[[], GoalSnapshot] | None = None,
         metrics: Any = None,
+        repair_policy: Any = None,
     ) -> None:
         self.config = config
         self._goal_provider = goal_provider
         self._metrics = metrics
+        self._repair_policy = repair_policy
         self._running = False
         self._renders = 0
         self._last_chars = 0
@@ -58,10 +60,11 @@ class ConversationContextComposer(ConversationContextService):
     def from_loader(
         cls, loader: Any, *, goal_provider: Callable[[], GoalSnapshot] | None = None,
         metrics: Any = None,
+        repair_policy: Any = None,
     ) -> "ConversationContextComposer":
         return cls(
             ConversationContextConfig.from_loader(loader),
-            goal_provider=goal_provider, metrics=metrics,
+            goal_provider=goal_provider, metrics=metrics, repair_policy=repair_policy,
         )
 
     async def start(self) -> None:
@@ -89,6 +92,18 @@ class ConversationContextComposer(ConversationContextService):
             self._thread_line(state),
             self._goal_line(goals),
         ]
+        repair = None
+        if self._repair_policy is not None:
+            try:
+                repair = self._repair_policy.decide(state, query)
+            except Exception:
+                repair = None
+        if repair is not None:
+            evidence_ids = ",".join(repair.evidence_ids) or "none"
+            lines.append(
+                f"Repair policy [{repair.kind.value}; evidence={evidence_ids}]: "
+                f"{repair.instruction}"
+            )
         evidence = self._select_evidence(state.recent_events, query)
         for index in range(self.config.evidence_items):
             if index < len(evidence):
