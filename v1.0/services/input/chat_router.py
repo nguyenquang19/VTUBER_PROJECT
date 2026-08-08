@@ -16,6 +16,7 @@ import asyncio
 from datetime import timezone
 from typing import Any, Awaitable, Callable
 
+from interfaces.base import HealthStatus
 from interfaces.input import EventSource, InputEvent, InputService
 from orchestrator.emotion_orchestrator import EmotionOrchestrator
 from orchestrator.logger import get_logger
@@ -33,6 +34,8 @@ SpeakFn = Callable[[str, str], Awaitable[None]]  # (request_id, text) → None
 
 
 class ChatRouter:
+    service_id = "input_router"
+
     def __init__(
         self,
         sources: list[InputService],
@@ -130,6 +133,26 @@ class ChatRouter:
             "router_active_sources": len([s for s in self._sources if True]),
             **self._emotion.get_metrics(),
         }
+
+    async def health_check(self) -> HealthStatus:
+        if not self._running:
+            return HealthStatus.stopped(self.service_id)
+        dead = [task.get_name() for task in self._consumers if task.done()]
+        unhealthy_sources: list[str] = []
+        for source in self._sources:
+            try:
+                if not (await source.health_check()).is_ok:
+                    unhealthy_sources.append(source.service_id)
+            except Exception:
+                unhealthy_sources.append(source.service_id)
+        if dead or unhealthy_sources:
+            return HealthStatus.unhealthy(
+                self.service_id, "input consumer or source unhealthy",
+                dead_consumers=dead, unhealthy_sources=unhealthy_sources,
+            )
+        return HealthStatus.healthy(
+            self.service_id, sources=len(self._sources), consumers=len(self._consumers),
+        )
 
     # ---------- Internal ----------
 

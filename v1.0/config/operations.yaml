@@ -1,0 +1,32 @@
+# M9 — bounded live recovery and operator control.
+health_supervisor:
+  enabled: true
+  recovery_mode: "bounded_auto_restart"  # bounded_auto_restart | alert_only
+  interval_s: 10.0
+  check_timeout_s: 5.0
+  restart_timeout_s: 30.0
+  unhealthy_threshold: 2
+  max_restart_attempts: 3
+  restart_window_s: 300.0
+  backoff_initial_s: 2.0
+  backoff_max_s: 30.0
+  manage_llama_process: true
+
+shutdown:
+  timeout_s: 15.0
+  snapshot_file: "logs/operations/last_runtime_snapshot.json"
+
+dashboard_standalone:
+  open_browser: true
+  browser_delay_s: 0.8
+
+emergency_stop:
+  cancel_goal_on_resume_if_expired: true
+
+soak:
+  duration_s: 7200
+  sample_interval_s: 5.0
+  max_memory_growth_mb: 128.0
+  max_queue_growth: 20
+  max_error_rate: 0.01
+  latency_p95_budget_ms: 1500.0

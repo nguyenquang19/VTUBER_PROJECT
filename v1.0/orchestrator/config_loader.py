@@ -28,6 +28,7 @@ CONFIG_FILES: dict[str, str] = {
     "hosting": "hosting.yaml",                    # M5 mood/persona/proactive hosting
     "relationships": "relationships.yaml",        # M7 privacy-safe social history
     "evaluation": "evaluation.yaml",              # M8 eval/data/fine-tune gates
+    "operations": "operations.yaml",              # M9 live operations/recovery
     "features": "features.yaml",
     "triggers": "triggers.yaml",
     "state_machine": "state_machine.yaml",

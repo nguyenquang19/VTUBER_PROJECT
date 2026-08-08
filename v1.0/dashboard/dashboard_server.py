@@ -54,6 +54,8 @@ class DashboardServer:
         relationship_manager: Any = None,  # M7: audited social record controls
         data_dir: str = "logs",       # nơi ghi ratings/corrections
         push_interval_s: float = 1.0,
+        host: str = "127.0.0.1",
+        port: int = 7860,
     ) -> None:
         self.features = feature_manager
         self.sm = state_machine
@@ -76,10 +78,27 @@ class DashboardServer:
         self._ratings_writer = None       # lazy JsonlWriter
         self._corrections_writer = None
         self.push_interval_s = push_interval_s
+        self.host = host
+        self.port = int(port)
         self._log = get_logger("dashboard")
         self._ws_clients: set[WebSocket] = set()
         self._push_task: asyncio.Task[None] | None = None
+        self._uvicorn_server: Any = None
         self.app = self._build_app()
+
+    async def serve(self) -> None:
+        """Serve as a managed task so M9 supervisor can restart the dashboard."""
+        import uvicorn
+
+        self.start_push_loop()
+        self._uvicorn_server = uvicorn.Server(uvicorn.Config(
+            self.app, host=self.host, port=self.port, log_level="warning",
+        ))
+        try:
+            await self._uvicorn_server.serve()
+        finally:
+            await self.stop_push_loop()
+            self._uvicorn_server = None
 
     # ---------- snapshot ----------
 

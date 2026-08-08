@@ -25,6 +25,7 @@ from interfaces.filter import FilterCategory, FilterService, FilterVerdict
 from interfaces.input import EventSource, InputEvent, InputService
 from interfaces.llm import LLMRequest, LLMService, LLMToken
 from interfaces.memory import MemoryEntry, MemoryService, MemoryTier
+from interfaces.operations import HealthSupervisorService
 from interfaces.stt import NullSTTService, STTService, TranscriptChunk
 from interfaces.tts import AudioChunk, TTSRequest, TTSService
 
@@ -97,6 +98,10 @@ class TestServiceContract:
             (SessionRecapService, "snapshot"),
             (ConversationContextService, "render"),
             (ConversationRepairService, "decide"),
+            (HealthSupervisorService, "register_target"),
+            (HealthSupervisorService, "pause_recovery"),
+            (HealthSupervisorService, "resume_recovery"),
+            (HealthSupervisorService, "snapshot"),
         ],
     )
     def test_interface_declares_spec_method(self, iface, method) -> None:
@@ -115,6 +120,7 @@ class TestServiceContract:
             SessionRecapService,
             ConversationContextService,
             ConversationRepairService,
+            HealthSupervisorService,
         ],
     )
     def test_all_interfaces_inherit_service_base(self, iface) -> None:

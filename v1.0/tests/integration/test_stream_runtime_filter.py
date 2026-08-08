@@ -121,6 +121,21 @@ async def _build_runtime(
         lambda _loader: pref_writer,
     )
 
+    class FakeProcessManager:
+        def __init__(self, _config) -> None:
+            self.started = False
+
+        async def start(self) -> None:
+            self.started = True
+
+        async def stop(self) -> None:
+            self.started = False
+
+        async def restart(self) -> None:
+            self.started = True
+
+    monkeypatch.setattr(stream_runtime_module, "LlamaServerProcessManager", FakeProcessManager)
+
     enable_dashboard = dashboard_capture is not None
     if dashboard_capture is not None:
         import dashboard.dashboard_server as dashboard_module
@@ -185,6 +200,10 @@ class TestRuntimeFilterWiring:
             assert dashboard["filter_svc"] is runtime._filter_svc
             assert dashboard["regenerator"] is runtime._regenerator
             assert dashboard["goal_manager"] is runtime.goal_manager
+            assert set(runtime._health_supervisor.snapshot()["targets"]) == {
+                "dashboard", "input_router", "llm_main",
+            }
+            assert runtime._llama_process_manager.started is True
             assert runtime.agent_state.snapshot().active_goal_ref is None
             assert runtime.goal_proposal.enabled is False
 

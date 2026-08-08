@@ -40,6 +40,7 @@ from services.input.chat_router import ChatRouter
 from services.llm.canned_response import CannedResponder
 from services.llm.llama_cpp_llm import LlamaCppLLMService
 from services.llm.llm_turn import LLMTurnRunner
+from services.llm.process_manager import LlamaServerConfig, LlamaServerProcessManager
 from services.llm.prompt_manager import PromptManager
 from services.agent.types import (
     AgentEventKind,
@@ -92,6 +93,9 @@ class StreamRuntime:
         repair_policy: Any = None,
         behavior_library: Any = None,
         relationship_manager: Any = None,
+        health_supervisor: Any = None,
+        llama_process_manager: Any = None,
+        dashboard_ref: dict[str, Any] | None = None,
         cfg: StreamRuntimeConfig | None = None,
     ) -> None:
         self._loader = loader
@@ -120,6 +124,9 @@ class StreamRuntime:
         self._repair_policy = repair_policy
         self._behavior_library = behavior_library
         self._relationship_manager = relationship_manager
+        self._health_supervisor = health_supervisor
+        self._llama_process_manager = llama_process_manager
+        self._dashboard_ref = dashboard_ref
         self.cfg = cfg or StreamRuntimeConfig()
 
         self._running = False
@@ -161,6 +168,8 @@ class StreamRuntime:
                 self._autonomy_loop(), name="autonomy_tick",
             )
         self._record_environment_observation()
+        if self._health_supervisor is not None:
+            await self._health_supervisor.start()
         self._log.info(
             "stream_runtime_ready",
             tts=self.cfg.enable_tts, memory=self.cfg.enable_memory,
@@ -171,6 +180,9 @@ class StreamRuntime:
     async def stop(self) -> None:
         self._running = False
         self._stop_event.set()
+        if self._health_supervisor is not None:
+            with contextlib.suppress(Exception):
+                await self._health_supervisor.stop()
         # Stop director loop (C0.4) hoặc autonomy loop cũ
         if self._director_loop is not None:
             with contextlib.suppress(Exception):
@@ -199,13 +211,20 @@ class StreamRuntime:
             with contextlib.suppress(Exception):
                 await self._filter_svc.stop()
         # Dashboard
-        if self._dashboard_task is not None and not self._dashboard_task.done():
-            self._dashboard_task.cancel()
+        dashboard_task = (
+            self._dashboard_ref.get("task")
+            if self._dashboard_ref is not None else self._dashboard_task
+        )
+        if dashboard_task is not None and not dashboard_task.done():
+            dashboard_task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
-                await self._dashboard_task
+                await dashboard_task
         # LLM
         with contextlib.suppress(Exception):
             await self._llm_svc.stop()
+        if self._llama_process_manager is not None:
+            with contextlib.suppress(Exception):
+                await self._llama_process_manager.stop()
         if self._goal_proposal is not None:
             with contextlib.suppress(Exception):
                 await self._goal_proposal.stop()
@@ -356,6 +375,9 @@ class StreamRuntime:
         if self._relationship_manager is not None:
             with contextlib.suppress(Exception):
                 m.update(self._relationship_manager.get_metrics())
+        if self._health_supervisor is not None:
+            with contextlib.suppress(Exception):
+                m.update(self._health_supervisor.get_metrics())
         return m
 
     @property
@@ -495,11 +517,29 @@ async def build_stream_runtime(
     )
 
     # ─── LLM stack ───
+    try:
+        operations_status = await feature_manager.get_status("live_operations")
+        operations_enabled = operations_status in (
+            FeatureStatus.ENABLED, FeatureStatus.DEGRADED,
+        )
+    except KeyError:
+        get_logger("stream_runtime").warning("live_operations_feature_missing")
+        operations_enabled = False
+    llama_process_manager = None
+    if operations_enabled and bool(loader.get(
+        "operations", "health_supervisor.manage_llama_process", True,
+    )):
+        llama_process_manager = LlamaServerProcessManager(
+            LlamaServerConfig.from_loader(loader),
+        )
+        await llama_process_manager.start()
     llm_svc = LlamaCppLLMService.from_loader(loader)
     await llm_svc.start()
     health = await llm_svc.health_check()
     if not health.is_ok:
         await llm_svc.stop()
+        if llama_process_manager is not None:
+            await llama_process_manager.stop()
         raise RuntimeError(f"llama-server chưa chạy: {health.message}")
 
     from services.agent.goal_proposal import GoalProposalGenerator
@@ -972,16 +1012,77 @@ async def build_stream_runtime(
 
     # ─── Dashboard (optional) ───
     dashboard_task = None
+    dashboard_ref: dict[str, Any] | None = None
+    dashboard_server = None
     if cfg.enable_dashboard:
         from dashboard.dashboard_server import DashboardServer
-        ds = DashboardServer(feature_manager=feature_manager, metrics=metrics,
-                             filter_svc=filter_svc, regenerator=regenerator,
-                             emotion=emotion, runner=runner,
-                             agent_state=agent_state,
-                             goal_manager=goal_manager,
-                             relationship_manager=relationship_manager,
-                             data_dir=loader.get("logging", "jsonl.dir", "logs"))
-        dashboard_task = asyncio.create_task(ds.serve(), name="dashboard")
+        dashboard_server = DashboardServer(
+            feature_manager=feature_manager, metrics=metrics,
+            filter_svc=filter_svc, regenerator=regenerator,
+            emotion=emotion, runner=runner,
+            agent_state=agent_state,
+            goal_manager=goal_manager,
+            relationship_manager=relationship_manager,
+            data_dir=loader.get("logging", "jsonl.dir", "logs"),
+            host=loader.get("system", "dashboard.host", "127.0.0.1"),
+            port=int(loader.get("system", "dashboard.port", 7860)),
+            push_interval_s=float(loader.get(
+                "system", "dashboard.push_interval_s", 1.0,
+            )),
+        )
+        dashboard_task = asyncio.create_task(dashboard_server.serve(), name="dashboard")
+        dashboard_ref = {"task": dashboard_task, "server": dashboard_server}
+
+    health_supervisor = None
+    if operations_enabled and bool(loader.get(
+        "operations", "health_supervisor.enabled", True,
+    )):
+        from services.operations.health_supervisor import HealthSupervisor
+
+        health_supervisor = HealthSupervisor.from_loader(loader, metrics=metrics)
+
+        async def _restart_llm() -> None:
+            async with turn_lock:
+                await llm_svc.stop()
+                if llama_process_manager is not None:
+                    await llama_process_manager.restart()
+                await llm_svc.start()
+
+        async def _restart_input() -> None:
+            await router.stop()
+            await router.start()
+
+        health_supervisor.register_target("llm_main", llm_svc.health_check, _restart_llm)
+        health_supervisor.register_target("input_router", router.health_check, _restart_input)
+
+        if tts_svc is not None:
+            async def _restart_tts() -> None:
+                await tts_svc.stop()
+                await tts_svc.start()
+
+            health_supervisor.register_target("tts", tts_svc.health_check, _restart_tts)
+
+        if dashboard_ref is not None:
+            async def _dashboard_health():
+                from interfaces.base import HealthStatus
+                task = dashboard_ref.get("task")
+                if task is None or task.done():
+                    return HealthStatus.unhealthy("dashboard", "serve task stopped")
+                return HealthStatus.healthy("dashboard")
+
+            async def _restart_dashboard() -> None:
+                task = dashboard_ref.get("task")
+                if task is not None and not task.done():
+                    task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await task
+                dashboard_ref["task"] = asyncio.create_task(
+                    dashboard_ref["server"].serve(), name="dashboard",
+                )
+
+            health_supervisor.register_target(
+                "dashboard", _dashboard_health, _restart_dashboard,
+            )
 
     rt = StreamRuntime(
         loader=loader, llm_svc=llm_svc, runner=runner, emotion=emotion,
@@ -999,6 +1100,9 @@ async def build_stream_runtime(
         repair_policy=repair_policy,
         behavior_library=behavior_library,
         relationship_manager=relationship_manager,
+        health_supervisor=health_supervisor,
+        llama_process_manager=llama_process_manager,
+        dashboard_ref=dashboard_ref,
     )
     # DirectorLoop dùng runtime ctx của rt (silence/chat_count/memory) cho self_talk material
     director_loop._runtime_ctx_fn = rt._build_runtime_context  # noqa: SLF001

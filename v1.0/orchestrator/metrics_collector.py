@@ -221,6 +221,13 @@ class MetricsCollector:
             registry=self.registry,
         )
         self._eval_scenarios: dict[tuple[str, str], int] = {}
+        self.health_supervisor_actions_total_c = Counter(
+            "mai_health_supervisor_actions_total",
+            "Bounded health supervisor observations and recovery actions",
+            ["service_id", "action"],
+            registry=self.registry,
+        )
+        self._health_supervisor_actions: dict[tuple[str, str], int] = {}
 
         # --- 3 "metric giả" cho Phase 0 (chưa có service thật) ---
         # DoD: "Metric giả cập nhật realtime trên chart"
@@ -361,6 +368,19 @@ class MetricsCollector:
         return {
             f"{group}:{outcome}": count
             for (group, outcome), count in sorted(self._eval_scenarios.items())
+        }
+
+    def record_health_supervisor_action(self, service_id: str, action: str) -> None:
+        key = (str(service_id), str(action))
+        self._health_supervisor_actions[key] = self._health_supervisor_actions.get(key, 0) + 1
+        self.health_supervisor_actions_total_c.labels(
+            service_id=key[0], action=key[1],
+        ).inc()
+
+    def health_supervisor_snapshot(self) -> dict[str, int]:
+        return {
+            f"{service_id}:{action}": count
+            for (service_id, action), count in sorted(self._health_supervisor_actions.items())
         }
 
     def director_action_snapshot(self) -> dict[str, int]:
