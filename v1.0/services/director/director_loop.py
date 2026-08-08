@@ -26,6 +26,7 @@ from orchestrator.logger import get_logger
 from services.autonomy.material_provider import RuntimeContext
 from services.director.chat_pulse import PulseState
 from services.director.director import Director, DirectorAction, ReadMode
+from services.director.action_context import ActionContextBuilder
 from services.director.action_types import DirectorChatRef, DirectorInput
 from services.agent.goal_types import GoalSnapshot
 from services.agent.types import AgentStateSnapshot
@@ -59,6 +60,7 @@ class DirectorLoop:
         metrics: Any = None,
         goal_arbitration_enabled: bool = True,
         safety_hold_fn: Callable[[], bool] | None = None,
+        action_context_builder: ActionContextBuilder | None = None,
     ) -> None:
         self._director = director
         self._pool = pool
@@ -77,6 +79,7 @@ class DirectorLoop:
         self._metrics = metrics
         self._goal_arbitration_enabled = bool(goal_arbitration_enabled)
         self._safety_hold_fn = safety_hold_fn
+        self._action_context_builder = action_context_builder or ActionContextBuilder()
 
         self._task: asyncio.Task | None = None
         self._running = False
@@ -138,7 +141,8 @@ class DirectorLoop:
                 urge_ready = self._autonomy.urge.should_speak_now()
             except Exception:
                 pass
-        dec = self._director.decide(self._build_director_input(now, urge_ready))
+        director_input = self._build_director_input(now, urge_ready)
+        dec = self._director.decide(director_input)
         self._record_director_metric(dec)
 
         if dec.action == DirectorAction.WAIT:
@@ -147,7 +151,7 @@ class DirectorLoop:
 
         async with self._turn_lock:
             try:
-                await self._execute(dec, now)
+                await self._execute(dec, now, director_input)
                 self._record_director_action(dec, now)
             except Exception as e:
                 self._log.warning("director_execute_failed",
@@ -233,13 +237,30 @@ class DirectorLoop:
 
     # ---------- execute ----------
 
-    async def _execute(self, dec, now: float) -> None:
+    async def _execute(self, dec, now: float, director_input: DirectorInput) -> None:
         if dec.action in (DirectorAction.READ_CHAT, DirectorAction.ACK_DONATION):
             await self._exec_read(dec, now)
         elif dec.action in (DirectorAction.SELF_TALK, DirectorAction.FOLLOW_UP):
             await self._exec_self_talk(dec, now)
         elif dec.action == DirectorAction.TRANSITION:
             await self._exec_transition(dec, now)
+        elif dec.action in (
+            DirectorAction.CONTINUE_THREAD,
+            DirectorAction.ASK_FOLLOW_UP,
+            DirectorAction.SHARE_GOAL_PROGRESS,
+        ):
+            await self._exec_goal_action(dec, now, director_input)
+
+    async def _exec_goal_action(
+        self, dec: Any, now: float, director_input: DirectorInput,
+    ) -> None:
+        context = self._action_context_builder.render(dec, director_input)
+        req_id = f"goal_{uuid.uuid4().hex[:8]}"
+        parsed = await self._runner.run_directed_turn(req_id, context)
+        if parsed.ok and parsed.text:
+            self._runner.commit_self_talk(parsed.text)
+        self._director.mark_spoke(dec.action, now)
+        await self._maybe_speak(req_id, parsed, dec.action, [])
 
     async def _exec_read(self, dec, now: float) -> None:
         # SUMMARY/VIBE = react cả CĂN PHÒNG (không đáp 1 tin cụ thể) → đường ambient,

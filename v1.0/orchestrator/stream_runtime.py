@@ -640,6 +640,7 @@ async def build_stream_runtime(
 
     # ─── C0.4: Director stack — cầm nhịp thay FIFO ───
     from services.director.chat_pulse import ChatPulse
+    from services.director.action_context import ActionContextBuilder
     from services.director.director import Director
     from services.director.director_loop import DirectorLoop
     from services.director.salience import SaliencePool
@@ -647,6 +648,7 @@ async def build_stream_runtime(
     pool = SaliencePool.from_loader(loader)
     pulse = ChatPulse.from_loader(loader)
     director = Director.from_loader(pool, pulse, loader)
+    action_context_builder = ActionContextBuilder.from_loader(loader)
     turn_lock = asyncio.Lock()   # 1 lock chung: ChatRouter intake + DirectorLoop
     try:
         arbiter_status = await feature_manager.get_status("director_goal_arbiter")
@@ -672,6 +674,7 @@ async def build_stream_runtime(
         goal_manager=goal_manager,
         metrics=metrics,
         goal_arbitration_enabled=arbiter_enabled,
+        action_context_builder=action_context_builder,
     )
 
     async def _enable_director_goal_arbiter() -> None:

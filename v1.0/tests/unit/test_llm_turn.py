@@ -21,8 +21,10 @@ class FakeLLM:
         self._tokens = tokens or []
         self._raise = raise_exc
         self._delay = delay
+        self.requests = []
 
     async def generate_stream(self, request):
+        self.requests.append(request)
         if self._raise is not None:
             raise self._raise
         for t in self._tokens:
@@ -68,6 +70,22 @@ class TestHistoryUserText:
         runner, pm, canned, seen = make_runner(FakeLLM(VALID))
         await runner.run_turn("r1", "câu chào bình thường")
         assert any("câu chào bình thường" in m.content for m in pm.history())
+
+
+class TestDirectedTurn:
+    async def test_action_context_is_system_only_and_not_committed(self) -> None:
+        fake = FakeLLM(VALID)
+        runner, pm, *_ = make_runner(fake)
+        parsed = await runner.run_directed_turn("g1", "grounded director action")
+        assert parsed.ok is True
+        assert pm.history() == []
+        request = fake.requests[0]
+        assert request.messages[-1].role == "system"
+        assert request.messages[-1].content == "grounded director action"
+        assert not any(
+            message.role == "user" and "grounded director action" in message.content
+            for message in request.messages
+        )
 
 
 class TestPrimarySuccess:

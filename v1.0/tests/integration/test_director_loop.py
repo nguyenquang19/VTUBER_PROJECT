@@ -31,6 +31,7 @@ class FakeRunner:
     def __init__(self) -> None:
         self.read_calls: list[str] = []
         self.ambient_calls: list[str] = []
+        self.directed_calls: list[str] = []
         self.committed: list[str] = []
         self.hist_calls: list[tuple] = []
         self.stage_calls: list = []
@@ -47,6 +48,10 @@ class FakeRunner:
     async def run_ambient_turn(self, request_id, prompt_text):
         self.ambient_calls.append(prompt_text)
         return FakeParsed(text=f"self:{prompt_text[:20]}")
+
+    async def run_directed_turn(self, request_id, system_context):
+        self.directed_calls.append(system_context)
+        return FakeParsed(text="directed reply")
 
     def commit_self_talk(self, text):
         self.committed.append(text)
@@ -86,12 +91,13 @@ def _segments():
     return [
         Segment("opening", "chào", 10.0, {"self_talk", "read_chat", "transition"}),
         Segment("main", "chính", 300.0,
-                {"read_chat", "self_talk", "ack_donation", "transition"}),
+                {"read_chat", "self_talk", "ack_donation", "continue_thread",
+                 "ask_follow_up", "share_goal_progress", "transition"}),
         Segment("closing", "kết", 10.0, {"self_talk", "transition"}),
     ]
 
 
-def _make(now=0.0, autonomy=None, agent_state=None, **dir_over):
+def _make(now=0.0, autonomy=None, agent_state=None, goal_manager=None, **dir_over):
     pool = SaliencePool(base_tier={"chat": 10, "question": 25, "mention": 35},
                         tau_seconds=50.0, floor=3.0, cluster_coef=5.0)
     pulse = ChatPulse(window_seconds=60.0, tempo_low_per_min=2.0,
@@ -108,6 +114,7 @@ def _make(now=0.0, autonomy=None, agent_state=None, **dir_over):
         emotion=None, autonomy=autonomy, speak=None,
         clock=lambda: clock["t"],
         agent_state=agent_state,
+        goal_manager=goal_manager,
     )
     director.start(now)
     # move past opening so read_chat/ack allowed (main segment)

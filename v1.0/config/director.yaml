@@ -17,6 +17,9 @@ director:
   arbiter:
     ask_follow_up_before_expiry_s: 20
     donation_sla_seconds: 5
+    context:
+      max_chars: 900
+      field_max_chars: 240
 
   segments:
     - name: opening

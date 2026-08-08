@@ -376,6 +376,49 @@ class LLMTurnRunner:
         )
         return parsed
 
+    async def run_directed_turn(
+        self, request_id: str, system_context: str,
+    ) -> ParsedResponse:
+        """Run a Director-initiated turn whose action context is system-only."""
+        self._reset_filter_tracking()
+        request = self._pm.build_directed_request(request_id, system_context)
+        try:
+            self._log_cause = self._emotion.active_cause() if self._emotion else None
+        except Exception:
+            self._log_cause = None
+        history_len_at_gen = len(self._pm.history())
+        t0 = time.perf_counter()
+        result = await self._fb.execute(_CHAIN_ID, request)
+        latency_ms = int((time.perf_counter() - t0) * 1000)
+        parsed: ParsedResponse = result.value
+        if parsed.ok and parsed.mood.dominant() != "neutral":
+            self._canned.update_mood(parsed.mood)
+        self._record_metrics(parsed, result.level_used)
+        if self._emotion is not None:
+            try:
+                self._emotion.clear_tone_flags()
+            except Exception:
+                pass
+        self._log_turn(
+            kind="director_action",
+            user_text=None,
+            parsed=parsed,
+            trigger_type="director_goal_action",
+            level_used=result.level_used,
+            latency_ms=latency_ms,
+            viewer_id=None,
+            session_id=self.session_id,
+            extra=self._build_log_extra(request, None, history_len_at_gen),
+        )
+        self._record_speech_event(
+            request_id=request_id,
+            parsed=parsed,
+            session_id=self.session_id,
+            mode="director_action",
+            trigger_type="director_goal_action",
+        )
+        return parsed
+
     def _record_speech_event(
         self,
         *,

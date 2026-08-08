@@ -107,6 +107,28 @@ class PromptManager:
             temperature=temperature if temperature is not None else self._default_temperature,
         )
 
+    def build_directed_request(
+        self,
+        request_id: str,
+        system_context: str,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+    ) -> LLMRequest:
+        """Build a Director-initiated turn without fabricating a user message."""
+        context = system_context.strip()
+        if not context:
+            raise ValueError("system_context must not be empty")
+        return LLMRequest(
+            request_id=request_id,
+            messages=[
+                self._cache.as_message(),
+                *self._history,
+                ChatMessage(role="system", content=context),
+            ],
+            max_tokens=max_tokens if max_tokens is not None else self._default_max_tokens,
+            temperature=temperature if temperature is not None else self._default_temperature,
+        )
+
     def build_request_with_mood(
         self,
         request_id: str,
