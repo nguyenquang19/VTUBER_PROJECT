@@ -1253,6 +1253,29 @@ config `config/hosting.yaml`, `config/pacing.yaml`, `config/autonomy.yaml`.
 
 ---
 
+## 17. Relationship lite và narrative grounded (M7)
+
+**Files:** `interfaces/relationship.py`, `services/relationship/types.py`,
+`services/relationship/store.py`, `services/relationship/manager.py`; migrations 005/006 và config
+`config/relationships.yaml`.
+
+- `RelationshipManager.observe_interaction`: hash raw ID bằng salt local, dedup event, cập nhật
+  interaction count/last seen/expiry. Alias không đi vào store.
+- Confirmed profile attributes và `RelationshipNote` cần event refs thật. Note pending chỉ được dùng
+  sau operator approval; mọi create/review/delete có audit.
+- `NarrativeItem`: active/resolved, event refs và expiry. `render_context()` chỉ render item active,
+  note approved và viewer context phù hợp trong character budget.
+- `RunningGag`: chỉ tạo sau threshold positive events, refs phải là positive evidence của cùng
+  viewer, cần operator approval và rate-limit injection.
+- Privacy API dùng `MemoryService.export_viewer()`/`forget_viewer()` xuyên semantic + working tiers.
+  Export mask PII; deletion memory-first rồi transaction relationship-scoped.
+- Dashboard Agent tab hỗ trợ profile/note/narrative/gag review và privacy export/delete. Snapshot chỉ
+  chứa pseudonym. Metric: `mai_relationship_events_total{outcome,reason}`.
+- Regression sanitize: `tests/fixtures/relationship_sanitized.json` và
+  `docs/baselines/m7_relationship_eval.json`.
+
+---
+
 ## Notes / Gotchas thường gặp
 
 1. **VieNeu-TTS TTFA 5.6s?** — quên gọi `add_voice(...)` trong `start()`. Đảm bảo cache voice 1 lần.

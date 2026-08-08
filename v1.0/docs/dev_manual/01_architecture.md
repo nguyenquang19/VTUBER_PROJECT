@@ -306,6 +306,31 @@ Các toggle mặc định ON: `mood_behavior_policy`, `proactive_hosting`, `beha
 
 ---
 
+## 6.6. Relationship lite và grounded narrative (M7)
+
+M6 environment được user hoãn; M7 không phụ thuộc environment adapter và chỉ mở rộng lịch sử xã
+hội có evidence:
+
+```text
+grounded chat event → local HMAC pseudonym → ViewerProfile + interaction dedup/TTL
+operator + existing event refs → pending note/gag → review → bounded system context
+existing event refs → active narrative → expiry/resolve → bounded system context
+privacy request → sanitized export hoặc strict memory-first scoped deletion
+```
+
+Raw platform ID/display name không được persist trong relationship tables. Preference, boundary và
+tone chỉ được cập nhật khi operator cung cấp event ID đang tồn tại. Notes chỉ vào prompt sau approve;
+narrative phải active/chưa hết hạn. Running gag còn cần ba positive event của cùng pseudonym và
+cooldown trước lần inject kế tiếp.
+
+Privacy deletion xóa semantic/working memory trước. Nếu bước này lỗi, relationship records vẫn được
+giữ và request thất bại; không báo success một phần. Sau đó service xóa profile, notes, narratives,
+gags, positive/seen events và viewer-scoped audit trong transaction. Audit deletion mới không chứa
+viewer ID. Toggle `relationship_memory` mặc định ON; toàn bộ cap/TTL/cooldown nằm trong
+`config/relationships.yaml`.
+
+---
+
 ## 7. State Machine 5 state (Phase 0)
 
 ```

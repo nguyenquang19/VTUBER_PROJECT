@@ -356,6 +356,26 @@ khi muốn rollout, rồi theo dõi `mai_agent_events_total{outcome,reason}` và
 
 ---
 
+### 4.7. Relationship lite và narrative grounded (M7)
+
+- `relationship_memory` mặc định ON. Tune TTL/cap/cooldown trong `config/relationships.yaml`;
+  consent giữ `operator_notice`, retention profile là 30 ngày và `auto_delete: false`.
+- Dashboard Agent tab chỉ hiển thị pseudonym `v_*`. Profile update, note, narrative và running gag
+  đều yêu cầu grounded event ID; note/gag pending cần operator approve.
+- Theo dõi `mai_relationship_events_total{outcome,reason}` cùng snapshot
+  `relationship_interactions_total`, duplicates và profile count.
+- Privacy export: `GET /api/relationships/{viewer_id}/export`. Delete toàn bộ record của một
+  pseudonym: `DELETE /api/relationships/{viewer_id}` với JSON body có `reason`.
+- Delete là strict memory-first. HTTP 500 nghĩa memory purge thất bại và relationship record chưa bị
+  xóa; không retry mù trước khi kiểm tra lỗi semantic/working tier.
+- Gate deterministic:
+  `python -m pytest tests\integration\test_relationship_regression_m7.py tests\unit\test_relationship_privacy.py -q`.
+  Fixture/baseline đã sanitize tại `tests/fixtures/relationship_sanitized.json` và
+  `docs/baselines/m7_relationship_eval.json`.
+- M6 environment đang deferred theo quyết định user; M7 complete không đồng nghĩa M6 complete.
+
+---
+
 ## 5. Monitoring
 
 ### 5.1. Dashboard http://127.0.0.1:7860

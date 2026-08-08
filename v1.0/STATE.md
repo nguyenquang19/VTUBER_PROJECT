@@ -1,5 +1,28 @@
 # STATE — Mai project
 
+## Master Plan M7 — Relationship lite và narrative grounded (2026-08-08) — XONG
+
+- Theo quyết định user, M6 được hoãn vì chưa có game/environment thật; không đánh dấu M6 complete.
+- M7.1 thêm profile chỉ dùng HMAC pseudonym local, interaction dedup, last-seen/TTL 30 ngày;
+  không persist platform ID hoặc display name.
+- M7.2 thêm confirmed preference/boundary/tone và relationship note bắt buộc grounded event refs.
+  Note đi pending → operator approve/reject; dashboard có xem, cập nhật, duyệt và xóa có audit.
+- M7.3 thêm narrative active/resolved/expiry. Item không có evidence thật bị reject; chỉ note approved
+  và narrative active/chưa hết hạn được inject vào bounded system context, không tạo user turn giả.
+- M7.4 running gag cần ít nhất ba tương tác tích cực của đúng viewer, refs phải thuộc tập positive
+  event, operator approve và cooldown 1.800 giây trước lần inject tiếp theo.
+- M7.5 export chỉ trả pseudonym và memory đã mask PII. Delete xóa đúng viewer khỏi relationship,
+  working/semantic memory; memory purge lỗi thì abort trước khi xóa relationship và API báo lỗi.
+- Feature `relationship_memory` mặc định ON; config `config/relationships.yaml`; metrics
+  `mai_relationship_events_total{outcome,reason}`. Dashboard không hiển thị raw identity.
+- Sanitized deterministic baseline 5/5 tại `docs/baselines/m7_relationship_eval.json`.
+- Affected regression: `226 passed`; full regression: `1346 passed, 1 warning`; CI offline:
+  `1343 passed, 3 deselected, 1 warning`. Warning Starlette/httpx đã có từ trước.
+- CI phát hiện JSONL archive collision trên Windows; commit `4662d78` thêm suffix collision-safe,
+  logger regression `18 passed`.
+- Commits: `8b5de37`, `c68f4b8`, `146bbd2`, `711a0e4`, `f419e87`, `4662d78`.
+  **Dừng chờ user review; chưa bắt đầu M8.**
+
 ## Master Plan M5 — Mood, persona và proactive hosting (2026-08-08) — XONG
 
 - M5.1 thêm `MoodBehaviorPolicy` config-driven để mood/tone điều chỉnh ưu tiên agenda và điểm
