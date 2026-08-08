@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "duration_seconds": 3600,
+  "event_count": 1000,
+  "action_counts": {
+    "ack_donation": 18,
+    "ask_follow_up": 8,
+    "continue_thread": 8,
+    "read_chat": 724,
+    "self_talk": 227,
+    "share_goal_progress": 8,
+    "wait": 7
+  },
+  "donation_events": 18,
+  "donation_events_served": 18,
+  "goal_instances": 32,
+  "goal_instances_served": 32,
+  "max_donation_latency_seconds": 0.0,
+  "max_goal_action_latency_seconds": 3.6,
+  "max_actions_per_goal": 1,
+  "wait_llm_calls": 0,
+  "raw_chat_included": false
+}
