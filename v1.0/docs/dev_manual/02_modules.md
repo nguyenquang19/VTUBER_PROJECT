@@ -1231,6 +1231,28 @@ config `config/conversation.yaml`.
 
 ---
 
+## 16. Mood, persona và proactive hosting (M5)
+
+**Files:** `services/agent/mood_policy.py`, `services/director/proactive_policy.py`,
+`services/agent/behavior_library.py`, `services/tts/natural_timing.py`;
+config `config/hosting.yaml`, `config/pacing.yaml`, `config/autonomy.yaml`.
+
+- `MoodBehaviorPolicy`: chuyển mood/tone flags thành adjustment bounded cho goal priority và
+  self-talk action score; hard priority của safety/donation/active goal không đổi.
+- `ProactiveHostingPolicy`: chọn nguồn grounded theo open thread → salient environment → silence,
+  trong khi Director vẫn xử lý active goal và relevant chat trước; có provenance và source cooldown.
+- `BehaviorLibrary`: chọn hành vi từ cấu hình applicability/safety guard. `force_gentle` và
+  `force_deflect` được xử lý trước mood-based tease.
+- `NaturalTimingPolicy`: calibrate từ ba mẫu TTS TTFA thật, dùng median và ceiling cấu hình; không
+  thêm delay/filler khi thiếu mẫu hoặc backend chậm.
+- `scripts/eval_hosting_session.py`: tạo/validate review sheet sanitize 20–30 lượt. Sáu rubric phải
+  có điểm nguyên 1–5, note và reviewer thật; baseline template nằm tại
+  `docs/baselines/m5_hosting_eval.json`.
+- Runtime sở hữu lifecycle và FeatureManager toggle cả bốn policy. Directive persona chỉ bổ sung
+  system/stage instruction, không giả chat hoặc nguồn evidence.
+
+---
+
 ## Notes / Gotchas thường gặp
 
 1. **VieNeu-TTS TTFA 5.6s?** — quên gọi `add_voice(...)` trong `start()`. Đảm bảo cache voice 1 lần.

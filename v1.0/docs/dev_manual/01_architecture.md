@@ -279,6 +279,33 @@ repair kind và `mai_grounded_recall_rate`.
 
 ---
 
+## 6.5. Mood-aware proactive hosting (M5)
+
+M5 giữ Director là arbiter duy nhất nhưng bổ sung policy config-driven quanh quyết định:
+
+```text
+AgentState mood/tone → MoodBehaviorPolicy → agenda/action score
+grounded goal/chat/thread/environment → ProactiveHostingPolicy → Director action
+safety flags + mood → BehaviorLibrary → system/stage directive
+real TTS TTFA samples → NaturalTimingPolicy → bounded pacing
+```
+
+Mood chỉ điều chỉnh ưu tiên mềm; safety, donation và active goal không bị persona ghi đè. Khi không
+có goal/chat, proactive source được chọn theo open thread rồi environment salient, cuối cùng mới là
+silence fallback. Mọi thread/environment candidate phải có source ID và provenance thật; cooldown
+theo source ngăn lặp.
+
+`BehaviorLibrary` cung cấp curious/deflect/tease/acknowledge/repair/invite/transition. Safety guard
+chọn acknowledge hoặc deflect trước tease, và directive chỉ được đưa vào system/stage context.
+Natural timing chỉ hoạt động sau khi có đủ mẫu TTFA thật; backend chậm hoặc chưa calibrate thì không
+thêm filler nhân tạo. Evaluator M5 tạo review sheet sanitize 20–30 lượt nhưng bắt buộc người vận hành
+chấm sáu rubric, không tự bịa điểm chất lượng.
+
+Các toggle mặc định ON: `mood_behavior_policy`, `proactive_hosting`, `behavior_library`,
+`natural_timing`. Policy nằm trong `config/hosting.yaml` và `config/pacing.yaml`.
+
+---
+
 ## 7. State Machine 5 state (Phase 0)
 
 ```

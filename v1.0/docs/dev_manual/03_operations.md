@@ -335,6 +335,27 @@ khi muốn rollout, rồi theo dõi `mai_agent_events_total{outcome,reason}` và
 
 ---
 
+### 4.6. Mood, persona và proactive hosting (M5)
+
+- Tune mood/action/behavior/proactive policy trong `config/hosting.yaml`, natural timing trong
+  `config/pacing.yaml` và environment category trong `config/autonomy.yaml`; không hardcode score,
+  delay hoặc cooldown trong service.
+- Các feature `mood_behavior_policy`, `proactive_hosting`, `behavior_library`, `natural_timing` mặc
+  định ON và có thể toggle runtime. Tắt policy không được làm mất AgentState/EventLedger grounded.
+- Theo dõi `mai_mood_behavior_adjustments_total{target,reason}`,
+  `mai_proactive_candidates_total{source,outcome}`, `mai_host_behaviors_total{behavior,reason}`,
+  `mai_natural_timing_decisions_total{turn_kind,reason}` và `mai_natural_timing_ttfa_ms`.
+- Gate deterministic:
+  `python -m pytest tests\integration\test_hosting_regression_m5.py -q`.
+- Tạo review sheet từ log local đã sanitize:
+  `python scripts\eval_hosting_session.py --file logs\turns.jsonl --turns 25 --output logs\m5_hosting_review.json`.
+  Sau khi operator điền reviewer, điểm và note, validate bằng
+  `python scripts\eval_hosting_session.py --validate-review logs\m5_hosting_review.json`.
+- Không commit log thô hoặc review chứa nội dung/identity local. Fixture regression đã sanitize tại
+  `tests/fixtures/hosting_session_sanitized.json`; baseline tại `docs/baselines/m5_hosting_eval.json`.
+
+---
+
 ## 5. Monitoring
 
 ### 5.1. Dashboard http://127.0.0.1:7860

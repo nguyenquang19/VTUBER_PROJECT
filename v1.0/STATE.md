@@ -1,5 +1,29 @@
 # STATE — Mai project
 
+## Master Plan M5 — Mood, persona và proactive hosting (2026-08-08) — XONG
+
+- M5.1 thêm `MoodBehaviorPolicy` config-driven để mood/tone điều chỉnh ưu tiên agenda và điểm
+  self-talk; safety, donation và active goal vẫn giữ hard priority.
+- M5.2 thêm `ProactiveHostingPolicy` grounded theo thứ tự active goal → relevant chat → open thread
+  → environment salient → silence fallback. Cooldown theo source chặn lặp mà không rơi xuyên xuống
+  lời lấp khoảng trống.
+- M5.3 thêm thư viện hành vi `curious`, `deflect`, `tease`, `acknowledge`, `repair`, `invite`,
+  `transition`; safety guard ép acknowledge/deflect trước persona tease. Directive chỉ đi vào system
+  context, không tạo user turn giả.
+- M5.4 thêm natural timing dựa trên median TTFA thật sau tối thiểu ba mẫu. Chưa đủ mẫu hoặc backend
+  chậm thì không thêm delay/filler; filler chỉ dành cho lượt proactive phù hợp.
+- M5.5 thêm evaluator tạo review sheet sanitize 20–30 lượt với sáu rubric: relevance, continuity,
+  persona, non-confabulation, repetition và hostness. Điểm chủ quan bắt buộc operator thật nhập;
+  tool không tự tạo kết quả review giả.
+- Features mặc định ON: `mood_behavior_policy`, `proactive_hosting`, `behavior_library`,
+  `natural_timing`. Metrics gồm mood adjustment, proactive source/outcome, behavior/reason và
+  natural timing/TTFA.
+- Affected M5 regression: `319 passed`; full regression: `1319 passed, 1 warning`; CI offline:
+  `1314 passed, 5 deselected, 1 warning`. Warning Starlette/httpx đã có từ trước.
+- Review template/baseline: `docs/baselines/m5_hosting_eval.json`; live operator review đang chờ.
+- Commits: `13ea895`, `0f989cf`, `15b8a84`, `bf09032`, `21b9a19`.
+  **Dừng chờ user review; chưa bắt đầu M6.**
+
 ## Master Plan M4 — Conversation continuity, memory và repair (2026-08-08) — XONG
 
 - M4.1 thêm `OpenThreadManager` deterministic cho question/promise/story: create/update/resolve,
