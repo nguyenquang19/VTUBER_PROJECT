@@ -10,6 +10,7 @@ from interfaces.base import Service
 if TYPE_CHECKING:
     from services.agent.types import AgentStateSnapshot, GroundedEvent
     from services.agent.goal_types import Goal, GoalSnapshot
+    from services.agent.goal_proposal import GoalProposal
 
 
 class EventLedgerService(Service):
@@ -78,3 +79,19 @@ class GoalManagerService(Service):
     @abstractmethod
     def handle_event(self, event: "GroundedEvent", state: "AgentStateSnapshot") -> None:
         """Apply grounded event completion/refresh rules and candidate policy."""
+
+    @abstractmethod
+    def accept_proposal(
+        self, proposal: "GoalProposal", state: "AgentStateSnapshot",
+    ) -> bool:
+        """Validate LLM proposal evidence before submitting it as a candidate."""
+
+
+class GoalProposalService(Service):
+    @abstractmethod
+    async def propose(self, state: "AgentStateSnapshot") -> "GoalProposal | None":
+        """Return one strict-schema proposal without activating it."""
+
+    @abstractmethod
+    def set_enabled(self, enabled: bool) -> None:
+        """Enable or disable future proposal calls."""

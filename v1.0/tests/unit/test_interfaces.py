@@ -13,7 +13,9 @@ import pytest
 from pydantic import ValidationError
 
 from interfaces.animation import AnimationCommand, AnimationService, MoodState
-from interfaces.agent import AgentStateService, EventLedgerService, GoalManagerService
+from interfaces.agent import (
+    AgentStateService, EventLedgerService, GoalManagerService, GoalProposalService,
+)
 from interfaces.base import HealthState, HealthStatus, Service
 from interfaces.filter import FilterCategory, FilterService, FilterVerdict
 from interfaces.input import EventSource, InputEvent, InputService
@@ -75,6 +77,9 @@ class TestServiceContract:
             (GoalManagerService, "operator_complete"),
             (GoalManagerService, "operator_cancel"),
             (GoalManagerService, "handle_event"),
+            (GoalManagerService, "accept_proposal"),
+            (GoalProposalService, "propose"),
+            (GoalProposalService, "set_enabled"),
         ],
     )
     def test_interface_declares_spec_method(self, iface, method) -> None:
@@ -87,6 +92,7 @@ class TestServiceContract:
             InputService, STTService, LLMService, FilterService, TTSService,
             AnimationService, MemoryService, EventLedgerService, AgentStateService,
             GoalManagerService,
+            GoalProposalService,
         ],
     )
     def test_all_interfaces_inherit_service_base(self, iface) -> None:

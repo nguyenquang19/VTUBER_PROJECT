@@ -86,6 +86,7 @@ class StreamRuntime:
         director_loop: Any = None,   # C0.4 DirectorLoop — turn driver (thay autonomy loop)
         agent_state: Any = None,
         goal_manager: Any = None,
+        goal_proposal: Any = None,
         cfg: StreamRuntimeConfig | None = None,
     ) -> None:
         self._loader = loader
@@ -108,6 +109,7 @@ class StreamRuntime:
         self._director_loop = director_loop
         self._agent_state = agent_state
         self._goal_manager = goal_manager
+        self._goal_proposal = goal_proposal
         self.cfg = cfg or StreamRuntimeConfig()
 
         self._running = False
@@ -126,6 +128,8 @@ class StreamRuntime:
             await self._agent_state.start()
         if self._goal_manager is not None:
             await self._goal_manager.start()
+        if self._goal_proposal is not None:
+            await self._goal_proposal.start()
         await self._router.start()
         self._running = True
         # C0.4: DirectorLoop cầm nhịp (thay autonomy loop cũ). Fallback: autonomy loop
@@ -182,6 +186,9 @@ class StreamRuntime:
         # LLM
         with contextlib.suppress(Exception):
             await self._llm_svc.stop()
+        if self._goal_proposal is not None:
+            with contextlib.suppress(Exception):
+                await self._goal_proposal.stop()
         if self._goal_manager is not None:
             with contextlib.suppress(Exception):
                 await self._goal_manager.stop()
@@ -308,6 +315,9 @@ class StreamRuntime:
         if self._goal_manager is not None:
             with contextlib.suppress(Exception):
                 m.update(self._goal_manager.get_metrics())
+        if self._goal_proposal is not None:
+            with contextlib.suppress(Exception):
+                m.update(self._goal_proposal.get_metrics())
         return m
 
     @property
@@ -318,6 +328,10 @@ class StreamRuntime:
     @property
     def goal_manager(self) -> Any:
         return self._goal_manager
+
+    @property
+    def goal_proposal(self) -> Any:
+        return self._goal_proposal
 
     def _record_environment_observation(self) -> None:
         if self._agent_state is None:
@@ -387,6 +401,31 @@ async def build_stream_runtime(
     if not health.is_ok:
         await llm_svc.stop()
         raise RuntimeError(f"llama-server chưa chạy: {health.message}")
+
+    from services.agent.goal_proposal import GoalProposalGenerator
+    try:
+        proposal_status = await feature_manager.get_status("goal_proposals")
+        proposal_enabled = proposal_status in (FeatureStatus.ENABLED, FeatureStatus.DEGRADED)
+    except KeyError:
+        get_logger("stream_runtime").warning("goal_proposals_feature_missing")
+        proposal_enabled = False
+    goal_proposal = GoalProposalGenerator.from_loader(
+        loader, llm_svc, metrics=metrics, enabled=proposal_enabled,
+    )
+
+    async def _enable_goal_proposals() -> None:
+        goal_proposal.set_enabled(True)
+
+    async def _disable_goal_proposals() -> None:
+        goal_proposal.set_enabled(False)
+
+    async def _goal_proposals_health() -> bool:
+        return goal_proposal.enabled
+
+    feature_manager.attach_handlers(
+        "goal_proposals", enable=_enable_goal_proposals,
+        disable=_disable_goal_proposals, health=_goal_proposals_health,
+    )
 
     pm = PromptManager.from_loader(loader)
     canned = CannedResponder.from_loader(loader)
@@ -648,6 +687,7 @@ async def build_stream_runtime(
         speak=speak_callback, filler=filler, director_loop=director_loop,
         agent_state=agent_state, cfg=cfg,
         goal_manager=goal_manager,
+        goal_proposal=goal_proposal,
     )
     # DirectorLoop dùng runtime ctx của rt (silence/chat_count/memory) cho self_talk material
     director_loop._runtime_ctx_fn = rt._build_runtime_context  # noqa: SLF001

@@ -22,6 +22,9 @@ class GoalLimits:
     metadata_text_max_chars: int
     operator_priority: int = 90
     operator_ttl_s: int = 3600
+    proposal_allowed_kinds: tuple[GoalKind, ...] = (
+        GoalKind.CONTINUE_THREAD, GoalKind.WAIT_FOR_CHAT_ANSWER,
+    )
 
     @classmethod
     def from_loader(cls, loader: Any) -> "GoalLimits":
@@ -40,6 +43,13 @@ class GoalLimits:
             ),
             operator_ttl_s=int(
                 loader.get("agent_goals", prefix + "operator_pinned_ttl_s", 3600)
+            ),
+            proposal_allowed_kinds=tuple(
+                GoalKind(str(value))
+                for value in loader.get(
+                    "agent_goals", "proposal.allowed_kinds",
+                    [GoalKind.CONTINUE_THREAD.value, GoalKind.WAIT_FOR_CHAT_ANSWER.value],
+                )
             ),
         )
 
@@ -227,6 +237,61 @@ class GoalManager(GoalManagerService):
 
         for candidate in candidates:
             self.submit(candidate)
+
+    def accept_proposal(self, proposal: Any, state: AgentStateSnapshot) -> bool:
+        kind = getattr(proposal, "kind", None)
+        if kind not in self.limits.proposal_allowed_kinds or self._agenda_policy is None:
+            self._record("rejected", "proposal_kind")
+            return False
+        source_event_id = str(getattr(proposal, "source_event_id", "") or "")
+        evidence = next(
+            (event for event in state.recent_events if event.event_id == source_event_id), None,
+        )
+        if evidence is None:
+            self._record("rejected", "proposal_evidence")
+            return False
+        parent = getattr(proposal, "parent_thread_id", None)
+        if parent is not None and not any(thread.thread_id == parent for thread in state.open_threads):
+            self._record("rejected", "proposal_thread")
+            return False
+        if kind is GoalKind.CONTINUE_THREAD and parent is None:
+            self._record("rejected", "proposal_thread")
+            return False
+        if kind is GoalKind.WAIT_FOR_CHAT_ANSWER and (
+            evidence.kind is not AgentEventKind.SPEECH_FINAL
+            or "?" not in str(evidence.payload.get("text") or "")
+        ):
+            self._record("rejected", "proposal_evidence_kind")
+            return False
+        now = _utc(self._clock())
+        reason = _compact(getattr(proposal, "reason", ""), self.limits.metadata_text_max_chars)
+        success = _compact(
+            getattr(proposal, "success_condition", ""), self.limits.metadata_text_max_chars,
+        )
+        if not reason or not success:
+            self._record("rejected", "proposal_schema")
+            return False
+        goal = Goal(
+            goal_id=f"goal:proposal:{kind.value}:{source_event_id}",
+            kind=kind,
+            status=GoalStatus.CANDIDATE,
+            priority=self._agenda_policy.config.priorities[kind],
+            reason=reason,
+            source=GoalSource.LLM_PROPOSAL,
+            created_at=now,
+            expires_at=now + timedelta(
+                seconds=self._agenda_policy.config.ttl_seconds[kind],
+            ),
+            success_conditions=(success,),
+            parent_thread_id=parent,
+            metadata={"source_event_id": source_event_id, "relevant": True},
+        )
+        accepted = self.submit(goal)
+        self._record(
+            "proposal_accepted" if accepted else "rejected",
+            kind.value if accepted else "proposal_submit",
+        )
+        return accepted
 
     def refresh(self, goal_id: str, ttl_s: int) -> bool:
         goal = self._find(goal_id)

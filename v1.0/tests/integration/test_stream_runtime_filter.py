@@ -186,6 +186,14 @@ class TestRuntimeFilterWiring:
             assert dashboard["regenerator"] is runtime._regenerator
             assert dashboard["goal_manager"] is runtime.goal_manager
             assert runtime.agent_state.snapshot().active_goal_ref is None
+            assert runtime.goal_proposal.enabled is False
+
+            proposal_toggle = await runtime._feature_manager.enable("goal_proposals", user="test")
+            assert proposal_toggle.ok is True
+            assert runtime.goal_proposal.enabled is True
+            proposal_toggle = await runtime._feature_manager.disable("goal_proposals", user="test")
+            assert proposal_toggle.ok is True
+            assert runtime.goal_proposal.enabled is False
 
             result = await runtime._feature_manager.disable("filter_rule", user="test")
             assert result.ok is True
