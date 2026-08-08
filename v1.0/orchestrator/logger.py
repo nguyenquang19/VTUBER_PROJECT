@@ -68,7 +68,14 @@ class JsonlWriter:
         oldest = self._path.with_suffix(self._path.suffix + f".{self._keep}")
         if oldest.exists():
             stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
-            oldest.rename(self._path.with_suffix(self._path.suffix + f".archive.{stamp}"))
+            archive = self._path.with_suffix(self._path.suffix + f".archive.{stamp}")
+            counter = 1
+            while archive.exists():
+                archive = self._path.with_suffix(
+                    self._path.suffix + f".archive.{stamp}.{counter}"
+                )
+                counter += 1
+            oldest.rename(archive)
         for i in range(self._keep - 1, 0, -1):
             src = self._path.with_suffix(self._path.suffix + f".{i}")
             if src.exists():
