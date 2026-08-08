@@ -369,6 +369,16 @@ async def build_stream_runtime(
     pm = PromptManager.from_loader(loader)
     canned = CannedResponder.from_loader(loader)
     fb = FallbackManager()
+    from services.agent.context_renderer import AgentContextRenderer
+    agent_context_renderer = AgentContextRenderer.from_loader(loader)
+    try:
+        agent_context_status = await feature_manager.get_status("agent_context")
+        agent_context_enabled = agent_context_status in (
+            FeatureStatus.ENABLED, FeatureStatus.DEGRADED,
+        )
+    except KeyError:
+        get_logger("stream_runtime").warning("agent_context_feature_missing")
+        agent_context_enabled = False
 
     # ─── Output filter (M0.2) ───
     # Tạo service cả khi feature đang OFF để dashboard có thể bật runtime về sau.
@@ -432,6 +442,23 @@ async def build_stream_runtime(
         pref_logger=pref_logger,
         session_id=session_id,
         agent_state=agent_state,
+        agent_context_renderer=agent_context_renderer if agent_context_enabled else None,
+    )
+
+    async def _enable_agent_context() -> None:
+        runner.set_agent_context_renderer(agent_context_renderer)
+
+    async def _disable_agent_context() -> None:
+        runner.set_agent_context_renderer(None)
+
+    async def _agent_context_health() -> bool:
+        return runner.agent_context_enabled
+
+    feature_manager.attach_handlers(
+        "agent_context",
+        enable=_enable_agent_context,
+        disable=_disable_agent_context,
+        health=_agent_context_health,
     )
 
     if filter_svc is not None and regenerator is not None:

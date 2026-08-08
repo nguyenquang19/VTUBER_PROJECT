@@ -13,6 +13,7 @@ import pytest
 from pydantic import ValidationError
 
 from interfaces.animation import AnimationCommand, AnimationService, MoodState
+from interfaces.agent import AgentStateService, EventLedgerService
 from interfaces.base import HealthState, HealthStatus, Service
 from interfaces.filter import FilterCategory, FilterService, FilterVerdict
 from interfaces.input import EventSource, InputEvent, InputService
@@ -60,6 +61,10 @@ class TestServiceContract:
             (MemoryService, "write"),
             (MemoryService, "query"),
             (MemoryService, "forget"),
+            (EventLedgerService, "append"),
+            (EventLedgerService, "recent"),
+            (AgentStateService, "record"),
+            (AgentStateService, "snapshot"),
         ],
     )
     def test_interface_declares_spec_method(self, iface, method) -> None:
@@ -68,7 +73,10 @@ class TestServiceContract:
 
     @pytest.mark.parametrize(
         "iface",
-        [InputService, STTService, LLMService, FilterService, TTSService, AnimationService, MemoryService],
+        [
+            InputService, STTService, LLMService, FilterService, TTSService,
+            AnimationService, MemoryService, EventLedgerService, AgentStateService,
+        ],
     )
     def test_all_interfaces_inherit_service_base(self, iface) -> None:
         """N8: mọi service interface đều kế thừa Service base (start/stop/health/metrics)."""

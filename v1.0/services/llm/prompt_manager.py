@@ -81,10 +81,13 @@ class PromptManager:
         """Xoá history (bắt đầu hội thoại mới)."""
         self._history.clear()
 
-    def build_messages(self, user_text: str) -> list[ChatMessage]:
+    def build_messages(
+        self, user_text: str, grounded_context: str | None = None,
+    ) -> list[ChatMessage]:
         """[persona] + history + [user] — KHÔNG đổi history."""
         return [
             self._cache.as_message(),
+            *([ChatMessage(role="system", content=grounded_context)] if grounded_context else []),
             *self._history,
             ChatMessage(role="user", content=user_text),
         ]
@@ -95,10 +98,11 @@ class PromptManager:
         user_text: str,
         max_tokens: int | None = None,
         temperature: float | None = None,
+        grounded_context: str | None = None,
     ) -> LLMRequest:
         return LLMRequest(
             request_id=request_id,
-            messages=self.build_messages(user_text),
+            messages=self.build_messages(user_text, grounded_context),
             max_tokens=max_tokens if max_tokens is not None else self._default_max_tokens,
             temperature=temperature if temperature is not None else self._default_temperature,
         )
@@ -114,6 +118,7 @@ class PromptManager:
         stage_direction: str | None = None,   # Director: chỉ thị "cách xử" lượt này
         max_tokens: int | None = None,
         temperature: float | None = None,
+        grounded_context: str | None = None,
     ) -> LLMRequest:
         """Request có Context block (Phase 7.5.D, spec Mục 6.1).
 
@@ -129,6 +134,7 @@ class PromptManager:
         messages = [
             self._cache.as_message(),
             ChatMessage(role="system", content=context),
+            *([ChatMessage(role="system", content=grounded_context)] if grounded_context else []),
             *self._history,
             ChatMessage(role="user", content=user_text),
         ]

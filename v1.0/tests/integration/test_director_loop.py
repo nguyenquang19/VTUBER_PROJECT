@@ -91,7 +91,7 @@ def _segments():
     ]
 
 
-def _make(now=0.0, autonomy=None, **dir_over):
+def _make(now=0.0, autonomy=None, agent_state=None, **dir_over):
     pool = SaliencePool(base_tier={"chat": 10, "question": 25, "mention": 35},
                         tau_seconds=50.0, floor=3.0, cluster_coef=5.0)
     pulse = ChatPulse(window_seconds=60.0, tempo_low_per_min=2.0,
@@ -107,6 +107,7 @@ def _make(now=0.0, autonomy=None, **dir_over):
         director=director, pool=pool, pulse=pulse, runner=runner,
         emotion=None, autonomy=autonomy, speak=None,
         clock=lambda: clock["t"],
+        agent_state=agent_state,
     )
     director.start(now)
     # move past opening so read_chat/ack allowed (main segment)
@@ -117,6 +118,51 @@ def _make(now=0.0, autonomy=None, **dir_over):
 
 @pytest.mark.asyncio
 class TestDirectorLoop:
+    async def test_successful_action_publishes_grounded_director_event(self) -> None:
+        class State:
+            def __init__(self) -> None:
+                self.events = []
+            def record(self, event) -> bool:
+                self.events.append(event)
+                return True
+
+        state = State()
+        loop, director, pool, pulse, runner, clock = _make(agent_state=state)
+        pool.add("m1", "Mai ơi chơi gì", now=0.0, kind="mention")
+        clock["t"] = 1.0
+        await loop.tick_once()
+        assert [event.kind.value for event in state.events] == ["director_action"]
+        assert state.events[0].payload["action"] == "read_chat"
+
+    async def test_successful_self_talk_publishes_grounded_event(self) -> None:
+        class State:
+            def __init__(self) -> None:
+                self.events = []
+            def record(self, event) -> bool:
+                self.events.append(event)
+                return True
+
+        state = State()
+        loop, director, pool, pulse, runner, clock = _make(
+            autonomy=FakeAutonomy(has_material=True), agent_state=state,
+        )
+        clock["t"] = 25.0
+        await loop.tick_once()
+        assert [event.kind.value for event in state.events] == [
+            "self_talk_completed", "director_action",
+        ]
+
+    async def test_agent_state_failure_does_not_fail_director_action(self) -> None:
+        class BrokenState:
+            def record(self, event) -> bool:
+                raise RuntimeError("state unavailable")
+
+        loop, director, pool, pulse, runner, clock = _make(agent_state=BrokenState())
+        pool.add("m1", "Mai ơi chơi gì", now=0.0, kind="mention")
+        clock["t"] = 1.0
+        assert await loop.tick_once() == DirectorAction.READ_CHAT
+        assert runner.read_calls == ["Mai ơi chơi gì"]
+
     async def test_read_pulls_and_removes_from_pool(self) -> None:
         loop, director, pool, pulse, runner, clock = _make()
         pool.add("m1", "Mai ơi chơi gì", now=0.0, kind="mention")

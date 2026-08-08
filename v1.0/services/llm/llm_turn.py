@@ -105,6 +105,7 @@ class LLMTurnRunner:
         pref_logger: Any = None,        # T2: pref_pairs.jsonl (JsonlWriter | None)
         session_id: str | None = None,
         agent_state: Any = None,
+        agent_context_renderer: Any = None,
     ) -> None:
         self._svc = svc
         self._pm = prompt_manager
@@ -121,6 +122,7 @@ class LLMTurnRunner:
         self._pref_logger = pref_logger
         self.session_id = session_id or str(uuid.uuid4())
         self._agent_state = agent_state
+        self._agent_context_renderer = agent_context_renderer
         self._turn_seq = 0
         self.last_turn_id = 0          # T3: turn cuối để dashboard rating gắn vào
         self._log_cause: Any = None    # T1: cause snapshot trước khi clear
@@ -143,6 +145,13 @@ class LLMTurnRunner:
     def set_regenerator(self, regenerator: Any = None) -> None:
         """Enable or disable output filtering for subsequent turns."""
         self._regen = regenerator
+
+    @property
+    def agent_context_enabled(self) -> bool:
+        return self._agent_context_renderer is not None
+
+    def set_agent_context_renderer(self, renderer: Any = None) -> None:
+        self._agent_context_renderer = renderer
 
     def _reset_filter_tracking(self) -> None:
         self.last_filter_verdict = None
@@ -168,6 +177,7 @@ class LLMTurnRunner:
         pref_logger: Any = None,
         session_id: str | None = None,
         agent_state: Any = None,
+        agent_context_renderer: Any = None,
     ) -> "LLMTurnRunner":
         return cls(
             svc,
@@ -186,6 +196,7 @@ class LLMTurnRunner:
             pref_logger=pref_logger,
             session_id=session_id,
             agent_state=agent_state,
+            agent_context_renderer=agent_context_renderer,
         )
 
     async def _primary(self, request: Any) -> ParsedResponse:
@@ -241,8 +252,9 @@ class LLMTurnRunner:
         """
         self._reset_filter_tracking()
         effective_session_id = session_id or self.session_id
+        grounded_context = self._render_agent_context(user_text)
         request = self._build_request_maybe_with_mood(
-            request_id, user_text, event_category, stage_direction,
+            request_id, user_text, event_category, stage_direction, grounded_context,
         )
         hist_text = history_user_text if history_user_text is not None else user_text
         # T1: snapshot cause + history_len TRƯỚC khi clear/commit (clear_tone_flags
@@ -318,7 +330,10 @@ class LLMTurnRunner:
         - KHÔNG memory_extract (ambient không có user_text để extract preference)
         """
         self._reset_filter_tracking()
-        request = self._pm.build_request(request_id, prompt_text)
+        request = self._pm.build_request(
+            request_id, prompt_text,
+            grounded_context=self._render_agent_context(prompt_text),
+        )
         # T1: ambient — cause snapshot + history_len trước clear
         try:
             self._log_cause = self._emotion.active_cause() if self._emotion else None
@@ -405,16 +420,20 @@ class LLMTurnRunner:
     def _build_request_maybe_with_mood(
         self, request_id: str, user_text: str, event_category: str | None,
         stage_direction: str | None = None,
+        grounded_context: str | None = None,
     ):
         if self._emotion is None:
             # Không emotion nhưng vẫn cần chỉ thị sân khấu → dùng build_request_with_mood
             # với mood neutral nếu có stage_direction; ngược lại build_request thường.
             if stage_direction is None:
-                return self._pm.build_request(request_id, user_text)
+                return self._pm.build_request(
+                    request_id, user_text, grounded_context=grounded_context,
+                )
             from interfaces.animation import MoodState
             return self._pm.build_request_with_mood(
                 request_id=request_id, user_text=user_text,
                 current_mood=MoodState(), stage_direction=stage_direction,
+                grounded_context=grounded_context,
             )
         cause = None
         try:
@@ -429,7 +448,17 @@ class LLMTurnRunner:
             tone_flags=self._emotion.active_tone_flags(),
             cause=cause,
             stage_direction=stage_direction,
+            grounded_context=grounded_context,
         )
+
+    def _render_agent_context(self, query: str) -> str | None:
+        if self._agent_state is None or self._agent_context_renderer is None:
+            return None
+        try:
+            return self._agent_context_renderer.render(self._agent_state.snapshot(), query)
+        except Exception as exc:
+            get_logger("llm_turn").warning("agent_context_render_failed", error=str(exc))
+            return None
 
     def _apply_emotion_feedback(self, parsed: ParsedResponse, engine_mood_pre) -> None:
         """A1: chỉ còn clear_tone_flags. Kênh B (apply_llm_hint) + drift detect ĐÃ BỎ.

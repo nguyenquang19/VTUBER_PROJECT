@@ -177,6 +177,30 @@ async def test_agent_state_failure_does_not_kill_turn() -> None:
     await router.stop()
 
 
+async def test_donation_is_grounded_as_donation_not_plain_chat() -> None:
+    loader = _loader()
+    state = _state(loader)
+    emotion = EmotionOrchestrator.from_loader(loader, agent_state=state)
+    runner = _runner(state, emotion)
+    source = FakeSource()
+    router = ChatRouter([source], emotion, runner, agent_state=state)
+    await state.start()
+    await router.start()
+    donation = _chat("donation-1", "quà nè")
+    donation.metadata.update({"is_super_chat": True, "amount_vnd": 100_000})
+    await source.queue.put(donation)
+    await _wait_for(lambda: state.snapshot().last_spoken_summary is not None)
+    snapshot = state.snapshot()
+    await router.stop()
+    await state.stop()
+    donations = [
+        event for event in snapshot.recent_events
+        if event.kind is AgentEventKind.DONATION_RECEIVED
+    ]
+    assert len(donations) == 1
+    assert donations[0].payload["amount_vnd"] == 100_000
+
+
 async def test_dashboard_snapshot_is_detached_and_read_only() -> None:
     loader = _loader()
     state = _state(loader)
