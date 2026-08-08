@@ -23,6 +23,7 @@ CONFIG_FILES: dict[str, str] = {
     "models": "models.yaml",
     "logging": "logging.yaml",
     "data_privacy": "data_privacy.yaml",          # M0.4 privacy/retention
+    "agent_state": "agent_state.yaml",            # M1 grounded working state
     "features": "features.yaml",
     "triggers": "triggers.yaml",
     "state_machine": "state_machine.yaml",
