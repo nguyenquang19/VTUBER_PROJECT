@@ -393,14 +393,17 @@ async def build_stream_runtime(
     from services.agent.goal_manager import GoalManager
     from services.agent.open_thread_manager import OpenThreadManager
     from services.agent.thread_detector import RuleThreadDetector
+    from services.agent.session_recap import SessionRecapManager
 
     event_ledger = EventLedger.from_loader(loader, metrics=metrics)
     thread_detector = RuleThreadDetector.from_loader(loader)
     open_thread_manager = OpenThreadManager.from_loader(
         loader, metrics=metrics, detector=thread_detector,
     )
+    session_recap = SessionRecapManager.from_loader(loader, metrics=metrics)
     agent_state = AgentState.from_loader(
         loader, event_ledger, thread_manager=open_thread_manager,
+        recap_manager=session_recap,
     )
     agenda_policy = AgendaPolicy.from_loader(loader)
     goal_manager = GoalManager.from_loader(

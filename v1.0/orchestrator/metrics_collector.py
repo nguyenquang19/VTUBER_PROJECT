@@ -148,6 +148,11 @@ class MetricsCollector:
             registry=self.registry,
         )
         self._thread_events: dict[tuple[str, str], int] = {}
+        self.session_recap_chars_g = Gauge(
+            "mai_session_recap_chars",
+            "Characters retained in the bounded session recap",
+            registry=self.registry,
+        )
 
         # --- 3 "metric giả" cho Phase 0 (chưa có service thật) ---
         # DoD: "Metric giả cập nhật realtime trên chart"
@@ -186,6 +191,9 @@ class MetricsCollector:
             f"{outcome}:{kind}": count
             for (outcome, kind), count in sorted(self._thread_events.items())
         }
+
+    def set_session_recap_chars(self, chars: int) -> None:
+        self.session_recap_chars_g.set(max(0, int(chars)))
 
     def director_action_snapshot(self) -> dict[str, int]:
         return {

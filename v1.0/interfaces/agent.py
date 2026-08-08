@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from services.agent.goal_types import Goal, GoalSnapshot
     from services.agent.goal_proposal import GoalProposal
     from services.agent.types import OpenThread, ThreadEvidence, ThreadKind
+    from services.agent.types import SessionRecap
     from services.agent.thread_extraction import ThreadExtraction
 
 
@@ -141,3 +142,13 @@ class ThreadExtractionService(Service):
     @abstractmethod
     def set_enabled(self, enabled: bool) -> None:
         """Enable or disable future extraction calls."""
+
+
+class SessionRecapService(Service):
+    @abstractmethod
+    def handle_event(self, event: "GroundedEvent") -> None:
+        """Update the bounded recap from one accepted grounded event."""
+
+    @abstractmethod
+    def snapshot(self) -> "SessionRecap":
+        """Return an immutable recap containing no full transcript."""

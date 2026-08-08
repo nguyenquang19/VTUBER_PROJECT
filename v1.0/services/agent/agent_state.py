@@ -156,11 +156,13 @@ class AgentState(AgentStateService):
         ledger: Any,
         clock: Callable[[], datetime] | None = None,
         thread_manager: Any = None,
+        recap_manager: Any = None,
     ) -> None:
         self._reducer = reducer
         self._ledger = ledger
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._thread_manager = thread_manager
+        self._recap_manager = recap_manager
         self._snapshot = AgentStateSnapshot()
         self._running = False
         self._reduce_errors = 0
@@ -170,22 +172,27 @@ class AgentState(AgentStateService):
     def from_loader(
         cls, loader: Any, ledger: Any, clock: Callable[[], datetime] | None = None,
         thread_manager: Any = None,
+        recap_manager: Any = None,
     ) -> "AgentState":
         return cls(
             AgentStateReducer(AgentStateLimits.from_loader(loader)), ledger, clock,
-            thread_manager,
+            thread_manager, recap_manager,
         )
 
     async def start(self) -> None:
         await self._ledger.start()
         if self._thread_manager is not None:
             await self._thread_manager.start()
+        if self._recap_manager is not None:
+            await self._recap_manager.start()
         self._running = True
 
     async def stop(self) -> None:
         self._running = False
         if self._thread_manager is not None:
             await self._thread_manager.stop()
+        if self._recap_manager is not None:
+            await self._recap_manager.stop()
         await self._ledger.stop()
 
     async def health_check(self) -> HealthStatus:
@@ -214,6 +221,11 @@ class AgentState(AgentStateService):
                 self._snapshot = replace(
                     self._snapshot, open_threads=self._thread_manager.snapshot(),
                 )
+            if self._recap_manager is not None:
+                self._recap_manager.handle_event(event)
+                self._snapshot = replace(
+                    self._snapshot, session_recap=self._recap_manager.snapshot(),
+                )
             snapshot = self.snapshot()
             for listener in tuple(self._event_listeners):
                 try:
@@ -240,6 +252,10 @@ class AgentState(AgentStateService):
             "environment_summary": self._snapshot.environment_summary,
             "stream_phase": self._snapshot.stream_phase,
             "last_spoken_summary": self._snapshot.last_spoken_summary,
+            "session_recap": (
+                self._recap_manager.snapshot()
+                if self._recap_manager is not None else self._snapshot.session_recap
+            ),
         })
 
     def set_active_goal_ref(self, goal_id: str | None) -> None:

@@ -192,6 +192,45 @@ class OpenThread:
 
 
 @dataclass(frozen=True)
+class SessionRecapItem:
+    source_event_id: str
+    kind: AgentEventKind
+    summary: str
+    timestamp: datetime
+    producer: str
+
+    def __post_init__(self) -> None:
+        if not self.source_event_id.strip() or not self.summary.strip():
+            raise ValueError("recap item needs source event and summary")
+        object.__setattr__(self, "timestamp", _as_utc(self.timestamp))
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "source_event_id": self.source_event_id,
+            "kind": self.kind.value,
+            "summary": self.summary,
+            "timestamp": self.timestamp.isoformat(),
+            "producer": self.producer,
+        }
+
+
+@dataclass(frozen=True)
+class SessionRecap:
+    items: tuple[SessionRecapItem, ...] = ()
+    total_chars: int = 0
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "items", tuple(self.items))
+        object.__setattr__(self, "total_chars", sum(len(item.summary) for item in self.items))
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "items": [item.to_dict() for item in self.items],
+            "total_chars": self.total_chars,
+        }
+
+
+@dataclass(frozen=True)
 class AgentStateSnapshot:
     current_topic: TopicState | None = None
     open_threads: tuple[OpenThread, ...] = ()
@@ -200,6 +239,7 @@ class AgentStateSnapshot:
     environment_summary: Mapping[str, Any] | None = None
     stream_phase: StreamPhase = StreamPhase.OPENING
     last_spoken_summary: str | None = None
+    session_recap: SessionRecap | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "open_threads", tuple(self.open_threads))
@@ -220,6 +260,7 @@ class AgentStateSnapshot:
             ),
             "stream_phase": self.stream_phase.value,
             "last_spoken_summary": self.last_spoken_summary,
+            "session_recap": self.session_recap.to_dict() if self.session_recap else None,
         }
 
 
