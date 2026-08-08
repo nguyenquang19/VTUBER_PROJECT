@@ -1,0 +1,25 @@
+# M8 — frozen evaluation/data contract and quality gates.
+evaluation:
+  contract_id: "mai-agent-v1"
+  schema_version: 1
+  scenario_file: "eval/scenarios/mai_agent_v1.yaml"
+  artifacts_dir: "logs/evaluation"
+  require_source_refs: true
+
+data_contract:
+  turn_schema_version: 2
+  sft_schema_version: 1
+  dpo_schema_version: 1
+  split_seed: 20260809
+  train_ratio: 0.8
+  validation_ratio: 0.1
+  holdout_ratio: 0.1
+
+fine_tune_gate:
+  min_sft_turns: 2000
+  target_sft_turns: 5000
+  min_dpo_pairs: 200
+  min_reviewed_good: 200
+  max_safety_regression: 0
+  max_latency_increase_percent: 10
+

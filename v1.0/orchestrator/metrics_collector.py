@@ -214,6 +214,13 @@ class MetricsCollector:
             registry=self.registry,
         )
         self._relationship_events: dict[tuple[str, str], int] = {}
+        self.eval_scenarios_total_c = Counter(
+            "mai_eval_scenarios_total",
+            "Versioned evaluation scenario outcomes",
+            ["group", "outcome"],
+            registry=self.registry,
+        )
+        self._eval_scenarios: dict[tuple[str, str], int] = {}
 
         # --- 3 "metric giả" cho Phase 0 (chưa có service thật) ---
         # DoD: "Metric giả cập nhật realtime trên chart"
@@ -343,6 +350,17 @@ class MetricsCollector:
         return {
             f"{outcome}:{reason}": count
             for (outcome, reason), count in sorted(self._relationship_events.items())
+        }
+
+    def record_eval_scenario(self, group: str, outcome: str) -> None:
+        key = (str(group), str(outcome))
+        self._eval_scenarios[key] = self._eval_scenarios.get(key, 0) + 1
+        self.eval_scenarios_total_c.labels(group=key[0], outcome=key[1]).inc()
+
+    def eval_scenario_snapshot(self) -> dict[str, int]:
+        return {
+            f"{group}:{outcome}": count
+            for (group, outcome), count in sorted(self._eval_scenarios.items())
         }
 
     def director_action_snapshot(self) -> dict[str, int]:
