@@ -144,3 +144,64 @@ def test_continue_thread_ttl_refreshes_on_relevant_chat() -> None:
     clock.now += timedelta(seconds=10)
     state.record(_event("follow", AgentEventKind.CHAT_RECEIVED, {"text": "Còn loại nóng?"}, seconds=10))
     assert goals.snapshot().active.expires_at > original_expiry  # type: ignore[union-attr]
+
+
+def test_director_goal_actions_complete_or_mark_progress_without_repeat() -> None:
+    clock = Clock()
+    state, goals = _stack(clock)
+    state.record(_event(
+        "speech-question", AgentEventKind.SPEECH_FINAL,
+        {"text": "Chat wants another example?"},
+    ))
+    waiting = goals.snapshot().active
+    assert waiting and waiting.kind is GoalKind.WAIT_FOR_CHAT_ANSWER
+
+    state.record(_event(
+        "asked-follow-up", AgentEventKind.SPEECH_COMPLETED,
+        {"action": "ask_follow_up", "goal_id": waiting.goal_id}, seconds=1,
+    ))
+    marked = goals.snapshot().active
+    assert marked and marked.goal_id == waiting.goal_id
+    assert marked.metadata["follow_up_asked"] is True
+    first_marker_event = marked.metadata["follow_up_asked_event_id"]
+
+    state.record(_event(
+        "asked-follow-up-again", AgentEventKind.SPEECH_COMPLETED,
+        {"action": "ask_follow_up", "goal_id": waiting.goal_id}, seconds=2,
+    ))
+    assert goals.snapshot().active.metadata["follow_up_asked_event_id"] == first_marker_event  # type: ignore[union-attr]
+
+    pinned = goals.pin_operator(reason="prepare grounded demo", success_condition="operator confirms done")
+    assert pinned and goals.snapshot().active.goal_id == pinned.goal_id  # type: ignore[union-attr]
+    state.record(_event(
+        "shared-progress", AgentEventKind.SPEECH_COMPLETED,
+        {"action": "share_goal_progress", "goal_id": pinned.goal_id}, seconds=3,
+    ))
+    active = goals.snapshot().active
+    assert active and active.goal_id == pinned.goal_id
+    assert active.metadata["progress_shared"] is True
+
+
+def test_continue_thread_completes_only_on_matching_completed_speech() -> None:
+    clock = Clock()
+    state, goals = _stack(clock)
+    state.record(_event(
+        "chat-question", AgentEventKind.CHAT_RECEIVED,
+        {"text": "Which grounded topic should continue?"},
+    ))
+    active = goals.snapshot().active
+    assert active and active.kind is GoalKind.CONTINUE_THREAD
+    state.record(_event(
+        "wrong-action", AgentEventKind.SPEECH_COMPLETED,
+        {"action": "self_talk", "goal_id": active.goal_id}, seconds=1,
+    ))
+    assert goals.snapshot().active.goal_id == active.goal_id  # type: ignore[union-attr]
+    state.record(_event(
+        "continued", AgentEventKind.SPEECH_COMPLETED,
+        {"action": "continue_thread", "goal_id": active.goal_id}, seconds=2,
+    ))
+    assert goals.snapshot().active is None
+    assert any(
+        item.goal_id == active.goal_id and item.status is GoalStatus.COMPLETED
+        for item in goals.snapshot().recent_terminal
+    )

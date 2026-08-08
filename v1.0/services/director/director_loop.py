@@ -260,7 +260,7 @@ class DirectorLoop:
         if parsed.ok and parsed.text:
             self._runner.commit_self_talk(parsed.text)
         self._director.mark_spoke(dec.action, now)
-        await self._maybe_speak(req_id, parsed, dec.action, [])
+        await self._maybe_speak(req_id, parsed, dec.action, [], goal_id=dec.goal_id)
 
     async def _exec_read(self, dec, now: float) -> None:
         # SUMMARY/VIBE = react cả CĂN PHÒNG (không đáp 1 tin cụ thể) → đường ambient,
@@ -290,7 +290,7 @@ class DirectorLoop:
             self._pool.remove(r.msg_id)
         self._turns_read += 1
         self._director.mark_spoke(dec.action, now)
-        await self._maybe_speak(req_id, parsed, dec.action, refs)
+        await self._maybe_speak(req_id, parsed, dec.action, refs, goal_id=dec.goal_id)
 
     async def _exec_room_reaction(self, dec, now: float) -> None:
         """SUMMARY/VIBE: Mai react không khí chat qua đường ambient (chỉ thị ở prompt,
@@ -358,7 +358,15 @@ class DirectorLoop:
 
     # ---------- helpers ----------
 
-    async def _maybe_speak(self, req_id: str, parsed, action: Any, refs: list[Any]) -> None:
+    async def _maybe_speak(
+        self,
+        req_id: str,
+        parsed: Any,
+        action: Any,
+        refs: list[Any],
+        *,
+        goal_id: str | None = None,
+    ) -> None:
         if not getattr(parsed, "ok", False) or not getattr(parsed, "text", ""):
             return
         if self._speak is not None:
@@ -367,9 +375,11 @@ class DirectorLoop:
             except Exception as e:
                 self._log.warning("director_speak_failed", error=str(e))
                 return
-        self._record_speech_completed(req_id, action, refs)
+        self._record_speech_completed(req_id, action, refs, goal_id=goal_id)
 
-    def _record_speech_completed(self, request_id: str, action: Any, refs: list[Any]) -> None:
+    def _record_speech_completed(
+        self, request_id: str, action: Any, refs: list[Any], *, goal_id: str | None = None,
+    ) -> None:
         if self._agent_state is None:
             return
         try:
@@ -382,7 +392,7 @@ class DirectorLoop:
                 confidence=1.0,
                 payload={
                     "action": getattr(action, "value", str(action)),
-                    "goal_id": snapshot.active_goal_ref,
+                    "goal_id": goal_id or snapshot.active_goal_ref,
                     "ref_event_ids": [getattr(ref, "msg_id", "") for ref in refs],
                 },
                 provenance=EventProvenance(

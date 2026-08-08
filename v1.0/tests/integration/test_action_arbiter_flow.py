@@ -66,6 +66,50 @@ async def test_continue_thread_uses_directed_system_context_not_ambient() -> Non
 
 
 @pytest.mark.asyncio
+async def test_tts_failure_does_not_publish_speech_completion() -> None:
+    now = datetime.fromtimestamp(0.0, tz=timezone.utc)
+    thread = OpenThread("thread-1", "game", "unfinished", now, now, now + timedelta(minutes=5))
+    goal = _goal(GoalKind.CONTINUE_THREAD, now, parent_thread_id="thread-1")
+    state = FixedState(AgentStateSnapshot(open_threads=(thread,), active_goal_ref=goal.goal_id))
+    loop, _director, _pool, _pulse, _runner, clock = _make(
+        agent_state=state, goal_manager=FixedGoals(goal),
+    )
+
+    async def fail_speech(_request_id: str, _text: str) -> None:
+        raise RuntimeError("tts failed")
+
+    loop._speak = fail_speech
+    clock["t"] = 1.0
+    await loop.tick_once()
+    assert not any(
+        getattr(getattr(event, "kind", None), "value", None) == "speech_completed"
+        for event in state.events
+    )
+
+
+@pytest.mark.asyncio
+async def test_generation_failure_does_not_publish_speech_completion() -> None:
+    now = datetime.fromtimestamp(0.0, tz=timezone.utc)
+    thread = OpenThread("thread-1", "game", "unfinished", now, now, now + timedelta(minutes=5))
+    goal = _goal(GoalKind.CONTINUE_THREAD, now, parent_thread_id="thread-1")
+    state = FixedState(AgentStateSnapshot(open_threads=(thread,), active_goal_ref=goal.goal_id))
+    loop, _director, _pool, _pulse, runner, clock = _make(
+        agent_state=state, goal_manager=FixedGoals(goal),
+    )
+
+    async def fail_generation(_request_id: str, _context: str):
+        return type("Failed", (), {"ok": False, "text": ""})()
+
+    runner.run_directed_turn = fail_generation
+    clock["t"] = 1.0
+    await loop.tick_once()
+    assert not any(
+        getattr(getattr(event, "kind", None), "value", None) == "speech_completed"
+        for event in state.events
+    )
+
+
+@pytest.mark.asyncio
 async def test_wait_action_never_calls_llm() -> None:
     now = datetime.fromtimestamp(0.0, tz=timezone.utc)
     goal = _goal(

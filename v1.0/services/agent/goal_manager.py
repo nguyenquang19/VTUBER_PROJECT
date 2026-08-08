@@ -320,10 +320,32 @@ class GoalManager(GoalManagerService):
         allowed = {
             GoalKind.ACK_DONATION: {"ack_donation"},
             GoalKind.ANSWER_FOLLOW_UP: {"read_chat", "follow_up"},
-            GoalKind.CONTINUE_THREAD: {"read_chat", "follow_up"},
+            GoalKind.CONTINUE_THREAD: {"continue_thread"},
         }
         if action in allowed.get(active.kind, set()):
             self.complete(active.goal_id, reason=f"speech_completed:{event.event_id}")
+            return
+        marker = {
+            (GoalKind.WAIT_FOR_CHAT_ANSWER, "ask_follow_up"): "follow_up_asked",
+            (GoalKind.OPERATOR_PINNED, "share_goal_progress"): "progress_shared",
+        }.get((active.kind, action))
+        if marker is not None:
+            self._mark_active_metadata(active.goal_id, marker, event.event_id)
+
+    def _mark_active_metadata(self, goal_id: str, marker: str, event_id: str) -> None:
+        active = self._snapshot.active
+        if active is None or active.goal_id != goal_id or active.metadata.get(marker):
+            return
+        metadata = dict(active.metadata)
+        metadata[marker] = True
+        metadata[f"{marker}_event_id"] = _compact(
+            event_id, self.limits.metadata_text_max_chars,
+        )
+        self._snapshot = replace(
+            self._snapshot,
+            active=replace(active, metadata=_bound(metadata, self.limits.metadata_text_max_chars)),
+        )
+        self._record("progress", marker)
 
     def _terminal(self, goal_id: str, status: GoalStatus, reason: str) -> bool:
         now = _utc(self._clock())
