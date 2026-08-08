@@ -1,5 +1,27 @@
 # STATE — Mai project
 
+## Master Plan M4 — Conversation continuity, memory và repair (2026-08-08) — XONG
+
+- M4.1 thêm `OpenThreadManager` deterministic cho question/promise/story: create/update/resolve,
+  TTL/cap, terminal history và evidence đọc được; promise completion có metric riêng.
+- M4.2 thêm rule detector làm mặc định và post-hoc llama.cpp extraction tùy chọn, mặc định OFF.
+  Kết quả LLM chỉ được nhận khi strict JSON, trỏ event/thread có thật và có excerpt nguồn.
+- M4.3 thêm `SessionRecapManager` chỉ giữ recap hội thoại bounded; không nhét full transcript vào
+  prompt. M4.4 dựng context gồm current topic, open thread, active goal, đúng ba evidence slot và
+  tối đa hai recap item trong character budget cấu hình.
+- M4.5 repair deterministic: tham chiếu mơ hồ → hỏi lại; thiếu evidence → nói chưa chắc; fact
+  xung đột → không tự chọn giá trị. M4.6 fixture từ transcript local đã sanitize, chỉ commit bốn
+  excerpt ngắn; log thô và viewer/session identity không vào Git.
+- Feature: `conversation_continuity` mặc định ON; `thread_extraction` mặc định OFF. Metrics:
+  thread lifecycle, promise completion, recap/context chars, repair kind và
+  `mai_grounded_recall_rate`.
+- Continuity baseline: 4/4 check đạt, grounded recall `1.0`, không có event ID bịa; artifact tại
+  `docs/baselines/m4_continuity_eval.json`.
+- Full regression: `1278 passed, 1 warning`; CI offline:
+  `1273 passed, 5 deselected, 1 warning`. Warning Starlette/httpx đã có từ trước.
+- Commits: `4b7b690`, `5c76069`, `c95272d`, `31286a9`, `367e339`, `1f61cc9`.
+  **Dừng chờ user review; chưa bắt đầu M5.**
+
 ## Master Plan M3 — Director thành Action Arbiter (2026-08-08) — XONG
 
 - M3.1 thêm `DirectorInput`/`DirectorChatRef` frozen; `Director.decide()` đọc snapshot

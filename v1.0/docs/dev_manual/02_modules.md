@@ -1209,6 +1209,28 @@ Scenario DoD đã test: Mai hỏi chat → giữ WAIT → donation P0 chen vào 
 
 ---
 
+## 15. Conversation continuity và repair (M4)
+
+**Files:** `open_thread_manager.py`, `thread_detector.py`, `thread_extraction.py`,
+`session_recap.py`, `conversation_context.py`, `repair_policy.py` trong `services/agent/`;
+config `config/conversation.yaml`.
+
+- `OpenThreadManager`: lifecycle deterministic question/promise/story; evidence, TTL, cap và
+  terminal history đều bounded.
+- `RuleThreadDetector`: create/update/resolve từ event grounded. `ThreadExtractionService` là
+  post-hoc llama.cpp tùy chọn; strict schema và chỉ tham chiếu ID/excerpt đã tồn tại.
+- `SessionRecapManager`: giữ summary chat/speech bounded, không giữ full transcript trong prompt.
+- `ConversationContextComposer`: current topic + open thread + active goal + đúng ba evidence slot
+  + tối đa hai recap item; context đi vào system message và bị chặn theo character budget.
+- `ConversationRepairPolicy`: ambiguity/missing evidence/conflict đều trả instruction deterministic,
+  không invent viewer, fact hoặc event ID.
+- `AgentState` gọi thread/recap manager sau khi ledger accept event. `StreamRuntime` sở hữu lifecycle;
+  FeatureManager toggle composer/extractor mà không làm mất ledger state.
+- Regression: `test_conversation_continuity_m4.py`, `test_continuity_regression_m4.py`; fixture và
+  baseline đã sanitize nằm trong `tests/fixtures/` và `docs/baselines/`.
+
+---
+
 ## Notes / Gotchas thường gặp
 
 1. **VieNeu-TTS TTFA 5.6s?** — quên gọi `add_voice(...)` trong `start()`. Đảm bảo cache voice 1 lần.

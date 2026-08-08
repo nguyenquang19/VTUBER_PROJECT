@@ -315,6 +315,26 @@ khi muốn rollout, rồi theo dõi `mai_agent_events_total{outcome,reason}` và
 
 ---
 
+### 4.5. Conversation continuity và repair (M4)
+
+- Tune cap/TTL/budget trong `config/conversation.yaml`; không tăng recap/context bằng cách đưa full
+  transcript vào prompt.
+- `conversation_continuity` mặc định ON. Tắt toggle chỉ tháo context composer khỏi turn mới;
+  EventLedger, open thread và recap vẫn tiếp tục nhận event grounded.
+- `thread_extraction` mặc định OFF. Khi bật, nó gọi llama.cpp post-hoc; output sai schema, excerpt
+  không khớp hoặc source/thread ID không tồn tại sẽ bị reject.
+- Theo dõi `mai_conversation_threads_total{outcome,kind}`, `mai_session_recap_chars`,
+  `mai_conversation_context_chars`, `mai_conversation_repairs_total{kind}` và
+  `mai_grounded_recall_rate`.
+- Gate deterministic:
+  `python -m pytest tests\integration\test_conversation_continuity_m4.py tests\integration\test_continuity_regression_m4.py -q`.
+  Fixture không chứa log thô: `tests/fixtures/continuity_sanitized.json`; baseline:
+  `docs/baselines/m4_continuity_eval.json`.
+- Nếu “kể tiếp đi” chọn sai chuyện, kiểm số open thread và evidence ID. Nếu “ai nói vậy?” không
+  chắc người nói, hành vi đúng là hỏi lại; không thêm viewer identity vào prompt để ép đoán.
+
+---
+
 ## 5. Monitoring
 
 ### 5.1. Dashboard http://127.0.0.1:7860

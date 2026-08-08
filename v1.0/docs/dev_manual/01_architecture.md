@@ -256,6 +256,29 @@ gọi LLM. Toggle: `features.director_goal_arbiter`; metric:
 
 ---
 
+## 6.4. Conversation continuity và repair (M4)
+
+Mọi continuity fact đi theo chuỗi provenance có thật:
+
+```text
+GroundedEvent → rule detector → OpenThreadManager / SessionRecapManager
+              → ConversationContextComposer → system context bounded
+              → repair policy nếu evidence thiếu, mơ hồ hoặc xung đột
+```
+
+`OpenThreadManager` sở hữu lifecycle question/promise/story với TTL, cap và evidence. Recap chỉ
+giữ các summary hội thoại bounded, không giữ hoặc đưa full transcript vào prompt. Composer đưa
+current topic, một open thread, active goal, đúng ba evidence slot và tối đa hai recap item vào
+character budget cấu hình.
+
+Rule detector là đường mặc định. `thread_extraction` có thể dùng llama.cpp post-hoc nhưng mặc định
+OFF; schema/excerpt/source ID/thread ID đều phải qua validation trước khi state nhận. Repair policy
+không gọi LLM: mơ hồ thì hỏi lại, thiếu evidence thì nói chưa chắc, conflict thì không khẳng định.
+Toggle prompt là `conversation_continuity`; metric chính gồm thread lifecycle, recap/context chars,
+repair kind và `mai_grounded_recall_rate`.
+
+---
+
 ## 7. State Machine 5 state (Phase 0)
 
 ```
