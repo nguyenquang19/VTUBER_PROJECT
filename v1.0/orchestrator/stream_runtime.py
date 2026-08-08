@@ -31,6 +31,7 @@ from interfaces.input import InputService
 from orchestrator.autonomy_engine import AutonomyEngine
 from orchestrator.emotion_orchestrator import EmotionOrchestrator
 from orchestrator.fallback_manager import FallbackManager
+from orchestrator.features import FeatureManager, FeatureStatus
 from orchestrator.logger import get_logger, setup_from_config
 from orchestrator.metrics_collector import MetricsCollector
 from services.autonomy.material_provider import RuntimeContext
@@ -68,6 +69,9 @@ class StreamRuntime:
         audio_player: Any = None,
         tts_pipeline: Any = None,
         memory: Any = None,
+        feature_manager: FeatureManager | None = None,
+        filter_svc: Any = None,
+        regenerator: Any = None,
         metrics: MetricsCollector,
         dashboard_task: asyncio.Task | None = None,
         speak: SpeakFn | None = None,
@@ -85,6 +89,9 @@ class StreamRuntime:
         self._audio_player = audio_player
         self._tts_pipeline = tts_pipeline
         self._memory = memory
+        self._feature_manager = feature_manager
+        self._filter_svc = filter_svc
+        self._regenerator = regenerator
         self._metrics = metrics
         self._dashboard_task = dashboard_task
         self._speak = speak
@@ -148,6 +155,9 @@ class StreamRuntime:
         if self._memory is not None:
             with contextlib.suppress(Exception):
                 await self._memory.stop()
+        if self._filter_svc is not None:
+            with contextlib.suppress(Exception):
+                await self._filter_svc.stop()
         # Dashboard
         if self._dashboard_task is not None and not self._dashboard_task.done():
             self._dashboard_task.cancel()
@@ -261,6 +271,7 @@ class StreamRuntime:
             "runtime_tts_enabled": self.cfg.enable_tts,
             "runtime_memory_enabled": self.cfg.enable_memory,
             "runtime_autonomy_enabled": self.cfg.enable_autonomy and self._autonomy is not None,
+            "runtime_filter_enabled": self._runner.filter_enabled,
         }
         if self._autonomy is not None:
             m.update(self._autonomy.get_metrics())
@@ -287,6 +298,7 @@ async def build_stream_runtime(
     pref_logger = _make_pref_logger(loader)   # T2: DPO pairs sink
 
     metrics = MetricsCollector()
+    feature_manager = FeatureManager.from_config(loader)
 
     # ─── LLM stack ───
     llm_svc = LlamaCppLLMService.from_loader(loader)
@@ -299,6 +311,27 @@ async def build_stream_runtime(
     pm = PromptManager.from_loader(loader)
     canned = CannedResponder.from_loader(loader)
     fb = FallbackManager()
+
+    # ─── Output filter (M0.2) ───
+    # Tạo service cả khi feature đang OFF để dashboard có thể bật runtime về sau.
+    filter_svc = None
+    regenerator = None
+    filter_enabled = False
+    try:
+        filter_status = await feature_manager.get_status("filter_rule")
+    except KeyError:
+        get_logger("stream_runtime").warning("filter_rule_feature_missing")
+    else:
+        from services.filter.regenerator import FilterRegenerator
+        from services.filter.rule_filter import RuleFilter
+
+        filter_svc = RuleFilter.from_config(loader)
+        regenerator = FilterRegenerator.from_loader(
+            loader, filter_svc, llm_svc, metrics=metrics,
+        )
+        filter_enabled = filter_status in (FeatureStatus.ENABLED, FeatureStatus.DEGRADED)
+        if filter_enabled:
+            await filter_svc.start()
 
     # ─── Emotion ───
     # A1: drift_detector đã bỏ (Kênh B tắt, LLM không tự report mood)
@@ -332,11 +365,31 @@ async def build_stream_runtime(
         loader, llm_svc, pm, fb, canned,
         on_token=cfg.on_token or (lambda _t: None),
         metrics=metrics,
+        regenerator=regenerator if filter_enabled else None,
         memory=memory, memory_extractor=memory_extractor,
         emotion=emotion,
         turn_logger=turn_logger,
         pref_logger=pref_logger,
     )
+
+    if filter_svc is not None and regenerator is not None:
+        async def _enable_rule_filter() -> None:
+            await filter_svc.start()
+            runner.set_regenerator(regenerator)
+
+        async def _disable_rule_filter() -> None:
+            await filter_svc.stop()
+            runner.set_regenerator(None)
+
+        async def _filter_health() -> bool:
+            return (await filter_svc.health_check()).is_ok
+
+        feature_manager.attach_handlers(
+            "filter_rule",
+            enable=_enable_rule_filter,
+            disable=_disable_rule_filter,
+            health=_filter_health,
+        )
 
     # ─── TTS (optional) ───
     tts_svc = None
@@ -465,7 +518,9 @@ async def build_stream_runtime(
     dashboard_task = None
     if cfg.enable_dashboard:
         from dashboard.dashboard_server import DashboardServer
-        ds = DashboardServer(metrics=metrics, emotion=emotion, runner=runner,
+        ds = DashboardServer(feature_manager=feature_manager, metrics=metrics,
+                             filter_svc=filter_svc, regenerator=regenerator,
+                             emotion=emotion, runner=runner,
                              data_dir=loader.get("logging", "jsonl.dir", "logs"))
         dashboard_task = asyncio.create_task(ds.serve(), name="dashboard")
 
@@ -473,7 +528,9 @@ async def build_stream_runtime(
         loader=loader, llm_svc=llm_svc, runner=runner, emotion=emotion,
         chat_router=router, autonomy=autonomy,
         tts_svc=tts_svc, audio_player=audio_player, tts_pipeline=tts_pipeline,
-        memory=memory, metrics=metrics, dashboard_task=dashboard_task,
+        memory=memory, feature_manager=feature_manager,
+        filter_svc=filter_svc, regenerator=regenerator,
+        metrics=metrics, dashboard_task=dashboard_task,
         speak=speak_callback, filler=filler, director_loop=director_loop, cfg=cfg,
     )
     # DirectorLoop dùng runtime ctx của rt (silence/chat_count/memory) cho self_talk material

@@ -1,6 +1,8 @@
 """Test filter metrics + dashboard snapshot (Phase 3, 3.C)."""
 from __future__ import annotations
 
+import pytest
+
 from dashboard.dashboard_server import DashboardServer
 from orchestrator.metrics_collector import MetricsCollector
 
@@ -48,6 +50,17 @@ class TestRecordFilterCheck:
         m = mc()
         m.record_filter_check(passed=True, fail_open=True)
         assert m.filter_snapshot()["fail_open_total"] == 1
+
+    def test_regeneration_outcome_is_exported(self) -> None:
+        m = mc()
+        m.record_filter_regeneration("recovered")
+        text = m.prometheus_text().decode("utf-8")
+        assert 'mai_filter_regen_total{result="recovered"} 1.0' in text
+
+    def test_unknown_regeneration_outcome_is_rejected(self) -> None:
+        m = mc()
+        with pytest.raises(ValueError, match="unknown filter regeneration outcome"):
+            m.record_filter_regeneration("bad")
 
 
 class TestDashboardFilterSection:

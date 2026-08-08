@@ -418,11 +418,19 @@ Regex-based, 4 category. Config `filters.yaml`. Fail-open (N7): pattern lỗi co
 
 Bad output → append 2 message vào messages: `assistant=bad_text` + `user=hint theo category`. Regen tối đa 1 lần (config `filters.yaml.filter.max_regenerate_attempts`).
 
-Metric: `checked/attempts/recovered/exhausted`.
+Hint regen tuân theo A1: yêu cầu **chỉ xuất thoại**, không mood block/nhãn/meta giải thích.
+`last_initial_verdict` giữ vi phạm gốc để metrics và DPO không mất category sau khi
+câu regen cuối đã pass.
+
+Metric: service snapshot `checked/attempts/recovered/exhausted`; Prometheus
+`mai_filter_regen_total{result="none|recovered|exhausted"}` được ghi trực tiếp từ
+regenerator. Lỗi ghi metric không được làm hỏng turn.
 
 N7 fail-safe: filter/LLM lỗi → trả bản trước, không raise.
 
-Wire vào `LLMTurnRunner._primary()`. `last_filter_verdict` expose cho dashboard/QC đọc.
+Wire vào `LLMTurnRunner._primary()`. `last_filter_verdict` là verdict cuối để
+dashboard/QC đọc; tracking được reset đầu mỗi turn để không rò verdict cũ sang fallback
+hoặc khi feature bị tắt.
 
 ---
 
@@ -1006,12 +1014,15 @@ await rt.stop()
 1. LLM stack (health check bắt buộc, raise nếu server chưa chạy)
 2. EmotionOrchestrator (A1: KHÔNG còn DriftDetector)
 3. Memory (nếu `enable_memory=True`, rewire `emotion._modifiers._memory`)
-4. LLMTurnRunner với optional wire
-5. VieNeuTtsService + AudioPlayer + TTSPipeline (nếu `enable_tts`)
-6. AutonomyEngine (nếu `enable_autonomy`) — làm **generator self_talk** cho Director
-7. **C0 Director stack:** `SaliencePool` + `ChatPulse` + `Director` + `DirectorLoop`, `turn_lock` chung
-8. ChatRouter INTAKE mode (cấp pool+pulse)
-9. Dashboard với `emotion=emotion` (nếu `enable_dashboard`) → tab Mood
+4. `FeatureManager` + `RuleFilter` + `FilterRegenerator`; `filter_rule` quyết định
+   regenerator có gắn vào runner lúc startup hay không
+5. LLMTurnRunner với optional wire; handler FeatureManager bật/tắt filter cho turn kế tiếp
+6. VieNeuTtsService + AudioPlayer + TTSPipeline (nếu `enable_tts`)
+7. AutonomyEngine (nếu `enable_autonomy`) — làm **generator self_talk** cho Director
+8. **C0 Director stack:** `SaliencePool` + `ChatPulse` + `Director` + `DirectorLoop`, `turn_lock` chung
+9. ChatRouter INTAKE mode (cấp pool+pulse)
+10. Dashboard với FeatureManager + filter/regenerator + `emotion` (nếu
+    `enable_dashboard`) → toggle thật, tab Filter và tab Mood
 
 **Driver:** `DirectorLoop` cầm nhịp (start ở `StreamRuntime.start` nếu có; `_autonomy_loop`
 cũ chỉ chạy khi KHÔNG có director). Share `turn_lock` chung — 1 turn tại 1 thời điểm.

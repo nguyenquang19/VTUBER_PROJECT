@@ -113,6 +113,7 @@ class LLMTurnRunner:
         self.last_turn_id = 0          # T3: turn cuối để dashboard rating gắn vào
         self._log_cause: Any = None    # T1: cause snapshot trước khi clear
         self.last_filter_verdict: FilterVerdict | None = None
+        self._last_filter_initial_verdict: FilterVerdict | None = None
         self._last_was_regen = False
         self._last_rejected_text: str | None = None
         self._memory_writes_scheduled = 0
@@ -122,6 +123,20 @@ class LLMTurnRunner:
             [self._primary, self._canned_handler],
             [timeout_primary_s, timeout_canned_s],
         )
+
+    @property
+    def filter_enabled(self) -> bool:
+        return self._regen is not None
+
+    def set_regenerator(self, regenerator: Any = None) -> None:
+        """Enable or disable output filtering for subsequent turns."""
+        self._regen = regenerator
+
+    def _reset_filter_tracking(self) -> None:
+        self.last_filter_verdict = None
+        self._last_filter_initial_verdict = None
+        self._last_was_regen = False
+        self._last_rejected_text = None
 
     @classmethod
     def from_loader(
@@ -168,14 +183,16 @@ class LLMTurnRunner:
         # 3.B: filter+regen (optional). Nếu bad → regen thay parsed; verdict lộ ra
         # last_filter_verdict để caller (dashboard/QC) đọc.
         # T1/T2 data: bắt was_regen + rejected_text (bản đầu bị chặn) để log + DPO pair.
-        self._last_was_regen = False
-        self._last_rejected_text = None
-        if self._regen is not None:
+        regenerator = self._regen
+        if regenerator is not None:
             pre_text = parsed.text
-            parsed, verdict = await self._regen.check_and_maybe_regen(
+            parsed, verdict = await regenerator.check_and_maybe_regen(
                 request, parsed, on_token=self._on_token
             )
             self.last_filter_verdict = verdict
+            self._last_filter_initial_verdict = getattr(
+                regenerator, "last_initial_verdict", None,
+            ) or verdict
             if parsed.text != pre_text:
                 self._last_was_regen = True
                 self._last_rejected_text = pre_text
@@ -206,6 +223,7 @@ class LLMTurnRunner:
         `commit_history=False` → KHÔNG commit history + KHÔNG extract memory
         (SUMMARY/VIBE không có tin cụ thể).
         """
+        self._reset_filter_tracking()
         request = self._build_request_maybe_with_mood(
             request_id, user_text, event_category, stage_direction,
         )
@@ -252,8 +270,9 @@ class LLMTurnRunner:
         )
         # T2: filter regen → cặp DPO (rejected = bản bị chặn, chosen = bản pass)
         if self._last_was_regen and self._last_rejected_text:
+            reason_verdict = self._last_filter_initial_verdict or self.last_filter_verdict
             cats = [getattr(c, "value", str(c))
-                    for c in getattr(self.last_filter_verdict, "categories_hit", [])]
+                    for c in getattr(reason_verdict, "categories_hit", [])]
             reason = f"filter:{cats[0]}" if cats else "filter:regen"
             self.log_pref_pair(self._last_rejected_text, parsed.text, reason,
                                session_id=session_id, user_text=user_text, request=request)
@@ -271,6 +290,7 @@ class LLMTurnRunner:
         - Vẫn feed emotion Kênh B (mood LLM tự report → apply_llm_hint)
         - KHÔNG memory_extract (ambient không có user_text để extract preference)
         """
+        self._reset_filter_tracking()
         request = self._pm.build_request(request_id, prompt_text)
         # T1: ambient — cause snapshot + history_len trước clear
         try:
@@ -526,7 +546,7 @@ class LLMTurnRunner:
         # 3.C: forward filter verdict (nếu có regen) vào metrics
         recorder = getattr(self._metrics, "record_filter_check", None)
         if callable(recorder) and self.last_filter_verdict is not None:
-            v = self.last_filter_verdict
+            v = self._last_filter_initial_verdict or self.last_filter_verdict
             recorder(
                 passed=v.passed,
                 categories=[c.value for c in v.categories_hit],

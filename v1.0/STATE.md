@@ -4,6 +4,30 @@
 > 04 extending). File STATE này chỉ là ledger "đang ở đâu". Spec cũ (ARCHITECTURE/PROCESS/
 > EMOTION_SIMULATION…) đã xoá 2026-08-06, nội dung gộp vào dev_manual.
 
+## Master Plan M0.2 — Wire filter/regenerator vào stream thật (2026-08-08) — XONG
+
+- `build_stream_runtime()` tạo `FeatureManager`, `RuleFilter` và
+  `FilterRegenerator`; feature `filter_rule` quyết định wiring lúc startup. Cả
+  `stream_youtube.py` và `stream_discord.py` dùng chung factory này.
+- FeatureManager có handler runtime thật: disable tháo regenerator khỏi runner; enable
+  gắn lại và health check qua `FilterService`. Dashboard nhận feature manager,
+  filter service và regenerator để tab/toggle phản ánh đúng runtime.
+- `LLMTurnRunner` reset filter tracking mỗi turn, chụp regenerator cục bộ cho turn đang
+  chạy và expose `filter_enabled`; feature OFF giữ backward compatibility.
+- Verdict cuối vẫn ở `last_filter_verdict`; verdict vi phạm ban đầu được giữ riêng để
+  metrics không mất hit/category sau regen và DPO pair có reason đúng nguồn.
+- Regen hint đã theo A1: chỉ yêu cầu thoại tự nhiên, không mood block/nhãn/meta.
+- Filter/regen exception fail-open: giữ output trước, ghi verdict và tăng
+  `fail_open_total`, không giết turn.
+- Prometheus `mai_filter_regen_total` nhận outcome `none/recovered/exhausted` trực
+  tiếp từ regenerator; lỗi metric vẫn fail-safe và không giết turn.
+- Integration fake stream runtime kiểm tra: enabled regen + DPO + dashboard wiring,
+  runtime toggle OFF/ON, disabled backward compatibility và exception fail-open.
+- Tests filter M0.2: `32 passed`; full regression:
+  `1100 passed, 3 deselected, 1 warning`. Ba test deselect mang marker `llm`; warning
+  còn lại là Starlette deprecate `httpx` TestClient, chưa ảnh hưởng runtime.
+- **Kế tiếp:** dừng chờ user review; chưa bắt đầu M0.3.
+
 ## Master Plan M0.1 — Khôi phục môi trường phát triển (2026-08-08) — XONG
 
 - Khôi phục Python 3.11.9 bị mất; thay `venv` cũ bằng venv sạch cài từ dependency

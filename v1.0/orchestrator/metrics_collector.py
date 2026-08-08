@@ -183,6 +183,16 @@ class MetricsCollector:
             if len(self._filter_recent) > 10:
                 del self._filter_recent[: len(self._filter_recent) - 10]
 
+    def record_filter_regeneration(self, outcome: str) -> None:
+        """Record one filter regeneration outcome for Prometheus."""
+        if outcome not in {"none", "recovered", "exhausted"}:
+            raise ValueError(f"unknown filter regeneration outcome: {outcome}")
+        self.filter_regen_total_c.labels(result=outcome).inc()
+        if outcome == "recovered":
+            self._filter_regen_recovered += 1
+        elif outcome == "exhausted":
+            self._filter_regen_exhausted += 1
+
     def filter_snapshot(self) -> dict[str, Any]:
         total = self._filter_checks
         hit_rate = round(100.0 * self._filter_hits / total, 1) if total else None

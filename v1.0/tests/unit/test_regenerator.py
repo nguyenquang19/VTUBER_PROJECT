@@ -109,6 +109,9 @@ class TestRegenerateRecovered:
         assert verdict.passed is True
         assert final.text == "Chào cậu."
         assert llm.calls == 1
+        assert regen.last_initial_verdict is not None
+        assert regen.last_initial_verdict.passed is False
+        assert FilterCategory.PERSONA_BREAK in regen.last_initial_verdict.categories_hit
         m = regen.get_metrics()
         assert m["filter_regen_attempts_total"] == 1
         assert m["filter_regen_recovered_total"] == 1
@@ -129,6 +132,8 @@ class TestRegenerateRecovered:
         assert msgs[2]["content"].startswith("Tớ chỉ là một chương trình")
         assert "[Kiểm duyệt]" in msgs[-1]["content"]
         assert "persona" in msgs[-1]["content"].lower()
+        assert "CHỈ viết câu Mai sẽ nói" in msgs[-1]["content"]
+        assert "vẫn kèm mood block" not in msgs[-1]["content"]
         assert req.request_id.startswith("r1-r")
         assert req.max_tokens == orig.max_tokens
 

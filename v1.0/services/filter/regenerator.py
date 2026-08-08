@@ -37,25 +37,28 @@ class FilterRegenerator:
         filter_svc: FilterService,
         llm_svc: LLMService,
         max_attempts: int = 1,
+        metrics: Any = None,
     ) -> None:
         if max_attempts < 0:
             raise ValueError("max_attempts không được âm")
         self._filter = filter_svc
         self._svc = llm_svc
         self._max_attempts = max_attempts
+        self._metrics = metrics
         self._log = get_logger("filter_regen")
 
         self._checked_total = 0
         self._regen_total = 0
         self._recovered_total = 0
         self._exhausted_total = 0
+        self.last_initial_verdict: FilterVerdict | None = None
 
     @classmethod
     def from_loader(
-        cls, loader, filter_svc: FilterService, llm_svc: LLMService
+        cls, loader, filter_svc: FilterService, llm_svc: LLMService, metrics: Any = None
     ) -> "FilterRegenerator":
         max_attempts = int(loader.get("filters", "filter.max_regenerate_attempts", 1))
-        return cls(filter_svc, llm_svc, max_attempts=max_attempts)
+        return cls(filter_svc, llm_svc, max_attempts=max_attempts, metrics=metrics)
 
     def get_metrics(self) -> dict[str, Any]:
         return {
@@ -75,15 +78,22 @@ class FilterRegenerator:
     ) -> tuple[ParsedResponse, FilterVerdict]:
         """Trả (parsed cuối, verdict cuối). Không raise."""
         self._checked_total += 1
+        self.last_initial_verdict = None
         on_token = on_token or (lambda _t: None)
         try:
             verdict = await self._filter.check(parsed.text)
         except Exception as e:  # N7 fail-open
             self._log.warning("filter_check_failed", error=str(e))
-            return parsed, FilterVerdict.fail_open(str(e))
+            verdict = FilterVerdict.fail_open(str(e))
+            self.last_initial_verdict = verdict
+            self._record_outcome("none")
+            return parsed, verdict
+
+        self.last_initial_verdict = verdict
 
         # Passed hoặc hành động không phải regenerate → không đụng
         if verdict.passed or verdict.suggested_action != "regenerate":
+            self._record_outcome("none")
             return parsed, verdict
 
         cur_parsed, cur_verdict = parsed, verdict
@@ -101,22 +111,34 @@ class FilterRegenerator:
                 new_verdict = await self._filter.check(new_parsed.text)
             except Exception as e:  # N7 — regen bể → giữ bản trước, fail-open
                 self._log.warning("filter_regen_failed", attempt=attempt + 1, error=str(e))
+                self._record_outcome("exhausted")
                 return cur_parsed, FilterVerdict.fail_open(f"regen: {e}")
 
             cur_parsed, cur_verdict = new_parsed, new_verdict
             if new_verdict.passed:
                 self._recovered_total += 1
+                self._record_outcome("recovered")
                 self._log.info("filter_regen_recovered", attempts=attempt + 1)
                 return cur_parsed, cur_verdict
 
         # hết attempts vẫn fail
         self._exhausted_total += 1
+        self._record_outcome("exhausted")
         self._log.warning(
             "filter_regen_exhausted",
             attempts=self._max_attempts,
             final_categories=[c.value for c in cur_verdict.categories_hit],
         )
         return cur_parsed, cur_verdict
+
+    def _record_outcome(self, outcome: str) -> None:
+        recorder = getattr(self._metrics, "record_filter_regeneration", None)
+        if not callable(recorder):
+            return
+        try:
+            recorder(outcome)
+        except Exception as e:  # metrics must never break a turn
+            self._log.warning("filter_regen_metric_failed", outcome=outcome, error=str(e))
 
     # ---------- helpers ----------
 
@@ -143,7 +165,8 @@ class FilterRegenerator:
         return (
             f"[Kiểm duyệt] Câu vừa rồi vi phạm: {', '.join(parts)}. "
             "Nói LẠI theo đúng persona (ngang, cà khịa, KHÔNG vi phạm ranh giới Phần C), "
-            "NGẮN, vẫn kèm mood block đúng khuôn."
+            "NGẮN và tự nhiên. CHỈ viết câu Mai sẽ nói; không nhãn, không mood block, "
+            "không giải thích việc kiểm duyệt."
         )
 
     @staticmethod
