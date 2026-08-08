@@ -24,6 +24,8 @@ fine_tune_gate:
   min_sft_turns: 2000
   target_sft_turns: 5000
   min_dpo_pairs: 200
+  min_correction_dpo_pairs: 50
   min_reviewed_good: 200
+  min_holdout_sessions: 5
   max_safety_regression: 0
   max_latency_increase_percent: 10
