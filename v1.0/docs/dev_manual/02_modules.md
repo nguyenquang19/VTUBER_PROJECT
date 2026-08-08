@@ -1149,6 +1149,22 @@ Mọi lỗi execute fail-safe: log + tiếp tick. `clock` inject cho test.
 
 ---
 
+### 12.5. Action Arbiter overlay (M3)
+
+M3 thay thế thứ tự C0 cũ trong §12.3 bằng:
+`safety/donation → active goal → relevant chat → pacing → self-talk → wait`.
+
+- `action_types.py`: frozen `DirectorInput` và `DirectorChatRef`.
+- `action_context.py`: context system-only, bounded, chỉ dùng provenance có thật.
+- Executor mới: `CONTINUE_THREAD`, `ASK_FOLLOW_UP`, `SHARE_GOAL_PROGRESS`.
+- WAIT chỉ audit/metric rồi trả về, không gọi runner.
+- `speech_completed` mang `goal_id` của decision; output/TTS lỗi không phát completion event.
+- Config: `config/director.yaml §director.arbiter`; toggle: `director_goal_arbiter`.
+- Test: `test_director_arbiter.py`, `test_director_action_context.py`,
+  `test_action_arbiter_flow.py`, `test_director_simulation_m3.py`.
+
+---
+
 ## 13. Agent working state (M1)
 
 **Thư mục:** `services/agent/`; interface: `interfaces/agent.py`.

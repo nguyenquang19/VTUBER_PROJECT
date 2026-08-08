@@ -301,6 +301,20 @@ khi muốn rollout, rồi theo dõi `mai_agent_events_total{outcome,reason}` và
 
 ---
 
+### 4.4. Action Arbiter (M3)
+
+- `director_goal_arbiter` mặc định ON và có thể toggle runtime không restart.
+- Tune `director.arbiter.*` trong `config/director.yaml`; không hardcode threshold ở executor.
+- Theo dõi `mai_director_actions_total{action,reason}`. WAIT tăng metric/audit nhưng không tăng
+  `mai_llm_requests_total`.
+- Nếu action lặp, kiểm tra `follow_up_asked`/`progress_shared`. Nếu goal không complete, kiểm tra
+  `speech_completed`: generation/TTS fail chủ ý không phát event này.
+- Gate deterministic:
+  `python -m pytest tests\integration\test_director_simulation_m3.py -q`.
+  Artifact sanitized: `docs/baselines/m3_action_arbiter_simulation.json`.
+
+---
+
 ## 5. Monitoring
 
 ### 5.1. Dashboard http://127.0.0.1:7860

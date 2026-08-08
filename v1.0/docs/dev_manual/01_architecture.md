@@ -238,6 +238,24 @@ Metric chính: `mai_agent_goals_total{outcome,reason}` và
 
 ---
 
+## 6.3. Director Action Arbiter (M3)
+
+`DirectorLoop` chụp một `DirectorInput` bất biến gồm AgentState, GoalSnapshot, chat candidates,
+ChatPulse và safety hold. `Director.decide()` là rule engine thuần theo thứ tự:
+
+```text
+safety/donation → active goal required action → relevant chat → pacing → self-talk → wait
+```
+
+Ba action goal có executor đầy đủ: `CONTINUE_THREAD`, `ASK_FOLLOW_UP`,
+`SHARE_GOAL_PROGRESS`. Context được dựng từ goal/thread/event ID có thật, giới hạn bởi
+`director.arbiter.context` và đưa vào system message; không giả user turn. Sau speech thành công,
+`speech_completed` quay về EventLedger/GoalManager. Generation/TTS lỗi không complete; WAIT không
+gọi LLM. Toggle: `features.director_goal_arbiter`; metric:
+`mai_director_actions_total{action,reason}`.
+
+---
+
 ## 7. State Machine 5 state (Phase 0)
 
 ```

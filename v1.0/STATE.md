@@ -1,5 +1,24 @@
 # STATE — Mai project
 
+## Master Plan M3 — Director thành Action Arbiter (2026-08-08) — XONG
+
+- M3.1 thêm `DirectorInput`/`DirectorChatRef` frozen; `Director.decide()` đọc snapshot
+  `AgentState`/`GoalManager` bất biến và không mutate input hay state khi quyết định.
+- M3.2 áp dụng safety/donation → active goal → relevant chat → pacing → self-talk → wait.
+  Active goal/thread chặn unrelated self-talk; feature `director_goal_arbiter` có handler runtime và
+  metric `mai_director_actions_total{action,reason}`.
+- M3.3 có executor thật cho `CONTINUE_THREAD`, `ASK_FOLLOW_UP`, `SHARE_GOAL_PROGRESS`.
+  Context grounded có cap nằm trong system message, không tạo user turn giả; WAIT không gọi LLM.
+- M3.4 chỉ `speech_completed` sau output/speech thành công mới complete/cập nhật goal.
+  Generation/TTS lỗi không complete; marker progress chống lặp action.
+- M3.5 simulation deterministic 3.600 giây/1.000 event: 18/18 donation và 32/32 goal instance
+  được phục vụ; goal latency tối đa 3,6 giây; tối đa 1 action/goal; artifact sanitized tại
+  `docs/baselines/m3_action_arbiter_simulation.json`.
+- CI offline: `1223 passed, 5 deselected, 1 warning`; full regression:
+  `1228 passed, 1 warning`. Warning Starlette/httpx đã có từ trước.
+- Commits: `d67f4a1`, `3bd299f`, `f6b810c`, `47e9cb8`, `e226062`.
+  **Dừng chờ user review; chưa bắt đầu M4.**
+
 > **Tài liệu kỹ thuật canonical: `docs/dev_manual/`** (01 kiến trúc · 02 modules · 03 ops ·
 > 04 extending). File STATE này chỉ là ledger "đang ở đâu". Spec cũ (ARCHITECTURE/PROCESS/
 > EMOTION_SIMULATION…) đã xoá 2026-08-06, nội dung gộp vào dev_manual.
