@@ -44,6 +44,7 @@ class DashboardServer:
         emotion: Any = None,
         runner: Any = None,           # T3/T7: LLMTurnRunner (last_turn_id) — data label
         agent_state: Any = None,      # M1: shared grounded state, read-only snapshot
+        goal_manager: Any = None,     # M2: read + audited operator controls
         data_dir: str = "logs",       # nơi ghi ratings/corrections
         push_interval_s: float = 1.0,
     ) -> None:
@@ -62,6 +63,7 @@ class DashboardServer:
         self.emotion = emotion
         self.runner = runner
         self.agent_state = agent_state
+        self.goal_manager = goal_manager
         self._data_dir = Path(data_dir)
         self._ratings_writer = None       # lazy JsonlWriter
         self._corrections_writer = None
@@ -170,6 +172,10 @@ class DashboardServer:
                 snap["agent"] = self.agent_state.snapshot().to_dict()
                 if self.metrics is not None and hasattr(self.metrics, "agent_snapshot"):
                     snap["agent_metrics"] = self.metrics.agent_snapshot()
+        if self.goal_manager is not None:
+            with contextlib.suppress(Exception):
+                snap["goals"] = self.goal_manager.snapshot().to_dict()
+                snap["goal_metrics"] = self.goal_manager.get_metrics()
         return snap
 
     # ---------- app ----------
@@ -246,6 +252,48 @@ class DashboardServer:
             except MachineError as e:
                 return JSONResponse({"ok": False, "reason": str(e)}, status_code=400)
             return JSONResponse({"ok": True, "state": self.sm.state})
+
+        @app.post("/api/goals/pin")
+        async def api_goal_pin(request: Request) -> JSONResponse:
+            if self.goal_manager is None:
+                return JSONResponse({"ok": False, "reason": "no goal manager"}, status_code=503)
+            body = await _json(request)
+            reason = str(body.get("reason") or "").strip()
+            success = str(body.get("success_condition") or "").strip()
+            parent = str(body.get("parent_thread_id") or "").strip() or None
+            goal = self.goal_manager.pin_operator(
+                reason=reason, success_condition=success, parent_thread_id=parent,
+            )
+            if goal is None:
+                return JSONResponse(
+                    {"ok": False, "reason": "invalid or rejected operator goal"},
+                    status_code=400,
+                )
+            return JSONResponse({"ok": True, "goal": goal.to_dict()})
+
+        @app.post("/api/goals/{goal_id}/complete")
+        async def api_goal_complete(goal_id: str, request: Request) -> JSONResponse:
+            if self.goal_manager is None:
+                return JSONResponse({"ok": False, "reason": "no goal manager"}, status_code=503)
+            body = await _json(request)
+            reason = str(body.get("reason") or "operator complete").strip()
+            ok = self.goal_manager.operator_complete(goal_id, reason=reason)
+            return JSONResponse(
+                {"ok": ok, "goal_id": goal_id, "reason": reason if ok else "unknown goal"},
+                status_code=200 if ok else 404,
+            )
+
+        @app.post("/api/goals/{goal_id}/cancel")
+        async def api_goal_cancel(goal_id: str, request: Request) -> JSONResponse:
+            if self.goal_manager is None:
+                return JSONResponse({"ok": False, "reason": "no goal manager"}, status_code=503)
+            body = await _json(request)
+            reason = str(body.get("reason") or "operator cancel").strip()
+            ok = self.goal_manager.operator_cancel(goal_id, reason=reason)
+            return JSONResponse(
+                {"ok": ok, "goal_id": goal_id, "reason": reason if ok else "unknown goal"},
+                status_code=200 if ok else 404,
+            )
 
         @app.get("/metrics", response_class=PlainTextResponse)
         async def metrics_endpoint() -> bytes:

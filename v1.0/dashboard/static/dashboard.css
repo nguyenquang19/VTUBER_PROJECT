@@ -122,3 +122,10 @@ table.features th { color: var(--dim); font-weight: 500; font-size: 11px; text-t
 .review-item .btn-row, .review-item > div:last-child { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .btn-skip { color: var(--dim); }
 .save-status { font-size: 12px; color: var(--ok); margin-left: 4px; }
+
+/* ---------- Agent goals (M2) ---------- */
+.goal-card { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 10px; }
+.goal-card button { margin: 8px 6px 0 0; }
+.goal-card small { color: var(--dim); display: block; margin-top: 5px; }
+.goal-form { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
+.goal-form input { min-width: 260px; flex: 1; background: #10131a; color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }

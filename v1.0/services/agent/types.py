@@ -16,6 +16,8 @@ class AgentEventKind(str, Enum):
     SELF_TALK_COMPLETED = "self_talk_completed"
     SPEECH_FINAL = "speech_final"
     ENVIRONMENT_OBSERVED = "environment_observed"
+    SPEECH_COMPLETED = "speech_completed"
+    GOAL_AUDIT = "goal_audit"
 
 
 class AgentEventSource(str, Enum):
@@ -28,6 +30,8 @@ class AgentEventSource(str, Enum):
     LLM = "llm"
     RUNTIME = "runtime"
     ENVIRONMENT = "environment"
+    GOAL_MANAGER = "goal_manager"
+    OPERATOR = "operator"
 
 
 class StreamPhase(str, Enum):

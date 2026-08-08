@@ -24,6 +24,7 @@
   <button data-tab="filter">Filter</button>
   <button data-tab="tts">TTS</button>
   <button data-tab="mood">Mood</button>
+  <button data-tab="agent">Agent</button>
   <button data-tab="review">Review</button>
 </nav>
 
@@ -150,6 +151,20 @@
       Danh sách dưới = hàng đợi. Mỗi turn: 👍👎🚩 hoặc sửa câu → xử xong item rớt khỏi list.
     </div>
     <div id="review-list"></div>
+  </section>
+
+  <section id="tab-agent" class="tab">
+    <h3>Agenda hiện tại</h3>
+    <div id="goal-active" class="goal-card"><em>Chưa có goal active.</em></div>
+    <h3>Operator pin</h3>
+    <div class="goal-form">
+      <input id="goal-reason" maxlength="240" placeholder="Mai cần làm gì?">
+      <input id="goal-success" maxlength="240" placeholder="Điều kiện hoàn thành">
+      <button id="btn-goal-pin">Pin goal</button>
+      <span id="goal-status" class="dim"></span>
+    </div>
+    <h3>Candidate / suspended</h3>
+    <div id="goal-queue"></div>
   </section>
 </main>
 

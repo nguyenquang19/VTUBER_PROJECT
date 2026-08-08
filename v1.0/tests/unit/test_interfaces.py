@@ -70,6 +70,9 @@ class TestServiceContract:
             (GoalManagerService, "complete"),
             (GoalManagerService, "cancel"),
             (GoalManagerService, "snapshot"),
+            (GoalManagerService, "pin_operator"),
+            (GoalManagerService, "operator_complete"),
+            (GoalManagerService, "operator_cancel"),
         ],
     )
     def test_interface_declares_spec_method(self, iface, method) -> None:

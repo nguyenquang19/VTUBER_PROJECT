@@ -54,3 +54,17 @@ class GoalManagerService(Service):
     @abstractmethod
     def snapshot(self) -> "GoalSnapshot":
         """Return an immutable, pruned goal snapshot."""
+
+    @abstractmethod
+    def pin_operator(
+        self, *, reason: str, success_condition: str, parent_thread_id: str | None = None,
+    ) -> "Goal | None":
+        """Create the only goal kind that dashboard is allowed to originate."""
+
+    @abstractmethod
+    def operator_complete(self, goal_id: str, *, reason: str) -> bool:
+        """Complete any goal as an audited operator override."""
+
+    @abstractmethod
+    def operator_cancel(self, goal_id: str, *, reason: str) -> bool:
+        """Cancel any goal as an audited operator override."""

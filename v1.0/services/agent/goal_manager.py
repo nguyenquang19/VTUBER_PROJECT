@@ -2,12 +2,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
+import uuid
 
 from interfaces.agent import GoalManagerService
 from interfaces.base import HealthStatus
-from services.agent.goal_types import Goal, GoalSnapshot, GoalStatus
+from services.agent.goal_types import Goal, GoalKind, GoalSnapshot, GoalSource, GoalStatus
+from services.agent.types import (
+    AgentEventKind, AgentEventSource, EventProvenance, GroundedEvent,
+)
 
 
 @dataclass(frozen=True)
@@ -16,6 +20,8 @@ class GoalLimits:
     suspended_max: int
     terminal_history_max: int
     metadata_text_max_chars: int
+    operator_priority: int = 90
+    operator_ttl_s: int = 3600
 
     @classmethod
     def from_loader(cls, loader: Any) -> "GoalLimits":
@@ -28,6 +34,12 @@ class GoalLimits:
             ),
             metadata_text_max_chars=int(
                 loader.get("agent_goals", prefix + "metadata_text_max_chars", 240)
+            ),
+            operator_priority=int(
+                loader.get("agent_goals", "priorities.operator_pinned", 90)
+            ),
+            operator_ttl_s=int(
+                loader.get("agent_goals", prefix + "operator_pinned_ttl_s", 3600)
             ),
         )
 
@@ -42,14 +54,17 @@ class GoalManager(GoalManagerService):
         clock: Callable[[], datetime] | None = None,
         metrics: Any = None,
         on_active_changed: Callable[[str | None], None] | None = None,
+        audit_sink: Callable[[GroundedEvent], bool] | None = None,
     ) -> None:
         self.limits = limits
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._metrics = metrics
         self._on_active_changed = on_active_changed
+        self._audit_sink = audit_sink
         self._snapshot = GoalSnapshot()
         self._running = False
         self._counts: dict[str, int] = {}
+        self._audit_seq = 0
 
     @classmethod
     def from_loader(
@@ -59,10 +74,12 @@ class GoalManager(GoalManagerService):
         clock: Callable[[], datetime] | None = None,
         metrics: Any = None,
         on_active_changed: Callable[[str | None], None] | None = None,
+        audit_sink: Callable[[GroundedEvent], bool] | None = None,
     ) -> "GoalManager":
         return cls(
             GoalLimits.from_loader(loader), clock=clock, metrics=metrics,
             on_active_changed=on_active_changed,
+            audit_sink=audit_sink,
         )
 
     async def start(self) -> None:
@@ -141,6 +158,45 @@ class GoalManager(GoalManagerService):
             suspended=self._snapshot.suspended,
             recent_terminal=self._snapshot.recent_terminal,
         )
+
+    def pin_operator(
+        self, *, reason: str, success_condition: str, parent_thread_id: str | None = None,
+    ) -> Goal | None:
+        reason = _compact(reason, self.limits.metadata_text_max_chars)
+        success = _compact(success_condition, self.limits.metadata_text_max_chars)
+        if not reason or not success:
+            self._record("rejected", "invalid_operator_pin")
+            return None
+        now = _utc(self._clock())
+        goal = Goal(
+            goal_id=f"goal:operator:{uuid.uuid4().hex}",
+            kind=GoalKind.OPERATOR_PINNED,
+            status=GoalStatus.CANDIDATE,
+            priority=self.limits.operator_priority,
+            reason=reason,
+            source=GoalSource.OPERATOR,
+            created_at=now,
+            expires_at=now + timedelta(seconds=self.limits.operator_ttl_s),
+            success_conditions=(success,),
+            parent_thread_id=parent_thread_id or None,
+            metadata={"relevant": True},
+        )
+        if not self.submit(goal):
+            return None
+        self._operator_audit("pin", goal.goal_id, reason)
+        return self._find(goal.goal_id)
+
+    def operator_complete(self, goal_id: str, *, reason: str) -> bool:
+        if not self.complete(goal_id, reason=_compact(reason, self.limits.metadata_text_max_chars)):
+            return False
+        self._operator_audit("complete", goal_id, reason)
+        return True
+
+    def operator_cancel(self, goal_id: str, *, reason: str) -> bool:
+        if not self.cancel(goal_id, reason=_compact(reason, self.limits.metadata_text_max_chars)):
+            return False
+        self._operator_audit("cancel", goal_id, reason)
+        return True
 
     def _terminal(self, goal_id: str, status: GoalStatus, reason: str) -> bool:
         now = _utc(self._clock())
@@ -249,6 +305,29 @@ class GoalManager(GoalManagerService):
             except Exception:
                 pass
 
+    def _operator_audit(self, action: str, goal_id: str, reason: str) -> None:
+        self._record("operator_override", action)
+        if self._audit_sink is None:
+            return
+        now = _utc(self._clock())
+        try:
+            self._audit_seq += 1
+            self._audit_sink(GroundedEvent(
+                event_id=f"agent:goal_audit:{self._audit_seq:012d}:{uuid.uuid4().hex}",
+                kind=AgentEventKind.GOAL_AUDIT,
+                source=AgentEventSource.OPERATOR,
+                timestamp=now,
+                confidence=1.0,
+                payload={
+                    "action": action,
+                    "goal_id": goal_id,
+                    "reason": _compact(reason, self.limits.metadata_text_max_chars),
+                },
+                provenance=EventProvenance(producer="goal_manager_operator"),
+            ))
+        except Exception:
+            pass
+
 
 def _bound(value: Any, max_chars: int) -> Any:
     if isinstance(value, dict) or hasattr(value, "items"):
@@ -258,6 +337,13 @@ def _bound(value: Any, max_chars: int) -> Any:
     if isinstance(value, str) and len(value) > max_chars:
         return value[: max(1, max_chars - 1)].rstrip() + "…"
     return value
+
+
+def _compact(value: Any, max_chars: int) -> str:
+    text = " ".join(str(value or "").split())
+    if len(text) <= max_chars:
+        return text
+    return text[: max(1, max_chars - 1)].rstrip() + "…"
 
 
 def _utc(value: datetime) -> datetime:

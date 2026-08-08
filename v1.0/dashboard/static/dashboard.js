@@ -33,6 +33,14 @@ async function post(url) {
 document.getElementById("btn-estop").addEventListener("click", () => post("/api/emergency_stop"));
 document.getElementById("btn-resume").addEventListener("click", () => post("/api/resume"));
 
+document.getElementById("btn-goal-pin").addEventListener("click", async () => {
+  const result = await postJson("/api/goals/pin", {
+    reason: document.getElementById("goal-reason").value,
+    success_condition: document.getElementById("goal-success").value,
+  });
+  setText("goal-status", result.ok ? "✓ pinned" : "✗ " + result.reason);
+});
+
 // ---------- Review tab (T3 rating + T7 correction) ----------
 async function postJson(url, body) {
   try {
@@ -353,6 +361,35 @@ function renderTTS(t) {
   }
 }
 
+function goalControls(goal) {
+  const wrap = document.createElement("div");
+  wrap.className = "goal-card";
+  wrap.innerHTML = `<b>${escapeHtml(goal.kind)}</b> · P${goal.priority}` +
+    `<div>${escapeHtml(goal.reason)}</div><small>${escapeHtml(goal.status)} · ${escapeHtml(goal.id)}</small>`;
+  const complete = document.createElement("button");
+  complete.textContent = "Complete";
+  complete.addEventListener("click", () => postJson(`/api/goals/${encodeURIComponent(goal.id)}/complete`, { reason: "dashboard" }));
+  const cancel = document.createElement("button");
+  cancel.textContent = "Cancel";
+  cancel.className = "danger";
+  cancel.addEventListener("click", () => postJson(`/api/goals/${encodeURIComponent(goal.id)}/cancel`, { reason: "dashboard" }));
+  wrap.append(complete, cancel);
+  return wrap;
+}
+
+function renderGoals(goals) {
+  if (!goals) return;
+  const active = document.getElementById("goal-active");
+  active.innerHTML = "";
+  if (goals.active) active.appendChild(goalControls(goals.active));
+  else active.innerHTML = "<em>Chưa có goal active.</em>";
+  const queue = document.getElementById("goal-queue");
+  queue.innerHTML = "";
+  [...(goals.candidates || []), ...(goals.suspended || [])].forEach((goal) => {
+    queue.appendChild(goalControls(goal));
+  });
+}
+
 function render(snap) {
   renderMetrics(snap.metrics);
   renderLLM(snap.llm);
@@ -362,6 +399,7 @@ function render(snap) {
   renderFeatures(snap.features, snap.vram);
   renderTriggers(snap.triggers);
   renderMood(snap.mood);
+  renderGoals(snap.goals);
 }
 
 // ---------- websocket ----------
