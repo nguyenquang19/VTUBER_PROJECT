@@ -90,6 +90,7 @@ class StreamRuntime:
         thread_extractor: Any = None,
         conversation_context: Any = None,
         repair_policy: Any = None,
+        behavior_library: Any = None,
         cfg: StreamRuntimeConfig | None = None,
     ) -> None:
         self._loader = loader
@@ -116,6 +117,7 @@ class StreamRuntime:
         self._thread_extractor = thread_extractor
         self._conversation_context = conversation_context
         self._repair_policy = repair_policy
+        self._behavior_library = behavior_library
         self.cfg = cfg or StreamRuntimeConfig()
 
         self._running = False
@@ -142,6 +144,8 @@ class StreamRuntime:
             await self._conversation_context.start()
         if self._repair_policy is not None:
             await self._repair_policy.start()
+        if self._behavior_library is not None:
+            await self._behavior_library.start()
         await self._router.start()
         self._running = True
         # C0.4: DirectorLoop cầm nhịp (thay autonomy loop cũ). Fallback: autonomy loop
@@ -210,6 +214,9 @@ class StreamRuntime:
         if self._repair_policy is not None:
             with contextlib.suppress(Exception):
                 await self._repair_policy.stop()
+        if self._behavior_library is not None:
+            with contextlib.suppress(Exception):
+                await self._behavior_library.stop()
         if self._goal_manager is not None:
             with contextlib.suppress(Exception):
                 await self._goal_manager.stop()
@@ -770,6 +777,18 @@ async def build_stream_runtime(
     proactive_policy = ProactiveHostingPolicy.from_loader(
         loader, metrics=metrics, enabled=proactive_enabled,
     )
+    from services.agent.behavior_library import BehaviorLibrary
+    try:
+        behavior_status = await feature_manager.get_status("behavior_library")
+        behavior_enabled = behavior_status in (
+            FeatureStatus.ENABLED, FeatureStatus.DEGRADED,
+        )
+    except KeyError:
+        get_logger("stream_runtime").warning("behavior_library_feature_missing")
+        behavior_enabled = False
+    behavior_library = BehaviorLibrary.from_loader(
+        loader, metrics=metrics, enabled=behavior_enabled,
+    )
     director = Director.from_loader(
         pool, pulse, loader, mood_policy=mood_policy,
         proactive_policy=proactive_policy,
@@ -801,6 +820,8 @@ async def build_stream_runtime(
         metrics=metrics,
         goal_arbitration_enabled=arbiter_enabled,
         action_context_builder=action_context_builder,
+        behavior_library=behavior_library,
+        repair_policy=repair_policy,
     )
 
     async def _enable_director_goal_arbiter() -> None:
@@ -851,6 +872,22 @@ async def build_stream_runtime(
         health=_proactive_hosting_health,
     )
 
+    async def _enable_behavior_library() -> None:
+        behavior_library.set_enabled(True)
+
+    async def _disable_behavior_library() -> None:
+        behavior_library.set_enabled(False)
+
+    async def _behavior_library_health() -> bool:
+        return behavior_library.enabled
+
+    feature_manager.attach_handlers(
+        "behavior_library",
+        enable=_enable_behavior_library,
+        disable=_disable_behavior_library,
+        health=_behavior_library_health,
+    )
+
     # ─── Dashboard (optional) ───
     dashboard_task = None
     if cfg.enable_dashboard:
@@ -877,6 +914,7 @@ async def build_stream_runtime(
         thread_extractor=thread_extractor,
         conversation_context=conversation_context,
         repair_policy=repair_policy,
+        behavior_library=behavior_library,
     )
     # DirectorLoop dùng runtime ctx của rt (silence/chat_count/memory) cho self_talk material
     director_loop._runtime_ctx_fn = rt._build_runtime_context  # noqa: SLF001

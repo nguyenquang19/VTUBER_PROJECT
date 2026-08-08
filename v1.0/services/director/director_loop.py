@@ -62,6 +62,8 @@ class DirectorLoop:
         goal_arbitration_enabled: bool = True,
         safety_hold_fn: Callable[[], bool] | None = None,
         action_context_builder: ActionContextBuilder | None = None,
+        behavior_library: Any = None,
+        repair_policy: Any = None,
     ) -> None:
         self._director = director
         self._pool = pool
@@ -81,6 +83,8 @@ class DirectorLoop:
         self._goal_arbitration_enabled = bool(goal_arbitration_enabled)
         self._safety_hold_fn = safety_hold_fn
         self._action_context_builder = action_context_builder or ActionContextBuilder()
+        self._behavior_library = behavior_library
+        self._repair_policy = repair_policy
 
         self._task: asyncio.Task | None = None
         self._running = False
@@ -266,6 +270,9 @@ class DirectorLoop:
         self, dec: Any, now: float, director_input: DirectorInput,
     ) -> None:
         context = self._action_context_builder.render(dec, director_input)
+        behavior = self._behavior_directive(dec)
+        if behavior:
+            context = f"{context}\n{behavior}"
         req_id = f"goal_{uuid.uuid4().hex[:8]}"
         parsed = await self._runner.run_directed_turn(req_id, context)
         if parsed.ok and parsed.text:
@@ -286,6 +293,7 @@ class DirectorLoop:
         # De-AI register: user turn = CHAT THẬT; "cách xử" (gộp/ack) → stage_direction (system).
         user_text = _read_user_text(dec)
         stage = _stage_direction_for(dec)
+        stage = _join_directives(stage, self._behavior_directive(dec, user_text))
         hist_text, commit_hist = _history_text_for(dec)
         parsed, _level = await self._runner.run_turn(
             request_id=req_id,
@@ -307,7 +315,9 @@ class DirectorLoop:
         """SUMMARY/VIBE: Mai react không khí chat qua đường ambient (chỉ thị ở prompt,
         không user turn). Không commit history (không tin cụ thể)."""
         req_id = f"room_{uuid.uuid4().hex[:8]}"
-        prompt = _room_reaction_prompt(dec)
+        prompt = _join_directives(
+            _room_reaction_prompt(dec), self._behavior_directive(dec),
+        )
         parsed = await self._runner.run_ambient_turn(req_id, prompt)
         # SUMMARY dọn backlog điểm thấp (Task 3); VIBE gỡ cụm đã react
         if dec.read_mode == ReadMode.SUMMARY:
@@ -341,7 +351,10 @@ class DirectorLoop:
             self._director.mark_spoke(dec.action, now)
             return
         req_id = f"self_{uuid.uuid4().hex[:8]}"
-        parsed = await self._runner.run_ambient_turn(req_id, decision.prompt_text)
+        prompt = _join_directives(
+            decision.prompt_text, self._behavior_directive(dec),
+        )
+        parsed = await self._runner.run_ambient_turn(req_id, prompt)
         if parsed.ok and parsed.text:
             if self._autonomy.check_dedup(parsed.text):
                 rejected = parsed.text   # T2: bản trùng lặp = rejected
@@ -371,6 +384,7 @@ class DirectorLoop:
             f"Nói 1 câu tự nhiên báo chuyển phần (kiểu 'thôi qua phần khác nào', "
             f"'sắp hết giờ rồi'), đúng giọng Mai. Chỉ viết thoại."
         )
+        prompt = _join_directives(prompt, self._behavior_directive(dec))
         parsed = await self._runner.run_ambient_turn(req_id, prompt)
         if parsed.ok and parsed.text:
             self._runner.commit_self_talk(parsed.text)
@@ -400,6 +414,30 @@ class DirectorLoop:
                 return False
         self._record_speech_completed(req_id, action, refs, goal_id=goal_id)
         return True
+
+    def _behavior_directive(self, dec: Any, query: str = "") -> str | None:
+        if self._behavior_library is None:
+            return None
+        repair_kind = None
+        if query and self._repair_policy is not None and self._agent_state is not None:
+            try:
+                repair = self._repair_policy.decide(self._agent_state.snapshot(), query)
+                repair_kind = repair.kind.value if repair is not None else None
+            except Exception:
+                repair_kind = None
+        try:
+            selected = self._behavior_library.select(
+                dec.action.value,
+                self._current_mood(),
+                self._tone_flags(),
+                proactive_source=dec.proactive_source,
+                repair_kind=repair_kind,
+            )
+        except Exception:
+            return None
+        if not selected.applicable or not selected.directive:
+            return None
+        return f"Behavior [{selected.kind.value}]: {selected.directive}"
 
     def _record_speech_completed(
         self, request_id: str, action: Any, refs: list[Any], *, goal_id: str | None = None,
@@ -521,6 +559,10 @@ def _stage_direction_for(dec) -> str | None:
     if dec.read_mode == ReadMode.CLUSTER:
         return "Mấy người đang hỏi/nói cùng chủ đề — đáp GỘP 1 lần, đừng lặp lại từng câu."
     return None   # SINGLE: không cần chỉ thị
+
+
+def _join_directives(*values: str | None) -> str:
+    return "\n".join(value for value in values if value)
 
 
 def _room_reaction_prompt(dec) -> str:

@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from services.agent.types import OpenThread, ThreadEvidence, ThreadKind
     from services.agent.types import SessionRecap
     from services.agent.thread_extraction import ThreadExtraction
+    from services.agent.behavior_library import BehaviorDecision
 
 
 class EventLedgerService(Service):
@@ -164,3 +165,21 @@ class ConversationRepairService(Service):
     @abstractmethod
     def decide(self, state: "AgentStateSnapshot", query: str) -> object | None:
         """Return a deterministic repair decision when evidence is unsafe to assert."""
+
+
+class BehaviorLibraryService(Service):
+    @abstractmethod
+    def select(
+        self,
+        action: str,
+        mood: object,
+        tone_flags: set[str] | tuple[str, ...] = (),
+        *,
+        proactive_source: str | None = None,
+        repair_kind: str | None = None,
+    ) -> "BehaviorDecision":
+        """Choose one applicable guarded behavior for a grounded host action."""
+
+    @abstractmethod
+    def set_enabled(self, enabled: bool) -> None:
+        """Enable or disable behavior directives for future turns."""

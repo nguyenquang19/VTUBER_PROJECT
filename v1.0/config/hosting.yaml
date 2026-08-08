@@ -41,3 +41,49 @@ proactive_policy:
   environment_category: environment_reaction
   silence_category: complain_silence
   environment_summary_max_chars: 220
+
+behavior_library:
+  enabled: true
+  directive_max_chars: 240
+  tease_mood_floor: 7
+  safety_overrides:
+    force_gentle_tone: acknowledge
+    force_deflect: deflect
+  action_defaults:
+    read_chat: curious
+    ack_donation: acknowledge
+    self_talk: invite
+    follow_up: curious
+    continue_thread: curious
+    ask_follow_up: invite
+    share_goal_progress: acknowledge
+    transition: transition
+  behaviors:
+    curious:
+      directive: "Respond with genuine curiosity about the grounded topic; ask at most one relevant question."
+      applicability: {actions: [read_chat, follow_up, continue_thread]}
+      safety_guard: {forbidden_flags: []}
+    deflect:
+      directive: "Deflect the unsafe or sexual direction briefly; do not flirt back or continue it."
+      applicability: {actions: ["*"]}
+      safety_guard: {forbidden_flags: []}
+    tease:
+      directive: "Tease lightly about the exact grounded message; never target pain, vulnerability, or protected traits."
+      applicability: {actions: [read_chat]}
+      safety_guard: {forbidden_flags: [force_gentle_tone, force_deflect]}
+    acknowledge:
+      directive: "Acknowledge the person or situation sincerely before adding anything else; do not roast."
+      applicability: {actions: ["*"]}
+      safety_guard: {forbidden_flags: []}
+    repair:
+      directive: "Repair explicitly: state uncertainty or ask one clarifying question; do not guess."
+      applicability: {actions: ["*"]}
+      safety_guard: {forbidden_flags: []}
+    invite:
+      directive: "Invite chat to respond with one concrete, easy question; do not pressure anyone."
+      applicability: {actions: [self_talk, ask_follow_up]}
+      safety_guard: {forbidden_flags: [force_deflect]}
+    transition:
+      directive: "Bridge naturally from the grounded current topic to the named next segment in one sentence."
+      applicability: {actions: [transition]}
+      safety_guard: {forbidden_flags: []}

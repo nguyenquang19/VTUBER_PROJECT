@@ -188,6 +188,13 @@ class MetricsCollector:
             registry=self.registry,
         )
         self._proactive_candidates: dict[tuple[str, str], int] = {}
+        self.host_behaviors_total_c = Counter(
+            "mai_host_behaviors_total",
+            "Structured host behavior selections",
+            ["behavior", "reason"],
+            registry=self.registry,
+        )
+        self._host_behaviors: dict[tuple[str, str], int] = {}
 
         # --- 3 "metric giả" cho Phase 0 (chưa có service thật) ---
         # DoD: "Metric giả cập nhật realtime trên chart"
@@ -281,6 +288,17 @@ class MetricsCollector:
         return {
             f"{source}:{outcome}": count
             for (source, outcome), count in sorted(self._proactive_candidates.items())
+        }
+
+    def record_host_behavior(self, behavior: str, reason: str) -> None:
+        key = (str(behavior), str(reason))
+        self._host_behaviors[key] = self._host_behaviors.get(key, 0) + 1
+        self.host_behaviors_total_c.labels(behavior=key[0], reason=key[1]).inc()
+
+    def host_behavior_snapshot(self) -> dict[str, int]:
+        return {
+            f"{behavior}:{reason}": count
+            for (behavior, reason), count in sorted(self._host_behaviors.items())
         }
 
     def director_action_snapshot(self) -> dict[str, int]:

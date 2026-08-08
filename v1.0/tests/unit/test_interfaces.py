@@ -16,6 +16,7 @@ from interfaces.animation import AnimationCommand, AnimationService, MoodState
 from interfaces.agent import (
     AgentStateService, EventLedgerService, GoalManagerService, GoalProposalService,
     ConversationContextService, ConversationRepairService, OpenThreadManagerService,
+    BehaviorLibraryService,
     SessionRecapService,
     ThreadExtractionService,
 )
@@ -72,6 +73,8 @@ class TestServiceContract:
             (AgentStateService, "snapshot"),
             (AgentStateService, "set_active_goal_ref"),
             (AgentStateService, "add_event_listener"),
+            (BehaviorLibraryService, "select"),
+            (BehaviorLibraryService, "set_enabled"),
             (GoalManagerService, "submit"),
             (GoalManagerService, "complete"),
             (GoalManagerService, "cancel"),
