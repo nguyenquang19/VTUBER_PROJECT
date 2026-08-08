@@ -117,6 +117,20 @@ class MetricsCollector:
         )
         self._agent_events: dict[tuple[str, str], int] = {}
 
+        # --- GoalManager metrics (Master Plan M2) ---
+        self.goal_events_total_c = Counter(
+            "mai_agent_goals_total",
+            "Goal lifecycle and validation outcomes",
+            ["outcome", "reason"],
+            registry=self.registry,
+        )
+        self.goal_active_age_seconds_g = Gauge(
+            "mai_agent_goal_active_age_seconds",
+            "Age of the current active goal",
+            registry=self.registry,
+        )
+        self._goal_events: dict[tuple[str, str], int] = {}
+
         # --- 3 "metric giả" cho Phase 0 (chưa có service thật) ---
         # DoD: "Metric giả cập nhật realtime trên chart"
         self.fake_gpu_util = Gauge(
@@ -272,6 +286,22 @@ class MetricsCollector:
                 for (outcome, reason), count in sorted(self._agent_events.items())
                 if outcome == "dropped"
             },
+        }
+
+    def record_goal_event(self, outcome: str, reason: str) -> None:
+        key = (str(outcome), str(reason))
+        self._goal_events[key] = self._goal_events.get(key, 0) + 1
+        self.goal_events_total_c.labels(outcome=key[0], reason=key[1]).inc()
+
+    def set_goal_active_age(self, seconds: float) -> None:
+        self.goal_active_age_seconds_g.set(max(0.0, float(seconds)))
+
+    def goal_snapshot(self) -> dict[str, Any]:
+        return {
+            "events": {
+                f"{outcome}:{reason}": count
+                for (outcome, reason), count in sorted(self._goal_events.items())
+            }
         }
 
     # ---------- fake updater (Phase 0 demo) ----------

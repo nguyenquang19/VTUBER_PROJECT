@@ -223,6 +223,7 @@ class TestRealConfigFiles:
         assert "logging" in loader.loaded_names()
         assert "data_privacy" in loader.loaded_names()
         assert "features" in loader.loaded_names()
+        assert "agent_goals" in loader.loaded_names()
 
     def test_real_config_has_phase0_keys(self) -> None:
         loader = ConfigLoader(REPO_ROOT / "config")

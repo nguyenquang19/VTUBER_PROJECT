@@ -218,6 +218,9 @@ class AgentState(AgentStateService):
             "last_spoken_summary": self._snapshot.last_spoken_summary,
         })
 
+    def set_active_goal_ref(self, goal_id: str | None) -> None:
+        self._snapshot = replace(self._snapshot, active_goal_ref=goal_id)
+
 
 def _compact(value: Any, max_chars: int) -> str:
     text = " ".join(str(value or "").split())
