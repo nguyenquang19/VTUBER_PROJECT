@@ -28,3 +28,11 @@ filler:
   frequency_cap_per_min: 4    # tối đa X filler / phút
   cooldown_seconds: 6.0       # tối thiểu giữa 2 filler
   no_repeat_last_n: 2         # không lặp clip trong N lần gần nhất
+
+natural_timing:
+  enabled: true
+  min_ttfa_samples: 3         # chưa đủ TTFA thật → không thêm delay/filler
+  sample_window: 20
+  ttfa_ceiling_ms: 1000       # TTS đã chậm → không cộng thêm artificial pacing
+  proactive_filler_only: true
+  proactive_prefixes: [self_, room_, trans_]

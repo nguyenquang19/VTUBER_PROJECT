@@ -195,6 +195,18 @@ class MetricsCollector:
             registry=self.registry,
         )
         self._host_behaviors: dict[tuple[str, str], int] = {}
+        self.natural_timing_total_c = Counter(
+            "mai_natural_timing_decisions_total",
+            "TTFA-calibrated pacing decisions",
+            ["turn_kind", "reason"],
+            registry=self.registry,
+        )
+        self.natural_timing_ttfa_ms_g = Gauge(
+            "mai_natural_timing_ttfa_ms",
+            "Latest real TTS TTFA sample used by natural timing",
+            registry=self.registry,
+        )
+        self._natural_timing: dict[tuple[str, str], int] = {}
 
         # --- 3 "metric giả" cho Phase 0 (chưa có service thật) ---
         # DoD: "Metric giả cập nhật realtime trên chart"
@@ -299,6 +311,20 @@ class MetricsCollector:
         return {
             f"{behavior}:{reason}": count
             for (behavior, reason), count in sorted(self._host_behaviors.items())
+        }
+
+    def record_natural_timing(self, turn_kind: str, reason: str) -> None:
+        key = (str(turn_kind), str(reason))
+        self._natural_timing[key] = self._natural_timing.get(key, 0) + 1
+        self.natural_timing_total_c.labels(turn_kind=key[0], reason=key[1]).inc()
+
+    def observe_natural_timing_ttfa(self, ttfa_ms: float) -> None:
+        self.natural_timing_ttfa_ms_g.set(max(0.0, float(ttfa_ms)))
+
+    def natural_timing_snapshot(self) -> dict[str, int]:
+        return {
+            f"{kind}:{reason}": count
+            for (kind, reason), count in sorted(self._natural_timing.items())
         }
 
     def director_action_snapshot(self) -> dict[str, int]:

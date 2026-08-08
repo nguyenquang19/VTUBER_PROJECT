@@ -167,6 +167,14 @@ features:
     depends_on: []
     conflicts_with: []
 
+  natural_timing:
+    enabled: true               # M5 TTFA-gated pacing; filler never masks chat LLM latency
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: tts
+    depends_on: []
+    conflicts_with: []
+
   speculative_decoding:
     enabled: false              # v2.3 bỏ E4B draft model → tạm off, bật lại nếu add E4B
     vram_cost_mb: 700

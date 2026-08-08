@@ -699,9 +699,19 @@ async def build_stream_runtime(
     # Wrap speak_callback: delay biến thiên trước khi nói + filler audio (nếu có clip).
     # Áp cho CẢ chat reply lẫn ambient (dùng chung _speak boundary).
     from services.tts.pacing import FillerManager, ResponsePacer
+    from services.tts.natural_timing import NaturalTimingPolicy
 
     pacer = ResponsePacer.from_loader(loader)
     filler = FillerManager.from_loader(loader)
+    try:
+        timing_status = await feature_manager.get_status("natural_timing")
+        timing_enabled = timing_status in (FeatureStatus.ENABLED, FeatureStatus.DEGRADED)
+    except KeyError:
+        get_logger("stream_runtime").warning("natural_timing_feature_missing")
+        timing_enabled = False
+    natural_timing = NaturalTimingPolicy.from_loader(
+        loader, metrics=metrics, enabled=timing_enabled,
+    )
 
     async def _play_filler_clip(req_id: str, clip_path: str) -> None:
         """Load clip wav → enqueue AudioPlayer TRƯỚC câu. Fail-safe: lỗi → skip (N7)."""
@@ -741,13 +751,18 @@ async def build_stream_runtime(
         _raw_speak = speak_callback
 
         async def _paced_speak(req_id: str, text: str) -> None:
-            d = pacer.delay(text)
-            if d > 0:
-                await asyncio.sleep(d)
-            clip = filler.maybe_pick(time.time())
-            if clip is not None:
-                await _play_filler_clip(req_id, clip)
+            plan = natural_timing.plan(req_id, text, pacer)
+            if plan.delay_seconds > 0:
+                await asyncio.sleep(plan.delay_seconds)
+            if plan.allow_filler:
+                clip = filler.maybe_pick(time.time())
+                if clip is not None:
+                    await _play_filler_clip(req_id, clip)
             await _raw_speak(req_id, text)
+            if tts_pipeline is not None:
+                natural_timing.observe_ttfa(
+                    tts_pipeline.get_metrics().get("tts_pipeline_last_ttfa_ms")
+                )
 
         speak_callback = _paced_speak
 
@@ -886,6 +901,22 @@ async def build_stream_runtime(
         enable=_enable_behavior_library,
         disable=_disable_behavior_library,
         health=_behavior_library_health,
+    )
+
+    async def _enable_natural_timing() -> None:
+        natural_timing.set_enabled(True)
+
+    async def _disable_natural_timing() -> None:
+        natural_timing.set_enabled(False)
+
+    async def _natural_timing_health() -> bool:
+        return natural_timing.enabled
+
+    feature_manager.attach_handlers(
+        "natural_timing",
+        enable=_enable_natural_timing,
+        disable=_disable_natural_timing,
+        health=_natural_timing_health,
     )
 
     # ─── Dashboard (optional) ───
