@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "contract_id": "mai-agent-v1",
+  "source": "M8 strict contract dry-run on local logs",
+  "raw_records_committed": false,
+  "legacy_inventory": {
+    "turns": 114,
+    "ratings_bad": 3,
+    "corrections": 3,
+    "turns_quarantined": 114
+  },
+  "stats": {
+    "baseline_versioned": true,
+    "eligible_sft_turns": 0,
+    "eligible_dpo_pairs": 0,
+    "correction_dpo_pairs": 0,
+    "reviewed_good_turns": 0,
+    "holdout_sessions": 0,
+    "schema_frozen": true,
+    "persona_frozen": true,
+    "context_frozen": true,
+    "agenda_frozen": true
+  }
+}

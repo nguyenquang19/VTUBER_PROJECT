@@ -3,6 +3,14 @@
 Chỗ lưu snapshot 4 metric TRƯỚC mỗi thay đổi lớn (Phase A, C0, …).
 Không có mốc → không so được sau khi tune.
 
+## M8 agent/data baseline
+
+- `m8_evaluation_baseline.json`: scenario suite marker và aggregate transcript metrics;
+  live observation/human review ghi `pending`, không tự chấm.
+- `m8_data_stats.json`: inventory sanitize đầu vào cho readiness CLI.
+- `m8_data_readiness.json`: kết quả gate hiện tại. `not_ready` nghĩa là tiếp tục thu/review
+  data, không train hoặc thay model production.
+
 ## Quy trình đo 1 baseline
 
 1. Chạy Mai 30' liên tục (chat thật hoặc replay). turns.jsonl sẽ tự ghi qua LLMTurnRunner.

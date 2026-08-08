@@ -1,5 +1,28 @@
 # STATE — Mai project
 
+## Master Plan M8 — Eval, data và fine-tune (2026-08-09) — INFRA XONG, DATA NOT_READY
+
+- M8.1 thêm 12 scenario versioned chia đủ director/agency/continuity/safety/environment/persona;
+  harness chỉ so expected state/action từ observation có source ref, không assert exact LLM text.
+- M8.2 thêm live-eval marker sanitize, evidence ref được hash; rubric bắt buộc operator nhập
+  score 1–5 và note. Automated check không thể tự điền human review.
+- M8.3 freeze contract `mai-agent-v1`: turn schema 2, persona `5cacb00a34a1`, context/agenda
+  versioned. Chỉ primary output pass filter; correction override SFT và tạo DPO; split theo session;
+  data legacy/incompatible đi quarantine với distribution report sanitize.
+- M8.4 thêm readiness gate (SFT trước DPO), candidate comparison và rollback manifest.
+  Candidate phải thắng persona/continuity/repetition, không regression safety và latency không quá 10%;
+  không có auto-promotion hoặc thay model production.
+- Audit local: 114 turn legacy đều bị quarantine do thiếu session/version envelope; strict eligible
+  SFT `0/2000`, DPO `0/200`, correction DPO `0/50`, reviewed-good `0/200`, holdout session `0/5`.
+  Baseline đã versioned nhưng live scenario/human review/candidate eval chưa chạy.
+- Artifacts: `docs/baselines/m8_evaluation_baseline.json`, `m8_data_stats.json`,
+  `m8_data_readiness.json`. Status thật: `NOT_READY`; chưa fine-tune, chưa đạt DoD model candidate,
+  chưa bắt đầu M9.
+- Affected regression: `241 passed`; full regression: `1371 passed, 1 warning`; CI offline:
+  `1366 passed, 5 deselected, 1 warning`. Warning Starlette/httpx đã có từ trước.
+- Commits: `801816f`, `0dc0cc1`, `4ef9839`, `12b1452`.
+
+
 ## Master Plan M7 — Relationship lite và narrative grounded (2026-08-08) — XONG
 
 - Theo quyết định user, M6 được hoãn vì chưa có game/environment thật; không đánh dấu M6 complete.

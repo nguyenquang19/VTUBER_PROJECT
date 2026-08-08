@@ -10,7 +10,6 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from orchestrator.config_loader import ConfigLoader  # noqa: E402
-from orchestrator.features import FeatureManager  # noqa: E402
 from services.evaluation.harness import ScenarioEvaluationHarness  # noqa: E402
 from services.evaluation.review import build_live_artifact, finalize_human_review  # noqa: E402
 from services.evaluation.types import ObservedOutcome  # noqa: E402
@@ -63,8 +62,9 @@ def main(argv: list[str] | None = None) -> int:
 
         loader = ConfigLoader(Path("config"))
         loader.load_all()
-        manager = FeatureManager.from_config(loader)
-        enabled = "evaluation_harness" in manager.enabled_ids()
+        enabled = bool(loader.get(
+            "features", "features.evaluation_harness.enabled", False,
+        ))
         harness = ScenarioEvaluationHarness.from_loader(loader, enabled=enabled)
         if args.validate_suite:
             summary = {
