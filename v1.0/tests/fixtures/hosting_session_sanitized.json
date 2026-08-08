@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "source": {
+    "kind": "sanitized_local_transcript",
+    "raw_turn_count": 114,
+    "selected_rows": [1, 20],
+    "legacy_session_id_unavailable": true,
+    "raw_transcript_committed": false,
+    "sanitizer": "services.data.sanitize"
+  },
+  "records": [
+    {"kind": "chat_reply", "user_text": "helo mai", "mai_text": "Chào cái gì mà chào nghe yếu thế, vào rồi thì vào luôn đi chứ đứng đó định làm gì nữa?"},
+    {"kind": "chat_reply", "user_text": "hôm nay vui không", "mai_text": "Tự nhiên hỏi cái gì lạ đời vậy, tớ đang livestream mà cậu định bắt tớ báo cáo tâm trạng à?"},
+    {"kind": "chat_reply", "user_text": "oke", "mai_text": "Ơ kìa, oke cái gì mà cụt lủn thế? Nói chuyện với tớ mà cứ như đang trả lời cho xong vậy."},
+    {"kind": "chat_reply", "user_text": "không", "mai_text": "Lại là không à? Cậu tính chơi trò im lặng hay thử thách lòng kiên nhẫn của tớ đấy?"},
+    {"kind": "ambient", "user_text": "", "mai_text": "Này, chat đang im à? Có ai biết tuần này có bộ phim nào thực sự đáng xem không?"},
+    {"kind": "chat_reply", "user_text": "không giới thiệu đâu", "mai_text": "Thôi được rồi, không giới thiệu thì thôi, cứ ngồi xem livestream là được."},
+    {"kind": "chat_reply", "user_text": "oke nhá", "mai_text": "Cái từ oke của cậu cứ lặp đi lặp lại nghe nhức đầu thật đấy."},
+    {"kind": "chat_reply", "user_text": "không", "mai_text": "Cậu định chơi trò đối đáp ngắn gọn đến bao giờ đây?"},
+    {"kind": "chat_reply", "user_text": "uk", "mai_text": "Cái uk này là đồng ý hay là cậu sắp hết vốn từ để nói với tớ rồi?"},
+    {"kind": "chat_reply", "user_text": "kể harry potter đi", "mai_text": "Ủa, tự nhiên hỏi cái này làm gì? Cậu định bắt tớ đi học bài hộ hay sao?"},
+    {"kind": "chat_reply", "user_text": "uk", "mai_text": "Cái uk này là cậu đang bị đơ hay định chơi trò uk đến hết stream luôn đây?"},
+    {"kind": "chat_reply", "user_text": "helo mai", "mai_text": "Chào cái gì mà chào, vào xem rồi thì nói chuyện tử tế chút đi chứ."},
+    {"kind": "ambient", "user_text": "", "mai_text": "Tớ vừa nảy ra suy nghĩ này, sao càng về đêm người ta càng thật lòng một cách lạ lùng thế nhỉ?"},
+    {"kind": "chat_reply", "user_text": "ồ thì ra là thế à", "mai_text": "Thì đúng là thế còn gì nữa? Chứ cậu muốn tớ chào kiểu robot à?"},
+    {"kind": "ambient", "user_text": "", "mai_text": "Cái phản ứng ồ thì ra là thế của cậu làm tớ nghĩ cậu đang giả vờ trầm tư đấy."},
+    {"kind": "ambient", "user_text": "", "mai_text": "Này, chat im thin thít rồi, có ai còn ở đây không?"},
+    {"kind": "ambient", "user_text": "", "mai_text": "Câu ồ thì ra là thế kia nghe có vẻ lười suy nghĩ quá nhỉ."},
+    {"kind": "ambient", "user_text": "", "mai_text": "Tớ cứ tự hỏi sao mấy con mèo trên mạng có thể làm loạn lên được thế nhỉ."},
+    {"kind": "ambient", "user_text": "", "mai_text": "Này ông ơi, làm gì mà cứ lơ tớ mãi thế?"},
+    {"kind": "ambient", "user_text": "", "mai_text": "Trong chat có ai từng bị mất ngủ trường kỳ chưa? Mấy cậu làm thế nào để thoát ra vậy?"}
+  ]
+}
