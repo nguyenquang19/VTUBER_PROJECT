@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import random
 from pathlib import Path
+from types import SimpleNamespace
 
 from orchestrator.fallback_manager import FallbackManager
 from orchestrator.logger import JsonlWriter
@@ -39,6 +40,8 @@ class TestLogPrefPair:
         assert recs[0]["reason"] == "filter:persona_break"
         assert recs[0]["schema_version"] == 1
         assert recs[0]["session_id"] == r.session_id
+        assert recs[0]["source"] == "filter"
+        assert recs[0]["timestamp"].endswith("+00:00")
 
     def test_identical_not_written(self, tmp_path: Path) -> None:
         r, path = _runner(tmp_path, FakeLLM(VALID))
@@ -50,6 +53,17 @@ class TestLogPrefPair:
         r = LLMTurnRunner(FakeLLM(VALID), pm, FallbackManager(),
                           CannedResponder({"default": ["C"]}, rng=random.Random(0)))
         r.log_pref_pair("a", "b", "x")   # pref_logger None → no-op, không raise
+
+    def test_known_display_name_is_removed_from_pair(self, tmp_path: Path) -> None:
+        r, path = _runner(tmp_path, FakeLLM(VALID))
+        r._log_cause = SimpleNamespace(viewer_alias="RealViewer")  # noqa: SLF001
+        r.log_pref_pair(
+            "RealViewer nói câu dở", "trả lời RealViewer", "filter:privacy",
+            user_text="chào RealViewer",
+        )
+        encoded = json.dumps(_read(path), ensure_ascii=False)
+        assert "RealViewer" not in encoded
+        assert "[PII]" in encoded
 
 
 class FakeRegen:

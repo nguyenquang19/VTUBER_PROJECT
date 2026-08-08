@@ -17,8 +17,12 @@ data/*.db-journal
 data/*.db-wal
 data/*.db-shm
 data/qc/
-data/datasets/                 # T5 export: sft_*.jsonl / dpo_*.jsonl
-logs/*.jsonl                    # turns/pref_pairs/ratings/corrections (data train)
+# T5 export: sft_*.jsonl / dpo_*.jsonl
+data/datasets/
+# M0.4 local HMAC salt — never commit/share
+data/privacy_salt.bin
+# turns/pref_pairs/ratings/corrections (data train)
+logs/*.jsonl
 logs/**/*.jsonl
 logs/**/*.log
 backups/

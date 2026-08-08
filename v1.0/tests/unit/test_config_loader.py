@@ -221,6 +221,7 @@ class TestRealConfigFiles:
         assert "system" in loader.loaded_names()
         assert "models" in loader.loaded_names()
         assert "logging" in loader.loaded_names()
+        assert "data_privacy" in loader.loaded_names()
         assert "features" in loader.loaded_names()
 
     def test_real_config_has_phase0_keys(self) -> None:

@@ -59,6 +59,10 @@ structlog JSONL + rotation. Log files ở `logs/`:
 - `events.jsonl` — structlog events (info/warn/error)
 - `turns.jsonl` — mỗi turn LLM 1 record (user text, output, mood, latency)
 
+M0.4: `JsonlWriter` bảo đảm mọi record có `schema_version`, UTC `timestamp`,
+`source`, `session_id`. Khi vượt `rotation.keep_files`, bản cũ được đổi sang tên
+`.archive.<UTC>` thay vì xóa. Session runtime được bind vào event log sau khi tạo UUID.
+
 ```python
 log = get_logger("module_name")
 log.info("turn_complete", ttft=250, mood="vui")

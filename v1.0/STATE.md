@@ -4,6 +4,29 @@
 > 04 extending). File STATE này chỉ là ledger "đang ở đâu". Spec cũ (ARCHITECTURE/PROCESS/
 > EMOTION_SIMULATION…) đã xoá 2026-08-06, nội dung gộp vào dev_manual.
 
+## Master Plan M0.4 — Privacy, retention và data integrity (2026-08-08) — XONG
+
+- `config/data_privacy.yaml` là policy canonical: salt local, operator consent notice,
+  retention review 30 ngày, `auto_delete: false`, nguồn/pattern backup cấu hình được.
+- `JsonlWriter` chuẩn hóa mọi JSONL với `schema_version`, UTC `timestamp`, `source`,
+  `session_id`; free-form event field được scrub. Runtime/CLI bind UUID session vào
+  event context. Rotation giữ active `.1..N` và archive bản cũ theo UTC, không xóa.
+- Viewer ID dùng pseudonym `v_` + HMAC-SHA256 16 hex với salt 32-byte local ở
+  `data/privacy_salt.bin`; salt được tạo/lưu lại và `.gitignore` đúng, không commit.
+- Sanitizer bao phủ email, phone, long token, handle, URL có secret query, IPv4,
+  labeled government ID/name/address và display name lấy từ structured metadata.
+  Turn, context, output, pref pair và correction đều scrub trước khi ghi/chia sẻ.
+- Export SFT/DPO giữ composite join M0.3, thêm envelope chuẩn, scrub có đếm,
+  báo invalid record, hỗ trợ `--dry-run` và ghi qua temp + atomic replace.
+- `scripts/backup_data.py` backup thủ công, không phá hủy: `--dry-run` liệt kê
+  size/SHA-256; backup thật copy source và tạo `manifest.json`, không sửa/xóa log.
+- Dry-run trên data local: 114 turn → 114 SFT, 3 DPO, 0 invalid, 8 PII masks;
+  backup plan 5 file có checksum và không tạo output.
+- Tests mục tiêu/regression M0.4: `106 passed`; full regression:
+  `1126 passed, 1 warning` trong 76.87s. Warning còn lại là Starlette deprecate
+  `httpx` TestClient, chưa ảnh hưởng runtime.
+- **Kế tiếp:** dừng chờ user review; chưa bắt đầu M0.5.
+
 ## Master Plan M0.3 — Identity/session cho dữ liệu (2026-08-08) — XONG
 
 - Mỗi StreamRuntime/CLI session tạo UUID mới và inject vào `LLMTurnRunner`; runner

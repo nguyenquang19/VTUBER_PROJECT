@@ -47,13 +47,16 @@ class TestChatReplyLogs:
         assert r["mood_dominant"] == "vui"
         assert r["mood_intensity"] == 5
         assert r["trigger_type"] == "chat_normal"
-        # T4: viewer_id hashed (8 char), KHÔNG lưu id gốc
-        assert r["viewer_id"] != "u1" and len(r["viewer_id"]) == 8
+        # M0.4: viewer_id dùng HMAC local salt, KHÔNG lưu id gốc
+        assert r["viewer_id"] != "u1" and len(r["viewer_id"]) == 18
+        assert r["viewer_id"].startswith("v_")
         assert r["level_used"] == 0
         assert r["parse_ok"] is True
         assert "timestamp" in r
         assert isinstance(r["latency_ms"], int) and r["latency_ms"] >= 0
         assert r["session_id"] == runner.session_id
+        assert r["source"] == "chat_normal"
+        assert r["timestamp"].endswith("+00:00")
         # VALID có mood block trong raw → field phải True
         assert r["raw_had_mood_block"] is True
 

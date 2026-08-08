@@ -32,7 +32,7 @@ from orchestrator.autonomy_engine import AutonomyEngine
 from orchestrator.emotion_orchestrator import EmotionOrchestrator
 from orchestrator.fallback_manager import FallbackManager
 from orchestrator.features import FeatureManager, FeatureStatus
-from orchestrator.logger import get_logger, setup_from_config
+from orchestrator.logger import bind_log_session, get_logger, setup_from_config
 from orchestrator.metrics_collector import MetricsCollector
 from services.autonomy.material_provider import RuntimeContext
 from services.input.chat_router import ChatRouter
@@ -362,6 +362,7 @@ async def build_stream_runtime(
 
     # ─── Runner ───
     session_id = str(uuid.uuid4())
+    bind_log_session(session_id)
     runner = LLMTurnRunner.from_loader(
         loader, llm_svc, pm, fb, canned,
         on_token=cfg.on_token or (lambda _t: None),

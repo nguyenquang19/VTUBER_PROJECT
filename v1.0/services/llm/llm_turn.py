@@ -451,13 +451,13 @@ class LLMTurnRunner:
         raw_text = getattr(parsed, "raw", "") or ""
         # T4: sanitize PII — hash viewer_id (không lưu channel id gốc), mask
         # email/phone/token trong user_text.
-        from services.data.sanitize import hash_viewer_id, mask_pii
+        from services.data.sanitize import hash_viewer_id, mask_known_identifier, mask_pii
         record = {
             "schema_version": _TURN_SCHEMA_VERSION,
             "turn_id": self._turn_seq,
             "kind": kind,
             "user_text": mask_pii(user_text),
-            "mai_text": parsed.text,
+            "mai_text": mask_pii(parsed.text),
             # A1.1: True khi LLM tự sinh mood block trong raw (kể cả parser đã strip
             # ra khỏi mai_text). Đây là số đo hiệu quả A1 — target 0 sau A1.
             "raw_had_mood_block": bool(_RAW_MOOD_BLOCK_RE.search(raw_text)),
@@ -469,8 +469,20 @@ class LLMTurnRunner:
             "latency_ms": latency_ms,
             "viewer_id": hash_viewer_id(viewer_id),   # T4: hash, KHÔNG lưu id gốc
             "session_id": session_id,
+            "source": trigger_type or kind,
         }
         if extra:
+            if extra.get("context_block"):
+                extra["context_block"] = mask_pii(extra["context_block"])
+            cause = extra.get("mood_cause")
+            if isinstance(cause, dict) and cause.get("alias"):
+                alias = str(cause["alias"])
+                for key in ("user_text", "mai_text"):
+                    record[key] = mask_known_identifier(record.get(key), alias)
+                extra["context_block"] = mask_known_identifier(
+                    extra.get("context_block"), alias,
+                )
+                cause["alias"] = "[PII]"
             record.update(extra)
         try:
             self._turn_logger.log_turn(record)
@@ -489,8 +501,9 @@ class LLMTurnRunner:
         if self._pref_logger is None or not rejected or not chosen or rejected == chosen:
             return
         try:
-            from services.data.sanitize import mask_pii
+            from services.data.sanitize import mask_known_identifier, mask_pii
             persona_v = None
+            cause_alias = getattr(self._log_cause, "viewer_alias", None)
             try:
                 persona_v = self._pm.version
             except Exception:
@@ -501,12 +514,15 @@ class LLMTurnRunner:
                 "session_id": session_id or self.session_id,
                 "prompt_ref": {
                     "persona_version": persona_v,
-                    "context_block": _context_block_of(request),
-                    "user_text": mask_pii(user_text),
+                    "context_block": mask_known_identifier(
+                        mask_pii(_context_block_of(request)), cause_alias,
+                    ),
+                    "user_text": mask_known_identifier(mask_pii(user_text), cause_alias),
                 },
-                "rejected": rejected,
-                "chosen": chosen,
+                "rejected": mask_known_identifier(mask_pii(rejected), cause_alias),
+                "chosen": mask_known_identifier(mask_pii(chosen), cause_alias),
                 "reason": reason,
+                "source": reason.split(":", 1)[0],
             }
             self._pref_logger.write(record)
         except Exception as e:  # pragma: no cover — fail-safe

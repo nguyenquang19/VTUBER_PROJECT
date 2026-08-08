@@ -45,7 +45,7 @@ if hasattr(sys.stdin, "reconfigure"):
 from dashboard.dashboard_server import DashboardServer  # noqa: E402
 from orchestrator.config_loader import ConfigLoader  # noqa: E402
 from orchestrator.fallback_manager import FallbackManager  # noqa: E402
-from orchestrator.logger import setup_from_config  # noqa: E402
+from orchestrator.logger import bind_log_session, setup_from_config  # noqa: E402
 from orchestrator.metrics_collector import MetricsCollector  # noqa: E402
 from services.llm.canned_response import CannedResponder  # noqa: E402
 from services.llm.llama_cpp_llm import LlamaCppLLMService  # noqa: E402
@@ -304,6 +304,7 @@ async def main() -> None:
     fb = FallbackManager()
     canned = CannedResponder.from_loader(loader)
     session_id = str(uuid.uuid4())
+    bind_log_session(session_id)
 
     # ---------- Autonomy Engine v2 (optional --autonomy) ----------
     emotion = None

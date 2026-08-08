@@ -459,11 +459,39 @@ Nếu 404 → stream đã end hoặc video không live. Nếu rate limit → tă
 
 ## 9. Backup + restore
 
+### 9.0. Data privacy và retention
+
+Policy nằm ở `config/data_privacy.yaml`:
+
+- Raw transcript chỉ bật theo chế độ `operator_notice`; operator phải thông báo và
+  lấy consent khi luật/nền tảng yêu cầu.
+- `retention_days: 30` là lịch review thủ công, không phải timer xóa.
+- `auto_delete: false` là bắt buộc trong M0.4. Rotation chỉ archive, không xóa file.
+- Viewer ID dùng HMAC salt local `data/privacy_salt.bin`; không commit/chia sẻ salt.
+
+Kiểm export và backup trước khi ghi:
+
+```powershell
+.\venv\Scripts\python.exe scripts\export_dataset.py --dry-run
+.\venv\Scripts\python.exe scripts\backup_data.py --dry-run
+```
+
+Backup thật (không sửa/xóa nguồn) và export thật:
+
+```powershell
+.\venv\Scripts\python.exe scripts\backup_data.py
+.\venv\Scripts\python.exe scripts\export_dataset.py
+```
+
+Backup JSONL nằm trong `backups/data/backup_<UTC>/` cùng `manifest.json` chứa
+SHA-256 từng file. Dataset dùng atomic replace; dry-run báo số record lỗi và số PII mask.
+
 ### 9.1. Auto backup
 
 MigrationRunner tự backup `data/mai.db` trước MỖI migration → `backups/mai.db.pre_migration_<ts>_<micro>`.
 
-Không có scheduled backup — chỉ pre-migration. Setup cron tự backup nếu cần data lâu dài.
+Không có scheduled backup — chỉ pre-migration và lệnh backup data thủ công ở trên.
+Không cấu hình scheduled deletion; operator review retention định kỳ.
 
 ### 9.2. Restore từ backup
 

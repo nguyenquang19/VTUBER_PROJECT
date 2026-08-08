@@ -31,8 +31,9 @@ mood_intensity, trigger_type, level_used, latency_ms, viewer_id, session_id`.
 ```jsonc
 {
   "schema_version": 2,              // versioning — bắt buộc, để export parse đúng
-  "turn_id": 42, "ts": "2026-08-06T20:15:03+07:00",
+  "turn_id": 42, "timestamp": "2026-08-06T13:15:03+00:00",
   "session_id": "sess_1", "kind": "chat_reply",   // chat_reply | ambient | director_read | transition
+  "source": "chat_youtube",
 
   // ---- INPUT (đủ để rebuild training example) ----
   "persona_version": "a1b2c3d4",   // hash PromptCache (persona_system.txt) — KHÔNG lưu full persona mỗi turn
@@ -109,20 +110,24 @@ khóa ghép `(session_id, turn_id)`, vì `turn_id` bắt đầu lại từ 1 ở
 ## TASK 4 — Sanitize PII (làm từ đầu, không sửa sau)
 
 Data sẽ đem train → không được lẫn PII người xem.
-- **viewer_id**: hash (sha1 8 char) trước khi ghi, KHÔNG lưu channel id gốc. Map gốc→hash
-  giữ riêng `data/viewer_map.db` (không đi kèm dataset).
+- **viewer_id**: pseudonym `v_` + HMAC-SHA256 rút gọn 16 hex với salt local trước khi ghi, KHÔNG
+  lưu channel id gốc. Salt ở `data/privacy_salt.bin`, bị gitignore và không đi kèm dataset.
 - **viewer_name / alias**: chỉ lưu ở `mood_cause.alias` dạng đã sanitize (đã có `sanitize_alias`
   trong classifier) — dùng lại. Không lưu tên thật trong `mai_text`/`user_text`? user_text giữ
   nguyên (cần cho training) nhưng export có bước scrub tên nếu lộ.
-- Không lưu token/email/số điện thoại nếu regex bắt được trong user_text → mask `[PII]`.
+- Mask email, số điện thoại, handle, URL chứa secret query, IP, ID phổ biến, tên/địa
+  chỉ có nhãn và display name đã biết. Export scrub lại context, prompt, chosen/rejected.
 
-**Test:** ghi turn với viewer_id="UCxxxx" → log chứa hash, KHÔNG chứa "UCxxxx".
+**Test:** ghi turn với viewer_id="UCxxxx" → log chứa pseudonym salted, KHÔNG chứa "UCxxxx".
 
 ---
 
 ## TASK 5 — Script export dataset (làm khi đủ data, spec sẵn)
 
 `scripts/export_dataset.py`: đọc `turns.jsonl` + `ratings.jsonl` + `pref_pairs.jsonl` → emit 2 dataset.
+
+Chạy `--dry-run` để validate, đếm record lỗi/PII mask và xem số SFT/DPO mà không
+tạo file. Ghi thật dùng file tạm + atomic replace để tránh dataset dở dang.
 
 **Lọc (bỏ rác):**
 - Bỏ `level_used=1` (canned) — không phải giọng Mai thật.
@@ -156,9 +161,13 @@ DPO ra 1 cặp.
 
 ## TASK 6 — Lưu trữ + retention
 
-- File tại `logs/` (append, rotation theo ngày như logging.yaml hiện có). KHÔNG commit vào git
+- File tại `logs/` (append, rotation theo size). KHÔNG commit vào git
   (thêm `logs/*.jsonl`, `data/datasets/`, `data/viewer_map.db` vào `.gitignore`).
-- Backup định kỳ `logs/*.jsonl` sang `backups/data/` (tái dùng cơ chế backup trước migration).
+- `scripts/backup_data.py --dry-run` liệt kê file + SHA-256 mà không ghi;
+  chạy không flag để copy sang `backups/data/` và tạo manifest checksum.
+- Policy canonical ở `config/data_privacy.yaml`: retention review 30 ngày,
+  `auto_delete: false`; rotation archive file cũ, không tự xóa. Operator chịu trách
+  nhiệm thông báo/consent phù hợp trước khi thu raw transcript.
 - `schema_version` trong MỌI record → export xử được nhiều version.
 
 ---

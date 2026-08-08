@@ -12,6 +12,7 @@ import json
 import logging
 import sys
 import threading
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,12 @@ _LEVELS = {
     "WARNING": logging.WARNING,
     "ERROR": logging.ERROR,
 }
+_LOG_SESSION_ID: ContextVar[str | None] = ContextVar("log_session_id", default=None)
+
+
+def bind_log_session(session_id: str | None) -> None:
+    """Bind the active runtime session to JSONL records in the current async context."""
+    _LOG_SESSION_ID.set(session_id)
 
 
 class JsonlWriter:
@@ -39,11 +46,13 @@ class JsonlWriter:
         max_size_mb: int = 100,
         keep_files: int = 5,
         rotation_enabled: bool = True,
+        source: str | None = None,
     ) -> None:
         self._path = Path(path)
         self._max_bytes = max_size_mb * 1024 * 1024
         self._keep = keep_files
         self._rotation_enabled = rotation_enabled
+        self._source = source or self._path.stem
         self._lock = threading.Lock()
         self._path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -58,7 +67,8 @@ class JsonlWriter:
     def _rotate(self) -> None:
         oldest = self._path.with_suffix(self._path.suffix + f".{self._keep}")
         if oldest.exists():
-            oldest.unlink()
+            stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+            oldest.rename(self._path.with_suffix(self._path.suffix + f".archive.{stamp}"))
         for i in range(self._keep - 1, 0, -1):
             src = self._path.with_suffix(self._path.suffix + f".{i}")
             if src.exists():
@@ -67,7 +77,13 @@ class JsonlWriter:
             self._path.rename(self._path.with_suffix(self._path.suffix + ".1"))
 
     def write(self, record: dict[str, Any]) -> None:
-        line = json.dumps(record, ensure_ascii=False, default=str)
+        enriched = _sanitize_json_record(record)
+        legacy_ts = enriched.pop("ts", None)
+        enriched.setdefault("schema_version", 1)
+        enriched["timestamp"] = _utc_iso(enriched.get("timestamp") or legacy_ts)
+        enriched.setdefault("source", self._source)
+        enriched.setdefault("session_id", _LOG_SESSION_ID.get())
+        line = json.dumps(enriched, ensure_ascii=False, default=str)
         with self._lock:
             if self._should_rotate():
                 self._rotate()
@@ -134,6 +150,7 @@ def setup_logging(
             max_size_mb=max_size_mb,
             keep_files=keep_files,
             rotation_enabled=rotation_enabled,
+            source="events",
         )
         processors.append(_jsonl_sink(events_writer))
 
@@ -154,6 +171,7 @@ def setup_logging(
         max_size_mb=max_size_mb,
         keep_files=keep_files,
         rotation_enabled=rotation_enabled,
+        source="turn",
     )
     _turn_logger = TurnLogger(turns_writer)
     _configured = True
@@ -162,6 +180,11 @@ def setup_logging(
 
 def setup_from_config(loader) -> TurnLogger:
     """Cấu hình logger từ ConfigLoader (config/logging.yaml)."""
+    from services.data.sanitize import configure_hash_salt
+
+    configure_hash_salt(loader.get(
+        "data_privacy", "privacy.viewer_hash_salt_file", "data/privacy_salt.bin",
+    ))
     return setup_logging(
         level=loader.get("logging", "level", "INFO"),
         console_enabled=loader.get("logging", "console.enabled", True),
@@ -187,3 +210,43 @@ def get_turn_logger() -> TurnLogger:
     if _turn_logger is None:
         return setup_logging()
     return _turn_logger
+
+
+def _utc_iso(value: Any = None) -> str:
+    """Normalize timestamps to an explicit UTC ISO-8601 value."""
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, str) and value:
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            parsed = datetime.now(timezone.utc)
+    else:
+        parsed = datetime.now(timezone.utc)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc).isoformat()
+
+
+def _sanitize_json_record(record: dict[str, Any]) -> dict[str, Any]:
+    """Scrub free-form strings before any local JSONL write."""
+    from services.data.sanitize import hash_viewer_id, mask_pii
+
+    protected = {"event", "kind", "request_id", "schema_version", "session_id",
+                 "source", "timestamp", "turn_id", "ts"}
+
+    def sanitize(value: Any, key: str | None = None) -> Any:
+        if key == "viewer_id" and isinstance(value, str):
+            return value if value.startswith("v_") else hash_viewer_id(value)
+        if isinstance(value, str):
+            return value if key in protected else mask_pii(value)
+        if isinstance(value, dict):
+            return {nested_key: sanitize(nested, nested_key)
+                    for nested_key, nested in value.items()}
+        if isinstance(value, list):
+            return [sanitize(item) for item in value]
+        if isinstance(value, tuple):
+            return [sanitize(item) for item in value]
+        return value
+
+    return {key: sanitize(value, key) for key, value in record.items()}

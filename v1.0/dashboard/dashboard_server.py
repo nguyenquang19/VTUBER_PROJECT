@@ -303,6 +303,8 @@ class DashboardServer:
             original = self._original_of(session_id, turn_id)
             if original is None:
                 return JSONResponse({"ok": False, "reason": "không tìm thấy turn"}, status_code=404)
+            from services.data.sanitize import mask_pii
+            corrected = mask_pii(corrected) or ""
             self._write_correction({"session_id": session_id, "turn_id": turn_id,
                                     "original": original,
                                     "corrected": corrected, "ts": _now_iso()})

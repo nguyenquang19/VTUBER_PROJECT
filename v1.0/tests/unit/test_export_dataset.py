@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
@@ -43,6 +44,10 @@ class TestBuildSFT:
         assert msgs[0]["role"] == "system" and "persona:v1" in msgs[0]["content"]
         assert any(m["role"] == "user" for m in msgs)
         assert msgs[-1]["role"] == "assistant" and msgs[-1]["content"] == "câu Mai"
+        assert sft[0]["schema_version"] == 1
+        assert sft[0]["source"] == "sft:chat_reply"
+        assert sft[0]["session_id"] == "session-a"
+        assert sft[0]["timestamp"].endswith("+00:00")
 
     def test_correction_overrides_target(self) -> None:
         # T7: turn có correction → target = câu sửa (kể cả rating bad)
@@ -89,6 +94,21 @@ class TestBuildSFT:
         assert sft[0]["meta"]["rating"] is None
         assert sft[0]["messages"][-1]["content"] == "câu Mai"
 
+    def test_scrubs_pii_without_breaking_correction_join(self) -> None:
+        turn = _turn(
+            1,
+            user="tên tôi là Nguyễn Văn An, nhắn @real_handle",
+            ctx="callback https://example.test/cb?token=raw-secret",
+            mai="mail abc@example.com",
+        )
+        corrections = {_key(): "gọi 0912345678 để sửa"}
+        sft = export.build_sft([turn], {}, corrections, "ref", "")
+        encoded = json.dumps(sft, ensure_ascii=False)
+        for raw in ("Nguyễn Văn An", "@real_handle", "raw-secret", "0912345678"):
+            assert raw not in encoded
+        assert sft[0]["meta"]["corrected"] is True
+        assert "[PII]" in encoded
+
 
 class TestBuildDPO:
     def test_pref_pairs_to_dpo(self) -> None:
@@ -106,6 +126,8 @@ class TestBuildDPO:
         assert len(dpo) == 1
         assert dpo[0]["chosen"] == "sửa" and dpo[0]["rejected"] == "gốc"
         assert dpo[0]["source"] == "correction"
+        assert dpo[0]["session_id"] == "session-a"
+        assert dpo[0]["timestamp"].endswith("+00:00")
 
     def test_identical_correction_skipped(self) -> None:
         corr = [{"session_id": "session-a", "turn_id": 1,
@@ -122,3 +144,22 @@ class TestDoD:
         sft = export.build_sft(turns, ratings, {}, "ref", "")
         dpo = export.build_dpo(pref, [], {})
         assert len(sft) == 2 and len(dpo) == 1
+
+    def test_dry_run_writes_no_dataset(self, tmp_path: Path, monkeypatch, capsys) -> None:
+        logs = tmp_path / "logs"
+        logs.mkdir()
+        (logs / "turns.jsonl").write_text(
+            json.dumps(_turn(1), ensure_ascii=False) + "\nnot-json\n", encoding="utf-8",
+        )
+        output = tmp_path / "datasets"
+        monkeypatch.setattr(export.sys, "argv", [
+            "export_dataset.py", "--in-dir", str(logs), "--out-dir", str(output),
+            "--dry-run",
+        ])
+
+        export.main()
+
+        captured = capsys.readouterr().out
+        assert "dry-run" in captured
+        assert "invalid records:  1" in captured
+        assert not output.exists()

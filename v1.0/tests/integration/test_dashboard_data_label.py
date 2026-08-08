@@ -31,6 +31,9 @@ class TestRating:
         recs = _read(tmp_path / "ratings.jsonl")
         assert recs[0]["turn_id"] == 5 and recs[0]["rating"] == "good"
         assert recs[0]["session_id"] == "session-live"
+        assert recs[0]["schema_version"] == 1
+        assert recs[0]["source"] == "ratings"
+        assert recs[0]["timestamp"].endswith("+00:00")
 
     def test_invalid_rating_400(self, tmp_path: Path) -> None:
         c = TestClient(_server(tmp_path).app)
@@ -73,6 +76,9 @@ class TestCorrection:
         recs = _read(tmp_path / "corrections.jsonl")
         assert recs[0]["turn_id"] == 5
         assert recs[0]["session_id"] == "session-a"
+        assert recs[0]["schema_version"] == 1
+        assert recs[0]["source"] == "corrections"
+        assert recs[0]["timestamp"].endswith("+00:00")
         assert recs[0]["original"] == "câu gốc dở"
         assert recs[0]["corrected"] == "câu sửa hay"
 

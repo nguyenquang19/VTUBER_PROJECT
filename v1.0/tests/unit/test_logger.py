@@ -8,6 +8,7 @@ from orchestrator.config_loader import ConfigLoader
 from orchestrator.logger import (
     JsonlWriter,
     TurnLogger,
+    bind_log_session,
     get_logger,
     setup_from_config,
     setup_logging,
@@ -24,8 +25,14 @@ class TestJsonlWriter:
         w.write({"b": 2})
         lines = path.read_text(encoding="utf-8").strip().split("\n")
         assert len(lines) == 2
-        assert json.loads(lines[0]) == {"a": 1}
-        assert json.loads(lines[1]) == {"b": 2}
+        first = json.loads(lines[0])
+        second = json.loads(lines[1])
+        assert first["a"] == 1 and second["b"] == 2
+        for record in (first, second):
+            assert record["schema_version"] == 1
+            assert record["source"] == "events"
+            assert record["timestamp"].endswith("+00:00")
+            assert "session_id" in record
 
     def test_creates_parent_dir(self, tmp_path: Path) -> None:
         path = tmp_path / "nested" / "deep" / "events.jsonl"
@@ -42,6 +49,18 @@ class TestJsonlWriter:
         JsonlWriter(path).write({"obj": object()})
         record = json.loads(path.read_text(encoding="utf-8").strip())
         assert "object object" in record["obj"]
+
+    def test_free_form_event_fields_are_scrubbed(self, tmp_path: Path) -> None:
+        path = tmp_path / "events.jsonl"
+        JsonlWriter(path).write({
+            "event": "failed",
+            "error": "token sk_live_abcdefghij1234567890xyz for @real_user",
+            "viewer_id": "raw-platform-id",
+        })
+        record = json.loads(path.read_text(encoding="utf-8"))
+        assert "sk_live" not in record["error"]
+        assert "@real_user" not in record["error"]
+        assert record["viewer_id"].startswith("v_")
 
     def test_rotation_when_size_exceeded(self, tmp_path: Path) -> None:
         path = tmp_path / "events.jsonl"
@@ -63,6 +82,11 @@ class TestJsonlWriter:
         assert path.with_suffix(".jsonl.2").exists()
         # keep_files=2 → không được tạo .3
         assert not path.with_suffix(".jsonl.3").exists()
+        archives = list(tmp_path.glob("events.jsonl.archive.*"))
+        assert len(archives) == 2
+        records = [path, path.with_suffix(".jsonl.1"), path.with_suffix(".jsonl.2"),
+                   *archives]
+        assert sorted(json.loads(p.read_text(encoding="utf-8"))["n"] for p in records) == list(range(5))
 
     def test_rotation_disabled_keeps_appending(self, tmp_path: Path) -> None:
         path = tmp_path / "events.jsonl"
@@ -87,7 +111,15 @@ class TestTurnLogger:
         tl = TurnLogger(JsonlWriter(path))
         tl.log_turn({"turn_id": 2, "timestamp": "2026-07-30T00:00:00Z"})
         record = json.loads(path.read_text(encoding="utf-8").strip())
-        assert record["timestamp"] == "2026-07-30T00:00:00Z"
+        assert record["timestamp"] == "2026-07-30T00:00:00+00:00"
+
+    def test_session_binding_propagates_to_writer(self, tmp_path: Path) -> None:
+        path = tmp_path / "events.jsonl"
+        bind_log_session("session-test")
+        JsonlWriter(path).write({"event": "x"})
+        bind_log_session(None)
+        record = json.loads(path.read_text(encoding="utf-8"))
+        assert record["session_id"] == "session-test"
 
     def test_turn_schema_fields_roundtrip(self, tmp_path: Path) -> None:
         """Schema ARCHITECTURE 9.3 — nested dict/list phải giữ nguyên."""
@@ -122,6 +154,8 @@ class TestSetupLogging:
         assert record["from"] == "IDLE"
         assert record["level"] == "info"
         assert "timestamp" in record
+        assert record["schema_version"] == 1
+        assert record["source"] == "events"
 
     def test_level_filter_drops_debug_when_info(self, tmp_path: Path) -> None:
         setup_logging(level="INFO", log_dir=tmp_path, console_enabled=False)
@@ -151,3 +185,18 @@ class TestSetupLogging:
         assert loader.get("logging", "jsonl.turns_file") == "turns.jsonl"
         assert loader.get("logging", "level") == "INFO"
         assert loader.get("logging", "rotation.max_size_mb") == 100
+
+    def test_setup_from_config_creates_local_privacy_salt(self, tmp_path: Path) -> None:
+        salt_path = tmp_path / "private" / "salt.bin"
+
+        class Loader:
+            def get(self, name, key, default=None):
+                if (name, key) == ("data_privacy", "privacy.viewer_hash_salt_file"):
+                    return str(salt_path)
+                if (name, key) == ("logging", "jsonl.dir"):
+                    return str(tmp_path / "logs")
+                return default
+
+        setup_from_config(Loader())
+        assert salt_path.exists()
+        assert len(salt_path.read_bytes()) >= 32
