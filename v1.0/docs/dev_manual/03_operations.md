@@ -289,6 +289,16 @@ context:
 system message grounded context không được đưa vào prompt. Bật từ tab Features hoặc API toggle
 khi muốn rollout, rồi theo dõi `mai_agent_events_total{outcome,reason}` và snapshot `agent`.
 
+**Goal/agenda (M2):**
+
+- Policy nằm ở `config/agent_goals.yaml`: cap, TTL và priority cho từng goal kind.
+- Tab **Agent** hiển thị active/candidate/suspended; operator chỉ pin được `OPERATOR_PINNED`,
+  nhưng có thể complete/cancel mọi goal. Theo dõi audit trong recent agent events.
+- `goal_proposals` mặc định OFF. Chỉ bật để thử internal proposal API; bật feature không tự tạo
+  background LLM call. Theo dõi `mai_agent_goals_total{outcome,reason}` và active age.
+- Nếu goal không resume sau donation, kiểm `expires_at`, `metadata.relevant` và event
+  `speech_completed`. Output/TTS lỗi không được tính là completed.
+
 ---
 
 ## 5. Monitoring
@@ -307,6 +317,7 @@ Bật kèm `--dashboard`. Realtime WebSocket push mỗi 1s.
 - **Mood** — chart 5 chiều realtime (pos đặc + target chấm) + tone flags. Cần
   `DashboardServer(emotion=emotion)` (stream/cli đã wire). Đây là cách trực quan nhất
   để debug "sao Mai đang gắt/buồn".
+- **Agent** — active/candidate/suspended goals, operator pin/complete/cancel và trạng thái audit.
 - Snapshot WebSocket/API có `agent` (topic, open thread, recent grounded events, phase,
   environment, last speech) và `agent_metrics`; dashboard không thể mutate state nguồn.
 

@@ -1,6 +1,6 @@
 # 01 — Kiến trúc & Data Flow
 
-> Canonical. Phản ánh code THẬT tại 2026-08-08 (sau M1 Agent State). Nếu doc lệch
+> Canonical. Phản ánh code THẬT tại 2026-08-08 (sau M2 GoalManager). Nếu doc lệch
 > code, code đúng — sửa doc.
 
 ## 1. Mai là gì
@@ -48,11 +48,11 @@ LAYER 5 — Runtime composer + DRIVER
 LAYER 4 — Services
   LLM stack (P1) · TTS pipeline (P4) · Emotion Orchestrator (P7.5)
   Memory Fallback (P7) · Autonomy Engine v2 (Aut) · Director stack (C0)
-  AgentState + EventLedger + AgentContextRenderer (M1)
+  AgentState + EventLedger + AgentContextRenderer (M1) · GoalManager + AgendaPolicy (M2)
 
 LAYER 3 — Interfaces (interfaces/*.py ABC)
   LLMService · TTSService · MemoryService · MoodState · FilterService · InputService
-  AgentStateService · EventLedgerService
+  AgentStateService · EventLedgerService · GoalManagerService · GoalProposalService
 
 LAYER 2 — Foundation (Phase 0)
   ConfigLoader · Logger · EventBus · StateMachine · FallbackManager
@@ -213,6 +213,28 @@ liên quan trong cửa sổ cấu hình, luôn kèm producer/source ID. Thiếu 
 không gọi thêm LLM và không tự bịa dữ kiện để lấp chỗ trống.
 
 Config: `config/agent_state.yaml`; toggle: `config/features.yaml.features.agent_context`.
+
+---
+
+## 6.2. GoalManager và Agenda Policy (M2)
+
+Mỗi runtime sở hữu đúng một `GoalManager`; `AgentState.active_goal_ref` chỉ là tham chiếu do
+manager cập nhật. Goal bất biến và chỉ có một `ACTIVE`; candidate/suspended/history đều có cap,
+TTL và thứ tự priority deterministic từ `config/agent_goals.yaml`.
+
+```text
+accepted GroundedEvent → AgentState reducer → AgendaPolicy rules → GoalManager
+donation P0 → suspend goal hiện tại → ACK_DONATION → speech_completed → resume nếu còn relevant
+```
+
+Rule policy tạo năm kind MVP từ donation, câu hỏi, open thread và operator. Dashboard chỉ được
+tạo `OPERATOR_PINNED`, nhưng operator có thể complete/cancel mọi goal; mỗi override sinh
+`goal_audit`. LLM proposal là API tùy chọn, mặc định **OFF**: chỉ nhận JSON schema nghiêm ngặt,
+không cho model chọn priority/TTL và từ chối event/thread không tồn tại.
+
+Metric chính: `mai_agent_goals_total{outcome,reason}` và
+`mai_agent_goal_active_age_seconds`. Toggle proposal:
+`config/features.yaml.features.goal_proposals`.
 
 ---
 

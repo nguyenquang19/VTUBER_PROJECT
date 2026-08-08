@@ -1066,6 +1066,8 @@ Categories:
 - **Director/C0:** `director_segment`, `director_turns_read/self`, `director_transitions`,
   `salience_pool_size/added/clustered/evicted`, `pulse_state/tempo/diversity`
 - **Agent/M1:** `mai_agent_events_total{outcome,reason}`; snapshot accepted/dropped theo reason
+- **Goals/M2:** `mai_agent_goals_total{outcome,reason}`, active age, candidate/suspended count,
+  operator override và proposal accepted/rejected
 - ⚠️ `llm_parse_total{status}` giữ nhãn cũ "parse mood block" nhưng giờ chỉ đo text non-empty
   (A1). `drift_*` metric CHẾT (không còn ghi).
 
@@ -1083,12 +1085,14 @@ REST endpoints:
 - `GET /api/recent_turns` — review item có đủ `session_id` + `turn_id`
 - `POST /api/rate` — live rating dùng identity turn cuối; review rating phải gửi đủ cặp khóa
 - `POST /api/correct` — bắt buộc `{session_id, turn_id, corrected_text}` và lookup đúng cặp
+- `POST /api/goals/pin` — chỉ tạo `OPERATOR_PINNED`
+- `POST /api/goals/{id}/complete`, `/cancel` — audited operator override
 
 WebSocket `/ws` — push snapshot mỗi 1s.
 
-Snapshot có thêm `agent` (immutable working state đã chuyển thành dict) và `agent_metrics`.
+Snapshot có thêm `agent`, `agent_metrics`, `goals` và `goal_metrics`; tất cả là bản detached.
 
-Tabs: Metrics (LLM+System), Features, State Machine, Triggers, Filter, TTS, **Mood**.
+Tabs: Metrics (LLM+System), Features, State Machine, Triggers, Filter, TTS, **Mood**, **Agent**.
 Tab Mood (Task 8): `drawMoodChart` vẽ 5 đường realtime (pos đặc + target chấm) từ
 `snap.mood = emotion.snapshot()`. Cần truyền `DashboardServer(emotion=emotion)`.
 
@@ -1164,6 +1168,28 @@ LLMTurnRunner (`speech_final`), DirectorLoop (action/self-talk) và StreamRuntim
 
 Feature `agent_context` chỉ điều khiển prompt injection, không tắt ledger/state. Mặc định OFF;
 FeatureManager handler có thể bật/tắt cho turn kế tiếp mà không restart.
+
+---
+
+## 14. GoalManager và Agenda policy (M2)
+
+**Files:** `goal_types.py`, `goal_manager.py`, `agenda_policy.py`, `goal_proposal.py` trong
+`services/agent/`; interface trong `interfaces/agent.py`; config `config/agent_goals.yaml`.
+
+- `GoalManager`: state machine deterministic, đúng một active goal; priority cao preempt goal cũ.
+  Goal suspended chỉ resume khi chưa hết TTL và metadata vẫn relevant. Candidate, suspended và
+  terminal history đều bounded.
+- `AgendaPolicy`: factory rule-only cho `ACK_DONATION`, `WAIT_FOR_CHAT_ANSWER`,
+  `CONTINUE_THREAD`, `ANSWER_FOLLOW_UP`; không gọi LLM.
+- Event listener chạy sau khi AgentState nhận và reduce event. Chat có thể complete/refresh goal;
+  `speech_completed` chỉ được producer ghi sau output thành công và complete goal phù hợp.
+- Dashboard chỉ originate `OPERATOR_PINNED`; pin/complete/cancel đều ghi `goal_audit` và metric.
+- `GoalProposalGenerator`: API LLM tùy chọn qua llama.cpp dùng strict JSON. GoalManager kiểm tra
+  kind allow-list, event ID, thread ID, priority và TTL trước accept. Feature `goal_proposals`
+  mặc định OFF và không có background loop tự gọi.
+
+Scenario DoD đã test: Mai hỏi chat → giữ WAIT → donation P0 chen vào → ack spoken → resume WAIT
+→ chat trả lời → ANSWER_FOLLOW_UP → speech complete; sau TTL không còn goal stale.
 
 ---
 

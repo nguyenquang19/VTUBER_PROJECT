@@ -4,6 +4,27 @@
 > 04 extending). File STATE này chỉ là ledger "đang ở đâu". Spec cũ (ARCHITECTURE/PROCESS/
 > EMOTION_SIMULATION…) đã xoá 2026-08-06, nội dung gộp vào dev_manual.
 
+## Master Plan M2 — GoalManager và Agenda policy (2026-08-08) — XONG
+
+- M2.1 thêm interface/model goal bất biến và `GoalManager` deterministic: đúng một active,
+  candidate/suspended/history bounded, TTL, preempt, resume theo relevance, snapshot detached.
+- M2.2 `AgendaPolicy` rule-only tạo goal từ donation, câu hỏi speech và grounded open thread;
+  không có LLM planner. Priority/TTL/cap nằm trong `config/agent_goals.yaml`.
+- M2.3 dashboard tab Agent và API chỉ cho tạo `OPERATOR_PINNED`; operator complete/cancel được
+  mọi goal. Mỗi override ghi `goal_audit` grounded event và metric.
+- M2.4 accepted events đi AgentState reducer rồi mới tới GoalManager. Chat complete/refresh TTL;
+  producer chỉ ghi `speech_completed` sau output thành công. DoD hỏi → donation preempt → ack →
+  resume chờ → follow-up → complete chạy deterministic, không còn goal stale.
+- M2.5 `GoalProposalGenerator` dùng llama.cpp nhưng mặc định OFF, không có background call.
+  JSON thừa/sai schema, kind cấm, event/thread bịa đều bị reject; model không sở hữu priority/TTL.
+- Metrics: `mai_agent_goals_total{outcome,reason}`, active age, queue counts, operator override,
+  proposal generated/rejected/error. Dashboard snapshot goals detached khỏi state nội bộ.
+- Targeted M2.5: `131 passed`; affected regression: `164 passed`; CI offline:
+  `1206 passed, 3 deselected, 1 warning`; full regression: `1209 passed, 1 warning`.
+  Warning còn lại là Starlette/httpx TestClient deprecation đã có từ trước.
+- Commits: `2cfb9c5` (M2.1), `0d827f5` (M2.2), `50af8eb` (M2.3),
+  `93a9113` (M2.4), `0a2c133` (M2.5). **Dừng chờ user review; chưa bắt đầu M3.**
+
 ## Master Plan M1 — Agent State và Event Ledger (2026-08-08) — XONG
 
 - M1.1 tạo interface `AgentStateService`/`EventLedgerService`, frozen dataclass/enums cho
