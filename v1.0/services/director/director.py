@@ -82,6 +82,7 @@ class Director:
         backlog_summary_threshold: int = 12,
         summary_score_ceiling: float = 15.0,
         ask_follow_up_before_expiry_s: float = 20.0,
+        mood_policy: Any = None,
         clock: Any = None,
     ) -> None:
         if not segments:
@@ -95,6 +96,7 @@ class Director:
         self._backlog_thr = int(backlog_summary_threshold)
         self._summary_ceiling = float(summary_score_ceiling)
         self._ask_follow_up_before_expiry_s = max(0.0, float(ask_follow_up_before_expiry_s))
+        self._mood_policy = mood_policy
         self._clock = clock or time.time
 
         self._seg_idx = 0
@@ -104,7 +106,10 @@ class Director:
         self._transitions = 0
 
     @classmethod
-    def from_loader(cls, pool: SaliencePool, pulse: ChatPulse, loader, clock: Any = None) -> "Director":
+    def from_loader(
+        cls, pool: SaliencePool, pulse: ChatPulse, loader, clock: Any = None,
+        mood_policy: Any = None,
+    ) -> "Director":
         d = loader.get("director", "director", {}) or {}
         segs_raw = d.get("segments", []) or []
         segments = [
@@ -128,6 +133,7 @@ class Director:
             ask_follow_up_before_expiry_s=float(
                 d.get("arbiter", {}).get("ask_follow_up_before_expiry_s", 20.0)
             ),
+            mood_policy=mood_policy,
             clock=clock,
         )
 
@@ -248,6 +254,7 @@ class Director:
             or dead_air >= self._dead_air
             or consec_hit
             or director_input.urge_ready
+            or self._mood_proactive_ready(director_input)
         )
         if proactive_trigger:
             if director_input.agent_state.open_threads:
@@ -260,7 +267,8 @@ class Director:
                     "consec_read_chat_break" if consec_hit else
                     "cold_chat" if pulse_state == PulseState.COLD else
                     "dead_air" if dead_air >= self._dead_air else
-                    "urge_ready"
+                    "urge_ready" if director_input.urge_ready else
+                    "mood_action_score"
                 )
                 return DirectorDecision(
                     action=DirectorAction.SELF_TALK, segment=seg.name, reason=reason,
@@ -278,6 +286,14 @@ class Director:
             return self._read_decision(seg, top, director_input)
 
         return DirectorDecision(action=DirectorAction.WAIT, segment=seg.name, reason="idle")
+
+    def _mood_proactive_ready(self, value: DirectorInput) -> bool:
+        if self._mood_policy is None:
+            return False
+        try:
+            return bool(self._mood_policy.proactive_ready(value.mood, value.tone_flags))
+        except Exception:
+            return False
 
     def _goal_decision(
         self, seg: Segment, goal: Goal, director_input: DirectorInput,

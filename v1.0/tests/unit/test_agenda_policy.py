@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+from interfaces.animation import MoodState
 from services.agent.agenda_policy import AgendaPolicy, AgendaPolicyConfig
 from services.agent.goal_types import Goal, GoalKind, GoalSnapshot, GoalSource, GoalStatus
 from services.agent.types import (
@@ -12,6 +13,7 @@ from services.agent.types import (
     GroundedEvent,
     OpenThread,
 )
+from services.agent.mood_policy import MoodActionPolicy, MoodPolicyConfig
 
 NOW = datetime(2026, 8, 8, 10, 0, tzinfo=timezone.utc)
 
@@ -98,3 +100,29 @@ def test_grounded_question_thread_creates_continue_goal_without_llm() -> None:
 def test_unrelated_event_creates_nothing() -> None:
     event = _event(AgentEventKind.EMOTION_APPLIED, "emo-1", "")
     assert _policy().candidates_for(event, AgentStateSnapshot(), GoalSnapshot()) == ()
+
+
+def test_agenda_applies_mood_priority_to_created_goal() -> None:
+    kinds = list(GoalKind)
+    mood_policy = MoodActionPolicy(MoodPolicyConfig(
+        6, 0, 100, 50,
+        {"bon_chon": {"continue_thread": 10}}, {}, {},
+    ))
+    policy = AgendaPolicy(
+        AgendaPolicyConfig(
+            priorities={kind: 40 for kind in kinds},
+            ttl_seconds={kind: 60 for kind in kinds},
+        ),
+        clock=lambda: NOW,
+        mood_policy=mood_policy,
+    )
+    event = _event(AgentEventKind.CHAT_RECEIVED, "agent:chat:mood", "Kể tiếp đi?")
+    thread = OpenThread(
+        "agent:chat:mood", "story", "unfinished story", NOW, NOW,
+        NOW + timedelta(minutes=5),
+    )
+    goal = policy.candidates_for(
+        event, AgentStateSnapshot(open_threads=(thread,)), GoalSnapshot(),
+        mood=MoodState(bon_chon=8),
+    )[0]
+    assert goal.priority == 50

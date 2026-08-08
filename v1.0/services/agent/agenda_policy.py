@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
+from interfaces.animation import MoodState
+
 from services.agent.goal_types import (
     Goal,
     GoalKind,
@@ -60,33 +62,43 @@ class AgendaPolicy:
         config: AgendaPolicyConfig,
         *,
         clock: Callable[[], datetime] | None = None,
+        mood_policy: Any = None,
     ) -> None:
         self.config = config
         self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._mood_policy = mood_policy
 
     @classmethod
     def from_loader(
         cls, loader: Any, *, clock: Callable[[], datetime] | None = None,
+        mood_policy: Any = None,
     ) -> "AgendaPolicy":
-        return cls(AgendaPolicyConfig.from_loader(loader), clock=clock)
+        return cls(
+            AgendaPolicyConfig.from_loader(loader), clock=clock, mood_policy=mood_policy,
+        )
 
     def candidates_for(
         self,
         event: GroundedEvent,
         state: AgentStateSnapshot,
         goals: GoalSnapshot,
+        *,
+        mood: MoodState | None = None,
+        tone_flags: set[str] | tuple[str, ...] = (),
     ) -> tuple[Goal, ...]:
         if event.kind is AgentEventKind.DONATION_RECEIVED:
-            return (self._donation(event),)
+            return (self._donation(event, mood, tone_flags),)
         if event.kind is AgentEventKind.SPEECH_FINAL and _is_specific_question(event):
-            return (self._wait_for_answer(event, state),)
+            return (self._wait_for_answer(event, state, mood, tone_flags),)
         if event.kind is AgentEventKind.CHAT_RECEIVED:
             active = goals.active
             if active is not None and active.kind is GoalKind.WAIT_FOR_CHAT_ANSWER:
-                return (self._answer_follow_up(event, active),)
+                return (self._answer_follow_up(event, active, mood, tone_flags),)
             thread = _thread_for_event(event, state)
             if thread is not None:
-                return (self._continue_thread(event, thread.thread_id, thread.summary),)
+                return (self._continue_thread(
+                    event, thread.thread_id, thread.summary, mood, tone_flags,
+                ),)
         return ()
 
     def _make(
@@ -98,13 +110,15 @@ class AgendaPolicy:
         success: str,
         parent_thread_id: str | None = None,
         metadata: dict[str, Any] | None = None,
+        mood: MoodState | None = None,
+        tone_flags: set[str] | tuple[str, ...] = (),
     ) -> Goal:
         now = _utc(self._clock())
         return Goal(
             goal_id=f"goal:{kind.value}:{event.event_id}",
             kind=kind,
             status=GoalStatus.CANDIDATE,
-            priority=self.config.priorities[kind],
+            priority=self._priority(kind, mood, tone_flags),
             reason=reason,
             source=GoalSource.RULE,
             created_at=now,
@@ -114,7 +128,10 @@ class AgendaPolicy:
             metadata={"source_event_id": event.event_id, "relevant": True, **(metadata or {})},
         )
 
-    def _donation(self, event: GroundedEvent) -> Goal:
+    def _donation(
+        self, event: GroundedEvent, mood: MoodState | None,
+        tone_flags: set[str] | tuple[str, ...],
+    ) -> Goal:
         alias = str(event.payload.get("viewer_alias") or "viewer")
         return self._make(
             GoalKind.ACK_DONATION,
@@ -125,9 +142,13 @@ class AgendaPolicy:
                 "viewer_alias": alias,
                 "amount_vnd": int(event.payload.get("amount_vnd", 0) or 0),
             },
+            mood=mood, tone_flags=tone_flags,
         )
 
-    def _wait_for_answer(self, event: GroundedEvent, state: AgentStateSnapshot) -> Goal:
+    def _wait_for_answer(
+        self, event: GroundedEvent, state: AgentStateSnapshot, mood: MoodState | None,
+        tone_flags: set[str] | tuple[str, ...],
+    ) -> Goal:
         parent = state.open_threads[-1].thread_id if state.open_threads else None
         question = str(event.payload.get("text") or "")
         return self._make(
@@ -137,9 +158,13 @@ class AgendaPolicy:
             success="a newer chat_received event answers the question",
             parent_thread_id=parent,
             metadata={"question": question},
+            mood=mood, tone_flags=tone_flags,
         )
 
-    def _answer_follow_up(self, event: GroundedEvent, waiting: Goal) -> Goal:
+    def _answer_follow_up(
+        self, event: GroundedEvent, waiting: Goal, mood: MoodState | None,
+        tone_flags: set[str] | tuple[str, ...],
+    ) -> Goal:
         return self._make(
             GoalKind.ANSWER_FOLLOW_UP,
             event,
@@ -151,10 +176,12 @@ class AgendaPolicy:
                 "text": str(event.payload.get("text") or ""),
                 "waiting_goal_id": waiting.goal_id,
             },
+            mood=mood, tone_flags=tone_flags,
         )
 
     def _continue_thread(
         self, event: GroundedEvent, thread_id: str, summary: str,
+        mood: MoodState | None, tone_flags: set[str] | tuple[str, ...],
     ) -> Goal:
         return self._make(
             GoalKind.CONTINUE_THREAD,
@@ -163,7 +190,20 @@ class AgendaPolicy:
             success="thread is addressed by speech_completed or operator",
             parent_thread_id=thread_id,
             metadata={"summary": summary},
+            mood=mood, tone_flags=tone_flags,
         )
+
+    def _priority(
+        self, kind: GoalKind, mood: MoodState | None,
+        tone_flags: set[str] | tuple[str, ...],
+    ) -> int:
+        base = self.config.priorities[kind]
+        if self._mood_policy is None:
+            return base
+        try:
+            return int(self._mood_policy.goal_priority(kind, base, mood, tone_flags))
+        except Exception:
+            return base
 
 
 def _is_specific_question(event: GroundedEvent) -> bool:

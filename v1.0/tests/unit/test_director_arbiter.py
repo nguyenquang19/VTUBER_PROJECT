@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from interfaces.animation import MoodState
 from services.agent.goal_types import Goal, GoalKind, GoalSnapshot, GoalSource, GoalStatus
 from services.agent.types import AgentStateSnapshot, OpenThread
 from services.director.action_types import DirectorChatRef, DirectorInput
@@ -12,6 +13,7 @@ from services.director.chat_pulse import ChatPulse
 from services.director.director import Director, DirectorAction, Segment
 from orchestrator.metrics_collector import MetricsCollector
 from services.director.salience import SaliencePool
+from services.agent.mood_policy import MoodActionPolicy, MoodPolicyConfig
 
 
 def _director() -> Director:
@@ -147,3 +149,40 @@ def test_director_action_metric_has_action_and_reason_labels() -> None:
     metrics.record_director_action("wait", "safety_hold")
     assert metrics.director_action_snapshot() == {"wait:safety_hold": 1}
     assert b'mai_director_actions_total{action="wait",reason="safety_hold"} 1.0' in metrics.prometheus_text()
+
+
+def test_strong_mood_score_can_trigger_proactive_action_without_mutating_input() -> None:
+    policy = MoodActionPolicy(MoodPolicyConfig(
+        6, 0, 100, 50, {}, {"bon_chon": {"self_talk": 25}}, {},
+    ))
+    director = Director(
+        SaliencePool(base_tier={"chat": 10}, floor=1), ChatPulse(),
+        [Segment("main", "main", 300, {"self_talk"})],
+        mood_policy=policy,
+    )
+    director.start(0.0)
+    value = DirectorInput(
+        now=1.0, agent_state=AgentStateSnapshot(), goals=GoalSnapshot(),
+        mood=MoodState(bon_chon=8),
+    )
+    decision = director.decide(value)
+    assert decision.action is DirectorAction.SELF_TALK
+    assert decision.reason == "mood_action_score"
+    assert value.mood.bon_chon == 8
+
+
+def test_gentle_flag_prevents_mood_driven_self_talk() -> None:
+    policy = MoodActionPolicy(MoodPolicyConfig(
+        6, 0, 100, 50, {}, {"bon_chon": {"self_talk": 25}},
+        {"force_gentle_tone": {"director": {"self_talk": -30}}},
+    ))
+    director = Director(
+        SaliencePool(base_tier={"chat": 10}, floor=1), ChatPulse(),
+        [Segment("main", "main", 300, {"self_talk"})], mood_policy=policy,
+    )
+    director.start(0.0)
+    decision = director.decide(DirectorInput(
+        now=1.0, agent_state=AgentStateSnapshot(), goals=GoalSnapshot(),
+        mood=MoodState(bon_chon=8), tone_flags=("force_gentle_tone",),
+    ))
+    assert decision.action is DirectorAction.WAIT

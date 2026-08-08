@@ -1,0 +1,36 @@
+# M5 mood-aware agency, proactive hosting, behavior, timing, and evaluation policy.
+mood_policy:
+  enabled: true
+  activation_floor: 6
+  priority_min: 0
+  priority_max: 100
+  proactive_score_floor: 50
+  agenda_deltas:
+    vui:
+      answer_follow_up: 8
+      continue_thread: 6
+    buon:
+      wait_for_chat_answer: -8
+      continue_thread: -5
+    buc:
+      answer_follow_up: 6
+      continue_thread: -4
+    bon_chon:
+      wait_for_chat_answer: 8
+      continue_thread: 10
+    nguong:
+      answer_follow_up: -6
+  director_scores:
+    vui: {read_chat: 8, self_talk: 8, follow_up: 10}
+    buon: {read_chat: -5, self_talk: -12, follow_up: -5}
+    buc: {read_chat: 8, self_talk: -6, follow_up: 4}
+    bon_chon: {read_chat: 5, self_talk: 25, follow_up: 20}
+    nguong: {read_chat: -5, self_talk: -8, follow_up: -4}
+  tone_flag_deltas:
+    force_gentle_tone:
+      agenda: {answer_follow_up: 15, continue_thread: 8}
+      director: {read_chat: 15, self_talk: -30, follow_up: 10}
+    force_deflect:
+      agenda: {answer_follow_up: 12}
+      director: {read_chat: 18, self_talk: -30, follow_up: -10}
+

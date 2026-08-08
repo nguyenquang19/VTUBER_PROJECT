@@ -66,6 +66,8 @@ class GoalManager(GoalManagerService):
         on_active_changed: Callable[[str | None], None] | None = None,
         audit_sink: Callable[[GroundedEvent], bool] | None = None,
         agenda_policy: Any = None,
+        mood_provider: Callable[[], Any] | None = None,
+        tone_flags_provider: Callable[[], set[str]] | None = None,
     ) -> None:
         self.limits = limits
         self._clock = clock or (lambda: datetime.now(timezone.utc))
@@ -73,6 +75,8 @@ class GoalManager(GoalManagerService):
         self._on_active_changed = on_active_changed
         self._audit_sink = audit_sink
         self._agenda_policy = agenda_policy
+        self._mood_provider = mood_provider
+        self._tone_flags_provider = tone_flags_provider
         self._snapshot = GoalSnapshot()
         self._running = False
         self._counts: dict[str, int] = {}
@@ -88,12 +92,16 @@ class GoalManager(GoalManagerService):
         on_active_changed: Callable[[str | None], None] | None = None,
         audit_sink: Callable[[GroundedEvent], bool] | None = None,
         agenda_policy: Any = None,
+        mood_provider: Callable[[], Any] | None = None,
+        tone_flags_provider: Callable[[], set[str]] | None = None,
     ) -> "GoalManager":
         return cls(
             GoalLimits.from_loader(loader), clock=clock, metrics=metrics,
             on_active_changed=on_active_changed,
             audit_sink=audit_sink,
             agenda_policy=agenda_policy,
+            mood_provider=mood_provider,
+            tone_flags_provider=tone_flags_provider,
         )
 
     async def start(self) -> None:
@@ -217,7 +225,10 @@ class GoalManager(GoalManagerService):
         self._prune(_utc(self._clock()))
         before = self._snapshot
         candidates = (
-            self._agenda_policy.candidates_for(event, state, before)
+            self._agenda_policy.candidates_for(
+                event, state, before,
+                mood=self._safe_mood(), tone_flags=self._safe_tone_flags(),
+            )
             if self._agenda_policy is not None else ()
         )
 
@@ -237,6 +248,26 @@ class GoalManager(GoalManagerService):
 
         for candidate in candidates:
             self.submit(candidate)
+
+    def set_mood_context_providers(
+        self,
+        mood_provider: Callable[[], Any] | None,
+        tone_flags_provider: Callable[[], set[str]] | None,
+    ) -> None:
+        self._mood_provider = mood_provider
+        self._tone_flags_provider = tone_flags_provider
+
+    def _safe_mood(self) -> Any:
+        try:
+            return self._mood_provider() if self._mood_provider is not None else None
+        except Exception:
+            return None
+
+    def _safe_tone_flags(self) -> set[str]:
+        try:
+            return set(self._tone_flags_provider() or ()) if self._tone_flags_provider else set()
+        except Exception:
+            return set()
 
     def accept_proposal(self, proposal: Any, state: AgentStateSnapshot) -> bool:
         kind = getattr(proposal, "kind", None)

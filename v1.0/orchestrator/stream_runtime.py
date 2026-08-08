@@ -408,6 +408,7 @@ async def build_stream_runtime(
     from services.agent.open_thread_manager import OpenThreadManager
     from services.agent.thread_detector import RuleThreadDetector
     from services.agent.session_recap import SessionRecapManager
+    from services.agent.mood_policy import MoodActionPolicy
 
     event_ledger = EventLedger.from_loader(loader, metrics=metrics)
     thread_detector = RuleThreadDetector.from_loader(loader)
@@ -419,7 +420,18 @@ async def build_stream_runtime(
         loader, event_ledger, thread_manager=open_thread_manager,
         recap_manager=session_recap,
     )
-    agenda_policy = AgendaPolicy.from_loader(loader)
+    try:
+        mood_policy_status = await feature_manager.get_status("mood_behavior_policy")
+        mood_policy_enabled = mood_policy_status in (
+            FeatureStatus.ENABLED, FeatureStatus.DEGRADED,
+        )
+    except KeyError:
+        get_logger("stream_runtime").warning("mood_behavior_policy_feature_missing")
+        mood_policy_enabled = False
+    mood_policy = MoodActionPolicy.from_loader(
+        loader, metrics=metrics, enabled=mood_policy_enabled,
+    )
+    agenda_policy = AgendaPolicy.from_loader(loader, mood_policy=mood_policy)
     goal_manager = GoalManager.from_loader(
         loader, metrics=metrics, on_active_changed=agent_state.set_active_goal_ref,
         audit_sink=agent_state.record, agenda_policy=agenda_policy,
@@ -544,6 +556,9 @@ async def build_stream_runtime(
     # ─── Emotion ───
     # A1: drift_detector đã bỏ (Kênh B tắt, LLM không tự report mood)
     emotion = EmotionOrchestrator.from_loader(loader, memory=None, agent_state=agent_state)
+    goal_manager.set_mood_context_providers(
+        emotion.current_mood, emotion.active_tone_flags,
+    )
 
     # ─── Memory (optional) ───
     memory = None
@@ -743,7 +758,7 @@ async def build_stream_runtime(
 
     pool = SaliencePool.from_loader(loader)
     pulse = ChatPulse.from_loader(loader)
-    director = Director.from_loader(pool, pulse, loader)
+    director = Director.from_loader(pool, pulse, loader, mood_policy=mood_policy)
     action_context_builder = ActionContextBuilder.from_loader(loader)
     turn_lock = asyncio.Lock()   # 1 lock chung: ChatRouter intake + DirectorLoop
     try:
@@ -787,6 +802,22 @@ async def build_stream_runtime(
         enable=_enable_director_goal_arbiter,
         disable=_disable_director_goal_arbiter,
         health=_director_goal_arbiter_health,
+    )
+
+    async def _enable_mood_behavior_policy() -> None:
+        mood_policy.set_enabled(True)
+
+    async def _disable_mood_behavior_policy() -> None:
+        mood_policy.set_enabled(False)
+
+    async def _mood_behavior_policy_health() -> bool:
+        return mood_policy.enabled
+
+    feature_manager.attach_handlers(
+        "mood_behavior_policy",
+        enable=_enable_mood_behavior_policy,
+        disable=_disable_mood_behavior_policy,
+        health=_mood_behavior_policy_health,
     )
 
     # ─── Dashboard (optional) ───

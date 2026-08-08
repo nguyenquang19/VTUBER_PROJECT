@@ -1,8 +1,9 @@
 """Immutable inputs for the M3 rule-based action arbiter."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
+from interfaces.animation import MoodState
 from services.agent.goal_types import GoalSnapshot
 from services.agent.types import AgentStateSnapshot
 
@@ -31,3 +32,5 @@ class DirectorInput:
     pulse_state: str = "normal"
     urge_ready: bool = False
     safety_hold: bool = False
+    mood: MoodState = field(default_factory=MoodState)
+    tone_flags: tuple[str, ...] = ()

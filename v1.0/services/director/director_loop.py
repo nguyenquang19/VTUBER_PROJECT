@@ -202,10 +202,20 @@ class DirectorLoop:
             pulse_state=pulse_state,
             urge_ready=urge_ready,
             safety_hold=safety_hold,
+            mood=self._current_mood(),
+            tone_flags=self._tone_flags(),
         )
 
     def set_goal_arbitration_enabled(self, enabled: bool) -> None:
         self._goal_arbitration_enabled = bool(enabled)
+
+    def _tone_flags(self) -> tuple[str, ...]:
+        if self._emotion is None:
+            return ()
+        try:
+            return tuple(sorted(self._emotion.active_tone_flags()))
+        except Exception:
+            return ()
 
     @property
     def goal_arbitration_enabled(self) -> bool:

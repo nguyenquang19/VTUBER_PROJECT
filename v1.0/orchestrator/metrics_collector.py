@@ -174,6 +174,13 @@ class MetricsCollector:
         )
         self._grounded_recall_matched = 0
         self._grounded_recall_total = 0
+        self.mood_adjustments_total_c = Counter(
+            "mai_mood_behavior_adjustments_total",
+            "Mood or tone-flag adjustments applied to agenda or Director scoring",
+            ["target", "reason"],
+            registry=self.registry,
+        )
+        self._mood_adjustments: dict[tuple[str, str], int] = {}
 
         # --- 3 "metric giả" cho Phase 0 (chưa có service thật) ---
         # DoD: "Metric giả cập nhật realtime trên chart"
@@ -245,6 +252,17 @@ class MetricsCollector:
             "grounded_recall_rate": (
                 self._grounded_recall_matched / total if total else 0.0
             ),
+        }
+
+    def record_mood_adjustment(self, target: str, reason: str) -> None:
+        key = (str(target), str(reason))
+        self._mood_adjustments[key] = self._mood_adjustments.get(key, 0) + 1
+        self.mood_adjustments_total_c.labels(target=key[0], reason=key[1]).inc()
+
+    def mood_adjustment_snapshot(self) -> dict[str, int]:
+        return {
+            f"{target}:{reason}": count
+            for (target, reason), count in sorted(self._mood_adjustments.items())
         }
 
     def director_action_snapshot(self) -> dict[str, int]:
