@@ -131,6 +131,15 @@ class MetricsCollector:
         )
         self._goal_events: dict[tuple[str, str], int] = {}
 
+        # --- Director Action Arbiter metrics (Master Plan M3) ---
+        self.director_actions_total_c = Counter(
+            "mai_director_actions_total",
+            "Director arbiter decisions",
+            ["action", "reason"],
+            registry=self.registry,
+        )
+        self._director_actions: dict[tuple[str, str], int] = {}
+
         # --- 3 "metric giả" cho Phase 0 (chưa có service thật) ---
         # DoD: "Metric giả cập nhật realtime trên chart"
         self.fake_gpu_util = Gauge(
@@ -152,6 +161,17 @@ class MetricsCollector:
 
     def record_state_transition(self, from_state: str, to_state: str) -> None:
         self.state_transitions_total.labels(from_state=from_state, to_state=to_state).inc()
+
+    def record_director_action(self, action: str, reason: str) -> None:
+        key = (str(action), str(reason))
+        self._director_actions[key] = self._director_actions.get(key, 0) + 1
+        self.director_actions_total_c.labels(action=key[0], reason=key[1]).inc()
+
+    def director_action_snapshot(self) -> dict[str, int]:
+        return {
+            f"{action}:{reason}": count
+            for (action, reason), count in sorted(self._director_actions.items())
+        }
 
     def record_trigger_decision(self, trigger_type: str, decision: str) -> None:
         self.trigger_decisions_total.labels(trigger_type=trigger_type, decision=decision).inc()

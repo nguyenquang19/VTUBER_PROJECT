@@ -14,20 +14,24 @@ director:
 
   # Segment: mỗi phần {goal, duration_seconds, allowed_actions}. Duration là
   # kế hoạch — Director tự chuyển khi hết giờ (Mai thông báo). Số thật tune sau.
+  arbiter:
+    ask_follow_up_before_expiry_s: 20
+    donation_sla_seconds: 5
+
   segments:
     - name: opening
       goal: "chào mở màn, bắt nhịp"
       duration_seconds: 120
-      allowed_actions: [self_talk, read_chat, ack_donation, transition]
+      allowed_actions: [self_talk, read_chat, ack_donation, continue_thread, ask_follow_up, share_goal_progress, transition]
     - name: main
       goal: "nội dung chính"
       duration_seconds: 1800
-      allowed_actions: [read_chat, self_talk, follow_up, ack_donation, transition]
+      allowed_actions: [read_chat, self_talk, follow_up, ack_donation, continue_thread, ask_follow_up, share_goal_progress, transition]
     - name: chat
       goal: "tương tác chat tập trung"
       duration_seconds: 600
-      allowed_actions: [read_chat, ack_donation, self_talk, transition]
+      allowed_actions: [read_chat, ack_donation, self_talk, continue_thread, ask_follow_up, share_goal_progress, transition]
     - name: closing
       goal: "kết thúc, chào tạm biệt"
       duration_seconds: 120
-      allowed_actions: [self_talk, ack_donation, transition]
+      allowed_actions: [self_talk, ack_donation, continue_thread, ask_follow_up, share_goal_progress, transition]

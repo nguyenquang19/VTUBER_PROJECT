@@ -648,6 +648,12 @@ async def build_stream_runtime(
     pulse = ChatPulse.from_loader(loader)
     director = Director.from_loader(pool, pulse, loader)
     turn_lock = asyncio.Lock()   # 1 lock chung: ChatRouter intake + DirectorLoop
+    try:
+        arbiter_status = await feature_manager.get_status("director_goal_arbiter")
+        arbiter_enabled = arbiter_status in (FeatureStatus.ENABLED, FeatureStatus.DEGRADED)
+    except KeyError:
+        get_logger("stream_runtime").warning("director_goal_arbiter_feature_missing")
+        arbiter_enabled = False
 
     # ─── ChatRouter (intake mode: bơm pool+pulse, KHÔNG tự đáp) ───
     router = ChatRouter(
@@ -664,6 +670,24 @@ async def build_stream_runtime(
         tick_seconds=director_tick,
         agent_state=agent_state,
         goal_manager=goal_manager,
+        metrics=metrics,
+        goal_arbitration_enabled=arbiter_enabled,
+    )
+
+    async def _enable_director_goal_arbiter() -> None:
+        director_loop.set_goal_arbitration_enabled(True)
+
+    async def _disable_director_goal_arbiter() -> None:
+        director_loop.set_goal_arbitration_enabled(False)
+
+    async def _director_goal_arbiter_health() -> bool:
+        return director_loop.goal_arbitration_enabled
+
+    feature_manager.attach_handlers(
+        "director_goal_arbiter",
+        enable=_enable_director_goal_arbiter,
+        disable=_disable_director_goal_arbiter,
+        health=_director_goal_arbiter_health,
     )
 
     # ─── Dashboard (optional) ───

@@ -56,6 +56,9 @@ class DirectorLoop:
         runtime_ctx_fn: Callable[[], RuntimeContext] | None = None,
         agent_state: Any = None,
         goal_manager: Any = None,
+        metrics: Any = None,
+        goal_arbitration_enabled: bool = True,
+        safety_hold_fn: Callable[[], bool] | None = None,
     ) -> None:
         self._director = director
         self._pool = pool
@@ -71,6 +74,9 @@ class DirectorLoop:
         self._runtime_ctx_fn = runtime_ctx_fn
         self._agent_state = agent_state
         self._goal_manager = goal_manager
+        self._metrics = metrics
+        self._goal_arbitration_enabled = bool(goal_arbitration_enabled)
+        self._safety_hold_fn = safety_hold_fn
 
         self._task: asyncio.Task | None = None
         self._running = False
@@ -133,8 +139,10 @@ class DirectorLoop:
             except Exception:
                 pass
         dec = self._director.decide(self._build_director_input(now, urge_ready))
+        self._record_director_metric(dec)
 
         if dec.action == DirectorAction.WAIT:
+            self._record_director_action(dec, now)
             return dec.action
 
         async with self._turn_lock:
@@ -150,12 +158,12 @@ class DirectorLoop:
         state = AgentStateSnapshot()
         goals = GoalSnapshot()
         try:
-            if self._agent_state is not None:
+            if self._goal_arbitration_enabled and self._agent_state is not None:
                 state = self._agent_state.snapshot()
         except Exception:
             pass
         try:
-            if self._goal_manager is not None:
+            if self._goal_arbitration_enabled and self._goal_manager is not None:
                 goals = self._goal_manager.snapshot()
         except Exception:
             pass
@@ -175,6 +183,12 @@ class DirectorLoop:
             for item in self._pool.top_cluster(now, self._max_refs)
         )
         pulse_state = getattr(self._pulse.state(now), "value", "normal")
+        safety_hold = False
+        if self._goal_arbitration_enabled and self._safety_hold_fn is not None:
+            try:
+                safety_hold = bool(self._safety_hold_fn())
+            except Exception:
+                safety_hold = True
         return DirectorInput(
             now=now,
             agent_state=state,
@@ -183,7 +197,15 @@ class DirectorLoop:
             pool_size=self._pool.size(),
             pulse_state=pulse_state,
             urge_ready=urge_ready,
+            safety_hold=safety_hold,
         )
+
+    def set_goal_arbitration_enabled(self, enabled: bool) -> None:
+        self._goal_arbitration_enabled = bool(enabled)
+
+    @property
+    def goal_arbitration_enabled(self) -> bool:
+        return self._goal_arbitration_enabled
 
     async def _maybe_push_pulse_mood(self, now: float) -> None:
         """Task7: khi pulse chuyển sang HYPE_SPAM/LIVELY (edge) → 1 EmotionEvent
@@ -353,6 +375,7 @@ class DirectorLoop:
     def _record_director_action(self, dec: Any, now: float) -> None:
         if self._agent_state is None:
             return
+
         segment = self._director.current_segment()
         phase = str(getattr(segment, "name", "main")).lower()
         if phase not in {"opening", "main", "chat", "closing"}:
@@ -369,11 +392,19 @@ class DirectorLoop:
                     "read_mode": getattr(getattr(dec, "read_mode", None), "value", None),
                     "ref_event_ids": [getattr(ref, "msg_id", "") for ref in dec.refs],
                     "stream_phase": phase,
+                    "goal_id": getattr(dec, "goal_id", None),
                 },
                 provenance=EventProvenance(producer="director_loop"),
             ))
         except Exception as exc:
             self._log.warning("director_agent_event_failed", error=str(exc))
+
+    def _record_director_metric(self, dec: Any) -> None:
+        if self._metrics is not None:
+            try:
+                self._metrics.record_director_action(dec.action.value, dec.reason)
+            except Exception:
+                pass
 
     def _record_self_talk(self, request_id: str, text: str, now: float) -> None:
         if self._agent_state is None:
