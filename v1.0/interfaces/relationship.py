@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 from interfaces.base import Service
 
 if TYPE_CHECKING:
-    from services.relationship.types import NarrativeItem, RelationshipNote, RelationshipSnapshot, ViewerProfile
+    from services.relationship.types import NarrativeItem, RelationshipNote, RelationshipSnapshot, RunningGag, ViewerProfile
 
 
 class RelationshipService(Service):
@@ -17,6 +17,7 @@ class RelationshipService(Service):
     @abstractmethod
     def observe_interaction(
         self, *, raw_viewer_id: str | None, event_id: str, occurred_at: datetime,
+        emotion_category: str | None = None,
     ) -> "ViewerProfile | None":
         """Count one deduplicated grounded interaction without storing the raw ID."""
 
@@ -67,3 +68,13 @@ class RelationshipService(Service):
     @abstractmethod
     def render_context(self, raw_viewer_id: str | None = None) -> str:
         """Render bounded approved relationship/narrative prompt context."""
+
+    @abstractmethod
+    def create_running_gag(
+        self, viewer_id: str, *, summary: str, event_refs: list[str], reason: str,
+    ) -> "RunningGag | None":
+        """Create a pending gag only after enough grounded positive interactions."""
+
+    @abstractmethod
+    def review_running_gag(self, gag_id: str, *, approve: bool, reason: str) -> bool:
+        """Approve or reject one running gag with operator audit."""

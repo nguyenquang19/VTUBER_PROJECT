@@ -414,6 +414,7 @@ function renderRelationships(data) {
   if (!list || !data) return;
   list.innerHTML = "";
   const notes = data.notes || [];
+  const gags = data.running_gags || [];
   const narratives = document.getElementById("narrative-list");
   if (narratives) {
     narratives.innerHTML = "";
@@ -437,6 +438,7 @@ function renderRelationships(data) {
     const card = document.createElement("div");
     card.className = "relationship-card";
     const ownNotes = notes.filter((note) => note.viewer_id === profile.viewer_id);
+    const ownGags = gags.filter((gag) => gag.viewer_id === profile.viewer_id);
     card.innerHTML =
       `<b>${escapeHtml(profile.viewer_id)}</b> · ${profile.interaction_count} interactions` +
       `<div class="dim">preferences: ${escapeHtml((profile.confirmed_preferences || []).join(", ") || "none")}` +
@@ -444,6 +446,7 @@ function renderRelationships(data) {
       ` · tone: ${escapeHtml(profile.tone || "none")}</div>` +
       `<button class="rel-profile">Edit confirmed profile</button>` +
       `<button class="rel-note">Add grounded note</button>` +
+      `<button class="rel-gag">Propose running gag</button>` +
       `<div class="relationship-notes"></div>`;
     card.querySelector(".rel-profile").addEventListener("click", async () => {
       const evidence = prompt("Grounded event ID:", "") || "";
@@ -461,6 +464,15 @@ function renderRelationships(data) {
       if (!summary || !evidence) return;
       await postJson(`/api/relationships/${encodeURIComponent(profile.viewer_id)}/notes`, {
         summary, evidence_refs: [evidence], reason: "dashboard operator note",
+      });
+    });
+    card.querySelector(".rel-gag").addEventListener("click", async () => {
+      const summary = prompt("Running gag summary:", "") || "";
+      const refs = (prompt("Positive grounded event IDs, comma-separated:", "") || "")
+        .split(",").map((v) => v.trim()).filter(Boolean);
+      if (!summary || !refs.length) return;
+      await postJson(`/api/relationships/${encodeURIComponent(profile.viewer_id)}/running-gags`, {
+        summary, event_refs: refs, reason: "dashboard operator proposal",
       });
     });
     const noteList = card.querySelector(".relationship-notes");
@@ -483,6 +495,21 @@ function renderRelationships(data) {
         { reason: "dashboard operator delete" },
       ));
       row.appendChild(remove);
+      noteList.appendChild(row);
+    });
+    ownGags.forEach((gag) => {
+      const row = document.createElement("div");
+      row.className = "relationship-note";
+      row.innerHTML = `<span>gag [${escapeHtml(gag.status)}] ${escapeHtml(gag.summary)} ` +
+        `· positives=${gag.positive_count}</span>`;
+      if (gag.status === "pending") {
+        const approve = document.createElement("button"); approve.textContent = "Approve gag";
+        approve.addEventListener("click", () => postJson(
+          `/api/relationships/running-gags/${encodeURIComponent(gag.gag_id)}/review`,
+          { approve: true, reason: "dashboard operator approval" },
+        ));
+        row.appendChild(approve);
+      }
       noteList.appendChild(row);
     });
     list.appendChild(card);

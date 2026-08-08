@@ -15,6 +15,9 @@ def _manager() -> tuple[RelationshipManager, str]:
     conn = sqlite3.connect(":memory:", check_same_thread=False)
     sql = (Path(__file__).resolve().parents[2] / "migrations" / "005_add_relationship_tables.sql").read_text(encoding="utf-8")
     conn.executescript(sql)
+    conn.executescript(
+        (Path(__file__).resolve().parents[2] / "migrations" / "006_add_relationship_positive_events.sql").read_text(encoding="utf-8")
+    )
     manager = RelationshipManager(
         RelationshipStore(conn=conn), RelationshipLimits(),
         clock=lambda: datetime(2026, 8, 8, tzinfo=timezone.utc),
@@ -61,3 +64,25 @@ def test_dashboard_rejects_note_with_invented_evidence() -> None:
         "summary": "invented lore", "evidence_refs": ["fake"], "reason": "operator",
     })
     assert response.status_code == 400
+
+
+def test_dashboard_running_gag_requires_positive_pattern_and_review() -> None:
+    manager, viewer_id = _manager()
+    now = datetime(2026, 8, 8, tzinfo=timezone.utc)
+    for index in range(2, 5):
+        manager.observe_interaction(
+            raw_viewer_id="raw", event_id=f"e{index}", occurred_at=now,
+            emotion_category="chat_compliment",
+        )
+    client = TestClient(DashboardServer(relationship_manager=manager).app)
+    created = client.post(f"/api/relationships/{viewer_id}/running-gags", json={
+        "summary": "cat greeting",
+        "event_refs": ["agent:chat:e2", "agent:chat:e3", "agent:chat:e4"],
+        "reason": "operator proposal",
+    })
+    assert created.status_code == 200
+    gag_id = created.json()["running_gag"]["gag_id"]
+    reviewed = client.post(f"/api/relationships/running-gags/{gag_id}/review", json={
+        "approve": True, "reason": "operator approved",
+    })
+    assert reviewed.json()["ok"] is True

@@ -21,6 +21,6 @@ narrative:
 
 running_gags:
   positive_interactions_required: 3
+  positive_emotion_categories: [chat_compliment, chat_mention_direct, donation_small, donation_large]
   reference_cooldown_seconds: 1800
   max_per_viewer: 5
-

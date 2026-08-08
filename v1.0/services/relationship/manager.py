@@ -17,6 +17,7 @@ from services.relationship.types import (
     NarrativeItem,
     NarrativeStatus,
     ReviewStatus,
+    RunningGag,
     ViewerProfile,
 )
 
@@ -35,6 +36,12 @@ class RelationshipLimits:
     max_narratives: int = 50
     prompt_max_items: int = 2
     prompt_max_chars: int = 360
+    positive_interactions_required: int = 3
+    positive_emotion_categories: tuple[str, ...] = (
+        "chat_compliment", "chat_mention_direct", "donation_small", "donation_large",
+    )
+    gag_reference_cooldown_s: int = 1800
+    max_gags_per_viewer: int = 5
 
     @classmethod
     def from_loader(cls, loader: Any) -> "RelationshipLimits":
@@ -52,6 +59,19 @@ class RelationshipLimits:
             max_narratives=int(loader.get("relationships", "narrative.max_items", 50)),
             prompt_max_items=int(loader.get("relationships", "narrative.prompt_max_items", 2)),
             prompt_max_chars=int(loader.get("relationships", "narrative.prompt_max_chars", 360)),
+            positive_interactions_required=int(loader.get(
+                "relationships", "running_gags.positive_interactions_required", 3,
+            )),
+            positive_emotion_categories=tuple(str(item) for item in loader.get(
+                "relationships", "running_gags.positive_emotion_categories",
+                ["chat_compliment", "chat_mention_direct", "donation_small", "donation_large"],
+            )),
+            gag_reference_cooldown_s=int(loader.get(
+                "relationships", "running_gags.reference_cooldown_seconds", 1800,
+            )),
+            max_gags_per_viewer=int(loader.get(
+                "relationships", "running_gags.max_per_viewer", 5,
+            )),
         )
         if min(
             value.profile_ttl_days, value.seen_event_ttl_days, value.max_profiles_snapshot,
@@ -59,6 +79,8 @@ class RelationshipLimits:
             value.note_ttl_days, value.max_notes_per_viewer,
             value.narrative_ttl_days, value.max_narratives,
             value.prompt_max_items, value.prompt_max_chars,
+            value.positive_interactions_required, value.gag_reference_cooldown_s,
+            value.max_gags_per_viewer,
         ) <= 0:
             raise ValueError("relationship limits must be positive")
         return value
@@ -120,6 +142,7 @@ class RelationshipManager(RelationshipService):
 
     def observe_interaction(
         self, *, raw_viewer_id: str | None, event_id: str, occurred_at: datetime,
+        emotion_category: str | None = None,
     ) -> ViewerProfile | None:
         if not self._enabled:
             self._record("dropped", "feature_disabled")
@@ -139,6 +162,12 @@ class RelationshipManager(RelationshipService):
             self._store.prune_seen_events(
                 self._clock() - timedelta(days=self.limits.seen_event_ttl_days)
             )
+            if emotion_category in self.limits.positive_emotion_categories:
+                self._store.record_positive_event(
+                    event_id=event_id, viewer_id=viewer_id,
+                    evidence_id=f"agent:chat:{event_id}", occurred_at=occurred_at,
+                )
+                self._record("accepted", "positive_interaction")
         else:
             self._duplicates += 1
             self._record("dropped", "duplicate_event")
@@ -157,7 +186,10 @@ class RelationshipManager(RelationshipService):
         )[: self.limits.max_profiles_snapshot]
         notes = tuple(item for item in self._store.list_notes() if item.expires_at > now)
         narratives = tuple(item for item in self._store.list_narratives() if item.expires_at > now)
-        return RelationshipSnapshot(profiles=profiles, notes=notes, narratives=narratives)
+        gags = self._store.list_running_gags()
+        return RelationshipSnapshot(
+            profiles=profiles, notes=notes, narratives=narratives, running_gags=gags,
+        )
 
     def update_profile(
         self, viewer_id: str, *, preferences: list[str], boundaries: list[str],
@@ -266,6 +298,45 @@ class RelationshipManager(RelationshipService):
             self._record("resolved", "narrative")
         return ok
 
+    def create_running_gag(
+        self, viewer_id: str, *, summary: str, event_refs: list[str], reason: str,
+    ) -> RunningGag | None:
+        clean = self._clean(summary)
+        positive_refs = self._store.positive_evidence(viewer_id)
+        refs = tuple(dict.fromkeys(str(item).strip() for item in event_refs if str(item).strip()))
+        if (
+            not self._enabled or self.get_profile(viewer_id) is None or not clean
+            or not reason.strip() or len(positive_refs) < self.limits.positive_interactions_required
+            or len(refs) < self.limits.positive_interactions_required
+            or not set(refs).issubset(set(positive_refs))
+        ):
+            self._record("rejected", "running_gag_validation")
+            return None
+        if len(self._store.list_running_gags(viewer_id)) >= self.limits.max_gags_per_viewer:
+            self._record("rejected", "running_gag_cap")
+            return None
+        now = _utc(self._clock())
+        gag = RunningGag(
+            gag_id=f"gag:{uuid.uuid4().hex}", viewer_id=viewer_id, summary=clean,
+            event_refs=refs, status=ReviewStatus.PENDING,
+            positive_count=len(positive_refs), created_at=now,
+        )
+        self._store.insert_running_gag(gag)
+        self._audit("running_gag_create", viewer_id, gag.gag_id, reason)
+        self._record("created", "running_gag_pending")
+        return gag
+
+    def review_running_gag(self, gag_id: str, *, approve: bool, reason: str) -> bool:
+        gag = self._store.get_running_gag(gag_id)
+        if gag is None or not reason.strip():
+            return False
+        status = ReviewStatus.APPROVED if approve else ReviewStatus.REJECTED
+        ok = self._store.review_running_gag(gag_id, status)
+        if ok:
+            self._audit("running_gag_review", gag.viewer_id, gag_id, reason)
+            self._record("reviewed", f"running_gag_{status.value}")
+        return ok
+
     def render_context(self, raw_viewer_id: str | None = None) -> str:
         if not self._enabled:
             return ""
@@ -292,6 +363,22 @@ class RelationshipManager(RelationshipService):
                     lines.append(
                         f"Approved note [evidence={','.join(note.evidence_refs)}]: {note.summary}"
                     )
+                ready_gags = [
+                    gag for gag in self._store.list_running_gags(viewer_id)
+                    if gag.status is ReviewStatus.APPROVED and (
+                        gag.last_referenced_at is None
+                        or (now - gag.last_referenced_at).total_seconds()
+                        >= self.limits.gag_reference_cooldown_s
+                    )
+                ]
+                if ready_gags:
+                    gag = ready_gags[0]
+                    lines.append(
+                        f"Approved running gag [gag_id={gag.gag_id}; "
+                        f"evidence={','.join(gag.event_refs)}]: {gag.summary}"
+                    )
+                    self._store.mark_running_gag_referenced(gag.gag_id, now)
+                    self._record("referenced", "running_gag")
         narratives = [
             item for item in self._store.list_narratives()
             if item.status is NarrativeStatus.ACTIVE and item.expires_at > now

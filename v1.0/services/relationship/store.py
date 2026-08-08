@@ -11,6 +11,7 @@ from services.relationship.types import (
     NarrativeStatus,
     RelationshipNote,
     ReviewStatus,
+    RunningGag,
     ViewerProfile,
 )
 
@@ -201,6 +202,75 @@ class RelationshipStore:
         self._conn.commit()
         return max(0, cursor.rowcount)
 
+    def record_positive_event(
+        self, *, event_id: str, viewer_id: str, evidence_id: str, occurred_at: datetime,
+    ) -> bool:
+        cursor = self._conn.execute(
+            "INSERT OR IGNORE INTO relationship_positive_events(event_id, viewer_id, evidence_id, occurred_at) "
+            "VALUES (?, ?, ?, ?)",
+            (event_id, viewer_id, evidence_id, occurred_at.isoformat()),
+        )
+        self._conn.commit()
+        return cursor.rowcount > 0
+
+    def positive_evidence(self, viewer_id: str) -> tuple[str, ...]:
+        rows = self._conn.execute(
+            "SELECT evidence_id FROM relationship_positive_events WHERE viewer_id = ? "
+            "ORDER BY occurred_at, event_id", (viewer_id,),
+        ).fetchall()
+        return tuple(str(row[0]) for row in rows)
+
+    def insert_running_gag(self, gag: RunningGag) -> None:
+        self._conn.execute(
+            """
+            INSERT INTO running_gags(
+                gag_id, viewer_id, summary, event_refs_json, status, positive_count,
+                created_at, last_referenced_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                gag.gag_id, gag.viewer_id, gag.summary,
+                json.dumps(gag.event_refs, ensure_ascii=False), gag.status.value,
+                gag.positive_count, gag.created_at.isoformat(),
+                gag.last_referenced_at.isoformat() if gag.last_referenced_at else None,
+            ),
+        )
+        self._conn.commit()
+
+    def get_running_gag(self, gag_id: str) -> RunningGag | None:
+        row = self._conn.execute(
+            "SELECT * FROM running_gags WHERE gag_id = ?", (gag_id,),
+        ).fetchone()
+        return _running_gag(row) if row is not None else None
+
+    def list_running_gags(self, viewer_id: str | None = None) -> tuple[RunningGag, ...]:
+        if viewer_id is None:
+            rows = self._conn.execute(
+                "SELECT * FROM running_gags ORDER BY created_at DESC, gag_id"
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT * FROM running_gags WHERE viewer_id = ? ORDER BY created_at DESC, gag_id",
+                (viewer_id,),
+            ).fetchall()
+        return tuple(_running_gag(row) for row in rows)
+
+    def review_running_gag(self, gag_id: str, status: ReviewStatus) -> bool:
+        cursor = self._conn.execute(
+            "UPDATE running_gags SET status = ? WHERE gag_id = ?",
+            (status.value, gag_id),
+        )
+        self._conn.commit()
+        return cursor.rowcount > 0
+
+    def mark_running_gag_referenced(self, gag_id: str, when: datetime) -> bool:
+        cursor = self._conn.execute(
+            "UPDATE running_gags SET last_referenced_at = ? WHERE gag_id = ?",
+            (when.isoformat(), gag_id),
+        )
+        self._conn.commit()
+        return cursor.rowcount > 0
+
 
 def _profile(row: sqlite3.Row) -> ViewerProfile:
     return ViewerProfile(
@@ -239,4 +309,19 @@ def _narrative(row: sqlite3.Row) -> NarrativeItem:
         status=NarrativeStatus(str(row["status"])),
         created_at=datetime.fromisoformat(str(row["created_at"])),
         expires_at=datetime.fromisoformat(str(row["expires_at"])),
+    )
+
+
+def _running_gag(row: sqlite3.Row) -> RunningGag:
+    return RunningGag(
+        gag_id=str(row["gag_id"]), viewer_id=str(row["viewer_id"]),
+        summary=str(row["summary"]),
+        event_refs=tuple(json.loads(row["event_refs_json"] or "[]")),
+        status=ReviewStatus(str(row["status"])),
+        positive_count=int(row["positive_count"]),
+        created_at=datetime.fromisoformat(str(row["created_at"])),
+        last_referenced_at=(
+            datetime.fromisoformat(str(row["last_referenced_at"]))
+            if row["last_referenced_at"] is not None else None
+        ),
     )

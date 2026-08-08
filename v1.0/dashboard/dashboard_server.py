@@ -395,6 +395,32 @@ class DashboardServer:
             )
             return JSONResponse({"ok": ok}, status_code=200 if ok else 400)
 
+        @app.post("/api/relationships/{viewer_id}/running-gags")
+        async def api_relationship_running_gag(viewer_id: str, request: Request) -> JSONResponse:
+            if self.relationship_manager is None:
+                return JSONResponse({"ok": False, "reason": "no relationship manager"}, status_code=503)
+            body = await _json(request)
+            gag = self.relationship_manager.create_running_gag(
+                viewer_id, summary=str(body.get("summary") or ""),
+                event_refs=_string_list(body.get("event_refs")),
+                reason=str(body.get("reason") or "").strip(),
+            )
+            return JSONResponse(
+                {"ok": gag is not None, "running_gag": gag.to_dict() if gag else None},
+                status_code=200 if gag else 400,
+            )
+
+        @app.post("/api/relationships/running-gags/{gag_id}/review")
+        async def api_relationship_running_gag_review(gag_id: str, request: Request) -> JSONResponse:
+            if self.relationship_manager is None:
+                return JSONResponse({"ok": False, "reason": "no relationship manager"}, status_code=503)
+            body = await _json(request)
+            ok = self.relationship_manager.review_running_gag(
+                gag_id, approve=body.get("approve") is True,
+                reason=str(body.get("reason") or "").strip(),
+            )
+            return JSONResponse({"ok": ok}, status_code=200 if ok else 400)
+
         @app.get("/metrics", response_class=PlainTextResponse)
         async def metrics_endpoint() -> bytes:
             if self.metrics is None:

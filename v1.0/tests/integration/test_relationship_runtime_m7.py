@@ -33,6 +33,7 @@ def test_chat_router_forwards_grounded_identity_without_storing_alias() -> None:
         "raw_viewer_id": "raw-platform-id",
         "event_id": "youtube-chat-1",
         "occurred_at": event.timestamp,
+        "emotion_category": None,
     }]
     assert "user_name" not in relationship.calls[0]
 

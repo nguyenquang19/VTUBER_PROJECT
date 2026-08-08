@@ -162,7 +162,7 @@ class ChatRouter:
             return   # skip event, không giết router
 
         self._record_chat_event(event, emo_event, processed.category)
-        self._record_relationship_interaction(event)
+        self._record_relationship_interaction(event, processed.category)
 
         # C0.4 intake mode: bơm vào SaliencePool + ChatPulse, KHÔNG tự đáp.
         # Director loop sẽ nhặt từ pool khi quyết read_chat.
@@ -264,7 +264,9 @@ class ChatRouter:
         except Exception as exc:
             self._log.warning("router_speech_complete_event_failed", error=str(exc))
 
-    def _record_relationship_interaction(self, event: InputEvent) -> None:
+    def _record_relationship_interaction(
+        self, event: InputEvent, emotion_category: str | None = None,
+    ) -> None:
         if self._relationship_manager is None:
             return
         try:
@@ -272,6 +274,7 @@ class ChatRouter:
                 raw_viewer_id=event.user_id,
                 event_id=event.event_id or "",
                 occurred_at=event.timestamp,
+                emotion_category=emotion_category,
             )
         except Exception as exc:
             self._log.warning("router_relationship_failed", error=str(exc))
