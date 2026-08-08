@@ -108,6 +108,15 @@ class MetricsCollector:
         self._tts_subtitle_fallback = 0
         self._tts_last_ttfa_ms: float | None = None
 
+        # --- Agent state / grounded ledger metrics (Master Plan M1.2) ---
+        self.agent_events_total_c = Counter(
+            "mai_agent_events_total",
+            "Grounded agent events accepted or dropped",
+            ["outcome", "reason"],
+            registry=self.registry,
+        )
+        self._agent_events: dict[tuple[str, str], int] = {}
+
         # --- 3 "metric giả" cho Phase 0 (chưa có service thật) ---
         # DoD: "Metric giả cập nhật realtime trên chart"
         self.fake_gpu_util = Gauge(
@@ -239,6 +248,30 @@ class MetricsCollector:
             "parse_ok": self._parse_ok,
             "parse_total": total,
             "parse_rate_percent": rate,
+        }
+
+    def record_agent_event(self, outcome: str, reason: str) -> None:
+        key = (str(outcome), str(reason))
+        self._agent_events[key] = self._agent_events.get(key, 0) + 1
+        self.agent_events_total_c.labels(outcome=key[0], reason=key[1]).inc()
+
+    def agent_snapshot(self) -> dict[str, Any]:
+        accepted = sum(
+            count for (outcome, _reason), count in self._agent_events.items()
+            if outcome == "accepted"
+        )
+        dropped = sum(
+            count for (outcome, _reason), count in self._agent_events.items()
+            if outcome == "dropped"
+        )
+        return {
+            "accepted_total": accepted,
+            "dropped_total": dropped,
+            "dropped_by_reason": {
+                reason: count
+                for (outcome, reason), count in sorted(self._agent_events.items())
+                if outcome == "dropped"
+            },
         }
 
     # ---------- fake updater (Phase 0 demo) ----------
