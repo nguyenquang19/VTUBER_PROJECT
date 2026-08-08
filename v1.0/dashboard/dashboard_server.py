@@ -100,6 +100,17 @@ class DashboardServer:
             await self.stop_push_loop()
             self._uvicorn_server = None
 
+    async def shutdown(self) -> None:
+        """Close clients and request uvicorn exit without ASGI cancellation noise."""
+        clients = list(self._ws_clients)
+        for client in clients:
+            with contextlib.suppress(Exception):
+                await client.close(code=1001, reason="runtime shutdown")
+        self._ws_clients.clear()
+        await self.stop_push_loop()
+        if self._uvicorn_server is not None:
+            self._uvicorn_server.should_exit = True
+
     # ---------- snapshot ----------
 
     async def build_snapshot(self) -> dict[str, Any]:

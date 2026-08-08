@@ -94,6 +94,13 @@ def _loader(tmp_path: Path, *, filter_enabled: bool) -> ConfigLoader:
         yaml.safe_dump(features, allow_unicode=True, sort_keys=False),
         encoding="utf-8",
     )
+    operations_path = config_dir / "operations.yaml"
+    operations = yaml.safe_load(operations_path.read_text(encoding="utf-8"))
+    operations["shutdown"]["snapshot_file"] = str(tmp_path / "last_runtime_snapshot.json")
+    operations_path.write_text(
+        yaml.safe_dump(operations, allow_unicode=True, sort_keys=False),
+        encoding="utf-8",
+    )
     loader = ConfigLoader(config_dir)
     loader.load_all()
     return loader
@@ -233,6 +240,11 @@ class TestRuntimeFilterWiring:
             assert len(pref.records) == 2
         finally:
             await runtime.stop()
+        snapshot_path = tmp_path / "last_runtime_snapshot.json"
+        assert snapshot_path.exists()
+        shutdown_snapshot = yaml.safe_load(snapshot_path.read_text(encoding="utf-8"))
+        assert shutdown_snapshot["agent"] is not None
+        assert runtime._shutdown_coordinator.get_metrics()["shutdown_completed"] is True
 
     async def test_disabled_feature_is_backward_compatible(
         self,

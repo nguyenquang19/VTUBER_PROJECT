@@ -219,6 +219,15 @@ def get_turn_logger() -> TurnLogger:
     return _turn_logger
 
 
+def flush_logging() -> None:
+    """Flush stdlib handlers; JSONL writers already fs-close every append."""
+    for handler in logging.getLogger().handlers:
+        try:
+            handler.flush()
+        except Exception:
+            continue
+
+
 def _utc_iso(value: Any = None) -> str:
     """Normalize timestamps to an explicit UTC ISO-8601 value."""
     if isinstance(value, datetime):

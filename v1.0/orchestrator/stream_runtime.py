@@ -96,6 +96,7 @@ class StreamRuntime:
         health_supervisor: Any = None,
         llama_process_manager: Any = None,
         dashboard_ref: dict[str, Any] | None = None,
+        shutdown_coordinator: Any = None,
         cfg: StreamRuntimeConfig | None = None,
     ) -> None:
         self._loader = loader
@@ -127,6 +128,7 @@ class StreamRuntime:
         self._health_supervisor = health_supervisor
         self._llama_process_manager = llama_process_manager
         self._dashboard_ref = dashboard_ref
+        self._shutdown_coordinator = shutdown_coordinator
         self.cfg = cfg or StreamRuntimeConfig()
 
         self._running = False
@@ -170,6 +172,8 @@ class StreamRuntime:
         self._record_environment_observation()
         if self._health_supervisor is not None:
             await self._health_supervisor.start()
+        if self._shutdown_coordinator is not None:
+            await self._shutdown_coordinator.start()
         self._log.info(
             "stream_runtime_ready",
             tts=self.cfg.enable_tts, memory=self.cfg.enable_memory,
@@ -180,9 +184,18 @@ class StreamRuntime:
     async def stop(self) -> None:
         self._running = False
         self._stop_event.set()
+        if self._shutdown_coordinator is not None:
+            await self._shutdown_coordinator.shutdown()
+            return
+        await self._stop_all_components()
+
+    async def _stop_recovery(self) -> None:
         if self._health_supervisor is not None:
+            self._health_supervisor.pause_recovery("shutdown")
             with contextlib.suppress(Exception):
                 await self._health_supervisor.stop()
+
+    async def _stop_driver(self) -> None:
         # Stop director loop (C0.4) hoặc autonomy loop cũ
         if self._director_loop is not None:
             with contextlib.suppress(Exception):
@@ -192,17 +205,23 @@ class StreamRuntime:
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await self._autonomy_task
             self._autonomy_task = None
+
+    async def _stop_input(self) -> None:
         # Stop router (cascades sources + emotion)
         try:
             await self._router.stop()
         except Exception as e:  # pragma: no cover
             self._log.warning("router_stop_failed", error=str(e))
+
+    async def _stop_speech(self) -> None:
         # TTS
         if self._tts_pipeline is not None:
             with contextlib.suppress(Exception):
                 await self._audio_player.stop()
             with contextlib.suppress(Exception):
                 await self._tts_svc.stop()
+
+    async def _stop_supporting_services(self) -> None:
         # Memory
         if self._memory is not None:
             with contextlib.suppress(Exception):
@@ -210,45 +229,78 @@ class StreamRuntime:
         if self._filter_svc is not None:
             with contextlib.suppress(Exception):
                 await self._filter_svc.stop()
+
+        for service in (
+            self._goal_proposal, self._thread_extractor, self._conversation_context,
+            self._repair_policy, self._behavior_library, self._relationship_manager,
+        ):
+            if service is not None:
+                with contextlib.suppress(Exception):
+                    await service.stop()
+
+    async def _stop_dashboard(self) -> None:
         # Dashboard
+        server = self._dashboard_ref.get("server") if self._dashboard_ref is not None else None
+        if server is not None and hasattr(server, "shutdown"):
+            with contextlib.suppress(Exception):
+                await server.shutdown()
         dashboard_task = (
             self._dashboard_ref.get("task")
             if self._dashboard_ref is not None else self._dashboard_task
         )
         if dashboard_task is not None and not dashboard_task.done():
+            with contextlib.suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(asyncio.shield(dashboard_task), timeout=2.0)
+        if dashboard_task is not None and not dashboard_task.done():
             dashboard_task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await dashboard_task
+
+    async def _stop_llm(self) -> None:
         # LLM
         with contextlib.suppress(Exception):
             await self._llm_svc.stop()
         if self._llama_process_manager is not None:
             with contextlib.suppress(Exception):
                 await self._llama_process_manager.stop()
-        if self._goal_proposal is not None:
-            with contextlib.suppress(Exception):
-                await self._goal_proposal.stop()
-        if self._thread_extractor is not None:
-            with contextlib.suppress(Exception):
-                await self._thread_extractor.stop()
-        if self._conversation_context is not None:
-            with contextlib.suppress(Exception):
-                await self._conversation_context.stop()
-        if self._repair_policy is not None:
-            with contextlib.suppress(Exception):
-                await self._repair_policy.stop()
-        if self._behavior_library is not None:
-            with contextlib.suppress(Exception):
-                await self._behavior_library.stop()
-        if self._relationship_manager is not None:
-            with contextlib.suppress(Exception):
-                await self._relationship_manager.stop()
+
+    async def _stop_agent_state(self) -> None:
         if self._goal_manager is not None:
             with contextlib.suppress(Exception):
                 await self._goal_manager.stop()
         if self._agent_state is not None:
             with contextlib.suppress(Exception):
                 await self._agent_state.stop()
+
+    async def _stop_all_components(self) -> None:
+        await self._stop_recovery()
+        await self._stop_driver()
+        await self._stop_input()
+        await self._stop_speech()
+        await self._stop_dashboard()
+        await self._stop_supporting_services()
+        await self._stop_llm()
+        await self._stop_agent_state()
+
+    def _operations_snapshot(self) -> dict[str, Any]:
+        return {
+            "runtime": {
+                "running": self._running,
+                "session_id": getattr(self._runner, "session_id", None),
+                "dashboard_enabled": self.cfg.enable_dashboard,
+                "tts_enabled": self.cfg.enable_tts and self._tts_pipeline is not None,
+            },
+            "agent": (
+                self._agent_state.snapshot().to_dict() if self._agent_state is not None else None
+            ),
+            "goals": (
+                self._goal_manager.snapshot().to_dict() if self._goal_manager is not None else None
+            ),
+            "health_supervisor": (
+                self._health_supervisor.snapshot() if self._health_supervisor is not None else None
+            ),
+            "metrics": self.get_metrics(),
+        }
 
     async def wait_until_stopped(self) -> None:
         """Block cho tới khi stop() được gọi (VD từ signal handler)."""
@@ -1104,6 +1156,28 @@ async def build_stream_runtime(
         llama_process_manager=llama_process_manager,
         dashboard_ref=dashboard_ref,
     )
+    if operations_enabled:
+        from orchestrator.logger import flush_logging
+        from services.operations.shutdown_coordinator import ShutdownCoordinator
+
+        shutdown_coordinator = ShutdownCoordinator.from_loader(
+            loader,
+            snapshot_provider=rt._operations_snapshot,  # noqa: SLF001
+            flush_callback=flush_logging,
+            metrics=metrics,
+        )
+        for name, callback in (
+            ("pause_recovery", rt._stop_recovery),
+            ("stop_driver", rt._stop_driver),
+            ("stop_input", rt._stop_input),
+            ("stop_speech", rt._stop_speech),
+            ("close_dashboard", rt._stop_dashboard),
+            ("stop_supporting_services", rt._stop_supporting_services),
+            ("stop_llm", rt._stop_llm),
+            ("stop_agent_state", rt._stop_agent_state),
+        ):
+            shutdown_coordinator.register_step(name, callback)
+        rt._shutdown_coordinator = shutdown_coordinator  # noqa: SLF001
     # DirectorLoop dùng runtime ctx của rt (silence/chat_count/memory) cho self_talk material
     director_loop._runtime_ctx_fn = rt._build_runtime_context  # noqa: SLF001
 

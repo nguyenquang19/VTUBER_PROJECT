@@ -32,3 +32,13 @@ class HealthSupervisorService(Service):
     @abstractmethod
     def snapshot(self) -> dict[str, Any]:
         """Return operator-safe target state and recovery counters."""
+
+
+class ShutdownCoordinatorService(Service):
+    @abstractmethod
+    def register_step(self, name: str, callback: RecoveryAction) -> None:
+        """Append an ordered, bounded shutdown callback."""
+
+    @abstractmethod
+    async def shutdown(self) -> dict[str, Any]:
+        """Run shutdown once and return the durable shutdown report."""

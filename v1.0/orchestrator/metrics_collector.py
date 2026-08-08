@@ -228,6 +228,13 @@ class MetricsCollector:
             registry=self.registry,
         )
         self._health_supervisor_actions: dict[tuple[str, str], int] = {}
+        self.shutdown_steps_total_c = Counter(
+            "mai_shutdown_steps_total",
+            "Graceful shutdown step outcomes",
+            ["step", "outcome"],
+            registry=self.registry,
+        )
+        self._shutdown_steps: dict[tuple[str, str], int] = {}
 
         # --- 3 "metric giả" cho Phase 0 (chưa có service thật) ---
         # DoD: "Metric giả cập nhật realtime trên chart"
@@ -381,6 +388,17 @@ class MetricsCollector:
         return {
             f"{service_id}:{action}": count
             for (service_id, action), count in sorted(self._health_supervisor_actions.items())
+        }
+
+    def record_shutdown_step(self, step: str, outcome: str) -> None:
+        key = (str(step), str(outcome))
+        self._shutdown_steps[key] = self._shutdown_steps.get(key, 0) + 1
+        self.shutdown_steps_total_c.labels(step=key[0], outcome=key[1]).inc()
+
+    def shutdown_snapshot(self) -> dict[str, int]:
+        return {
+            f"{step}:{outcome}": count
+            for (step, outcome), count in sorted(self._shutdown_steps.items())
         }
 
     def director_action_snapshot(self) -> dict[str, int]:
