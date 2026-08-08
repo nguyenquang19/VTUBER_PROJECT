@@ -9,6 +9,12 @@ open_threads:
 detector:
   evidence_excerpt_max_chars: 220
 
+extraction:
+  max_tokens: 180
+  temperature: 0.0
+  evidence_max_items: 6
+  field_max_chars: 240
+
 recap:
   max_items: 8
   max_chars: 900

@@ -100,3 +100,28 @@ async def test_service_lifecycle() -> None:
     assert (await manager.health_check()).is_ok
     await manager.stop()
     assert not (await manager.health_check()).is_ok
+
+
+def test_agent_state_uses_manager_threads_before_notifying_listeners() -> None:
+    from services.agent.agent_state import AgentState, AgentStateLimits, AgentStateReducer
+    from services.agent.event_ledger import EventLedger
+    from services.agent.thread_detector import RuleThreadDetector
+    from services.agent.types import (
+        AgentEventKind, AgentEventSource, EventProvenance, GroundedEvent,
+    )
+
+    clock = Clock()
+    manager = _manager(clock)
+    manager.set_detector(RuleThreadDetector())
+    state = AgentState(
+        AgentStateReducer(AgentStateLimits(8, 60, 2, 30, 100)),
+        EventLedger(8, 60, 60, clock=clock), clock=clock, thread_manager=manager,
+    )
+    seen = []
+    state.add_event_listener(lambda _event, snapshot: seen.append(snapshot.open_threads))
+    state.record(GroundedEvent(
+        "q1", AgentEventKind.CHAT_RECEIVED, AgentEventSource.CHAT, NOW, 1.0,
+        {"text": "Mai thích món nào?"}, EventProvenance("test", "q1"),
+    ))
+    assert state.snapshot().open_threads[0].origin_event_id == "q1"
+    assert seen[0][0].evidence[0].excerpt == "Mai thích món nào?"

@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from services.agent.goal_types import Goal, GoalSnapshot
     from services.agent.goal_proposal import GoalProposal
     from services.agent.types import OpenThread, ThreadEvidence, ThreadKind
+    from services.agent.thread_extraction import ThreadExtraction
 
 
 class EventLedgerService(Service):
@@ -128,3 +129,15 @@ class OpenThreadManagerService(Service):
     @abstractmethod
     def snapshot(self) -> tuple["OpenThread", ...]:
         """Return an immutable bounded view of open threads."""
+
+
+class ThreadExtractionService(Service):
+    @abstractmethod
+    async def propose(
+        self, event: "GroundedEvent", state: "AgentStateSnapshot",
+    ) -> "ThreadExtraction | None":
+        """Optionally extract one post-hoc thread operation from grounded evidence."""
+
+    @abstractmethod
+    def set_enabled(self, enabled: bool) -> None:
+        """Enable or disable future extraction calls."""

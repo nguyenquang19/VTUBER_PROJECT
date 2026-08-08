@@ -87,6 +87,7 @@ class StreamRuntime:
         agent_state: Any = None,
         goal_manager: Any = None,
         goal_proposal: Any = None,
+        thread_extractor: Any = None,
         cfg: StreamRuntimeConfig | None = None,
     ) -> None:
         self._loader = loader
@@ -110,6 +111,7 @@ class StreamRuntime:
         self._agent_state = agent_state
         self._goal_manager = goal_manager
         self._goal_proposal = goal_proposal
+        self._thread_extractor = thread_extractor
         self.cfg = cfg or StreamRuntimeConfig()
 
         self._running = False
@@ -130,6 +132,8 @@ class StreamRuntime:
             await self._goal_manager.start()
         if self._goal_proposal is not None:
             await self._goal_proposal.start()
+        if self._thread_extractor is not None:
+            await self._thread_extractor.start()
         await self._router.start()
         self._running = True
         # C0.4: DirectorLoop cầm nhịp (thay autonomy loop cũ). Fallback: autonomy loop
@@ -189,6 +193,9 @@ class StreamRuntime:
         if self._goal_proposal is not None:
             with contextlib.suppress(Exception):
                 await self._goal_proposal.stop()
+        if self._thread_extractor is not None:
+            with contextlib.suppress(Exception):
+                await self._thread_extractor.stop()
         if self._goal_manager is not None:
             with contextlib.suppress(Exception):
                 await self._goal_manager.stop()
@@ -384,9 +391,17 @@ async def build_stream_runtime(
     from services.agent.event_ledger import EventLedger
     from services.agent.agenda_policy import AgendaPolicy
     from services.agent.goal_manager import GoalManager
+    from services.agent.open_thread_manager import OpenThreadManager
+    from services.agent.thread_detector import RuleThreadDetector
 
     event_ledger = EventLedger.from_loader(loader, metrics=metrics)
-    agent_state = AgentState.from_loader(loader, event_ledger)
+    thread_detector = RuleThreadDetector.from_loader(loader)
+    open_thread_manager = OpenThreadManager.from_loader(
+        loader, metrics=metrics, detector=thread_detector,
+    )
+    agent_state = AgentState.from_loader(
+        loader, event_ledger, thread_manager=open_thread_manager,
+    )
     agenda_policy = AgendaPolicy.from_loader(loader)
     goal_manager = GoalManager.from_loader(
         loader, metrics=metrics, on_active_changed=agent_state.set_active_goal_ref,
@@ -411,6 +426,38 @@ async def build_stream_runtime(
         proposal_enabled = False
     goal_proposal = GoalProposalGenerator.from_loader(
         loader, llm_svc, metrics=metrics, enabled=proposal_enabled,
+    )
+
+    from services.agent.thread_extraction import PostHocThreadExtractor
+    try:
+        extraction_status = await feature_manager.get_status("thread_extraction")
+        extraction_enabled = extraction_status in (
+            FeatureStatus.ENABLED, FeatureStatus.DEGRADED,
+        )
+    except KeyError:
+        get_logger("stream_runtime").warning("thread_extraction_feature_missing")
+        extraction_enabled = False
+    thread_extractor = PostHocThreadExtractor.from_loader(
+        loader, llm_svc, metrics=metrics, enabled=extraction_enabled,
+    )
+
+    def _observe_thread_extraction(event, state) -> None:
+        thread_extractor.observe(event, state, open_thread_manager)
+
+    agent_state.add_event_listener(_observe_thread_extraction)
+
+    async def _enable_thread_extraction() -> None:
+        thread_extractor.set_enabled(True)
+
+    async def _disable_thread_extraction() -> None:
+        thread_extractor.set_enabled(False)
+
+    async def _thread_extraction_health() -> bool:
+        return thread_extractor.enabled
+
+    feature_manager.attach_handlers(
+        "thread_extraction", enable=_enable_thread_extraction,
+        disable=_disable_thread_extraction, health=_thread_extraction_health,
     )
 
     async def _enable_goal_proposals() -> None:
@@ -716,6 +763,7 @@ async def build_stream_runtime(
         agent_state=agent_state, cfg=cfg,
         goal_manager=goal_manager,
         goal_proposal=goal_proposal,
+        thread_extractor=thread_extractor,
     )
     # DirectorLoop dùng runtime ctx của rt (silence/chat_count/memory) cho self_talk material
     director_loop._runtime_ctx_fn = rt._build_runtime_context  # noqa: SLF001

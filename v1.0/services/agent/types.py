@@ -47,6 +47,23 @@ class ThreadKind(str, Enum):
     STORY = "story"
 
 
+class ThreadOperation(str, Enum):
+    CREATE = "create"
+    UPDATE = "update"
+    RESOLVE = "resolve"
+
+
+@dataclass(frozen=True)
+class ThreadSignal:
+    operation: ThreadOperation
+    kind: ThreadKind
+    topic: str
+    summary: str
+    evidence: "ThreadEvidence"
+    target_thread_id: str | None = None
+    reason: str | None = None
+
+
 @dataclass(frozen=True)
 class ThreadEvidence:
     source_event_id: str

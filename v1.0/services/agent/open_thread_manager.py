@@ -7,7 +7,9 @@ from typing import Any, Callable
 
 from interfaces.agent import OpenThreadManagerService
 from interfaces.base import HealthStatus
-from services.agent.types import OpenThread, ThreadEvidence, ThreadKind
+from services.agent.types import (
+    GroundedEvent, OpenThread, ThreadEvidence, ThreadKind, ThreadOperation, ThreadSignal,
+)
 
 
 @dataclass(frozen=True)
@@ -47,10 +49,12 @@ class OpenThreadManager(OpenThreadManagerService):
         *,
         clock: Callable[[], datetime] | None = None,
         metrics: Any = None,
+        detector: Any = None,
     ) -> None:
         self.limits = limits
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._metrics = metrics
+        self._detector = detector
         self._open: tuple[OpenThread, ...] = ()
         self._terminal: tuple[tuple[OpenThread, str], ...] = ()
         self._sequence = 0
@@ -60,9 +64,12 @@ class OpenThreadManager(OpenThreadManagerService):
     @classmethod
     def from_loader(
         cls, loader: Any, *, clock: Callable[[], datetime] | None = None,
-        metrics: Any = None,
+        metrics: Any = None, detector: Any = None,
     ) -> "OpenThreadManager":
-        return cls(OpenThreadLimits.from_loader(loader), clock=clock, metrics=metrics)
+        return cls(
+            OpenThreadLimits.from_loader(loader), clock=clock, metrics=metrics,
+            detector=detector,
+        )
 
     async def start(self) -> None:
         self._running = True
@@ -178,6 +185,29 @@ class OpenThreadManager(OpenThreadManagerService):
 
     def recent_terminal(self) -> tuple[tuple[OpenThread, str], ...]:
         return tuple(self._terminal)
+
+    def handle_event(self, event: GroundedEvent) -> None:
+        if self._detector is None:
+            return
+        for signal in self._detector.detect(event, self.snapshot()):
+            self.accept_signal(signal)
+
+    def accept_signal(self, signal: ThreadSignal) -> bool:
+        if signal.operation is ThreadOperation.CREATE:
+            return self.create(
+                kind=signal.kind, topic=signal.topic, summary=signal.summary,
+                evidence=signal.evidence,
+            ) is not None
+        if signal.operation is ThreadOperation.UPDATE and signal.target_thread_id:
+            return self.update(
+                signal.target_thread_id, summary=signal.summary, evidence=signal.evidence,
+            )
+        if signal.operation is ThreadOperation.RESOLVE and signal.target_thread_id:
+            return self.resolve(signal.target_thread_id, reason=signal.reason or "resolved")
+        return False
+
+    def set_detector(self, detector: Any = None) -> None:
+        self._detector = detector
 
     def _find(self, thread_id: str) -> OpenThread | None:
         return next((item for item in self._open if item.thread_id == thread_id), None)

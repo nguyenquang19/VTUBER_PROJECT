@@ -155,10 +155,12 @@ class AgentState(AgentStateService):
         reducer: AgentStateReducer,
         ledger: Any,
         clock: Callable[[], datetime] | None = None,
+        thread_manager: Any = None,
     ) -> None:
         self._reducer = reducer
         self._ledger = ledger
         self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._thread_manager = thread_manager
         self._snapshot = AgentStateSnapshot()
         self._running = False
         self._reduce_errors = 0
@@ -167,15 +169,23 @@ class AgentState(AgentStateService):
     @classmethod
     def from_loader(
         cls, loader: Any, ledger: Any, clock: Callable[[], datetime] | None = None,
+        thread_manager: Any = None,
     ) -> "AgentState":
-        return cls(AgentStateReducer(AgentStateLimits.from_loader(loader)), ledger, clock)
+        return cls(
+            AgentStateReducer(AgentStateLimits.from_loader(loader)), ledger, clock,
+            thread_manager,
+        )
 
     async def start(self) -> None:
         await self._ledger.start()
+        if self._thread_manager is not None:
+            await self._thread_manager.start()
         self._running = True
 
     async def stop(self) -> None:
         self._running = False
+        if self._thread_manager is not None:
+            await self._thread_manager.stop()
         await self._ledger.stop()
 
     async def health_check(self) -> HealthStatus:
@@ -199,6 +209,11 @@ class AgentState(AgentStateService):
             return False
         try:
             self._snapshot = self._reducer.reduce(self._snapshot, event, now=self._clock())
+            if self._thread_manager is not None:
+                self._thread_manager.handle_event(event)
+                self._snapshot = replace(
+                    self._snapshot, open_threads=self._thread_manager.snapshot(),
+                )
             snapshot = self.snapshot()
             for listener in tuple(self._event_listeners):
                 try:
@@ -212,8 +227,10 @@ class AgentState(AgentStateService):
 
     def snapshot(self) -> AgentStateSnapshot:
         now = _utc(self._clock())
-        open_threads = tuple(
-            thread for thread in self._snapshot.open_threads if thread.expires_at > now
+        open_threads = (
+            self._thread_manager.snapshot()
+            if self._thread_manager is not None
+            else tuple(thread for thread in self._snapshot.open_threads if thread.expires_at > now)
         )
         return AgentStateSnapshot(**{
             "current_topic": self._snapshot.current_topic,
