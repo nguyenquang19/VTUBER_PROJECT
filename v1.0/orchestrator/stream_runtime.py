@@ -24,6 +24,7 @@ import contextlib
 import time
 import uuid
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable
 
 from interfaces.animation import MoodState
@@ -40,6 +41,12 @@ from services.llm.canned_response import CannedResponder
 from services.llm.llama_cpp_llm import LlamaCppLLMService
 from services.llm.llm_turn import LLMTurnRunner
 from services.llm.prompt_manager import PromptManager
+from services.agent.types import (
+    AgentEventKind,
+    AgentEventSource,
+    EventProvenance,
+    GroundedEvent,
+)
 
 
 SpeakFn = Callable[[str, str], Awaitable[None]]
@@ -77,6 +84,7 @@ class StreamRuntime:
         speak: SpeakFn | None = None,
         filler: Any = None,   # A3 FillerManager (metrics only; wiring ở speak wrapper)
         director_loop: Any = None,   # C0.4 DirectorLoop — turn driver (thay autonomy loop)
+        agent_state: Any = None,
         cfg: StreamRuntimeConfig | None = None,
     ) -> None:
         self._loader = loader
@@ -97,6 +105,7 @@ class StreamRuntime:
         self._speak = speak
         self._filler = filler
         self._director_loop = director_loop
+        self._agent_state = agent_state
         self.cfg = cfg or StreamRuntimeConfig()
 
         self._running = False
@@ -111,6 +120,8 @@ class StreamRuntime:
     async def start(self) -> None:
         if self._running:
             return
+        if self._agent_state is not None:
+            await self._agent_state.start()
         await self._router.start()
         self._running = True
         # C0.4: DirectorLoop cầm nhịp (thay autonomy loop cũ). Fallback: autonomy loop
@@ -121,6 +132,7 @@ class StreamRuntime:
             self._autonomy_task = asyncio.create_task(
                 self._autonomy_loop(), name="autonomy_tick",
             )
+        self._record_environment_observation()
         self._log.info(
             "stream_runtime_ready",
             tts=self.cfg.enable_tts, memory=self.cfg.enable_memory,
@@ -166,6 +178,9 @@ class StreamRuntime:
         # LLM
         with contextlib.suppress(Exception):
             await self._llm_svc.stop()
+        if self._agent_state is not None:
+            with contextlib.suppress(Exception):
+                await self._agent_state.stop()
 
     async def wait_until_stopped(self) -> None:
         """Block cho tới khi stop() được gọi (VD từ signal handler)."""
@@ -280,7 +295,43 @@ class StreamRuntime:
         if self._director_loop is not None:
             with contextlib.suppress(Exception):
                 m.update(self._director_loop.get_metrics())
+        if self._agent_state is not None:
+            with contextlib.suppress(Exception):
+                m.update(self._agent_state.get_metrics())
         return m
+
+    @property
+    def agent_state(self) -> Any:
+        """The one shared state instance used by all stream producers."""
+        return self._agent_state
+
+    def _record_environment_observation(self) -> None:
+        if self._agent_state is None:
+            return
+        session_id = getattr(self._runner, "session_id", None)
+        try:
+            self._agent_state.record(GroundedEvent(
+                event_id=f"agent:environment:{session_id or 'runtime'}:startup",
+                kind=AgentEventKind.ENVIRONMENT_OBSERVED,
+                source=AgentEventSource.RUNTIME,
+                timestamp=datetime.now(timezone.utc),
+                confidence=1.0,
+                payload={
+                    "source_services": [
+                        getattr(source, "service_id", "unknown")
+                        for source in getattr(self._router, "_sources", [])
+                    ],
+                    "tts_enabled": self.cfg.enable_tts and self._tts_pipeline is not None,
+                    "memory_enabled": self.cfg.enable_memory and self._memory is not None,
+                    "autonomy_enabled": self.cfg.enable_autonomy and self._autonomy is not None,
+                    "dashboard_enabled": self.cfg.enable_dashboard,
+                },
+                provenance=EventProvenance(
+                    producer="stream_runtime", session_id=session_id,
+                ),
+            ))
+        except Exception as exc:
+            self._log.warning("runtime_agent_event_failed", error=str(exc))
 
 
 # ─────────────────────── Factory ───────────────────────
@@ -299,6 +350,13 @@ async def build_stream_runtime(
 
     metrics = MetricsCollector()
     feature_manager = FeatureManager.from_config(loader)
+
+    # M1: one shared grounded working state for every stream producer.
+    from services.agent.agent_state import AgentState
+    from services.agent.event_ledger import EventLedger
+
+    event_ledger = EventLedger.from_loader(loader, metrics=metrics)
+    agent_state = AgentState.from_loader(loader, event_ledger)
 
     # ─── LLM stack ───
     llm_svc = LlamaCppLLMService.from_loader(loader)
@@ -335,7 +393,7 @@ async def build_stream_runtime(
 
     # ─── Emotion ───
     # A1: drift_detector đã bỏ (Kênh B tắt, LLM không tự report mood)
-    emotion = EmotionOrchestrator.from_loader(loader, memory=None)
+    emotion = EmotionOrchestrator.from_loader(loader, memory=None, agent_state=agent_state)
 
     # ─── Memory (optional) ───
     memory = None
@@ -373,6 +431,7 @@ async def build_stream_runtime(
         turn_logger=turn_logger,
         pref_logger=pref_logger,
         session_id=session_id,
+        agent_state=agent_state,
     )
 
     if filter_svc is not None and regenerator is not None:
@@ -505,7 +564,7 @@ async def build_stream_runtime(
     # ─── ChatRouter (intake mode: bơm pool+pulse, KHÔNG tự đáp) ───
     router = ChatRouter(
         sources=sources, emotion=emotion, runner=runner, speak=speak_callback,
-        pool=pool, pulse=pulse, turn_lock=turn_lock,
+        pool=pool, pulse=pulse, turn_lock=turn_lock, agent_state=agent_state,
     )
 
     # TASK 4: director tick TÁCH khỏi autonomy (autonomy 5s làm chat chờ lâu).
@@ -515,6 +574,7 @@ async def build_stream_runtime(
         emotion=emotion, autonomy=autonomy, speak=speak_callback,
         turn_lock=turn_lock,
         tick_seconds=director_tick,
+        agent_state=agent_state,
     )
 
     # ─── Dashboard (optional) ───
@@ -524,6 +584,7 @@ async def build_stream_runtime(
         ds = DashboardServer(feature_manager=feature_manager, metrics=metrics,
                              filter_svc=filter_svc, regenerator=regenerator,
                              emotion=emotion, runner=runner,
+                             agent_state=agent_state,
                              data_dir=loader.get("logging", "jsonl.dir", "logs"))
         dashboard_task = asyncio.create_task(ds.serve(), name="dashboard")
 
@@ -534,7 +595,8 @@ async def build_stream_runtime(
         memory=memory, feature_manager=feature_manager,
         filter_svc=filter_svc, regenerator=regenerator,
         metrics=metrics, dashboard_task=dashboard_task,
-        speak=speak_callback, filler=filler, director_loop=director_loop, cfg=cfg,
+        speak=speak_callback, filler=filler, director_loop=director_loop,
+        agent_state=agent_state, cfg=cfg,
     )
     # DirectorLoop dùng runtime ctx của rt (silence/chat_count/memory) cho self_talk material
     director_loop._runtime_ctx_fn = rt._build_runtime_context  # noqa: SLF001

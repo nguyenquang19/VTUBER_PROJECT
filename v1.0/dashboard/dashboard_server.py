@@ -43,6 +43,7 @@ class DashboardServer:
         tts_pipeline: Any = None,
         emotion: Any = None,
         runner: Any = None,           # T3/T7: LLMTurnRunner (last_turn_id) — data label
+        agent_state: Any = None,      # M1: shared grounded state, read-only snapshot
         data_dir: str = "logs",       # nơi ghi ratings/corrections
         push_interval_s: float = 1.0,
     ) -> None:
@@ -60,6 +61,7 @@ class DashboardServer:
         self.tts_pipeline = tts_pipeline
         self.emotion = emotion
         self.runner = runner
+        self.agent_state = agent_state
         self._data_dir = Path(data_dir)
         self._ratings_writer = None       # lazy JsonlWriter
         self._corrections_writer = None
@@ -163,6 +165,11 @@ class DashboardServer:
 
         if self.health is not None:
             snap["health"] = self.health.snapshot()
+        if self.agent_state is not None:
+            with contextlib.suppress(Exception):
+                snap["agent"] = self.agent_state.snapshot().to_dict()
+                if self.metrics is not None and hasattr(self.metrics, "agent_snapshot"):
+                    snap["agent_metrics"] = self.metrics.agent_snapshot()
         return snap
 
     # ---------- app ----------

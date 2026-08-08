@@ -190,6 +190,10 @@ class AgentState(AgentStateService):
         }
 
     def record(self, event: GroundedEvent) -> bool:
+        event = replace(
+            event,
+            payload=_bound_payload(event.payload, self._reducer.limits.payload_text_max_chars),
+        )
         if not self._ledger.append(event):
             return False
         try:
@@ -220,6 +224,19 @@ def _compact(value: Any, max_chars: int) -> str:
     if len(text) <= max_chars:
         return text
     return text[: max(1, max_chars - 1)].rstrip() + "…"
+
+
+def _bound_payload(value: Any, max_chars: int) -> Any:
+    if isinstance(value, dict) or hasattr(value, "items"):
+        return {
+            str(key): _bound_payload(item, max_chars)
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple, set)):
+        return [_bound_payload(item, max_chars) for item in value]
+    if isinstance(value, str):
+        return _compact(value, max_chars)
+    return value
 
 
 def _looks_like_follow_up(text: str) -> bool:

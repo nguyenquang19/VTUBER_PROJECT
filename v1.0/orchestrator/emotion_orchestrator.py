@@ -13,8 +13,10 @@ có flag; Prompt/Filter (7.5.D) đọc → gọi `clear_tone_flags()` sau khi x�
 from __future__ import annotations
 
 import asyncio
+import uuid
 from collections import defaultdict
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
 
 from interfaces.animation import MoodState
@@ -29,6 +31,12 @@ from services.emotion.classifier import (
     sanitize_alias,
 )
 from services.emotion.modifiers import ModifierEngine
+from services.agent.types import (
+    AgentEventKind,
+    AgentEventSource,
+    EventProvenance,
+    GroundedEvent,
+)
 
 
 @dataclass
@@ -48,6 +56,7 @@ class EmotionOrchestrator:
         modifiers: ModifierEngine,
         engine: MoodEngine,
         tick_hz: int = 10,
+        agent_state: Any = None,
     ) -> None:
         self._classifier = classifier
         self._appraisal = appraisal
@@ -55,6 +64,7 @@ class EmotionOrchestrator:
         self._engine = engine
         self._tick_hz = int(tick_hz)
         self._dt = 1.0 / self._tick_hz
+        self._agent_state = agent_state
 
         # Buffer per-dim: targets[dim] = list of float (nhiều event trong 1 tick)
         self._pending: dict[str, list[float]] = defaultdict(list)
@@ -76,6 +86,7 @@ class EmotionOrchestrator:
         engine: MoodEngine | None = None,
         memory: Any = None,
         filter_service: Any = None,
+        agent_state: Any = None,
     ) -> "EmotionOrchestrator":
         classifier = classifier or EventClassifier.from_loader(loader, filter_service=filter_service)
         appraisal = appraisal or AppraisalTable.from_loader(loader)
@@ -87,6 +98,7 @@ class EmotionOrchestrator:
             modifiers=modifiers,
             engine=engine,
             tick_hz=engine.tick_hz,
+            agent_state=agent_state,
         )
 
     # ---------- lifecycle ----------
@@ -147,9 +159,44 @@ class EmotionOrchestrator:
         if cause is not None:
             self._active_cause = cause
 
-        return ProcessedEvent(
+        processed = ProcessedEvent(
             category=category, targets=final_targets, tone_flag=flag, cause=cause,
         )
+        self._record_grounded_event(event, processed)
+        return processed
+
+    def _record_grounded_event(
+        self, event: EmotionEvent, processed: ProcessedEvent,
+    ) -> None:
+        if self._agent_state is None:
+            return
+        source_id = str((event.meta or {}).get("source_event_id") or "") or None
+        event_id = (
+            f"agent:emotion:{source_id}:{processed.category}"
+            if source_id else f"agent:emotion:{uuid.uuid4().hex}"
+        )
+        cause = processed.cause.as_phrase() if processed.cause is not None else None
+        try:
+            self._agent_state.record(GroundedEvent(
+                event_id=event_id,
+                kind=AgentEventKind.EMOTION_APPLIED,
+                source=AgentEventSource.EMOTION,
+                timestamp=event.timestamp or datetime.now(timezone.utc),
+                confidence=1.0,
+                payload={
+                    "category": processed.category,
+                    "targets": processed.targets,
+                    "tone_flag": processed.tone_flag,
+                    "cause": cause,
+                },
+                provenance=EventProvenance(
+                    producer="emotion_orchestrator",
+                    source_event_id=source_id,
+                    platform=str((event.meta or {}).get("platform") or "") or None,
+                ),
+            ))
+        except Exception as exc:
+            self._log.warning("emotion_agent_event_failed", error=str(exc))
 
     def _derive_cause(self, event: EmotionEvent, category: str) -> EmotionCause | None:
         """A4: dựng cause SANITIZE từ event + category. None nếu category không đáng

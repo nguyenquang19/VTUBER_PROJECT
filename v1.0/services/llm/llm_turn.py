@@ -16,6 +16,7 @@ from __future__ import annotations
 import re
 import time
 import uuid
+from datetime import datetime, timezone
 from typing import Any, Callable
 
 from interfaces.filter import FilterVerdict
@@ -25,6 +26,12 @@ from orchestrator.logger import TurnLogger, get_logger
 from services.llm.canned_response import CannedResponder
 from services.llm.parser import ParsedResponse, parse_response
 from services.llm.prompt_manager import PromptManager
+from services.agent.types import (
+    AgentEventKind,
+    AgentEventSource,
+    EventProvenance,
+    GroundedEvent,
+)
 
 _CHAIN_ID = "llm"
 TokenSink = Callable[[str], None]
@@ -97,6 +104,7 @@ class LLMTurnRunner:
         turn_logger: TurnLogger | None = None,   # B0: turns.jsonl sink
         pref_logger: Any = None,        # T2: pref_pairs.jsonl (JsonlWriter | None)
         session_id: str | None = None,
+        agent_state: Any = None,
     ) -> None:
         self._svc = svc
         self._pm = prompt_manager
@@ -112,6 +120,7 @@ class LLMTurnRunner:
         self._turn_logger = turn_logger
         self._pref_logger = pref_logger
         self.session_id = session_id or str(uuid.uuid4())
+        self._agent_state = agent_state
         self._turn_seq = 0
         self.last_turn_id = 0          # T3: turn cuối để dashboard rating gắn vào
         self._log_cause: Any = None    # T1: cause snapshot trước khi clear
@@ -158,6 +167,7 @@ class LLMTurnRunner:
         turn_logger: TurnLogger | None = None,
         pref_logger: Any = None,
         session_id: str | None = None,
+        agent_state: Any = None,
     ) -> "LLMTurnRunner":
         return cls(
             svc,
@@ -175,6 +185,7 @@ class LLMTurnRunner:
             turn_logger=turn_logger,
             pref_logger=pref_logger,
             session_id=session_id,
+            agent_state=agent_state,
         )
 
     async def _primary(self, request: Any) -> ParsedResponse:
@@ -285,6 +296,13 @@ class LLMTurnRunner:
             self.log_pref_pair(self._last_rejected_text, parsed.text, reason,
                                session_id=effective_session_id,
                                user_text=user_text, request=request)
+        self._record_speech_event(
+            request_id=request_id,
+            parsed=parsed,
+            session_id=effective_session_id,
+            mode="chat",
+            trigger_type=trigger_type,
+        )
         return parsed, result.level_used
 
     async def run_ambient_turn(self, request_id: str, prompt_text: str) -> ParsedResponse:
@@ -334,7 +352,47 @@ class LLMTurnRunner:
             session_id=self.session_id,
             extra=self._build_log_extra(request, None, history_len_at_gen),
         )
+        self._record_speech_event(
+            request_id=request_id,
+            parsed=parsed,
+            session_id=self.session_id,
+            mode="ambient",
+            trigger_type=None,
+        )
         return parsed
+
+    def _record_speech_event(
+        self,
+        *,
+        request_id: str,
+        parsed: ParsedResponse,
+        session_id: str,
+        mode: str,
+        trigger_type: str | None,
+    ) -> None:
+        if self._agent_state is None or not parsed.text:
+            return
+        try:
+            self._agent_state.record(GroundedEvent(
+                event_id=f"agent:speech:{session_id}:{request_id}",
+                kind=AgentEventKind.SPEECH_FINAL,
+                source=AgentEventSource.LLM,
+                timestamp=datetime.now(timezone.utc),
+                confidence=1.0 if parsed.ok else 0.7,
+                payload={
+                    "text": parsed.text,
+                    "mode": mode,
+                    "trigger_type": trigger_type,
+                    "output_ok": parsed.ok,
+                },
+                provenance=EventProvenance(
+                    producer="llm_turn_runner",
+                    source_event_id=request_id,
+                    session_id=session_id,
+                ),
+            ))
+        except Exception as exc:
+            get_logger("llm_turn").warning("speech_agent_event_failed", error=str(exc))
 
     def commit_self_talk(self, text: str) -> None:
         """A6: đẩy self-talk (ambient) vào history để lượt chat sau khớp continuity.

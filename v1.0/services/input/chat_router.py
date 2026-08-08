@@ -13,6 +13,7 @@ Fail-safe: emotion error → skip event; runner error → log, tiếp event kế
 from __future__ import annotations
 
 import asyncio
+from datetime import timezone
 from typing import Any, Awaitable, Callable
 
 from interfaces.input import EventSource, InputEvent, InputService
@@ -20,6 +21,12 @@ from orchestrator.emotion_orchestrator import EmotionOrchestrator
 from orchestrator.logger import get_logger
 from services.emotion.classifier import EmotionEvent, EventKind
 from services.llm.llm_turn import LLMTurnRunner
+from services.agent.types import (
+    AgentEventKind,
+    AgentEventSource,
+    EventProvenance,
+    GroundedEvent,
+)
 
 
 SpeakFn = Callable[[str, str], Awaitable[None]]  # (request_id, text) → None
@@ -38,6 +45,7 @@ class ChatRouter:
         pulse: Any = None,
         chat_pulse_hook: Callable[[], None] | None = None,
         turn_lock: asyncio.Lock | None = None,
+        agent_state: Any = None,
     ) -> None:
         if not sources:
             raise ValueError("cần ít nhất 1 InputService")
@@ -49,6 +57,7 @@ class ChatRouter:
         self._pulse = pulse
         self._intake_mode = pool is not None and pulse is not None
         self._extra_activity_hook = chat_pulse_hook
+        self._agent_state = agent_state
 
         self._running = False
         # C0.4: share turn_lock với DirectorLoop nếu được cấp (1 driver duy nhất)
@@ -150,6 +159,8 @@ class ChatRouter:
             )
             return   # skip event, không giết router
 
+        self._record_chat_event(event, emo_event, processed.category)
+
         # C0.4 intake mode: bơm vào SaliencePool + ChatPulse, KHÔNG tự đáp.
         # Director loop sẽ nhặt từ pool khi quyết read_chat.
         if self._intake_mode:
@@ -182,6 +193,51 @@ class ChatRouter:
                     self._speak_calls += 1
                 except Exception as e:
                     self._log.warning("router_speak_failed", error=str(e))
+
+    def _record_chat_event(
+        self, event: InputEvent, emo_event: EmotionEvent, category: str,
+    ) -> None:
+        if self._agent_state is None:
+            return
+        is_donation = bool(emo_event.meta.get("platform_type") == "donation")
+        platform = {
+            EventSource.CHAT_YOUTUBE: "youtube",
+            EventSource.CHAT_DISCORD: "discord",
+        }.get(event.source, "chat")
+        source = {
+            "youtube": AgentEventSource.YOUTUBE,
+            "discord": AgentEventSource.DISCORD,
+        }.get(platform, AgentEventSource.CHAT)
+        payload: dict[str, Any] = {
+            "text": event.content,
+            "viewer_alias": event.user_name,
+            "emotion_category": category,
+        }
+        if is_donation:
+            payload["amount_vnd"] = int(emo_event.meta.get("amount_vnd", 0) or 0)
+        try:
+            self._agent_state.record(GroundedEvent(
+                event_id=f"agent:chat:{event.event_id}",
+                kind=(
+                    AgentEventKind.DONATION_RECEIVED
+                    if is_donation else AgentEventKind.CHAT_RECEIVED
+                ),
+                source=source,
+                timestamp=(
+                    event.timestamp.replace(tzinfo=timezone.utc)
+                    if event.timestamp.tzinfo is None else event.timestamp
+                ),
+                confidence=1.0,
+                payload=payload,
+                provenance=EventProvenance(
+                    producer="chat_router",
+                    source_event_id=event.event_id,
+                    session_id=getattr(self._runner, "session_id", None),
+                    platform=platform,
+                ),
+            ))
+        except Exception as exc:
+            self._log.warning("router_agent_event_failed", error=str(exc))
 
 
     def _intake(self, event: InputEvent, emo_event: EmotionEvent) -> None:
@@ -234,6 +290,8 @@ def _to_emotion_event(ev: InputEvent) -> EmotionEvent:
         meta["viewer_id"] = ev.user_id
     if ev.user_name and "viewer_name" not in meta:
         meta["viewer_name"] = ev.user_name
+    meta.setdefault("source_event_id", ev.event_id)
+    meta.setdefault("platform", ev.source.value)
     # Super chat từ YouTube → treat as SYSTEM donation (đủ tin để trigger appraisal
     # donation_large/small qua amount_vnd). Chat thường → CHAT.
     if meta.get("is_super_chat") and meta.get("amount_vnd"):
