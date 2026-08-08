@@ -361,6 +361,7 @@ async def build_stream_runtime(
         emotion._modifiers._memory = memory  # noqa: SLF001 rewire
 
     # ─── Runner ───
+    session_id = str(uuid.uuid4())
     runner = LLMTurnRunner.from_loader(
         loader, llm_svc, pm, fb, canned,
         on_token=cfg.on_token or (lambda _t: None),
@@ -370,6 +371,7 @@ async def build_stream_runtime(
         emotion=emotion,
         turn_logger=turn_logger,
         pref_logger=pref_logger,
+        session_id=session_id,
     )
 
     if filter_svc is not None and regenerator is not None:

@@ -4,6 +4,25 @@
 > 04 extending). File STATE này chỉ là ledger "đang ở đâu". Spec cũ (ARCHITECTURE/PROCESS/
 > EMOTION_SIMULATION…) đã xoá 2026-08-06, nội dung gộp vào dev_manual.
 
+## Master Plan M0.3 — Identity/session cho dữ liệu (2026-08-08) — XONG
+
+- Mỗi StreamRuntime/CLI session tạo UUID mới và inject vào `LLMTurnRunner`; runner
+  trực tiếp cũng tự tạo UUID nếu caller không truyền. UUID ổn định suốt vòng đời runner.
+- `turn_id` là sequence cục bộ bắt đầu từ 1 và tăng cả khi turn logger bị tắt;
+  identity dữ liệu mới luôn là khóa ghép `(session_id, turn_id)`.
+- Chat/director/ambient turn, memory metadata và preference pair đều kế thừa session
+  của runner; restart tạo session khác nên hai record `turn_id=1` không đè nhau.
+- Dashboard recent-turn API trả đủ identity. Rating live lấy identity turn cuối;
+  rating review và correction bắt buộc truyền session ID. Correction lookup original
+  bằng đúng cặp khóa, không thể lấy câu ở session khác.
+- Exporter đổi toàn bộ SFT/DPO lookup sang composite key và ghi identity vào metadata.
+  Record cũ thiếu session được cô lập theo nguồn (`legacy:turns`, `legacy:ratings`,
+  `legacy:corrections`, `legacy:pref_pairs`), không suy đoán join chỉ từ turn ID.
+- Tests mục tiêu M0.3: `37 passed`; vùng ảnh hưởng runner/runtime/dashboard/export:
+  `79 passed`; full regression: `1108 passed, 1 warning` trong 105.57s. Warning còn
+  lại là Starlette deprecate `httpx` TestClient, chưa ảnh hưởng runtime.
+- **Kế tiếp:** dừng chờ user review; chưa bắt đầu M0.4.
+
 ## Master Plan M0.2 — Wire filter/regenerator vào stream thật (2026-08-08) — XONG
 
 - `build_stream_runtime()` tạo `FeatureManager`, `RuleFilter` và

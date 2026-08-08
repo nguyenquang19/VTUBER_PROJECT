@@ -31,6 +31,7 @@ import asyncio
 import contextlib
 import sys
 import time
+import uuid
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -302,6 +303,7 @@ async def main() -> None:
     pm = PromptManager.from_loader(loader)
     fb = FallbackManager()
     canned = CannedResponder.from_loader(loader)
+    session_id = str(uuid.uuid4())
 
     # ---------- Autonomy Engine v2 (optional --autonomy) ----------
     emotion = None
@@ -321,12 +323,14 @@ async def main() -> None:
             loader, svc, pm, fb, canned, on_token=_on_token, metrics=metrics,
             emotion=emotion,
             turn_logger=turn_logger, pref_logger=_pref_logger,
+            session_id=session_id,
         )
         print("🧠 Autonomy engine v2 bật — Mai sẽ tự nói khi silence.")
     else:
         runner = LLMTurnRunner.from_loader(
             loader, svc, pm, fb, canned, on_token=_on_token, metrics=metrics,
             turn_logger=turn_logger, pref_logger=_pref_logger,
+            session_id=session_id,
         )
 
     health = await svc.health_check()

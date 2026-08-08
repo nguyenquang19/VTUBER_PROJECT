@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import re
 import time
+import uuid
 from typing import Any, Callable
 
 from interfaces.filter import FilterVerdict
@@ -95,6 +96,7 @@ class LLMTurnRunner:
         emotion: Any = None,            # EmotionOrchestrator (Phase 7.5.E)
         turn_logger: TurnLogger | None = None,   # B0: turns.jsonl sink
         pref_logger: Any = None,        # T2: pref_pairs.jsonl (JsonlWriter | None)
+        session_id: str | None = None,
     ) -> None:
         self._svc = svc
         self._pm = prompt_manager
@@ -109,6 +111,7 @@ class LLMTurnRunner:
         # A1: _drift + last_drift_report ĐÃ BỎ (Kênh B tắt)
         self._turn_logger = turn_logger
         self._pref_logger = pref_logger
+        self.session_id = session_id or str(uuid.uuid4())
         self._turn_seq = 0
         self.last_turn_id = 0          # T3: turn cuối để dashboard rating gắn vào
         self._log_cause: Any = None    # T1: cause snapshot trước khi clear
@@ -154,6 +157,7 @@ class LLMTurnRunner:
         emotion: Any = None,
         turn_logger: TurnLogger | None = None,
         pref_logger: Any = None,
+        session_id: str | None = None,
     ) -> "LLMTurnRunner":
         return cls(
             svc,
@@ -170,6 +174,7 @@ class LLMTurnRunner:
             emotion=emotion,
             turn_logger=turn_logger,
             pref_logger=pref_logger,
+            session_id=session_id,
         )
 
     async def _primary(self, request: Any) -> ParsedResponse:
@@ -224,6 +229,7 @@ class LLMTurnRunner:
         (SUMMARY/VIBE không có tin cụ thể).
         """
         self._reset_filter_tracking()
+        effective_session_id = session_id or self.session_id
         request = self._build_request_maybe_with_mood(
             request_id, user_text, event_category, stage_direction,
         )
@@ -253,7 +259,9 @@ class LLMTurnRunner:
         # Phase 7.F: auto-extract memory từ turn (fire-and-forget) — dùng text gốc,
         # skip khi commit_history=False (không có tin cụ thể để nhớ).
         if commit_history:
-            self._schedule_memory_write(hist_text, parsed, viewer_id, session_id, trigger_type)
+            self._schedule_memory_write(
+                hist_text, parsed, viewer_id, effective_session_id, trigger_type,
+            )
 
         # B0 + T1: transcript sink làm giàu (SFT record)
         log_kind = "director_read" if trigger_type == "director_read" else "chat_reply"
@@ -265,7 +273,7 @@ class LLMTurnRunner:
             level_used=result.level_used,
             latency_ms=latency_ms,
             viewer_id=viewer_id,
-            session_id=session_id,
+            session_id=effective_session_id,
             extra=self._build_log_extra(request, event_category, history_len_at_gen),
         )
         # T2: filter regen → cặp DPO (rejected = bản bị chặn, chosen = bản pass)
@@ -275,7 +283,8 @@ class LLMTurnRunner:
                     for c in getattr(reason_verdict, "categories_hit", [])]
             reason = f"filter:{cats[0]}" if cats else "filter:regen"
             self.log_pref_pair(self._last_rejected_text, parsed.text, reason,
-                               session_id=session_id, user_text=user_text, request=request)
+                               session_id=effective_session_id,
+                               user_text=user_text, request=request)
         return parsed, result.level_used
 
     async def run_ambient_turn(self, request_id: str, prompt_text: str) -> ParsedResponse:
@@ -322,7 +331,7 @@ class LLMTurnRunner:
             level_used=result.level_used,
             latency_ms=latency_ms,
             viewer_id=None,
-            session_id=None,
+            session_id=self.session_id,
             extra=self._build_log_extra(request, None, history_len_at_gen),
         )
         return parsed
@@ -434,10 +443,10 @@ class LLMTurnRunner:
         Fail-safe: sink lỗi chỉ log warning, KHÔNG raise (không giết turn). Mọi field
         làm giàu (T1) lấy best-effort — lỗi lấy field nào → null, không giết log.
         """
-        if self._turn_logger is None:
-            return
         self._turn_seq += 1
         self.last_turn_id = self._turn_seq   # T3: dashboard rating gắn turn cuối
+        if self._turn_logger is None:
+            return
         dominant_name, dominant_val = _dominant_mood(parsed)
         raw_text = getattr(parsed, "raw", "") or ""
         # T4: sanitize PII — hash viewer_id (không lưu channel id gốc), mask
@@ -489,7 +498,7 @@ class LLMTurnRunner:
             record = {
                 "schema_version": 1,
                 "turn_id": self._turn_seq,
-                "session_id": session_id,
+                "session_id": session_id or self.session_id,
                 "prompt_ref": {
                     "persona_version": persona_v,
                     "context_block": _context_block_of(request),

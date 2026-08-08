@@ -21,14 +21,18 @@ import json
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from services.data.sanitize import mask_pii  # noqa: E402
 
+Record = dict[str, Any]
+RecordIdentity = tuple[str, int]
 
-def _read_jsonl(path: Path) -> list[dict]:
+
+def _read_jsonl(path: Path) -> list[Record]:
     if not path.exists():
         return []
     out = []
@@ -46,22 +50,43 @@ def _persona_content(persona_version: str | None, mode: str, persona_text: str) 
     return persona_text if mode == "full" else f"[persona:{persona_version or 'unknown'}]"
 
 
-def build_sft(turns, ratings_by_turn, corrections_by_turn, persona_mode, persona_text):
+def _identity(record: Record, legacy_source: str) -> RecordIdentity | None:
+    """Return composite identity; isolate records that predate session IDs by source."""
+    try:
+        turn_id = int(record["turn_id"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    session_id = record.get("session_id")
+    if not isinstance(session_id, str) or not session_id.strip():
+        session_id = f"legacy:{legacy_source}"
+    return session_id, turn_id
+
+
+def build_sft(
+    turns: list[Record],
+    ratings_by_identity: dict[RecordIdentity, str],
+    corrections_by_identity: dict[RecordIdentity, str | None],
+    persona_mode: str,
+    persona_text: str,
+) -> list[Record]:
     """1 SFT example / turn hợp lệ (messages format)."""
     out = []
     for t in turns:
+        identity = _identity(t, "turns")
+        if identity is None:
+            continue
         if t.get("level_used", 0) != 0:          # canned → bỏ
             continue
         if t.get("parse_ok") is False:
             continue
-        rating = ratings_by_turn.get(t.get("turn_id"))
-        if rating == "bad" and t.get("turn_id") not in corrections_by_turn:
+        rating = ratings_by_identity.get(identity)
+        if rating == "bad" and identity not in corrections_by_identity:
             continue                              # bad chưa sửa → bỏ
         fv = t.get("filter_verdict") or {}
         if fv.get("passed") is False and not fv.get("regen"):
             continue                              # câu bị chặn chưa regen → bỏ
         # correction → target = câu sửa (ưu tiên cao nhất)
-        target = corrections_by_turn.get(t.get("turn_id")) or t.get("mai_text")
+        target = corrections_by_identity.get(identity) or t.get("mai_text")
         target = (target or "").strip()
         if not target:
             continue
@@ -78,30 +103,44 @@ def build_sft(turns, ratings_by_turn, corrections_by_turn, persona_mode, persona
             messages.append({"role": "user", "content": "(Mai tự lên tiếng)"})
         messages.append({"role": "assistant", "content": mask_pii(target)})
         out.append({"messages": messages,
-                    "meta": {"turn_id": t.get("turn_id"), "kind": t.get("kind"),
-                             "rating": rating, "corrected": t.get("turn_id") in corrections_by_turn}})
+                    "meta": {"session_id": identity[0], "turn_id": identity[1],
+                             "kind": t.get("kind"), "rating": rating,
+                             "corrected": identity in corrections_by_identity}})
     return out
 
 
-def build_dpo(pref_pairs, corrections, turns_by_id):
+def build_dpo(
+    pref_pairs: list[Record],
+    corrections: list[Record],
+    turns_by_identity: dict[RecordIdentity, Record],
+) -> list[Record]:
     """DPO từ pref_pairs (regen) + corrections (gốc→sửa)."""
     out = []
     for p in pref_pairs:
+        identity = _identity(p, "pref_pairs")
         pr = p.get("prompt_ref") or {}
         out.append({"prompt": _dpo_prompt(pr.get("context_block"), pr.get("user_text")),
                     "chosen": mask_pii(p.get("chosen", "")),
                     "rejected": mask_pii(p.get("rejected", "")),
-                    "source": p.get("reason", "pref")})
+                    "source": p.get("reason", "pref"),
+                    "meta": _identity_meta(identity)})
     for c in corrections:
         orig = (c.get("original") or "").strip()
         corr = (c.get("corrected") or "").strip()
         if not orig or not corr or orig == corr:
             continue
-        t = turns_by_id.get(c.get("turn_id"), {})
+        identity = _identity(c, "corrections")
+        t = turns_by_identity.get(identity, {}) if identity is not None else {}
         out.append({"prompt": _dpo_prompt(t.get("context_block"), t.get("user_text")),
                     "chosen": mask_pii(corr), "rejected": mask_pii(orig),
-                    "source": "correction"})
+                    "source": "correction", "meta": _identity_meta(identity)})
     return out
+
+
+def _identity_meta(identity: RecordIdentity | None) -> Record:
+    if identity is None:
+        return {"session_id": None, "turn_id": None}
+    return {"session_id": identity[0], "turn_id": identity[1]}
 
 
 def _dpo_prompt(context_block, user_text) -> str:
@@ -132,13 +171,26 @@ def main() -> None:
     if args.persona == "full" and pf.exists():
         persona_text = pf.read_text(encoding="utf-8")
 
-    ratings_by_turn = {r["turn_id"]: r["rating"] for r in ratings if "turn_id" in r}
-    corrections_by_turn = {c["turn_id"]: c.get("corrected")
-                           for c in corrections if "turn_id" in c}
-    turns_by_id = {t["turn_id"]: t for t in turns if "turn_id" in t}
+    ratings_by_identity = {
+        identity: r["rating"]
+        for r in ratings
+        if (identity := _identity(r, "ratings")) is not None and "rating" in r
+    }
+    corrections_by_identity = {
+        identity: c.get("corrected")
+        for c in corrections
+        if (identity := _identity(c, "corrections")) is not None
+    }
+    turns_by_identity = {
+        identity: t
+        for t in turns
+        if (identity := _identity(t, "turns")) is not None
+    }
 
-    sft = build_sft(turns, ratings_by_turn, corrections_by_turn, args.persona, persona_text)
-    dpo = build_dpo(pref_pairs, corrections, turns_by_id)
+    sft = build_sft(
+        turns, ratings_by_identity, corrections_by_identity, args.persona, persona_text,
+    )
+    dpo = build_dpo(pref_pairs, corrections, turns_by_identity)
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -150,7 +202,7 @@ def main() -> None:
 
     # thống kê
     kinds = Counter(t.get("kind") for t in turns)
-    rate_dist = Counter(ratings_by_turn.values())
+    rate_dist = Counter(ratings_by_identity.values())
     print("=== EXPORT DATASET ===")
     print(f"turns đọc:        {len(turns)}  ({dict(kinds)})")
     print(f"ratings:          {dict(rate_dist)}")
@@ -160,7 +212,7 @@ def main() -> None:
     print(f"  DPO nguồn:      {dict(Counter(d['source'] for d in dpo))}")
 
 
-def _write(path: Path, records: list[dict]) -> None:
+def _write(path: Path, records: list[Record]) -> None:
     with path.open("w", encoding="utf-8") as f:
         for r in records:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")

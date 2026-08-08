@@ -67,7 +67,7 @@ async function loadRecentTurns() {
     div.className = "review-item";
     div.dataset.kind = t.kind || "";
     div.innerHTML =
-      `<div class="review-meta">#${t.turn_id} · ${t.kind}</div>` +
+      `<div class="review-meta">${escapeHtml(t.session_id || "legacy")} / #${t.turn_id} · ${t.kind}</div>` +
       (t.user_text ? `<div class="review-user">👤 ${escapeHtml(t.user_text)}</div>` : "") +
       `<textarea class="review-edit">${escapeHtml(t.mai_text || "")}</textarea>` +
       `<div>` +
@@ -82,7 +82,7 @@ async function loadRecentTurns() {
     // xử xong 1 item → mờ dần rồi bỏ khỏi list (hàng đợi việc)
     const done = () => { div.style.opacity = "0.4"; setTimeout(() => div.remove(), 350); };
     const rateItem = (rating) => {
-      postJson("/api/rate", { turn_id: t.turn_id, rating }).then((r) => {
+      postJson("/api/rate", { session_id: t.session_id, turn_id: t.turn_id, rating }).then((r) => {
         status.textContent = r.ok ? ` ✓ ${rating}` : " ✗ " + r.reason;
         if (r.ok) done();
       });
@@ -92,7 +92,7 @@ async function loadRecentTurns() {
     div.querySelector(".btn-item-flag").addEventListener("click", () => rateItem("flag"));
     div.querySelector(".btn-skip").addEventListener("click", done);
     div.querySelector(".btn-save-correct").addEventListener("click", () => {
-      postJson("/api/correct", { turn_id: t.turn_id, corrected_text: ta.value }).then((r) => {
+      postJson("/api/correct", { session_id: t.session_id, turn_id: t.turn_id, corrected_text: ta.value }).then((r) => {
         status.textContent = r.ok ? " ✓ đã lưu" : " ✗ " + r.reason;
         if (r.ok) done();   // sửa xong cũng rớt khỏi hàng đợi
       });

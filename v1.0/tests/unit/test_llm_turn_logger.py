@@ -16,13 +16,17 @@ from services.llm.prompt_manager import PromptManager
 from tests.unit.test_llm_turn import VALID, FakeLLM
 
 
-def _make(tmp_path: Path, fake) -> tuple[LLMTurnRunner, Path]:
+def _make(
+    tmp_path: Path, fake, session_id: str | None = None,
+) -> tuple[LLMTurnRunner, Path]:
     path = tmp_path / "turns.jsonl"
     tl = TurnLogger(JsonlWriter(path))
     pm = PromptManager(PromptCache("persona test"), max_history_turns=4)
     fb = FallbackManager()
     canned = CannedResponder({"default": ["CANNED"]}, rng=random.Random(0))
-    runner = LLMTurnRunner(fake, pm, fb, canned, turn_logger=tl)
+    runner = LLMTurnRunner(
+        fake, pm, fb, canned, turn_logger=tl, session_id=session_id,
+    )
     return runner, path
 
 
@@ -49,6 +53,7 @@ class TestChatReplyLogs:
         assert r["parse_ok"] is True
         assert "timestamp" in r
         assert isinstance(r["latency_ms"], int) and r["latency_ms"] >= 0
+        assert r["session_id"] == runner.session_id
         # VALID có mood block trong raw → field phải True
         assert r["raw_had_mood_block"] is True
 
@@ -111,6 +116,17 @@ class TestChatReplyLogs:
         await runner.run_turn("r2", "hai")
         recs = _read_lines(path)
         assert [r["turn_id"] for r in recs] == [1, 2]
+        assert {r["session_id"] for r in recs} == {runner.session_id}
+
+    async def test_restart_uses_new_session_without_turn_collision(self, tmp_path: Path) -> None:
+        first, path = _make(tmp_path, FakeLLM(VALID))
+        await first.run_turn("r1", "một")
+        second, _ = _make(tmp_path, FakeLLM(VALID))
+        await second.run_turn("r2", "hai")
+
+        recs = _read_lines(path)
+        assert [r["turn_id"] for r in recs] == [1, 1]
+        assert recs[0]["session_id"] != recs[1]["session_id"]
 
 
 class TestAmbientLogs:

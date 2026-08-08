@@ -99,7 +99,8 @@ Không có nhãn người thì chỉ có tín hiệu yếu. Thêm cách operator
   đơn giản hơn, không sửa file cũ).
 - **Hotkey** (tuỳ chọn, tái dùng infra `keyboard` như emergency stop): F7=good, F8=bad.
 
-Ghi `logs/ratings.jsonl`: `{turn_id, session_id, rating, ts}`. Export join theo turn_id.
+Ghi `logs/ratings.jsonl`: `{turn_id, session_id, rating, ts}`. Export chỉ join theo
+khóa ghép `(session_id, turn_id)`, vì `turn_id` bắt đầu lại từ 1 ở mỗi phiên.
 
 **Test:** `POST /api/rate` với rating=good → ratings.jsonl có record trỏ đúng turn_id cuối.
 
@@ -170,10 +171,15 @@ cặp DPO sạch (gốc=rejected, sửa=chosen). Đây là nguồn data giá tr�
 **Chế độ A — Dashboard tab "Review" (chính, tái dùng FastAPI+JS đã có):**
 - Tab mới liệt kê N turn gần nhất (ring buffer trong runtime hoặc tail `turns.jsonl`).
 - Mỗi turn hiển thị `user_text` + `mai_text` trong **textarea sửa được** + nút `Lưu sửa` / `Bỏ qua` / 👍👎.
-- `Lưu sửa` → `POST /api/correct {turn_id, corrected_text}` → ghi `logs/corrections.jsonl`:
+- `Lưu sửa` → `POST /api/correct {session_id, turn_id, corrected_text}` → ghi
+  `logs/corrections.jsonl`:
   ```jsonc
   {"turn_id":42, "session_id":"...", "original":"<mai_text gốc>", "corrected":"<câu operator sửa>", "ts":"..."}
   ```
+
+Record legacy thiếu `session_id` được exporter gán namespace riêng theo nguồn
+(`legacy:turns`, `legacy:ratings`, `legacy:corrections`, `legacy:pref_pairs`). Các
+namespace này không join chéo; exporter không suy đoán quan hệ chỉ từ `turn_id`.
 - **Post-hoc, KHÔNG đụng live** (câu đã nói/đã phát TTS rồi) → an toàn, không rủi ro timing.
 
 **Chế độ B — File-based (fallback siêu đơn giản, không cần UI):**

@@ -314,13 +314,14 @@ runner = LLMTurnRunner.from_loader(
     memory=memory_service,                 # optional Phase 7.F
     memory_extractor=extractor,            # optional Phase 7.F
     emotion=emotion_orchestrator,          # optional Phase 7.5
+    session_id="<uuid>",                  # optional inject; mặc định tự tạo UUID
 )   # A1: drift_detector ĐÃ BỎ (Kênh B tắt — không còn LLM self-report để so)
 
 parsed, level = await runner.run_turn(
     request_id="msg1",
     user_text="hello",
     viewer_id="user_abc",       # optional cho memory
-    session_id="sess_1",        # optional
+    session_id=None,             # bỏ trống → dùng UUID ổn định của runner
     trigger_type="chat_youtube", # optional (from EventSource.value)
     event_category="chat_compliment",  # optional cho prompt Context
 )
@@ -328,6 +329,11 @@ parsed, level = await runner.run_turn(
 # Autonomy tự nói:
 parsed = await runner.run_ambient_turn(request_id, decision.prompt_text)
 ```
+
+Mỗi lần chạy StreamRuntime/CLI tạo một UUID và lưu ở `runner.session_id`.
+`turn_id` là sequence cục bộ bắt đầu từ 1; identity dữ liệu duy nhất là
+`(session_id, turn_id)`. Turn log, preference pair, memory metadata, rating và
+correction đều kế thừa cùng session này.
 
 Wire nhiều optional theo phase:
 - Không emotion → build_request bình thường
@@ -1016,7 +1022,8 @@ await rt.stop()
 3. Memory (nếu `enable_memory=True`, rewire `emotion._modifiers._memory`)
 4. `FeatureManager` + `RuleFilter` + `FilterRegenerator`; `filter_rule` quyết định
    regenerator có gắn vào runner lúc startup hay không
-5. LLMTurnRunner với optional wire; handler FeatureManager bật/tắt filter cho turn kế tiếp
+5. LLMTurnRunner với UUID session mới cho mỗi runtime và optional wire; handler
+   FeatureManager bật/tắt filter cho turn kế tiếp
 6. VieNeuTtsService + AudioPlayer + TTSPipeline (nếu `enable_tts`)
 7. AutonomyEngine (nếu `enable_autonomy`) — làm **generator self_talk** cho Director
 8. **C0 Director stack:** `SaliencePool` + `ChatPulse` + `Director` + `DirectorLoop`, `turn_lock` chung
@@ -1067,6 +1074,9 @@ REST endpoints:
 - `GET /metrics` — Prometheus format
 - `POST /features/{id}/toggle` — feature toggle
 - `POST /emergency_stop`, `POST /resume`
+- `GET /api/recent_turns` — review item có đủ `session_id` + `turn_id`
+- `POST /api/rate` — live rating dùng identity turn cuối; review rating phải gửi đủ cặp khóa
+- `POST /api/correct` — bắt buộc `{session_id, turn_id, corrected_text}` và lookup đúng cặp
 
 WebSocket `/ws` — push snapshot mỗi 1s.
 

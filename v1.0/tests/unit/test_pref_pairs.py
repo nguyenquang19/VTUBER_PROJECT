@@ -38,6 +38,7 @@ class TestLogPrefPair:
         assert recs[0]["chosen"] == "câu hay"
         assert recs[0]["reason"] == "filter:persona_break"
         assert recs[0]["schema_version"] == 1
+        assert recs[0]["session_id"] == r.session_id
 
     def test_identical_not_written(self, tmp_path: Path) -> None:
         r, path = _runner(tmp_path, FakeLLM(VALID))

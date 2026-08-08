@@ -253,20 +253,33 @@ class DashboardServer:
             rating = str(body.get("rating", "")).strip()
             if rating not in ("good", "bad", "flag"):
                 return JSONResponse({"ok": False, "reason": "rating không hợp lệ"}, status_code=400)
-            # turn_id cụ thể (bấm trên 1 item Review) hoặc turn cuối (chấm live)
+            # Identity cụ thể (Review) hoặc identity của turn cuối (chấm live).
             turn_id = body.get("turn_id")
+            session_id = body.get("session_id")
             if turn_id is None:
-                turn_id = self._last_turn_id()
+                if session_id is not None:
+                    return JSONResponse(
+                        {"ok": False, "reason": "thiếu turn_id"}, status_code=400,
+                    )
+                identity = self._last_turn_identity()
+                if identity is not None:
+                    session_id, turn_id = identity
             else:
+                if not isinstance(session_id, str) or not session_id.strip():
+                    return JSONResponse(
+                        {"ok": False, "reason": "thiếu session_id"}, status_code=400,
+                    )
+                session_id = session_id.strip()
                 try:
                     turn_id = int(turn_id)
                 except (TypeError, ValueError):
                     turn_id = None
-            if turn_id is None:
+            if turn_id is None or session_id is None:
                 return JSONResponse({"ok": False, "reason": "chưa có turn"}, status_code=400)
-            self._write_rating({"turn_id": turn_id, "rating": rating,
+            self._write_rating({"session_id": session_id, "turn_id": turn_id, "rating": rating,
                                 "ts": _now_iso()})
-            return JSONResponse({"ok": True, "turn_id": turn_id, "rating": rating})
+            return JSONResponse({"ok": True, "session_id": session_id,
+                                 "turn_id": turn_id, "rating": rating})
 
         # ── T7: operator sửa trực tiếp câu Mai (data vàng nhất) ──
         @app.get("/api/recent_turns")
@@ -280,13 +293,20 @@ class DashboardServer:
                 turn_id = int(body.get("turn_id"))
             except (TypeError, ValueError):
                 return JSONResponse({"ok": False, "reason": "turn_id sai"}, status_code=400)
+            session_id = body.get("session_id")
+            if not isinstance(session_id, str) or not session_id.strip():
+                return JSONResponse({"ok": False, "reason": "thiếu session_id"}, status_code=400)
+            session_id = session_id.strip()
             corrected = str(body.get("corrected_text", "")).strip()
             if not corrected:
                 return JSONResponse({"ok": False, "reason": "corrected_text rỗng"}, status_code=400)
-            original = self._original_of(turn_id)
-            self._write_correction({"turn_id": turn_id, "original": original,
+            original = self._original_of(session_id, turn_id)
+            if original is None:
+                return JSONResponse({"ok": False, "reason": "không tìm thấy turn"}, status_code=404)
+            self._write_correction({"session_id": session_id, "turn_id": turn_id,
+                                    "original": original,
                                     "corrected": corrected, "ts": _now_iso()})
-            return JSONResponse({"ok": True, "turn_id": turn_id})
+            return JSONResponse({"ok": True, "session_id": session_id, "turn_id": turn_id})
 
         @app.websocket("/ws")
         async def ws(websocket: WebSocket) -> None:
@@ -310,9 +330,12 @@ class DashboardServer:
 
     # ---------- T3/T7 data label helpers ----------
 
-    def _last_turn_id(self) -> int | None:
+    def _last_turn_identity(self) -> tuple[str, int] | None:
+        session_id = getattr(self.runner, "session_id", None) if self.runner else None
         tid = getattr(self.runner, "last_turn_id", 0) if self.runner else 0
-        return tid if tid else None
+        if not isinstance(session_id, str) or not session_id or not tid:
+            return None
+        return session_id, int(tid)
 
     def _ratings(self):
         if self._ratings_writer is None:
@@ -339,15 +362,16 @@ class DashboardServer:
             self._log.warning("correction_write_failed", error=str(e))
 
     def _recent_turns(self, n: int) -> list[dict]:
-        """Tail turns.jsonl → N turn gần nhất (turn_id, kind, user_text, mai_text)."""
+        """Tail turns.jsonl → N turn gần nhất với composite identity."""
         recs = _tail_jsonl(self._data_dir / "turns.jsonl", n)
-        return [{"turn_id": r.get("turn_id"), "kind": r.get("kind"),
+        return [{"session_id": r.get("session_id"), "turn_id": r.get("turn_id"),
+                 "kind": r.get("kind"),
                  "user_text": r.get("user_text"), "mai_text": r.get("mai_text")}
                 for r in recs]
 
-    def _original_of(self, turn_id: int) -> str | None:
+    def _original_of(self, session_id: str, turn_id: int) -> str | None:
         for r in _tail_jsonl(self._data_dir / "turns.jsonl", 200):
-            if r.get("turn_id") == turn_id:
+            if r.get("session_id") == session_id and r.get("turn_id") == turn_id:
                 return r.get("mai_text")
         return None
 
