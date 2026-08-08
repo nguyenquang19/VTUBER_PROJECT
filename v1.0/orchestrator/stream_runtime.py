@@ -85,6 +85,7 @@ class StreamRuntime:
         filler: Any = None,   # A3 FillerManager (metrics only; wiring ở speak wrapper)
         director_loop: Any = None,   # C0.4 DirectorLoop — turn driver (thay autonomy loop)
         agent_state: Any = None,
+        goal_manager: Any = None,
         cfg: StreamRuntimeConfig | None = None,
     ) -> None:
         self._loader = loader
@@ -106,6 +107,7 @@ class StreamRuntime:
         self._filler = filler
         self._director_loop = director_loop
         self._agent_state = agent_state
+        self._goal_manager = goal_manager
         self.cfg = cfg or StreamRuntimeConfig()
 
         self._running = False
@@ -122,6 +124,8 @@ class StreamRuntime:
             return
         if self._agent_state is not None:
             await self._agent_state.start()
+        if self._goal_manager is not None:
+            await self._goal_manager.start()
         await self._router.start()
         self._running = True
         # C0.4: DirectorLoop cầm nhịp (thay autonomy loop cũ). Fallback: autonomy loop
@@ -178,6 +182,9 @@ class StreamRuntime:
         # LLM
         with contextlib.suppress(Exception):
             await self._llm_svc.stop()
+        if self._goal_manager is not None:
+            with contextlib.suppress(Exception):
+                await self._goal_manager.stop()
         if self._agent_state is not None:
             with contextlib.suppress(Exception):
                 await self._agent_state.stop()
@@ -298,12 +305,19 @@ class StreamRuntime:
         if self._agent_state is not None:
             with contextlib.suppress(Exception):
                 m.update(self._agent_state.get_metrics())
+        if self._goal_manager is not None:
+            with contextlib.suppress(Exception):
+                m.update(self._goal_manager.get_metrics())
         return m
 
     @property
     def agent_state(self) -> Any:
         """The one shared state instance used by all stream producers."""
         return self._agent_state
+
+    @property
+    def goal_manager(self) -> Any:
+        return self._goal_manager
 
     def _record_environment_observation(self) -> None:
         if self._agent_state is None:
@@ -354,9 +368,17 @@ async def build_stream_runtime(
     # M1: one shared grounded working state for every stream producer.
     from services.agent.agent_state import AgentState
     from services.agent.event_ledger import EventLedger
+    from services.agent.agenda_policy import AgendaPolicy
+    from services.agent.goal_manager import GoalManager
 
     event_ledger = EventLedger.from_loader(loader, metrics=metrics)
     agent_state = AgentState.from_loader(loader, event_ledger)
+    agenda_policy = AgendaPolicy.from_loader(loader)
+    goal_manager = GoalManager.from_loader(
+        loader, metrics=metrics, on_active_changed=agent_state.set_active_goal_ref,
+        audit_sink=agent_state.record, agenda_policy=agenda_policy,
+    )
+    agent_state.add_event_listener(goal_manager.handle_event)
 
     # ─── LLM stack ───
     llm_svc = LlamaCppLLMService.from_loader(loader)
@@ -612,6 +634,7 @@ async def build_stream_runtime(
                              filter_svc=filter_svc, regenerator=regenerator,
                              emotion=emotion, runner=runner,
                              agent_state=agent_state,
+                             goal_manager=goal_manager,
                              data_dir=loader.get("logging", "jsonl.dir", "logs"))
         dashboard_task = asyncio.create_task(ds.serve(), name="dashboard")
 
@@ -624,6 +647,7 @@ async def build_stream_runtime(
         metrics=metrics, dashboard_task=dashboard_task,
         speak=speak_callback, filler=filler, director_loop=director_loop,
         agent_state=agent_state, cfg=cfg,
+        goal_manager=goal_manager,
     )
     # DirectorLoop dùng runtime ctx của rt (silence/chat_count/memory) cho self_talk material
     director_loop._runtime_ctx_fn = rt._build_runtime_context  # noqa: SLF001

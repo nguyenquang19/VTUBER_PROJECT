@@ -10,7 +10,7 @@ from interfaces.agent import GoalManagerService
 from interfaces.base import HealthStatus
 from services.agent.goal_types import Goal, GoalKind, GoalSnapshot, GoalSource, GoalStatus
 from services.agent.types import (
-    AgentEventKind, AgentEventSource, EventProvenance, GroundedEvent,
+    AgentEventKind, AgentEventSource, AgentStateSnapshot, EventProvenance, GroundedEvent,
 )
 
 
@@ -55,12 +55,14 @@ class GoalManager(GoalManagerService):
         metrics: Any = None,
         on_active_changed: Callable[[str | None], None] | None = None,
         audit_sink: Callable[[GroundedEvent], bool] | None = None,
+        agenda_policy: Any = None,
     ) -> None:
         self.limits = limits
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._metrics = metrics
         self._on_active_changed = on_active_changed
         self._audit_sink = audit_sink
+        self._agenda_policy = agenda_policy
         self._snapshot = GoalSnapshot()
         self._running = False
         self._counts: dict[str, int] = {}
@@ -75,11 +77,13 @@ class GoalManager(GoalManagerService):
         metrics: Any = None,
         on_active_changed: Callable[[str | None], None] | None = None,
         audit_sink: Callable[[GroundedEvent], bool] | None = None,
+        agenda_policy: Any = None,
     ) -> "GoalManager":
         return cls(
             GoalLimits.from_loader(loader), clock=clock, metrics=metrics,
             on_active_changed=on_active_changed,
             audit_sink=audit_sink,
+            agenda_policy=agenda_policy,
         )
 
     async def start(self) -> None:
@@ -197,6 +201,64 @@ class GoalManager(GoalManagerService):
             return False
         self._operator_audit("cancel", goal_id, reason)
         return True
+
+    def handle_event(self, event: GroundedEvent, state: AgentStateSnapshot) -> None:
+        """Consume only accepted grounded events; never calls an LLM."""
+        self._prune(_utc(self._clock()))
+        before = self._snapshot
+        candidates = (
+            self._agenda_policy.candidates_for(event, state, before)
+            if self._agenda_policy is not None else ()
+        )
+
+        active = before.active
+        if event.kind is AgentEventKind.CHAT_RECEIVED and active is not None:
+            if active.kind is GoalKind.WAIT_FOR_CHAT_ANSWER:
+                self.complete(active.goal_id, reason=f"chat_answer:{event.event_id}")
+            elif active.kind is GoalKind.CONTINUE_THREAD:
+                self.refresh(
+                    active.goal_id,
+                    self._agenda_policy.config.ttl_seconds[GoalKind.CONTINUE_THREAD]
+                    if self._agenda_policy is not None else 300,
+                )
+
+        if event.kind is AgentEventKind.SPEECH_COMPLETED:
+            self._complete_from_speech(event)
+
+        for candidate in candidates:
+            self.submit(candidate)
+
+    def refresh(self, goal_id: str, ttl_s: int) -> bool:
+        goal = self._find(goal_id)
+        if goal is None or ttl_s <= 0:
+            return False
+        refreshed = replace(goal, expires_at=_utc(self._clock()) + timedelta(seconds=ttl_s))
+        if self._snapshot.active and self._snapshot.active.goal_id == goal_id:
+            self._snapshot = replace(self._snapshot, active=refreshed)
+        else:
+            self._snapshot = replace(
+                self._snapshot,
+                candidates=tuple(refreshed if g.goal_id == goal_id else g for g in self._snapshot.candidates),
+                suspended=tuple(refreshed if g.goal_id == goal_id else g for g in self._snapshot.suspended),
+            )
+        self._record("refreshed", goal.kind.value)
+        return True
+
+    def _complete_from_speech(self, event: GroundedEvent) -> None:
+        active = self._snapshot.active
+        if active is None:
+            return
+        event_goal = str(event.payload.get("goal_id") or "")
+        if event_goal and event_goal != active.goal_id:
+            return
+        action = str(event.payload.get("action") or "")
+        allowed = {
+            GoalKind.ACK_DONATION: {"ack_donation"},
+            GoalKind.ANSWER_FOLLOW_UP: {"read_chat", "follow_up"},
+            GoalKind.CONTINUE_THREAD: {"read_chat", "follow_up"},
+        }
+        if action in allowed.get(active.kind, set()):
+            self.complete(active.goal_id, reason=f"speech_completed:{event.event_id}")
 
     def _terminal(self, goal_id: str, status: GoalStatus, reason: str) -> bool:
         now = _utc(self._clock())

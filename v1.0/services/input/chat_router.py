@@ -193,6 +193,8 @@ class ChatRouter:
                     self._speak_calls += 1
                 except Exception as e:
                     self._log.warning("router_speak_failed", error=str(e))
+                    return
+            self._record_speech_completed(event.event_id or "no_id", "read_chat")
 
     def _record_chat_event(
         self, event: InputEvent, emo_event: EmotionEvent, category: str,
@@ -238,6 +240,26 @@ class ChatRouter:
             ))
         except Exception as exc:
             self._log.warning("router_agent_event_failed", error=str(exc))
+
+    def _record_speech_completed(self, request_id: str, action: str) -> None:
+        if self._agent_state is None:
+            return
+        try:
+            goal_id = self._agent_state.snapshot().active_goal_ref
+            self._agent_state.record(GroundedEvent(
+                event_id=f"agent:speech_completed:{request_id}",
+                kind=AgentEventKind.SPEECH_COMPLETED,
+                source=AgentEventSource.RUNTIME,
+                timestamp=datetime.now(timezone.utc),
+                confidence=1.0,
+                payload={"action": action, "goal_id": goal_id},
+                provenance=EventProvenance(
+                    producer="chat_router", source_event_id=request_id,
+                    session_id=getattr(self._runner, "session_id", None),
+                ),
+            ))
+        except Exception as exc:
+            self._log.warning("router_speech_complete_event_failed", error=str(exc))
 
 
     def _intake(self, event: InputEvent, emo_event: EmotionEvent) -> None:

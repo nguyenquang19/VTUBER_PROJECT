@@ -113,3 +113,14 @@ def test_snapshot_to_dict_does_not_mutate_value_object() -> None:
     exported["environment_summary"]["online"] = False
     assert snapshot.recent_events[0].payload["text"] == "grounded"
     assert snapshot.environment_summary == {"online": True}
+
+
+def test_active_goal_ref_is_owned_by_goal_manager_boundary(reducer: AgentStateReducer) -> None:
+    from services.agent.agent_state import AgentState
+    from services.agent.event_ledger import EventLedger
+
+    state = AgentState(reducer, EventLedger(4, 60, 60, clock=lambda: NOW), clock=lambda: NOW)
+    state.set_active_goal_ref("goal-1")
+    assert state.snapshot().active_goal_ref == "goal-1"
+    state.set_active_goal_ref(None)
+    assert state.snapshot().active_goal_ref is None

@@ -203,7 +203,7 @@ class DirectorLoop:
             self._pool.remove(r.msg_id)
         self._turns_read += 1
         self._director.mark_spoke(dec.action, now)
-        await self._maybe_speak(req_id, parsed)
+        await self._maybe_speak(req_id, parsed, dec.action, refs)
 
     async def _exec_room_reaction(self, dec, now: float) -> None:
         """SUMMARY/VIBE: Mai react không khí chat qua đường ambient (chỉ thị ở prompt,
@@ -219,7 +219,7 @@ class DirectorLoop:
                 self._pool.remove(r.msg_id)
         self._turns_read += 1
         self._director.mark_spoke(dec.action, now)
-        await self._maybe_speak(req_id, parsed)
+        await self._maybe_speak(req_id, parsed, dec.action, list(dec.refs))
 
     async def _exec_self_talk(self, dec, now: float) -> None:
         if self._autonomy is None:
@@ -250,7 +250,7 @@ class DirectorLoop:
             self._record_self_talk(req_id, parsed.text, now)
         self._turns_self += 1
         self._director.mark_spoke(dec.action, now)
-        await self._maybe_speak(req_id, parsed)
+        await self._maybe_speak(req_id, parsed, dec.action, [])
 
     async def _exec_transition(self, dec, now: float) -> None:
         req_id = f"trans_{uuid.uuid4().hex[:8]}"
@@ -267,16 +267,44 @@ class DirectorLoop:
         self._director.advance_segment(now)
         self._transitions += 1
         self._director.mark_spoke(DirectorAction.TRANSITION, now)
-        await self._maybe_speak(req_id, parsed)
+        await self._maybe_speak(req_id, parsed, dec.action, [])
 
     # ---------- helpers ----------
 
-    async def _maybe_speak(self, req_id: str, parsed) -> None:
-        if self._speak is not None and getattr(parsed, "ok", False) and getattr(parsed, "text", ""):
+    async def _maybe_speak(self, req_id: str, parsed, action: Any, refs: list[Any]) -> None:
+        if not getattr(parsed, "ok", False) or not getattr(parsed, "text", ""):
+            return
+        if self._speak is not None:
             try:
                 await self._speak(req_id, parsed.text)
             except Exception as e:
                 self._log.warning("director_speak_failed", error=str(e))
+                return
+        self._record_speech_completed(req_id, action, refs)
+
+    def _record_speech_completed(self, request_id: str, action: Any, refs: list[Any]) -> None:
+        if self._agent_state is None:
+            return
+        try:
+            snapshot = self._agent_state.snapshot()
+            self._agent_state.record(GroundedEvent(
+                event_id=f"agent:speech_completed:{request_id}",
+                kind=AgentEventKind.SPEECH_COMPLETED,
+                source=AgentEventSource.DIRECTOR,
+                timestamp=_timestamp(self._clock()),
+                confidence=1.0,
+                payload={
+                    "action": getattr(action, "value", str(action)),
+                    "goal_id": snapshot.active_goal_ref,
+                    "ref_event_ids": [getattr(ref, "msg_id", "") for ref in refs],
+                },
+                provenance=EventProvenance(
+                    producer="director_loop", source_event_id=request_id,
+                    session_id=getattr(self._runner, "session_id", None),
+                ),
+            ))
+        except Exception as exc:
+            self._log.warning("director_speech_complete_event_failed", error=str(exc))
 
     def _record_director_action(self, dec: Any, now: float) -> None:
         if self._agent_state is None:

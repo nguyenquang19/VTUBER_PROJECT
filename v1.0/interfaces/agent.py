@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from abc import abstractmethod
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 from interfaces.base import Service
 
@@ -37,6 +37,12 @@ class AgentStateService(Service):
     def set_active_goal_ref(self, goal_id: str | None) -> None:
         """Update only the reference owned by GoalManager."""
 
+    @abstractmethod
+    def add_event_listener(
+        self, listener: Callable[["GroundedEvent", "AgentStateSnapshot"], None],
+    ) -> None:
+        """Observe accepted events after reduction; listener failures are isolated."""
+
 
 class GoalManagerService(Service):
     @abstractmethod
@@ -68,3 +74,7 @@ class GoalManagerService(Service):
     @abstractmethod
     def operator_cancel(self, goal_id: str, *, reason: str) -> bool:
         """Cancel any goal as an audited operator override."""
+
+    @abstractmethod
+    def handle_event(self, event: "GroundedEvent", state: "AgentStateSnapshot") -> None:
+        """Apply grounded event completion/refresh rules and candidate policy."""

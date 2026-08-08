@@ -162,6 +162,7 @@ class AgentState(AgentStateService):
         self._snapshot = AgentStateSnapshot()
         self._running = False
         self._reduce_errors = 0
+        self._event_listeners: list[Callable[[GroundedEvent, AgentStateSnapshot], None]] = []
 
     @classmethod
     def from_loader(
@@ -198,6 +199,12 @@ class AgentState(AgentStateService):
             return False
         try:
             self._snapshot = self._reducer.reduce(self._snapshot, event, now=self._clock())
+            snapshot = self.snapshot()
+            for listener in tuple(self._event_listeners):
+                try:
+                    listener(event, snapshot)
+                except Exception:
+                    self._reduce_errors += 1
             return True
         except Exception:
             self._reduce_errors += 1
@@ -220,6 +227,12 @@ class AgentState(AgentStateService):
 
     def set_active_goal_ref(self, goal_id: str | None) -> None:
         self._snapshot = replace(self._snapshot, active_goal_ref=goal_id)
+
+    def add_event_listener(
+        self, listener: Callable[[GroundedEvent, AgentStateSnapshot], None],
+    ) -> None:
+        if listener not in self._event_listeners:
+            self._event_listeners.append(listener)
 
 
 def _compact(value: Any, max_chars: int) -> str:

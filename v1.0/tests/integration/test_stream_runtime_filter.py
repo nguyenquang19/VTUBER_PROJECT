@@ -184,6 +184,8 @@ class TestRuntimeFilterWiring:
             assert dashboard["feature_manager"] is runtime._feature_manager
             assert dashboard["filter_svc"] is runtime._filter_svc
             assert dashboard["regenerator"] is runtime._regenerator
+            assert dashboard["goal_manager"] is runtime.goal_manager
+            assert runtime.agent_state.snapshot().active_goal_ref is None
 
             result = await runtime._feature_manager.disable("filter_rule", user="test")
             assert result.ok is True

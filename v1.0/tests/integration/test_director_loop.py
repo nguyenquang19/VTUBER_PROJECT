@@ -125,14 +125,20 @@ class TestDirectorLoop:
             def record(self, event) -> bool:
                 self.events.append(event)
                 return True
+            def snapshot(self):
+                return type("Snapshot", (), {"active_goal_ref": "goal-read"})()
 
         state = State()
         loop, director, pool, pulse, runner, clock = _make(agent_state=state)
         pool.add("m1", "Mai ơi chơi gì", now=0.0, kind="mention")
         clock["t"] = 1.0
         await loop.tick_once()
-        assert [event.kind.value for event in state.events] == ["director_action"]
+        assert [event.kind.value for event in state.events] == [
+            "speech_completed", "director_action",
+        ]
         assert state.events[0].payload["action"] == "read_chat"
+        assert state.events[0].payload["goal_id"] == "goal-read"
+        assert state.events[1].payload["action"] == "read_chat"
 
     async def test_successful_self_talk_publishes_grounded_event(self) -> None:
         class State:

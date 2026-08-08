@@ -66,6 +66,7 @@ class TestServiceContract:
             (AgentStateService, "record"),
             (AgentStateService, "snapshot"),
             (AgentStateService, "set_active_goal_ref"),
+            (AgentStateService, "add_event_listener"),
             (GoalManagerService, "submit"),
             (GoalManagerService, "complete"),
             (GoalManagerService, "cancel"),
@@ -73,6 +74,7 @@ class TestServiceContract:
             (GoalManagerService, "pin_operator"),
             (GoalManagerService, "operator_complete"),
             (GoalManagerService, "operator_cancel"),
+            (GoalManagerService, "handle_event"),
         ],
     )
     def test_interface_declares_spec_method(self, iface, method) -> None:
