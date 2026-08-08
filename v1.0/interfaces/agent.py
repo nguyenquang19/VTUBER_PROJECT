@@ -157,7 +157,9 @@ class SessionRecapService(Service):
 
 class ConversationContextService(Service):
     @abstractmethod
-    def render(self, state: "AgentStateSnapshot", query: str = "") -> str:
+    def render(
+        self, state: "AgentStateSnapshot", query: str = "", viewer_id: str | None = None,
+    ) -> str:
         """Render bounded grounded continuity context for one LLM turn."""
 
 

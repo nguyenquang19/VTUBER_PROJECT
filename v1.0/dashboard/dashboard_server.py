@@ -367,6 +367,34 @@ class DashboardServer:
             )
             return JSONResponse({"ok": ok}, status_code=200 if ok else 400)
 
+        @app.post("/api/relationships/narratives")
+        async def api_relationship_narrative(request: Request) -> JSONResponse:
+            if self.relationship_manager is None:
+                return JSONResponse({"ok": False, "reason": "no relationship manager"}, status_code=503)
+            body = await _json(request)
+            item = self.relationship_manager.create_narrative(
+                summary=str(body.get("summary") or ""),
+                event_refs=_string_list(body.get("event_refs")),
+                viewer_id=str(body.get("viewer_id") or "").strip() or None,
+                reason=str(body.get("reason") or "").strip(),
+            )
+            return JSONResponse(
+                {"ok": item is not None, "narrative": item.to_dict() if item else None},
+                status_code=200 if item else 400,
+            )
+
+        @app.post("/api/relationships/narratives/{narrative_id}/resolve")
+        async def api_relationship_narrative_resolve(
+            narrative_id: str, request: Request,
+        ) -> JSONResponse:
+            if self.relationship_manager is None:
+                return JSONResponse({"ok": False, "reason": "no relationship manager"}, status_code=503)
+            body = await _json(request)
+            ok = self.relationship_manager.resolve_narrative(
+                narrative_id, reason=str(body.get("reason") or "").strip(),
+            )
+            return JSONResponse({"ok": ok}, status_code=200 if ok else 400)
+
         @app.get("/metrics", response_class=PlainTextResponse)
         async def metrics_endpoint() -> bytes:
             if self.metrics is None:

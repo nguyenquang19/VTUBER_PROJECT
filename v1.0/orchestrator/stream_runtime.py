@@ -578,6 +578,7 @@ async def build_stream_runtime(
     conversation_context = ConversationContextComposer.from_loader(
         loader, goal_provider=goal_manager.snapshot, metrics=metrics,
         repair_policy=repair_policy,
+        relationship_context=relationship_manager,
     )
     try:
         continuity_status = await feature_manager.get_status("conversation_continuity")

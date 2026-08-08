@@ -263,7 +263,7 @@ class LLMTurnRunner:
         """
         self._reset_filter_tracking()
         effective_session_id = session_id or self.session_id
-        grounded_context = self._render_agent_context(user_text)
+        grounded_context = self._render_agent_context(user_text, viewer_id=viewer_id)
         request = self._build_request_maybe_with_mood(
             request_id, user_text, event_category, stage_direction, grounded_context,
         )
@@ -505,14 +505,21 @@ class LLMTurnRunner:
             grounded_context=grounded_context,
         )
 
-    def _render_agent_context(self, query: str) -> str | None:
+    def _render_agent_context(
+        self, query: str, *, viewer_id: str | None = None,
+    ) -> str | None:
         if self._agent_state is None:
             return None
         renderer = self._conversation_context_renderer or self._agent_context_renderer
         if renderer is None:
             return None
         try:
-            return renderer.render(self._agent_state.snapshot(), query)
+            try:
+                return renderer.render(
+                    self._agent_state.snapshot(), query, viewer_id=viewer_id,
+                )
+            except TypeError:
+                return renderer.render(self._agent_state.snapshot(), query)
         except Exception as exc:
             get_logger("llm_turn").warning("agent_context_render_failed", error=str(exc))
             return None

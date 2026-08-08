@@ -52,6 +52,11 @@ class ReviewStatus(str, Enum):
     REJECTED = "rejected"
 
 
+class NarrativeStatus(str, Enum):
+    ACTIVE = "active"
+    RESOLVED = "resolved"
+
+
 @dataclass(frozen=True)
 class RelationshipNote:
     note_id: str
@@ -88,12 +93,45 @@ class RelationshipNote:
 
 
 @dataclass(frozen=True)
+class NarrativeItem:
+    narrative_id: str
+    summary: str
+    event_refs: tuple[str, ...]
+    status: NarrativeStatus
+    created_at: datetime
+    expires_at: datetime
+    viewer_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.summary.strip() or not self.event_refs:
+            raise ValueError("narrative item requires summary and evidence")
+        if self.viewer_id is not None and not self.viewer_id.startswith("v_"):
+            raise ValueError("narrative viewer must be pseudonymous")
+        object.__setattr__(self, "event_refs", tuple(self.event_refs))
+        object.__setattr__(self, "created_at", _utc(self.created_at))
+        object.__setattr__(self, "expires_at", _utc(self.expires_at))
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "narrative_id": self.narrative_id,
+            "viewer_id": self.viewer_id,
+            "summary": self.summary,
+            "event_refs": list(self.event_refs),
+            "status": self.status.value,
+            "created_at": self.created_at.isoformat(),
+            "expires_at": self.expires_at.isoformat(),
+        }
+
+
+@dataclass(frozen=True)
 class RelationshipSnapshot:
     profiles: tuple[ViewerProfile, ...] = field(default_factory=tuple)
     notes: tuple[RelationshipNote, ...] = field(default_factory=tuple)
+    narratives: tuple[NarrativeItem, ...] = field(default_factory=tuple)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "profiles": [item.to_dict() for item in self.profiles],
             "notes": [item.to_dict() for item in self.notes],
+            "narratives": [item.to_dict() for item in self.narratives],
         }

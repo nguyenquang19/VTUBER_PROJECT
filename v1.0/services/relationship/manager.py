@@ -14,6 +14,8 @@ from services.relationship.store import RelationshipStore
 from services.relationship.types import (
     RelationshipNote,
     RelationshipSnapshot,
+    NarrativeItem,
+    NarrativeStatus,
     ReviewStatus,
     ViewerProfile,
 )
@@ -29,6 +31,10 @@ class RelationshipLimits:
     max_text_chars: int = 240
     note_ttl_days: int = 30
     max_notes_per_viewer: int = 20
+    narrative_ttl_days: int = 30
+    max_narratives: int = 50
+    prompt_max_items: int = 2
+    prompt_max_chars: int = 360
 
     @classmethod
     def from_loader(cls, loader: Any) -> "RelationshipLimits":
@@ -42,11 +48,17 @@ class RelationshipLimits:
             max_text_chars=int(loader.get("relationships", prefix + "max_text_chars", 240)),
             note_ttl_days=int(loader.get("relationships", "notes.ttl_days", 30)),
             max_notes_per_viewer=int(loader.get("relationships", "notes.max_per_viewer", 20)),
+            narrative_ttl_days=int(loader.get("relationships", "narrative.ttl_days", 30)),
+            max_narratives=int(loader.get("relationships", "narrative.max_items", 50)),
+            prompt_max_items=int(loader.get("relationships", "narrative.prompt_max_items", 2)),
+            prompt_max_chars=int(loader.get("relationships", "narrative.prompt_max_chars", 360)),
         )
         if min(
             value.profile_ttl_days, value.seen_event_ttl_days, value.max_profiles_snapshot,
             value.max_preferences, value.max_boundaries, value.max_text_chars,
             value.note_ttl_days, value.max_notes_per_viewer,
+            value.narrative_ttl_days, value.max_narratives,
+            value.prompt_max_items, value.prompt_max_chars,
         ) <= 0:
             raise ValueError("relationship limits must be positive")
         return value
@@ -144,7 +156,8 @@ class RelationshipManager(RelationshipService):
             item for item in self._store.list_profiles() if item.expires_at > now
         )[: self.limits.max_profiles_snapshot]
         notes = tuple(item for item in self._store.list_notes() if item.expires_at > now)
-        return RelationshipSnapshot(profiles=profiles, notes=notes)
+        narratives = tuple(item for item in self._store.list_narratives() if item.expires_at > now)
+        return RelationshipSnapshot(profiles=profiles, notes=notes, narratives=narratives)
 
     def update_profile(
         self, viewer_id: str, *, preferences: list[str], boundaries: list[str],
@@ -211,6 +224,86 @@ class RelationshipManager(RelationshipService):
             self._audit("note_delete", note.viewer_id, note_id, reason)
             self._record("deleted", "note")
         return ok
+
+    def create_narrative(
+        self, *, summary: str, event_refs: list[str], reason: str,
+        viewer_id: str | None = None,
+    ) -> NarrativeItem | None:
+        clean = self._clean(summary)
+        if (
+            not self._enabled or not clean or not reason.strip()
+            or not self._valid_evidence(event_refs)
+            or (viewer_id is not None and self.get_profile(viewer_id) is None)
+        ):
+            self._record("rejected", "narrative_validation")
+            return None
+        active = [
+            item for item in self._store.list_narratives()
+            if item.status is NarrativeStatus.ACTIVE and item.expires_at > _utc(self._clock())
+        ]
+        if len(active) >= self.limits.max_narratives:
+            self._record("rejected", "narrative_cap")
+            return None
+        now = _utc(self._clock())
+        item = NarrativeItem(
+            narrative_id=f"narrative:{uuid.uuid4().hex}", viewer_id=viewer_id,
+            summary=clean, event_refs=tuple(dict.fromkeys(event_refs)),
+            status=NarrativeStatus.ACTIVE, created_at=now,
+            expires_at=now + timedelta(days=self.limits.narrative_ttl_days),
+        )
+        self._store.insert_narrative(item)
+        self._audit("narrative_create", viewer_id, item.narrative_id, reason)
+        self._record("created", "narrative")
+        return item
+
+    def resolve_narrative(self, narrative_id: str, *, reason: str) -> bool:
+        item = self._store.get_narrative(narrative_id)
+        if item is None or not reason.strip():
+            return False
+        ok = self._store.resolve_narrative(narrative_id)
+        if ok:
+            self._audit("narrative_resolve", item.viewer_id, narrative_id, reason)
+            self._record("resolved", "narrative")
+        return ok
+
+    def render_context(self, raw_viewer_id: str | None = None) -> str:
+        if not self._enabled:
+            return ""
+        now = _utc(self._clock())
+        viewer_id = hash_viewer_id(raw_viewer_id)
+        lines = ["[Grounded relationship/narrative — do not infer beyond evidence]"]
+        if viewer_id is not None:
+            profile = self.get_profile(viewer_id)
+            if profile is not None:
+                attrs: list[str] = []
+                if profile.confirmed_preferences:
+                    attrs.append("preferences=" + ", ".join(profile.confirmed_preferences))
+                if profile.boundaries:
+                    attrs.append("boundaries=" + ", ".join(profile.boundaries))
+                if profile.tone:
+                    attrs.append("tone=" + profile.tone)
+                if attrs:
+                    lines.append("Current viewer confirmed: " + "; ".join(attrs))
+                approved = [
+                    note for note in self._store.list_notes(viewer_id)
+                    if note.status is ReviewStatus.APPROVED and note.expires_at > now
+                ]
+                for note in approved[: self.limits.prompt_max_items]:
+                    lines.append(
+                        f"Approved note [evidence={','.join(note.evidence_refs)}]: {note.summary}"
+                    )
+        narratives = [
+            item for item in self._store.list_narratives()
+            if item.status is NarrativeStatus.ACTIVE and item.expires_at > now
+            and (item.viewer_id is None or item.viewer_id == viewer_id)
+        ]
+        for item in narratives[: self.limits.prompt_max_items]:
+            lines.append(
+                f"Active narrative [evidence={','.join(item.event_refs)}]: {item.summary}"
+            )
+        if len(lines) == 1:
+            return ""
+        return "\n".join(lines)[: self.limits.prompt_max_chars]
 
     @property
     def enabled(self) -> bool:

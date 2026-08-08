@@ -41,6 +41,15 @@ document.getElementById("btn-goal-pin").addEventListener("click", async () => {
   setText("goal-status", result.ok ? "✓ pinned" : "✗ " + result.reason);
 });
 
+document.getElementById("btn-narrative-add").addEventListener("click", async () => {
+  const summary = prompt("Narrative summary:", "") || "";
+  const evidence = prompt("Grounded event ID:", "") || "";
+  if (!summary || !evidence) return;
+  await postJson("/api/relationships/narratives", {
+    summary, event_refs: [evidence], reason: "dashboard operator narrative",
+  });
+});
+
 // ---------- Review tab (T3 rating + T7 correction) ----------
 async function postJson(url, body) {
   try {
@@ -405,6 +414,25 @@ function renderRelationships(data) {
   if (!list || !data) return;
   list.innerHTML = "";
   const notes = data.notes || [];
+  const narratives = document.getElementById("narrative-list");
+  if (narratives) {
+    narratives.innerHTML = "";
+    (data.narratives || []).forEach((item) => {
+      const row = document.createElement("div");
+      row.className = "relationship-note";
+      row.innerHTML = `<span>[${escapeHtml(item.status)}] ${escapeHtml(item.summary)} ` +
+        `(${escapeHtml((item.event_refs || []).join(", "))})</span>`;
+      if (item.status === "active") {
+        const resolve = document.createElement("button"); resolve.textContent = "Resolve";
+        resolve.addEventListener("click", () => postJson(
+          `/api/relationships/narratives/${encodeURIComponent(item.narrative_id)}/resolve`,
+          { reason: "dashboard operator resolved" },
+        ));
+        row.appendChild(resolve);
+      }
+      narratives.appendChild(row);
+    });
+  }
   (data.profiles || []).forEach((profile) => {
     const card = document.createElement("div");
     card.className = "relationship-card";

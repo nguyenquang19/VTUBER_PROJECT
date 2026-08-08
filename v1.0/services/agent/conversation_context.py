@@ -47,11 +47,13 @@ class ConversationContextComposer(ConversationContextService):
         goal_provider: Callable[[], GoalSnapshot] | None = None,
         metrics: Any = None,
         repair_policy: Any = None,
+        relationship_context: Any = None,
     ) -> None:
         self.config = config
         self._goal_provider = goal_provider
         self._metrics = metrics
         self._repair_policy = repair_policy
+        self._relationship_context = relationship_context
         self._running = False
         self._renders = 0
         self._last_chars = 0
@@ -61,10 +63,12 @@ class ConversationContextComposer(ConversationContextService):
         cls, loader: Any, *, goal_provider: Callable[[], GoalSnapshot] | None = None,
         metrics: Any = None,
         repair_policy: Any = None,
+        relationship_context: Any = None,
     ) -> "ConversationContextComposer":
         return cls(
             ConversationContextConfig.from_loader(loader),
             goal_provider=goal_provider, metrics=metrics, repair_policy=repair_policy,
+            relationship_context=relationship_context,
         )
 
     async def start(self) -> None:
@@ -84,7 +88,9 @@ class ConversationContextComposer(ConversationContextService):
             "conversation_context_last_chars": self._last_chars,
         }
 
-    def render(self, state: AgentStateSnapshot, query: str = "") -> str:
+    def render(
+        self, state: AgentStateSnapshot, query: str = "", viewer_id: str | None = None,
+    ) -> str:
         goals = self._safe_goals()
         lines = [
             "[Conversation continuity — grounded facts only; repair instead of guessing]",
@@ -92,6 +98,13 @@ class ConversationContextComposer(ConversationContextService):
             self._thread_line(state),
             self._goal_line(goals),
         ]
+        if self._relationship_context is not None:
+            try:
+                social = self._relationship_context.render_context(viewer_id)
+            except Exception:
+                social = ""
+            if social:
+                lines.append(social)
         repair = None
         if self._repair_policy is not None:
             try:

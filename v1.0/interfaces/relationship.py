@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 from interfaces.base import Service
 
 if TYPE_CHECKING:
-    from services.relationship.types import RelationshipNote, RelationshipSnapshot, ViewerProfile
+    from services.relationship.types import NarrativeItem, RelationshipNote, RelationshipSnapshot, ViewerProfile
 
 
 class RelationshipService(Service):
@@ -52,3 +52,18 @@ class RelationshipService(Service):
     @abstractmethod
     def delete_note(self, note_id: str, *, reason: str) -> bool:
         """Delete one note with an audit record."""
+
+    @abstractmethod
+    def create_narrative(
+        self, *, summary: str, event_refs: list[str], reason: str,
+        viewer_id: str | None = None,
+    ) -> "NarrativeItem | None":
+        """Create an active narrative only from existing grounded events."""
+
+    @abstractmethod
+    def resolve_narrative(self, narrative_id: str, *, reason: str) -> bool:
+        """Resolve one narrative item with operator audit."""
+
+    @abstractmethod
+    def render_context(self, raw_viewer_id: str | None = None) -> str:
+        """Render bounded approved relationship/narrative prompt context."""
