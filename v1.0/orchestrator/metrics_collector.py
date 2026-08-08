@@ -140,6 +140,15 @@ class MetricsCollector:
         )
         self._director_actions: dict[tuple[str, str], int] = {}
 
+        # --- Conversation continuity metrics (Master Plan M4) ---
+        self.thread_events_total_c = Counter(
+            "mai_conversation_threads_total",
+            "Open conversation thread lifecycle",
+            ["outcome", "kind"],
+            registry=self.registry,
+        )
+        self._thread_events: dict[tuple[str, str], int] = {}
+
         # --- 3 "metric giả" cho Phase 0 (chưa có service thật) ---
         # DoD: "Metric giả cập nhật realtime trên chart"
         self.fake_gpu_util = Gauge(
@@ -166,6 +175,17 @@ class MetricsCollector:
         key = (str(action), str(reason))
         self._director_actions[key] = self._director_actions.get(key, 0) + 1
         self.director_actions_total_c.labels(action=key[0], reason=key[1]).inc()
+
+    def record_thread_event(self, outcome: str, kind: str) -> None:
+        key = (str(outcome), str(kind))
+        self._thread_events[key] = self._thread_events.get(key, 0) + 1
+        self.thread_events_total_c.labels(outcome=key[0], kind=key[1]).inc()
+
+    def thread_snapshot(self) -> dict[str, int]:
+        return {
+            f"{outcome}:{kind}": count
+            for (outcome, kind), count in sorted(self._thread_events.items())
+        }
 
     def director_action_snapshot(self) -> dict[str, int]:
         return {

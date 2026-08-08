@@ -41,6 +41,35 @@ class StreamPhase(str, Enum):
     CLOSING = "closing"
 
 
+class ThreadKind(str, Enum):
+    QUESTION = "question"
+    PROMISE = "promise"
+    STORY = "story"
+
+
+@dataclass(frozen=True)
+class ThreadEvidence:
+    source_event_id: str
+    excerpt: str
+    detector: str
+    confidence: float = 1.0
+
+    def __post_init__(self) -> None:
+        if not self.source_event_id.strip() or not self.excerpt.strip():
+            raise ValueError("thread evidence needs source_event_id and excerpt")
+        if not 0.0 <= float(self.confidence) <= 1.0:
+            raise ValueError("thread evidence confidence must be within [0, 1]")
+        object.__setattr__(self, "confidence", float(self.confidence))
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "source_event_id": self.source_event_id,
+            "excerpt": self.excerpt,
+            "detector": self.detector,
+            "confidence": self.confidence,
+        }
+
+
 @dataclass(frozen=True)
 class EventProvenance:
     producer: str
@@ -119,11 +148,17 @@ class OpenThread:
     created_at: datetime
     updated_at: datetime
     expires_at: datetime
+    kind: ThreadKind = ThreadKind.QUESTION
+    evidence: tuple[ThreadEvidence, ...] = ()
+    origin_event_id: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "created_at", _as_utc(self.created_at))
         object.__setattr__(self, "updated_at", _as_utc(self.updated_at))
         object.__setattr__(self, "expires_at", _as_utc(self.expires_at))
+        object.__setattr__(self, "evidence", tuple(self.evidence))
+        if not self.thread_id.strip() or not self.topic.strip() or not self.summary.strip():
+            raise ValueError("open thread needs id, topic, and summary")
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -133,6 +168,9 @@ class OpenThread:
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
             "expires_at": self.expires_at.isoformat(),
+            "kind": self.kind.value,
+            "evidence": [item.to_dict() for item in self.evidence],
+            "origin_event_id": self.origin_event_id,
         }
 
 

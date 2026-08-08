@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from services.agent.types import AgentStateSnapshot, GroundedEvent
     from services.agent.goal_types import Goal, GoalSnapshot
     from services.agent.goal_proposal import GoalProposal
+    from services.agent.types import OpenThread, ThreadEvidence, ThreadKind
 
 
 class EventLedgerService(Service):
@@ -95,3 +96,35 @@ class GoalProposalService(Service):
     @abstractmethod
     def set_enabled(self, enabled: bool) -> None:
         """Enable or disable future proposal calls."""
+
+
+class OpenThreadManagerService(Service):
+    @abstractmethod
+    def create(
+        self,
+        *,
+        kind: "ThreadKind",
+        topic: str,
+        summary: str,
+        evidence: "ThreadEvidence",
+        thread_id: str | None = None,
+    ) -> "OpenThread | None":
+        """Create one grounded thread, or reject invalid/duplicate evidence."""
+
+    @abstractmethod
+    def update(
+        self, thread_id: str, *, summary: str, evidence: "ThreadEvidence",
+    ) -> bool:
+        """Update a live thread with new grounded evidence."""
+
+    @abstractmethod
+    def resolve(self, thread_id: str, *, reason: str) -> bool:
+        """Resolve and remove one open thread."""
+
+    @abstractmethod
+    def expire(self) -> int:
+        """Expire stale threads using the injected clock."""
+
+    @abstractmethod
+    def snapshot(self) -> tuple["OpenThread", ...]:
+        """Return an immutable bounded view of open threads."""
