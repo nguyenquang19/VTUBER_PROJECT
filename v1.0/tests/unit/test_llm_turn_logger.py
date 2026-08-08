@@ -26,6 +26,11 @@ def _make(
     canned = CannedResponder({"default": ["CANNED"]}, rng=random.Random(0))
     runner = LLMTurnRunner(
         fake, pm, fb, canned, turn_logger=tl, session_id=session_id,
+        data_contract_versions={
+            "architecture_version": "mai-agent-v1",
+            "context_schema_version": "mai-context-v1",
+            "agenda_policy_version": "mai-agenda-v1",
+        },
     )
     return runner, path
 
@@ -67,6 +72,9 @@ class TestChatReplyLogs:
         r = _read_lines(path)[0]
         assert r["schema_version"] == 2
         assert "persona_version" in r
+        assert r["architecture_version"] == "mai-agent-v1"
+        assert r["context_schema_version"] == "mai-context-v1"
+        assert r["agenda_policy_version"] == "mai-agenda-v1"
         assert r["history_len"] == 0          # chưa có history lúc gen
         assert r["was_regen"] is False
         assert r["event_category"] is None

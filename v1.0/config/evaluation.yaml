@@ -7,6 +7,11 @@ evaluation:
   require_source_refs: true
 
 data_contract:
+  contract_file: "eval/contracts/mai_agent_v1.yaml"
+  architecture_version: "mai-agent-v1"
+  persona_version: "5cacb00a34a1"
+  context_schema_version: "mai-context-v1"
+  agenda_policy_version: "mai-agenda-v1"
   turn_schema_version: 2
   sft_schema_version: 1
   dpo_schema_version: 1
@@ -22,4 +27,3 @@ fine_tune_gate:
   min_reviewed_good: 200
   max_safety_regression: 0
   max_latency_increase_percent: 10
-

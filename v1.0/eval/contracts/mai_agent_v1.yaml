@@ -1,0 +1,20 @@
+schema_version: 1
+contract_id: "mai-agent-v1"
+architecture_version: "mai-agent-v1"
+persona_version: "5cacb00a34a1"
+turn_schema_version: 2
+sft_schema_version: 1
+dpo_schema_version: 1
+context_schema_version: "mai-context-v1"
+agenda_policy_version: "mai-agenda-v1"
+required_turn_fields:
+  - session_id
+  - persona_version
+  - architecture_version
+  - context_schema_version
+  - agenda_policy_version
+split:
+  seed: 20260809
+  train_ratio: 0.8
+  validation_ratio: 0.1
+  holdout_ratio: 0.1

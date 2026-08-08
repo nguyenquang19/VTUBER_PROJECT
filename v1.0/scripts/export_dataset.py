@@ -28,6 +28,11 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from services.data.sanitize import mask_known_identifier, mask_pii_with_count  # noqa: E402
+from services.evaluation.data_quality import (  # noqa: E402
+    DatasetQualityGate,
+    load_data_contract,
+    quality_report,
+)
 
 Record = dict[str, Any]
 RecordIdentity = tuple[str, int]
@@ -138,7 +143,8 @@ def build_sft(
                     "messages": messages,
                     "meta": {"session_id": identity[0], "turn_id": identity[1],
                              "kind": t.get("kind"), "rating": rating,
-                             "corrected": identity in corrections_by_identity}})
+                             "corrected": identity in corrections_by_identity,
+                             **_contract_meta(t)}})
     return out
 
 
@@ -162,7 +168,7 @@ def build_dpo(
                     "chosen": scrub.text(p.get("chosen", "")),
                     "rejected": scrub.text(p.get("rejected", "")),
                     "source": p.get("reason", "pref"),
-                    "meta": _identity_meta(identity)})
+                    "meta": {**_identity_meta(identity), **_contract_meta(pr)}})
     for c in corrections:
         orig = (c.get("original") or "").strip()
         corr = (c.get("corrected") or "").strip()
@@ -179,7 +185,8 @@ def build_dpo(
                     ),
                     "chosen": scrub.text(corr, alias),
                     "rejected": scrub.text(orig, alias),
-                    "source": "correction", "meta": _identity_meta(identity)})
+                    "source": "correction",
+                    "meta": {**_identity_meta(identity), **_contract_meta(t)}})
     return out
 
 
@@ -187,6 +194,16 @@ def _identity_meta(identity: RecordIdentity | None) -> Record:
     if identity is None:
         return {"session_id": None, "turn_id": None}
     return {"session_id": identity[0], "turn_id": identity[1]}
+
+
+def _contract_meta(record: Record) -> Record:
+    return {
+        key: record.get(key)
+        for key in (
+            "persona_version", "architecture_version",
+            "context_schema_version", "agenda_policy_version",
+        )
+    }
 
 
 def _dpo_prompt(
@@ -222,6 +239,7 @@ def main() -> None:
     ap.add_argument("--out-dir", default="data/datasets")
     ap.add_argument("--persona", choices=["ref", "full"], default="ref")
     ap.add_argument("--persona-file", default="config/prompts/persona_system.txt")
+    ap.add_argument("--contract", default="eval/contracts/mai_agent_v1.yaml")
     ap.add_argument("--dry-run", action="store_true",
                     help="validate/scrub/count only; do not create dataset files")
     args = ap.parse_args()
@@ -254,21 +272,50 @@ def main() -> None:
         if (identity := _identity(t, "turns")) is not None
     }
 
+    gate = DatasetQualityGate(load_data_contract(args.contract))
+    eligible_turns, report = quality_report(
+        turns, gate,
+        ratings=ratings_by_identity,
+        corrections=set(corrections_by_identity),
+    )
+    eligible_identities = {
+        identity for turn in eligible_turns
+        if (identity := _identity(turn, "turns")) is not None
+    }
+    eligible_corrections = [
+        record for record in corrections
+        if _identity(record, "corrections") in eligible_identities
+    ]
+    eligible_pref_pairs = [
+        record for record in pref_pairs if gate.assess_preference(record).eligible
+    ]
+
     scrubber = DatasetScrubber()
     sft = build_sft(
-        turns, ratings_by_identity, corrections_by_identity, args.persona, persona_text,
+        eligible_turns, ratings_by_identity, corrections_by_identity, args.persona, persona_text,
         scrubber,
     )
-    dpo = build_dpo(pref_pairs, corrections, turns_by_identity, scrubber)
+    dpo = build_dpo(eligible_pref_pairs, eligible_corrections, turns_by_identity, scrubber)
+    sft_splits = gate.partition(sft)
+    dpo_splits = gate.partition(dpo)
 
     out_dir = Path(args.out_dir)
     stamp = datetime.now().strftime("%Y%m%d")
-    sft_path = out_dir / f"sft_{stamp}.jsonl"
-    dpo_path = out_dir / f"dpo_{stamp}.jsonl"
+    sft_path = out_dir / f"sft_train_{stamp}.jsonl"
+    dpo_path = out_dir / f"dpo_train_{stamp}.jsonl"
     if not args.dry_run:
         out_dir.mkdir(parents=True, exist_ok=True)
-        _write(sft_path, sft)
-        _write(dpo_path, dpo)
+        for split, records in sft_splits.items():
+            _write(out_dir / f"sft_{split}_{stamp}.jsonl", records)
+        for split, records in dpo_splits.items():
+            _write(out_dir / f"dpo_{split}_{stamp}.jsonl", records)
+        _write_json(out_dir / f"quality_report_{stamp}.json", {
+            **report,
+            "sft_split_counts": {key: len(value) for key, value in sft_splits.items()},
+            "dpo_split_counts": {key: len(value) for key, value in dpo_splits.items()},
+            "invalid_records": invalid_total,
+            "pii_masks": scrubber.masked_fields,
+        })
 
     # thống kê
     kinds = Counter(t.get("kind") for t in turns)
@@ -279,10 +326,16 @@ def main() -> None:
     print(f"corrections:      {len(corrections)}")
     print(f"invalid records:  {invalid_total}")
     print(f"PII masks:        {scrubber.masked_fields}")
+    print(f"contract:         {gate.contract.contract_id}")
+    print(f"eligible turns:   {report['eligible_turns']}")
+    print(f"quarantined:      {report['quarantined_turns']}")
+    print(f"quarantine why:   {report['quarantine_reason_counts']}")
     suffix = " (dry-run, không ghi file)" if args.dry_run else ""
     print(f"SFT xuất:         {len(sft)}  → {sft_path}{suffix}")
     print(f"DPO xuất:         {len(dpo)}  → {dpo_path}{suffix}")
     print(f"  DPO nguồn:      {dict(Counter(d['source'] for d in dpo))}")
+    print(f"SFT splits:       {dict((key, len(value)) for key, value in sft_splits.items())}")
+    print(f"DPO splits:       {dict((key, len(value)) for key, value in dpo_splits.items())}")
 
 
 def _write(path: Path, records: list[Record]) -> None:
@@ -292,6 +345,14 @@ def _write(path: Path, records: list[Record]) -> None:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
         f.flush()
         os.fsync(f.fileno())
+    temporary.replace(path)
+
+
+def _write_json(path: Path, value: Record) -> None:
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(
+        json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8",
+    )
     temporary.replace(path)
 
 

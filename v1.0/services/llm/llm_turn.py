@@ -107,6 +107,7 @@ class LLMTurnRunner:
         agent_state: Any = None,
         agent_context_renderer: Any = None,
         conversation_context_renderer: Any = None,
+        data_contract_versions: dict[str, str] | None = None,
     ) -> None:
         self._svc = svc
         self._pm = prompt_manager
@@ -125,6 +126,7 @@ class LLMTurnRunner:
         self._agent_state = agent_state
         self._agent_context_renderer = agent_context_renderer
         self._conversation_context_renderer = conversation_context_renderer
+        self._data_contract_versions = dict(data_contract_versions or {})
         self._turn_seq = 0
         self.last_turn_id = 0          # T3: turn cuối để dashboard rating gắn vào
         self._log_cause: Any = None    # T1: cause snapshot trước khi clear
@@ -208,6 +210,17 @@ class LLMTurnRunner:
             agent_state=agent_state,
             agent_context_renderer=agent_context_renderer,
             conversation_context_renderer=conversation_context_renderer,
+            data_contract_versions={
+                "architecture_version": str(loader.get(
+                    "evaluation", "data_contract.architecture_version", ""
+                )),
+                "context_schema_version": str(loader.get(
+                    "evaluation", "data_contract.context_schema_version", ""
+                )),
+                "agenda_policy_version": str(loader.get(
+                    "evaluation", "data_contract.agenda_policy_version", ""
+                )),
+            },
         )
 
     async def _primary(self, request: Any) -> ParsedResponse:
@@ -621,6 +634,7 @@ class LLMTurnRunner:
             "viewer_id": hash_viewer_id(viewer_id),   # T4: hash, KHÔNG lưu id gốc
             "session_id": session_id,
             "source": trigger_type or kind,
+            **self._data_contract_versions,
         }
         if extra:
             if extra.get("context_block"):
@@ -665,6 +679,7 @@ class LLMTurnRunner:
                 "session_id": session_id or self.session_id,
                 "prompt_ref": {
                     "persona_version": persona_v,
+                    **self._data_contract_versions,
                     "context_block": mask_known_identifier(
                         mask_pii(_context_block_of(request)), cause_alias,
                     ),
