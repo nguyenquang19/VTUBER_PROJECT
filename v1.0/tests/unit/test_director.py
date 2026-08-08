@@ -102,7 +102,7 @@ class TestReadModes:
         d = _director(pool=pool)
         dec = d.decide(now=1.0)
         assert dec.read_mode == ReadMode.SUMMARY
-        assert dec.refs == []
+        assert dec.refs == ()
 
     def test_hype_spam_vibe(self) -> None:
         pool = _pool()

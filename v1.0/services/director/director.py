@@ -20,12 +20,15 @@ MVP: state machine + bảng action + rule if/else (❌ chưa utility-scoring nhi
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
 from services.director.chat_pulse import ChatPulse, PulseState
 from services.director.salience import PooledMessage, SaliencePool
+from services.director.action_types import DirectorChatRef, DirectorInput
+from services.agent.goal_types import GoalSnapshot
+from services.agent.types import AgentStateSnapshot
 
 
 class DirectorAction(str, Enum):
@@ -53,12 +56,12 @@ class Segment:
     allowed_actions: set[str]
 
 
-@dataclass
+@dataclass(frozen=True)
 class DirectorDecision:
     action: DirectorAction
     segment: str
     reason: str
-    refs: list[PooledMessage] = field(default_factory=list)
+    refs: tuple[DirectorChatRef, ...] = ()
     read_mode: ReadMode | None = None
     next_segment: str | None = None   # khi action=TRANSITION
 
@@ -158,15 +161,23 @@ class Director:
 
     # ---------- decision ----------
 
-    def decide(self, now: float | None = None, urge_ready: bool = False) -> DirectorDecision:
-        now = self._clock() if now is None else now
-        if self._seg_started_at is None:
-            self.start(now)
+    def decide(
+        self,
+        director_input: DirectorInput | None = None,
+        *,
+        now: float | None = None,
+        urge_ready: bool = False,
+    ) -> DirectorDecision:
+        """Return one deterministic decision without mutating supplied snapshots."""
+        if director_input is None:
+            director_input = self._legacy_input(now, urge_ready)
+        now = director_input.now
         seg = self.current_segment()
         allowed = seg.allowed_actions
+        seg_started_at = now if self._seg_started_at is None else self._seg_started_at
 
         # 1. Hết giờ segment → chuyển (Mai thông báo). Segment cuối không auto-chuyển.
-        if not self.is_last_segment() and (now - self._seg_started_at) >= seg.duration_seconds:
+        if not self.is_last_segment() and (now - seg_started_at) >= seg.duration_seconds:
             if "transition" in allowed:
                 nxt = self._segments[self._seg_idx + 1]
                 return DirectorDecision(
@@ -174,9 +185,12 @@ class Director:
                     reason="segment_time_elapsed", next_segment=nxt.name,
                 )
 
-        top = self._pool.peek_top(now)
+        top = director_input.chat_candidates[0] if director_input.chat_candidates else None
         dead_air = float("inf") if self._last_speak_ts is None else now - self._last_speak_ts
-        pulse_state = self._pulse.state(now)
+        try:
+            pulse_state = PulseState(director_input.pulse_state)
+        except ValueError:
+            pulse_state = PulseState.NORMAL
         read_allowed = "read_chat" in allowed
         consec_hit = self._consecutive_read_chat >= self._max_consec
 
@@ -184,27 +198,27 @@ class Director:
         if top is not None and top.is_super and "ack_donation" in allowed:
             return DirectorDecision(
                 action=DirectorAction.ACK_DONATION, segment=seg.name,
-                reason="superchat_priority", refs=[top], read_mode=ReadMode.ACK,
+                reason="superchat_priority", refs=(top,), read_mode=ReadMode.ACK,
             )
 
         # 3. Hype-spam → react vibe (turn ngắn, không đáp lẻ 30 câu)
         if pulse_state == PulseState.HYPE_SPAM and read_allowed and top is not None and not consec_hit:
             return DirectorDecision(
                 action=DirectorAction.READ_CHAT, segment=seg.name,
-                reason="hype_spam_vibe", refs=self._pool.top_cluster(now, self._max_refs),
+                reason="hype_spam_vibe", refs=director_input.chat_candidates[:self._max_refs],
                 read_mode=ReadMode.VIBE,
             )
 
         # 4. Có tin đáng đáp + chưa đáp chat liên tiếp quá nhiều → read_chat
         if read_allowed and top is not None and not consec_hit:
-            return self._read_decision(seg, top, now)
+            return self._read_decision(seg, top, director_input)
 
         # 5. Chủ động: chat nguội / dead-air / bị ép xen / urge sẵn
         proactive_trigger = (
             pulse_state == PulseState.COLD
             or dead_air >= self._dead_air
             or consec_hit
-            or urge_ready
+            or director_input.urge_ready
         )
         if proactive_trigger:
             if "self_talk" in allowed:
@@ -227,28 +241,46 @@ class Director:
 
         # 6. Bị ép xen nhưng không self_talk được, vẫn còn tin → thà đáp còn hơn im
         if read_allowed and top is not None:
-            return self._read_decision(seg, top, now)
+            return self._read_decision(seg, top, director_input)
 
         return DirectorDecision(action=DirectorAction.WAIT, segment=seg.name, reason="idle")
 
-    def _read_decision(self, seg: Segment, top: PooledMessage, now: float) -> DirectorDecision:
+    def _read_decision(
+        self, seg: Segment, top: DirectorChatRef, director_input: DirectorInput,
+    ) -> DirectorDecision:
         """Chọn read_mode: summary (backlog cao+điểm thấp) / cluster / single."""
-        pool_size = self._pool.size()
-        top_score = self._pool.current_score(top, now)
+        pool_size = director_input.pool_size
+        top_score = top.score
         if pool_size >= self._backlog_thr and top_score < self._summary_ceiling:
             return DirectorDecision(
                 action=DirectorAction.READ_CHAT, segment=seg.name,
-                reason="backlog_summary", refs=[], read_mode=ReadMode.SUMMARY,
+                reason="backlog_summary", refs=(), read_mode=ReadMode.SUMMARY,
             )
         if top.cluster_count > 1:
             return DirectorDecision(
                 action=DirectorAction.READ_CHAT, segment=seg.name,
-                reason="cluster_merge", refs=self._pool.top_cluster(now, self._max_refs),
+                reason="cluster_merge", refs=director_input.chat_candidates[:self._max_refs],
                 read_mode=ReadMode.CLUSTER,
             )
         return DirectorDecision(
             action=DirectorAction.READ_CHAT, segment=seg.name,
-            reason="top_single", refs=[top], read_mode=ReadMode.SINGLE,
+            reason="top_single", refs=(top,), read_mode=ReadMode.SINGLE,
+        )
+
+    def _legacy_input(self, now: float | None, urge_ready: bool) -> DirectorInput:
+        current = self._clock() if now is None else now
+        refs = tuple(
+            _chat_ref(item, self._pool.current_score(item, current))
+            for item in self._pool.top_cluster(current, self._max_refs)
+        )
+        return DirectorInput(
+            now=current,
+            agent_state=AgentStateSnapshot(),
+            goals=GoalSnapshot(),
+            chat_candidates=refs,
+            pool_size=self._pool.size(),
+            pulse_state=self._pulse.state(current).value,
+            urge_ready=urge_ready,
         )
 
     # ---------- introspection ----------
@@ -260,3 +292,18 @@ class Director:
             "director_transitions": self._transitions,
             "director_consecutive_read_chat": self._consecutive_read_chat,
         }
+
+
+def _chat_ref(message: PooledMessage, score: float) -> DirectorChatRef:
+    return DirectorChatRef(
+        msg_id=message.msg_id,
+        text=message.text,
+        kind=message.kind,
+        score=score,
+        created_at=message.created_at,
+        viewer_id=message.viewer_id,
+        viewer_name=message.viewer_name,
+        amount_vnd=message.amount_vnd,
+        is_super=message.is_super,
+        cluster_count=message.cluster_count,
+    )

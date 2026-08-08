@@ -663,6 +663,7 @@ async def build_stream_runtime(
         turn_lock=turn_lock,
         tick_seconds=director_tick,
         agent_state=agent_state,
+        goal_manager=goal_manager,
     )
 
     # ─── Dashboard (optional) ───

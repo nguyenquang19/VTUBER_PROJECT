@@ -26,6 +26,9 @@ from orchestrator.logger import get_logger
 from services.autonomy.material_provider import RuntimeContext
 from services.director.chat_pulse import PulseState
 from services.director.director import Director, DirectorAction, ReadMode
+from services.director.action_types import DirectorChatRef, DirectorInput
+from services.agent.goal_types import GoalSnapshot
+from services.agent.types import AgentStateSnapshot
 from services.agent.types import (
     AgentEventKind,
     AgentEventSource,
@@ -52,6 +55,7 @@ class DirectorLoop:
         clock: Callable[[], float] | None = None,
         runtime_ctx_fn: Callable[[], RuntimeContext] | None = None,
         agent_state: Any = None,
+        goal_manager: Any = None,
     ) -> None:
         self._director = director
         self._pool = pool
@@ -66,6 +70,7 @@ class DirectorLoop:
         self._clock = clock or time.time
         self._runtime_ctx_fn = runtime_ctx_fn
         self._agent_state = agent_state
+        self._goal_manager = goal_manager
 
         self._task: asyncio.Task | None = None
         self._running = False
@@ -127,7 +132,7 @@ class DirectorLoop:
                 urge_ready = self._autonomy.urge.should_speak_now()
             except Exception:
                 pass
-        dec = self._director.decide(now, urge_ready=urge_ready)
+        dec = self._director.decide(self._build_director_input(now, urge_ready))
 
         if dec.action == DirectorAction.WAIT:
             return dec.action
@@ -140,6 +145,45 @@ class DirectorLoop:
                 self._log.warning("director_execute_failed",
                                   action=dec.action.value, error=str(e))
         return dec.action
+
+    def _build_director_input(self, now: float, urge_ready: bool) -> DirectorInput:
+        state = AgentStateSnapshot()
+        goals = GoalSnapshot()
+        try:
+            if self._agent_state is not None:
+                state = self._agent_state.snapshot()
+        except Exception:
+            pass
+        try:
+            if self._goal_manager is not None:
+                goals = self._goal_manager.snapshot()
+        except Exception:
+            pass
+        refs = tuple(
+            DirectorChatRef(
+                msg_id=item.msg_id,
+                text=item.text,
+                kind=item.kind,
+                score=self._pool.current_score(item, now),
+                created_at=item.created_at,
+                viewer_id=item.viewer_id,
+                viewer_name=item.viewer_name,
+                amount_vnd=item.amount_vnd,
+                is_super=item.is_super,
+                cluster_count=item.cluster_count,
+            )
+            for item in self._pool.top_cluster(now, self._max_refs)
+        )
+        pulse_state = getattr(self._pulse.state(now), "value", "normal")
+        return DirectorInput(
+            now=now,
+            agent_state=state,
+            goals=goals,
+            chat_candidates=refs,
+            pool_size=self._pool.size(),
+            pulse_state=pulse_state,
+            urge_ready=urge_ready,
+        )
 
     async def _maybe_push_pulse_mood(self, now: float) -> None:
         """Task7: khi pulse chuyển sang HYPE_SPAM/LIVELY (edge) → 1 EmotionEvent
