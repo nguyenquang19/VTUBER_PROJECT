@@ -638,6 +638,7 @@ async def build_stream_runtime(
         await memory.start()
         memory_extractor = MemoryExtractor()
         emotion._modifiers._memory = memory  # noqa: SLF001 rewire
+    relationship_manager.set_memory_service(memory)
 
     # ─── Runner ───
     session_id = str(uuid.uuid4())

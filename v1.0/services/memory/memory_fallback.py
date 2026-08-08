@@ -128,3 +128,15 @@ class MemoryFallbackManager(MemoryService):
             await self._fallback.forget(entry_id)
         except Exception as e:
             self._log.warning("memory_fallback_forget_failed", error=str(e))
+
+    async def export_viewer(self, viewer_id: str) -> list[MemoryEntry]:
+        primary = await self._primary.export_viewer(viewer_id)
+        fallback = await self._fallback.export_viewer(viewer_id)
+        merged = {entry.entry_id: entry for entry in (*primary, *fallback)}
+        return [merged[key] for key in sorted(merged)]
+
+    async def forget_viewer(self, viewer_id: str) -> int:
+        """Privacy deletion is strict: both tiers must succeed."""
+        primary_count = await self._primary.forget_viewer(viewer_id)
+        fallback_count = await self._fallback.forget_viewer(viewer_id)
+        return max(primary_count, fallback_count)

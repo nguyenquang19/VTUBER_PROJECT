@@ -78,3 +78,11 @@ class RelationshipService(Service):
     @abstractmethod
     def review_running_gag(self, gag_id: str, *, approve: bool, reason: str) -> bool:
         """Approve or reject one running gag with operator audit."""
+
+    @abstractmethod
+    async def export_viewer(self, viewer_id: str) -> dict:
+        """Export sanitized relationship and memory records for one pseudonym."""
+
+    @abstractmethod
+    async def delete_viewer(self, viewer_id: str, *, reason: str) -> dict | None:
+        """Delete every viewer-scoped relationship and memory record."""

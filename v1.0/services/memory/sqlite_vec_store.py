@@ -191,6 +191,17 @@ class SqliteVecStore:
             row = self._conn.execute("SELECT COUNT(*) FROM memory_entries").fetchone()
         return int(row[0]) if row else 0
 
+    def list_by_viewer(self, viewer_id: str) -> list[StoredEntry]:
+        rows = self._conn.execute(
+            """
+            SELECT entry_id, content, timestamp, tier, importance,
+                   tags_json, metadata_json, viewer_id, session_id
+              FROM memory_entries WHERE viewer_id = ? ORDER BY timestamp, entry_id
+            """,
+            (viewer_id,),
+        ).fetchall()
+        return [entry for row in rows if (entry := _row_to_entry(row)) is not None]
+
     # ---------- delete ----------
 
     def delete(self, entry_id: str) -> bool:
@@ -203,6 +214,21 @@ class SqliteVecStore:
         )
         self._conn.commit()
         return cur.rowcount > 0
+
+    def delete_by_viewer(self, viewer_id: str) -> int:
+        """Atomically delete metadata and vectors owned by one pseudonymous viewer."""
+        rows = self._conn.execute(
+            "SELECT entry_id FROM memory_entries WHERE viewer_id = ?", (viewer_id,),
+        ).fetchall()
+        try:
+            for (entry_id,) in rows:
+                self._conn.execute("DELETE FROM memory_vectors WHERE entry_id = ?", (entry_id,))
+            self._conn.execute("DELETE FROM memory_entries WHERE viewer_id = ?", (viewer_id,))
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
+        return len(rows)
 
 
 # ---------- helpers ----------

@@ -184,6 +184,21 @@ class SemanticMemoryService(MemoryService):
             self._log.error("memory_forget_failed", error=str(e), entry_id=entry_id)
             raise SemanticMemoryError(f"forget failed: {e}") from e
 
+    async def export_viewer(self, viewer_id: str) -> list[MemoryEntry]:
+        try:
+            stored = await asyncio.to_thread(self._store.list_by_viewer, viewer_id)
+            return [_stored_to_entry(item) for item in stored]
+        except Exception as e:
+            self._errors_total += 1
+            raise SemanticMemoryError(f"viewer export failed: {e}") from e
+
+    async def forget_viewer(self, viewer_id: str) -> int:
+        try:
+            return await asyncio.to_thread(self._store.delete_by_viewer, viewer_id)
+        except Exception as e:
+            self._errors_total += 1
+            raise SemanticMemoryError(f"viewer forget failed: {e}") from e
+
 
 # ---------- helpers ----------
 

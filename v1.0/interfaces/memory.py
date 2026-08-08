@@ -53,3 +53,14 @@ class MemoryService(Service):
     @abstractmethod
     async def forget(self, entry_id: str) -> None:
         """Xoá 1 entry."""
+
+    async def export_viewer(self, viewer_id: str) -> list[MemoryEntry]:
+        """Return all entries for one pseudonymous viewer for privacy export."""
+        return await self.query("", top_k=10000, viewer_id=viewer_id)
+
+    async def forget_viewer(self, viewer_id: str) -> int:
+        """Delete all entries for one pseudonymous viewer and return the count."""
+        entries = await self.export_viewer(viewer_id)
+        for entry in entries:
+            await self.forget(entry.entry_id)
+        return len(entries)

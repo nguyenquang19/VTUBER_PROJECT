@@ -92,6 +92,17 @@ class WorkingMemoryService(MemoryService):
         self._buf.clear()
         self._buf.extend(remaining)
 
+    async def export_viewer(self, viewer_id: str) -> list[MemoryEntry]:
+        return [entry for entry in self._buf if entry.metadata.get("viewer_id") == viewer_id]
+
+    async def forget_viewer(self, viewer_id: str) -> int:
+        entries = await self.export_viewer(viewer_id)
+        remove_ids = {entry.entry_id for entry in entries}
+        remaining = [entry for entry in self._buf if entry.entry_id not in remove_ids]
+        self._buf.clear()
+        self._buf.extend(remaining)
+        return len(entries)
+
     # ---------- extras ----------
 
     def snapshot(self) -> list[MemoryEntry]:

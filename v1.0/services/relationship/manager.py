@@ -94,6 +94,7 @@ class RelationshipManager(RelationshipService):
         metrics: Any = None, clock: Callable[[], datetime] | None = None,
         enabled: bool = True,
         evidence_exists: Callable[[str], bool] | None = None,
+        memory_service: Any = None,
     ) -> None:
         self._store = store
         self.limits = limits
@@ -101,6 +102,7 @@ class RelationshipManager(RelationshipService):
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._enabled = bool(enabled)
         self._evidence_exists = evidence_exists or (lambda _event_id: False)
+        self._memory_service = memory_service
         self._running = False
         self._accepted = 0
         self._duplicates = 0
@@ -111,12 +113,14 @@ class RelationshipManager(RelationshipService):
         clock: Callable[[], datetime] | None = None,
         enabled: bool = True,
         evidence_exists: Callable[[str], bool] | None = None,
+        memory_service: Any = None,
     ) -> "RelationshipManager":
         return cls(
             store or RelationshipStore(loader.get("system", "paths.db_file", "data/mai.db")),
             RelationshipLimits.from_loader(loader), metrics=metrics, clock=clock,
             enabled=enabled,
             evidence_exists=evidence_exists,
+            memory_service=memory_service,
         )
 
     async def start(self) -> None:
@@ -336,6 +340,42 @@ class RelationshipManager(RelationshipService):
             self._audit("running_gag_review", gag.viewer_id, gag_id, reason)
             self._record("reviewed", f"running_gag_{status.value}")
         return ok
+
+    def set_memory_service(self, memory_service: Any = None) -> None:
+        self._memory_service = memory_service
+
+    async def export_viewer(self, viewer_id: str) -> dict:
+        if not viewer_id.startswith("v_"):
+            raise ValueError("privacy export requires pseudonymous viewer id")
+        data = self._store.export_viewer(viewer_id)
+        memory_records: list[dict[str, Any]] = []
+        if self._memory_service is not None:
+            entries = await self._memory_service.export_viewer(viewer_id)
+            for entry in entries:
+                memory_records.append({
+                    "entry_id": entry.entry_id,
+                    "content": mask_pii(entry.content) or "",
+                    "timestamp": entry.timestamp.isoformat(),
+                    "tier": entry.tier.value,
+                    "tags": list(entry.tags),
+                    "importance": entry.importance,
+                })
+        data["memory"] = memory_records
+        self._record("exported", "viewer_privacy")
+        return data
+
+    async def delete_viewer(self, viewer_id: str, *, reason: str) -> dict | None:
+        if not viewer_id.startswith("v_") or not reason.strip():
+            return None
+        memory_deleted = 0
+        if self._memory_service is not None:
+            # Strict order: if memory deletion fails, retain relationship data and surface failure.
+            memory_deleted = await self._memory_service.forget_viewer(viewer_id)
+        counts = self._store.delete_viewer(
+            viewer_id, reason=self._clean(reason), created_at=_utc(self._clock()),
+        )
+        self._record("deleted", "viewer_privacy")
+        return {"viewer_id": viewer_id, "memory": memory_deleted, "relationships": counts}
 
     def render_context(self, raw_viewer_id: str | None = None) -> str:
         if not self._enabled:

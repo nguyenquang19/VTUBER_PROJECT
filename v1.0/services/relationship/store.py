@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -194,6 +195,55 @@ class RelationshipStore:
             (audit_id, action, viewer_id, target_id, reason, created_at.isoformat()),
         )
         self._conn.commit()
+
+    def export_viewer(self, viewer_id: str) -> dict:
+        profile = self.get_profile(viewer_id)
+        narratives = tuple(
+            item for item in self.list_narratives() if item.viewer_id == viewer_id
+        )
+        audits = self._conn.execute(
+            "SELECT action, reason, created_at FROM relationship_audit "
+            "WHERE viewer_id = ? ORDER BY created_at", (viewer_id,),
+        ).fetchall()
+        positive_count = self._conn.execute(
+            "SELECT COUNT(*) FROM relationship_positive_events WHERE viewer_id = ?",
+            (viewer_id,),
+        ).fetchone()[0]
+        return {
+            "profile": profile.to_dict() if profile else None,
+            "notes": [item.to_dict() for item in self.list_notes(viewer_id)],
+            "narratives": [item.to_dict() for item in narratives],
+            "running_gags": [item.to_dict() for item in self.list_running_gags(viewer_id)],
+            "positive_interaction_count": int(positive_count),
+            "audit": [
+                {"action": str(row[0]), "reason": str(row[1]), "created_at": str(row[2])}
+                for row in audits
+            ],
+        }
+
+    def delete_viewer(self, viewer_id: str, *, reason: str, created_at: datetime) -> dict[str, int]:
+        tables = (
+            "relationship_notes", "narrative_items", "running_gags",
+            "relationship_positive_events", "relationship_seen_events",
+            "relationship_audit", "viewer_profiles",
+        )
+        counts: dict[str, int] = {}
+        try:
+            for table in tables:
+                cursor = self._conn.execute(
+                    f"DELETE FROM {table} WHERE viewer_id = ?", (viewer_id,),  # noqa: S608
+                )
+                counts[table] = max(0, cursor.rowcount)
+            self._conn.execute(
+                "INSERT INTO relationship_audit(audit_id, action, viewer_id, target_id, reason, created_at) "
+                "VALUES (?, 'viewer_delete', NULL, NULL, ?, ?)",
+                (f"audit:{uuid.uuid4().hex}", reason, created_at.isoformat()),
+            )
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
+        return counts
 
     def prune_seen_events(self, before: datetime) -> int:
         cursor = self._conn.execute(

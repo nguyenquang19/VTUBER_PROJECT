@@ -421,6 +421,32 @@ class DashboardServer:
             )
             return JSONResponse({"ok": ok}, status_code=200 if ok else 400)
 
+        @app.get("/api/relationships/{viewer_id}/export")
+        async def api_relationship_export(viewer_id: str) -> JSONResponse:
+            if self.relationship_manager is None:
+                return JSONResponse({"ok": False, "reason": "no relationship manager"}, status_code=503)
+            try:
+                exported = await self.relationship_manager.export_viewer(viewer_id)
+            except (ValueError, RuntimeError) as exc:
+                return JSONResponse({"ok": False, "reason": str(exc)}, status_code=400)
+            return JSONResponse({"ok": True, "viewer_id": viewer_id, "export": exported})
+
+        @app.delete("/api/relationships/{viewer_id}")
+        async def api_relationship_delete(viewer_id: str, request: Request) -> JSONResponse:
+            if self.relationship_manager is None:
+                return JSONResponse({"ok": False, "reason": "no relationship manager"}, status_code=503)
+            body = await _json(request)
+            try:
+                result = await self.relationship_manager.delete_viewer(
+                    viewer_id, reason=str(body.get("reason") or "").strip(),
+                )
+            except Exception as exc:
+                return JSONResponse({"ok": False, "reason": str(exc)}, status_code=500)
+            return JSONResponse(
+                {"ok": result is not None, "result": result},
+                status_code=200 if result else 400,
+            )
+
         @app.get("/metrics", response_class=PlainTextResponse)
         async def metrics_endpoint() -> bytes:
             if self.metrics is None:

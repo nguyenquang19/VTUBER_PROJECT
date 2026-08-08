@@ -1,0 +1,13 @@
+{
+  "schema": "mai.m7.relationship_fixture.v1",
+  "description": "Synthetic sanitized interactions; no platform ID, display name, or raw transcript.",
+  "events": [
+    {"event_id": "fixture-chat-1", "summary": "viewer praised Mai's cat story", "category": "chat_compliment"},
+    {"event_id": "fixture-chat-2", "summary": "viewer repeated the cat greeting", "category": "chat_compliment"},
+    {"event_id": "fixture-chat-3", "summary": "viewer positively repeated the cat greeting", "category": "chat_compliment"}
+  ],
+  "confirmed_preference": "cat stories",
+  "approved_note": "enjoys short cat stories",
+  "narrative": "Mai promised another short cat story",
+  "running_gag": "the cat greeting"
+}

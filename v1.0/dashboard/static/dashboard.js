@@ -447,6 +447,8 @@ function renderRelationships(data) {
       `<button class="rel-profile">Edit confirmed profile</button>` +
       `<button class="rel-note">Add grounded note</button>` +
       `<button class="rel-gag">Propose running gag</button>` +
+      `<button class="rel-export">Export</button>` +
+      `<button class="rel-delete danger">Delete viewer data</button>` +
       `<div class="relationship-notes"></div>`;
     card.querySelector(".rel-profile").addEventListener("click", async () => {
       const evidence = prompt("Grounded event ID:", "") || "";
@@ -473,6 +475,15 @@ function renderRelationships(data) {
       if (!summary || !refs.length) return;
       await postJson(`/api/relationships/${encodeURIComponent(profile.viewer_id)}/running-gags`, {
         summary, event_refs: refs, reason: "dashboard operator proposal",
+      });
+    });
+    card.querySelector(".rel-export").addEventListener("click", () => {
+      window.open(`/api/relationships/${encodeURIComponent(profile.viewer_id)}/export`, "_blank");
+    });
+    card.querySelector(".rel-delete").addEventListener("click", async () => {
+      if (!confirm(`Delete all local records for ${profile.viewer_id}?`)) return;
+      await deleteJson(`/api/relationships/${encodeURIComponent(profile.viewer_id)}`, {
+        reason: "dashboard operator privacy deletion",
       });
     });
     const noteList = card.querySelector(".relationship-notes");

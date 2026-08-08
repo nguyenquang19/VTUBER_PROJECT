@@ -86,3 +86,17 @@ def test_dashboard_running_gag_requires_positive_pattern_and_review() -> None:
         "approve": True, "reason": "operator approved",
     })
     assert reviewed.json()["ok"] is True
+
+
+def test_dashboard_privacy_export_and_delete() -> None:
+    manager, viewer_id = _manager()
+    client = TestClient(DashboardServer(relationship_manager=manager).app)
+    exported = client.get(f"/api/relationships/{viewer_id}/export")
+    assert exported.status_code == 200
+    assert exported.json()["export"]["profile"]["viewer_id"] == viewer_id
+    deleted = client.request(
+        "DELETE", f"/api/relationships/{viewer_id}",
+        json={"reason": "viewer privacy request"},
+    )
+    assert deleted.status_code == 200 and deleted.json()["ok"] is True
+    assert manager.get_profile(viewer_id) is None
