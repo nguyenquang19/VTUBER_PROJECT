@@ -171,7 +171,10 @@ class ConversationRepairPolicy(ConversationRepairService):
 def _matching_events(
     events: tuple[GroundedEvent, ...], query: str,
 ) -> tuple[GroundedEvent, ...]:
-    stop = {"nãy", "cậu", "bảo", "nói", "lúc", "vừa", "gì", "rằng"}
+    stop = {
+        "nãy", "cậu", "bảo", "nói", "lúc", "vừa", "gì", "rằng",
+        "đúng", "không", "đang", "phải", "nhỉ", "à",
+    }
     terms = {
         item.casefold() for item in re.findall(r"\w+", query)
         if len(item) > 1 and item.casefold() not in stop

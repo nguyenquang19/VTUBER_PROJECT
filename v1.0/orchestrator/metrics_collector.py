@@ -167,6 +167,13 @@ class MetricsCollector:
             registry=self.registry,
         )
         self._repair_counts: dict[str, int] = {}
+        self.grounded_recall_rate_g = Gauge(
+            "mai_grounded_recall_rate",
+            "Share of continuity recall checks backed by the expected grounded evidence",
+            registry=self.registry,
+        )
+        self._grounded_recall_matched = 0
+        self._grounded_recall_total = 0
 
         # --- 3 "metric giả" cho Phase 0 (chưa có service thật) ---
         # DoD: "Metric giả cập nhật realtime trên chart"
@@ -217,6 +224,28 @@ class MetricsCollector:
         key = str(kind)
         self._repair_counts[key] = self._repair_counts.get(key, 0) + 1
         self.conversation_repairs_total_c.labels(kind=key).inc()
+
+    def set_grounded_recall_rate(self, matched: int, total: int) -> None:
+        matched_value = max(0, int(matched))
+        total_value = max(0, int(total))
+        if matched_value > total_value:
+            raise ValueError("grounded recall matches cannot exceed total checks")
+        self._grounded_recall_matched = matched_value
+        self._grounded_recall_total = total_value
+        rate = matched_value / total_value if total_value else 0.0
+        self.grounded_recall_rate_g.set(rate)
+
+    def continuity_snapshot(self) -> dict[str, Any]:
+        total = self._grounded_recall_total
+        return {
+            "context_chars_last": self._context_chars_last,
+            "repairs": dict(sorted(self._repair_counts.items())),
+            "grounded_recall_matched": self._grounded_recall_matched,
+            "grounded_recall_total": total,
+            "grounded_recall_rate": (
+                self._grounded_recall_matched / total if total else 0.0
+            ),
+        }
 
     def director_action_snapshot(self) -> dict[str, int]:
         return {
