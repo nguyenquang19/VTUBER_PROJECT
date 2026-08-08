@@ -35,30 +35,47 @@ Python với admin (cần cho `keyboard` lib global hook):
 
 ### 1.3. Python venv + deps
 
+Xác minh launcher trước. Project yêu cầu Python 3.11 trở lên; stack GPU hiện được
+xác minh trên Python 3.11.9:
+
 ```powershell
 cd E:\BAI_CUA_DUC\AI_VTUBER\v1.0
+python --version
 python -m venv venv
 venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+python -m pip install --upgrade pip
+python -m pip install -r requirements.lock.txt
 ```
 
-Nếu setup từ đầu (không có venv trước):
+`requirements.lock.txt` là đường cài mặc định và đã chứa đúng index cho Torch cu128
+và VieNeu trên Windows. `requirements.txt` chỉ chứa dependency trực tiếp để chủ động
+nâng version; không dùng file này cho fresh clone production nếu chưa resolve/test lại lock.
+
+Nếu `venv\Scripts\python.exe` báo đường Python cũ không tồn tại, cài lại Python 3.11+
+rồi tạo venv sạch. Không sao chép `venv` từ máy khác.
+
+Chỉ khi chủ động resolve lockfile mới:
+
 ```powershell
-# torch cu128 Blackwell:
-pip install torch==2.11.0+cu128 torchaudio==2.11.0+cu128 `
-  --extra-index-url https://download.pytorch.org/whl/cu128
-
-# VieNeu-TTS (kéo transformers 5.x + gradio 6 + sea-g2p):
-pip install vieneu `
+python -m pip install -r requirements.txt `
+  --extra-index-url https://download.pytorch.org/whl/cu128 `
   --extra-index-url https://pnnbao97.github.io/llama-cpp-python-v0.3.16/cpu/
-
-# Rest:
-pip install -r requirements.txt
+python -m pip check
+python -m pip freeze
 ```
 
 ### 1.4. Verify
 
 ```powershell
+# Preflight offline: kiểm tra OS, Python, config, file model, CUDA và dependency.
+.\scripts\check_environment.ps1 -SkipLlamaHealth
+
+# Preflight trước khi live: yêu cầu llama-server /health trả status=ok.
+.\scripts\check_environment.ps1
+
+# Output machine-readable cho automation/CI local:
+.\scripts\check_environment.ps1 -SkipLlamaHealth -OutputFormat Json
+
 # CUDA + Blackwell:
 python -c "import torch; print(torch.cuda.get_arch_list())"
 # → phải có 'sm_120'
@@ -68,9 +85,8 @@ nvidia-smi
 # → VRAM idle <500MB
 
 # Test suite:
-python -m pytest tests/ --deselect tests/integration/test_llama_server_live.py `
-                        --deselect tests/integration/test_llm_live.py
-# → ≥927 pass (đã thêm test director/salience/chat_pulse/director_loop sau C0)
+python -m pytest tests -m "not llm" --tb=short -q
+# Exit code 0; không dùng số test hardcode vì suite tăng theo milestone.
 ```
 
 ---
@@ -336,12 +352,11 @@ Nếu không admin, hotkey không active (degrade). Fallback: Ctrl+C terminal �
 cd E:\BAI_CUA_DUC\AI_VTUBER\v1.0
 venv\Scripts\Activate.ps1
 python -m pytest tests/ --tb=short -q `
-  --deselect tests/integration/test_llama_server_live.py `
-  --deselect tests/integration/test_llm_live.py
-# → ≥927 pass (kèm test C0 director/salience/pulse)
+  -m "not llm"
+# → exit code 0
 ```
 
-`--deselect` bỏ 2 file live test (cần llama-server chạy). Chạy live test riêng:
+Marker `not llm` bỏ các test cần llama-server thật. Chạy live test riêng:
 ```powershell
 # Với llama-server đang chạy:
 python -m pytest tests/integration/test_llama_server_live.py -v

@@ -166,9 +166,19 @@ class TestEventStream:
 
 
 class TestFromLoader:
-    def test_reads_config(self) -> None:
+    def test_reads_config(self, tmp_path: Path) -> None:
         from orchestrator.config_loader import ConfigLoader
-        loader = ConfigLoader(REPO_ROOT / "config")
+
+        (tmp_path / "chat_sources.yaml").write_text(
+            """discord:
+  enabled: false
+  token_env_var: DISCORD_BOT_TOKEN
+  channel_ids: []
+  queue_maxsize: 500
+""",
+            encoding="utf-8",
+        )
+        loader = ConfigLoader(tmp_path, required=())
         loader.load_all()
         svc = DiscordChatService.from_loader(loader, client=FakeClient())
         assert svc.token_env_var == "DISCORD_BOT_TOKEN"

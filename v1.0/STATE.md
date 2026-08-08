@@ -4,6 +4,27 @@
 > 04 extending). File STATE này chỉ là ledger "đang ở đâu". Spec cũ (ARCHITECTURE/PROCESS/
 > EMOTION_SIMULATION…) đã xoá 2026-08-06, nội dung gộp vào dev_manual.
 
+## Master Plan M0.1 — Khôi phục môi trường phát triển (2026-08-08) — XONG
+
+- Khôi phục Python 3.11.9 bị mất; thay `venv` cũ bằng venv sạch cài từ dependency
+  trực tiếp. Bản cũ được giữ tại `backups/venv-pre-m0.1-20260808` để rollback.
+- `requirements.lock.txt`: lock Windows/Python 3.11 đã xác minh, Torch
+  `2.11.0+cu128`, VieNeu `3.2.4`; khai báo index CUDA/VieNeu rõ ràng.
+- `requirements.txt`: bỏ `sqlite-vec` trùng, khai báo Torch/Torchaudio cu128 trực tiếp.
+- `scripts/check_environment.ps1`: preflight Windows 11, Python 3.11+, YAML config,
+  llama-server binary, GGUF, TTS reference audio, CUDA/NVIDIA, llama health và
+  `pip check`; hỗ trợ text/JSON và exit code cho automation.
+- `tests/integration/test_check_environment_script.py`: 5 case gồm happy path,
+  thiếu Python/binary/model và config sai.
+- Cô lập `test_discord_chat.TestFromLoader` khỏi config Discord operator để regression
+  không đổi theo máy/live channel.
+- Docs operations dùng lockfile, preflight và marker `not llm`; bỏ số test hardcode.
+- Verify thật: preflight offline `9 passed, 0 failed, 1 skipped` (skip health khi
+  llama-server chưa chạy); Torch CUDA available, có architecture `sm_120`.
+- Tests: M0.1 `5 passed`; regression `1095 passed, 3 deselected, 1 warning`.
+  Warning còn lại là Starlette deprecate `httpx` TestClient, chưa ảnh hưởng runtime.
+- **Kế tiếp:** dừng chờ user review; chưa bắt đầu M0.2.
+
 ## Phase 8 — Data pipeline fine-tune (2026-08-07) — XONG, data collection LIVE
 Thu data train NGAY (không log = mất vĩnh viễn). 1089 test xanh.
 - T1 turns.jsonl làm giàu (schema_version 2, context_block, mood_state, cause,

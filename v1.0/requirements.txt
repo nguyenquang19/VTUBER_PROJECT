@@ -1,5 +1,9 @@
 # Mai - AI VTuber requirements (per ARCHITECTURE 13.1)
 # Python 3.11+ / Windows 11 target
+# Reproducible install: use requirements.lock.txt. This file lists direct dependencies.
+# Windows/CUDA indexes used to produce the lock:
+#   https://download.pytorch.org/whl/cu128
+#   https://pnnbao97.github.io/llama-cpp-python-v0.3.16/cpu/
 
 # Web / API
 fastapi>=0.110
@@ -33,6 +37,8 @@ faster-whisper>=1.0
 # vieneu keo theo torch (cu128 cho Blackwell), transformers 5.x, gradio 6, sea-g2p.
 # Windows install can extra-index-url cho llama-cpp-python wheel prebuilt:
 #   pip install vieneu --extra-index-url https://pnnbao97.github.io/llama-cpp-python-v0.3.16/cpu/
+torch==2.11.0+cu128
+torchaudio==2.11.0+cu128
 vieneu>=3.2
 transformers>=5.14
 soundfile>=0.12
@@ -47,9 +53,6 @@ sentence-transformers>=2.7
 numpy>=1.26
 sounddevice>=0.4
 pyaudio>=0.2
-
-# Vector store (Phase 7)
-sqlite-vec>=0.1
 
 # Platform chat scrapers (Platform.A/B — stream mode)
 pytchat>=0.5.5                   # YouTube Live chat scraper (no OAuth)
