@@ -88,3 +88,13 @@ class EmergencyControlService(Service):
     @abstractmethod
     def snapshot(self) -> dict[str, Any]:
         """Return the latched state and counters."""
+
+
+class SoakMonitorService(Service):
+    @abstractmethod
+    async def run(self, duration_s: float | None = None) -> dict[str, Any]:
+        """Run one controlled soak and return its gate report."""
+
+    @abstractmethod
+    def snapshot(self) -> dict[str, Any]:
+        """Return bounded live soak progress and measurements."""

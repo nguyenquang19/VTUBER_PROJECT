@@ -27,7 +27,7 @@ from interfaces.llm import LLMRequest, LLMService, LLMToken
 from interfaces.memory import MemoryEntry, MemoryService, MemoryTier
 from interfaces.operations import (
     EmergencyControlService, HealthSupervisorService, OperationsSnapshotService,
-    OperatorControlService,
+    OperatorControlService, SoakMonitorService,
     ShutdownCoordinatorService,
 )
 from interfaces.stt import NullSTTService, STTService, TranscriptChunk
@@ -118,6 +118,8 @@ class TestServiceContract:
             (EmergencyControlService, "permits_speech"),
             (EmergencyControlService, "permits_environment_action"),
             (EmergencyControlService, "snapshot"),
+            (SoakMonitorService, "run"),
+            (SoakMonitorService, "snapshot"),
         ],
     )
     def test_interface_declares_spec_method(self, iface, method) -> None:
@@ -141,6 +143,7 @@ class TestServiceContract:
             OperatorControlService,
             OperationsSnapshotService,
             EmergencyControlService,
+            SoakMonitorService,
         ],
     )
     def test_all_interfaces_inherit_service_base(self, iface) -> None:

@@ -28,7 +28,12 @@ emergency_stop:
 soak:
   duration_s: 7200
   sample_interval_s: 5.0
+  input_rate_hz: 20.0
+  queue_capacity: 256
+  progress_timeout_s: 30.0
+  latency_sample_max: 20000
   max_memory_growth_mb: 128.0
   max_queue_growth: 20
   max_error_rate: 0.01
   latency_p95_budget_ms: 1500.0
+  report_file: "docs/baselines/m9_live_operations.json"
