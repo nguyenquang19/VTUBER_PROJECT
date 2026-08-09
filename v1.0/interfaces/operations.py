@@ -98,3 +98,20 @@ class SoakMonitorService(Service):
     @abstractmethod
     def snapshot(self) -> dict[str, Any]:
         """Return bounded live soak progress and measurements."""
+
+
+class IncidentLogService(Service):
+    @abstractmethod
+    def record_incident(
+        self, *, severity: str, component: str, summary: str,
+        action: str, status: str = "open", evidence_refs: list[str] | None = None,
+    ) -> str:
+        """Append one sanitized, versioned incident and return its identifier."""
+
+    @abstractmethod
+    def resolve(self, incident_id: str, resolution: str) -> bool:
+        """Append a resolution event for an existing incident."""
+
+    @abstractmethod
+    def snapshot(self) -> dict[str, Any]:
+        """Return bounded recent incidents and unresolved counts."""

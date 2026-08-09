@@ -249,6 +249,11 @@ class MetricsCollector:
             registry=self.registry,
         )
         self._emergency_controls: dict[tuple[str, str], int] = {}
+        self.incidents_total_c = Counter(
+            "mai_incidents_total", "Versioned live incident events",
+            ["severity", "status"], registry=self.registry,
+        )
+        self._incidents: dict[tuple[str, str], int] = {}
 
         # --- 3 "metric giả" cho Phase 0 (chưa có service thật) ---
         # DoD: "Metric giả cập nhật realtime trên chart"
@@ -435,6 +440,17 @@ class MetricsCollector:
         return {
             f"{action}:{outcome}": count
             for (action, outcome), count in sorted(self._emergency_controls.items())
+        }
+
+    def record_incident(self, severity: str, status: str) -> None:
+        key = (str(severity), str(status))
+        self._incidents[key] = self._incidents.get(key, 0) + 1
+        self.incidents_total_c.labels(severity=key[0], status=key[1]).inc()
+
+    def incident_snapshot(self) -> dict[str, int]:
+        return {
+            f"{severity}:{status}": count
+            for (severity, status), count in sorted(self._incidents.items())
         }
 
     def director_action_snapshot(self) -> dict[str, int]:

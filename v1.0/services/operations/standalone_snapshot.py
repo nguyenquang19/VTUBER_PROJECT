@@ -18,10 +18,12 @@ class StandaloneSnapshotProvider(OperationsSnapshotService):
         *,
         snapshot_path: str | Path,
         audit_path: str | Path,
+        incident_path: str | Path | None = None,
         audit_limit: int = 50,
     ) -> None:
         self.snapshot_path = Path(snapshot_path)
         self.audit_path = Path(audit_path)
+        self.incident_path = Path(incident_path) if incident_path is not None else None
         self.audit_limit = max(1, int(audit_limit))
         self._running = False
 
@@ -35,6 +37,9 @@ class StandaloneSnapshotProvider(OperationsSnapshotService):
             audit_path=loader.get(
                 "operations", "dashboard_standalone.operator_audit_file",
                 "logs/operations/operator_audit.jsonl",
+            ),
+            incident_path=loader.get(
+                "operations", "incident_log.file", "logs/operations/incidents.jsonl",
             ),
         )
 
@@ -75,6 +80,21 @@ class StandaloneSnapshotProvider(OperationsSnapshotService):
             "audit": audit,
         })
         value["operations"] = operations
+        incident_events = (
+            _tail_jsonl(self.incident_path, self.audit_limit)
+            if self.incident_path is not None else []
+        )
+        latest = {
+            str(item.get("incident_id")): item
+            for item in incident_events if item.get("incident_id")
+        }
+        value["incidents"] = {
+            "schema_version": 1,
+            "unresolved": sum(
+                1 for item in latest.values() if item.get("status") != "resolved"
+            ),
+            "recent": incident_events,
+        }
         value["runtime"] = {
             **dict(value.get("runtime") or {}),
             "online": False,

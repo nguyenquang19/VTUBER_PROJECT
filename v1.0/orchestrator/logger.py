@@ -248,8 +248,8 @@ def _sanitize_json_record(record: dict[str, Any]) -> dict[str, Any]:
     """Scrub free-form strings before any local JSONL write."""
     from services.data.sanitize import hash_viewer_id, mask_pii
 
-    protected = {"event", "kind", "request_id", "schema_version", "session_id",
-                 "source", "timestamp", "turn_id", "ts"}
+    protected = {"event", "incident_id", "kind", "request_id", "schema_version",
+                 "session_id", "source", "timestamp", "turn_id", "ts"}
 
     def sanitize(value: Any, key: str | None = None) -> Any:
         if key == "viewer_id" and isinstance(value, str):

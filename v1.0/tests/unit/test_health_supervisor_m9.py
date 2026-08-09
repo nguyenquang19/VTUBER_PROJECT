@@ -150,6 +150,24 @@ async def test_service_lifecycle_is_idempotent() -> None:
     assert not (await supervisor.health_check()).is_ok
 
 
+async def test_operator_alert_is_forwarded_to_incident_sink() -> None:
+    incidents: list[tuple[str, str, str]] = []
+
+    async def unhealthy() -> HealthStatus:
+        return HealthStatus.unhealthy("input", "connection lost")
+
+    supervisor = HealthSupervisor(
+        _policy(recovery_mode="alert_only", unhealthy_threshold=1),
+        incident_sink=lambda component, action, summary: incidents.append(
+            (component, action, summary)
+        ),
+    )
+    supervisor.register_target("input", unhealthy)
+    await supervisor.check_once()
+
+    assert incidents == [("input", "operator_alert", "connection lost")]
+
+
 def test_real_config_selects_bounded_auto_restart() -> None:
     from pathlib import Path
     root = Path(__file__).resolve().parents[2]

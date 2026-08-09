@@ -40,5 +40,6 @@ def test_agent_tab_contains_runtime_thread_queue_and_audit_panels() -> None:
     for element_id in (
         "agent-runtime", "btn-agent-pause", "btn-agent-resume", "agent-threads",
         "agent-environment", "agent-action-queue", "agent-audit",
+        "agent-incidents", "agent-incident-count",
     ):
         assert f'id="{element_id}"' in html

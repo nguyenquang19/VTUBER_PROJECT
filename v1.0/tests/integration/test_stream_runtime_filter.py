@@ -100,6 +100,7 @@ def _loader(tmp_path: Path, *, filter_enabled: bool) -> ConfigLoader:
     operations["dashboard_standalone"]["operator_audit_file"] = str(
         tmp_path / "operator_audit.jsonl"
     )
+    operations["incident_log"]["file"] = str(tmp_path / "incidents.jsonl")
     operations_path.write_text(
         yaml.safe_dump(operations, allow_unicode=True, sort_keys=False),
         encoding="utf-8",

@@ -6,7 +6,7 @@ import contextlib
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 from interfaces.base import HealthState, HealthStatus
 from interfaces.operations import HealthCheck, HealthSupervisorService, RecoveryAction
@@ -75,10 +75,12 @@ class HealthSupervisor(HealthSupervisorService):
         *,
         metrics: Any = None,
         clock: Any = time.monotonic,
+        incident_sink: Callable[[str, str, str], None] | None = None,
     ) -> None:
         self.policy = policy
         self._metrics = metrics
         self._clock = clock
+        self._incident_sink = incident_sink
         self._targets: dict[str, _Target] = {}
         self._task: asyncio.Task[None] | None = None
         self._stop_event: asyncio.Event | None = None
@@ -88,8 +90,14 @@ class HealthSupervisor(HealthSupervisorService):
         self._log = get_logger("health_supervisor")
 
     @classmethod
-    def from_loader(cls, loader: Any, *, metrics: Any = None) -> "HealthSupervisor":
-        return cls(SupervisorPolicy.from_loader(loader), metrics=metrics)
+    def from_loader(
+        cls, loader: Any, *, metrics: Any = None,
+        incident_sink: Callable[[str, str, str], None] | None = None,
+    ) -> "HealthSupervisor":
+        return cls(
+            SupervisorPolicy.from_loader(loader), metrics=metrics,
+            incident_sink=incident_sink,
+        )
 
     def register_target(
         self,
@@ -208,6 +216,7 @@ class HealthSupervisor(HealthSupervisorService):
         if self.policy.recovery_mode == "alert_only" or target.restart is None:
             target.last_action = "operator_alert"
             self._record(target.service_id, "operator_alert")
+            self._incident(target, "operator_alert", status.message)
             return
         now = float(self._clock())
         self._prune_attempts(target, now)
@@ -218,6 +227,7 @@ class HealthSupervisor(HealthSupervisorService):
             target.circuit_open = True
             target.last_action = "circuit_open"
             self._record(target.service_id, "circuit_open")
+            self._incident(target, "circuit_open", status.message)
             return
         if now < target.next_retry_at:
             target.last_action = "backoff"
@@ -238,6 +248,7 @@ class HealthSupervisor(HealthSupervisorService):
             target.restart_failures_total += 1
             target.last_action = "restart_failed"
             self._record(target.service_id, "restart_failed")
+            self._incident(target, "restart_failed", type(exc).__name__)
             self._log.warning(
                 "service_restart_failed", service_id=target.service_id, error=str(exc),
             )
@@ -289,3 +300,8 @@ class HealthSupervisor(HealthSupervisorService):
     def _record(self, service_id: str, action: str) -> None:
         if self._metrics is not None and hasattr(self._metrics, "record_health_supervisor_action"):
             self._metrics.record_health_supervisor_action(service_id, action)
+
+    def _incident(self, target: _Target, action: str, summary: str) -> None:
+        if self._incident_sink is not None:
+            with contextlib.suppress(Exception):
+                self._incident_sink(target.service_id, action, summary)

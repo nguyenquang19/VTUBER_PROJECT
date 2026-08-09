@@ -99,6 +99,7 @@ class StreamRuntime:
         shutdown_coordinator: Any = None,
         control_plane: Any = None,
         emergency_controller: Any = None,
+        incident_log: Any = None,
         cfg: StreamRuntimeConfig | None = None,
     ) -> None:
         self._loader = loader
@@ -133,6 +134,7 @@ class StreamRuntime:
         self._shutdown_coordinator = shutdown_coordinator
         self._control_plane = control_plane
         self._emergency_controller = emergency_controller
+        self._incident_log = incident_log
         self.cfg = cfg or StreamRuntimeConfig()
 
         self._running = False
@@ -167,6 +169,8 @@ class StreamRuntime:
             await self._control_plane.start()
         if self._emergency_controller is not None:
             await self._emergency_controller.start()
+        if self._incident_log is not None:
+            await self._incident_log.start()
         await self._router.start()
         self._running = True
         # C0.4: DirectorLoop cầm nhịp (thay autonomy loop cũ). Fallback: autonomy loop
@@ -241,7 +245,7 @@ class StreamRuntime:
         for service in (
             self._goal_proposal, self._thread_extractor, self._conversation_context,
             self._repair_policy, self._behavior_library, self._relationship_manager,
-            self._control_plane, self._emergency_controller,
+            self._control_plane, self._emergency_controller, self._incident_log,
         ):
             if service is not None:
                 with contextlib.suppress(Exception):
@@ -315,6 +319,7 @@ class StreamRuntime:
                 self._emergency_controller.snapshot()
                 if self._emergency_controller is not None else None
             ),
+            "incidents": self._incident_log.snapshot() if self._incident_log is not None else None,
             "metrics": self.get_metrics(),
         }
 
@@ -452,6 +457,9 @@ class StreamRuntime:
         if self._emergency_controller is not None:
             with contextlib.suppress(Exception):
                 m.update(self._emergency_controller.get_metrics())
+        if self._incident_log is not None:
+            with contextlib.suppress(Exception):
+                m.update(self._incident_log.get_metrics())
         return m
 
     @property
@@ -1137,6 +1145,11 @@ async def build_stream_runtime(
             metrics=metrics,
         )
 
+    incident_log = None
+    if operations_enabled:
+        from services.operations.incident_log import IncidentLog
+        incident_log = IncidentLog.from_loader(loader, metrics=metrics)
+
     # ─── Dashboard (optional) ───
     dashboard_task = None
     dashboard_ref: dict[str, Any] | None = None
@@ -1151,6 +1164,7 @@ async def build_stream_runtime(
             goal_manager=goal_manager,
             relationship_manager=relationship_manager,
             control_plane=control_plane,
+            incident_log=incident_log,
             data_dir=loader.get("logging", "jsonl.dir", "logs"),
             host=loader.get("system", "dashboard.host", "127.0.0.1"),
             port=int(loader.get("system", "dashboard.port", 7860)),
@@ -1167,7 +1181,16 @@ async def build_stream_runtime(
     )):
         from services.operations.health_supervisor import HealthSupervisor
 
-        health_supervisor = HealthSupervisor.from_loader(loader, metrics=metrics)
+        def _record_recovery_incident(component: str, action: str, summary: str) -> None:
+            assert incident_log is not None
+            incident_log.record_incident(
+                severity="critical" if action in {"circuit_open", "restart_failed"} else "warning",
+                component=component, summary=summary, action=action,
+            )
+
+        health_supervisor = HealthSupervisor.from_loader(
+            loader, metrics=metrics, incident_sink=_record_recovery_incident,
+        )
 
         async def _restart_llm() -> None:
             async with turn_lock:
@@ -1283,6 +1306,7 @@ async def build_stream_runtime(
         dashboard_ref=dashboard_ref,
         control_plane=control_plane,
         emergency_controller=emergency_controller,
+        incident_log=incident_log,
     )
     if operations_enabled:
         from orchestrator.logger import flush_logging

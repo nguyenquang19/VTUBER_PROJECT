@@ -417,7 +417,7 @@ function renderGoals(goals) {
   });
 }
 
-function renderAgentOperations(runtime, agent, operations) {
+function renderAgentOperations(runtime, agent, operations, incidents) {
   runtime = runtime || { online: false, controls_available: false, mode: "standalone" };
   operations = operations || { paused: true, action_queue: [], audit: [] };
   const badge = document.getElementById("agent-runtime");
@@ -454,6 +454,19 @@ function renderAgentOperations(runtime, agent, operations) {
     audit.appendChild(row);
   });
   if (!audit.children.length) audit.innerHTML = "<em>No operator audit events.</em>";
+
+  incidents = incidents || { unresolved: 0, recent: [] };
+  const incidentCount = document.getElementById("agent-incident-count");
+  incidentCount.textContent = `${incidents.unresolved || 0} open`;
+  incidentCount.className = incidents.unresolved ? "badge off" : "badge on";
+  const incidentList = document.getElementById("agent-incidents");
+  incidentList.innerHTML = "";
+  (incidents.recent || []).slice(-20).reverse().forEach((item) => {
+    const row = document.createElement("div"); row.className = "goal-card";
+    row.textContent = `[${item.severity || "warning"}/${item.status || "open"}] ${item.component || "unknown"}: ${item.action || item.summary || "incident"}`;
+    incidentList.appendChild(row);
+  });
+  if (!incidentList.children.length) incidentList.innerHTML = "<em>No live incidents.</em>";
 }
 
 function renderRelationships(data) {
@@ -585,7 +598,7 @@ function render(snap) {
   renderTriggers(snap.triggers);
   renderMood(snap.mood);
   renderGoals(snap.goals);
-  renderAgentOperations(snap.runtime, snap.agent, snap.operations);
+  renderAgentOperations(snap.runtime, snap.agent, snap.operations, snap.incidents);
   renderRelationships(snap.relationships);
 }
 

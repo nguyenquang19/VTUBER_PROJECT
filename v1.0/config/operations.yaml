@@ -21,6 +21,14 @@ dashboard_standalone:
   browser_delay_s: 0.8
   operator_audit_file: "logs/operations/operator_audit.jsonl"
 
+incident_log:
+  file: "logs/operations/incidents.jsonl"
+  recent_limit: 100
+  text_max_chars: 320
+
+post_stream_review:
+  export_dir: "logs/operations/reviews"
+
 emergency_stop:
   cancel_goal_on_resume_if_expired: true
   reason_max_chars: 240

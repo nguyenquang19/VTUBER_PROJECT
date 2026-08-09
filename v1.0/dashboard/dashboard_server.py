@@ -56,6 +56,7 @@ class DashboardServer:
         snapshot_provider: Any = None,      # M9: standalone read-only provider
         health_supervisor: Any = None,      # M9: bounded recovery snapshot
         emergency_controller: Any = None,   # M9: fail-closed output latch
+        incident_log: Any = None,            # M9: versioned incident ledger
         data_dir: str = "logs",       # nơi ghi ratings/corrections
         push_interval_s: float = 1.0,
         host: str = "127.0.0.1",
@@ -82,6 +83,7 @@ class DashboardServer:
         self.snapshot_provider = snapshot_provider
         self.health_supervisor = health_supervisor
         self.emergency_controller = emergency_controller
+        self.incident_log = incident_log
         self._data_dir = Path(data_dir)
         self._ratings_writer = None       # lazy JsonlWriter
         self._corrections_writer = None
@@ -235,6 +237,9 @@ class DashboardServer:
         if self.emergency_controller is not None:
             with contextlib.suppress(Exception):
                 snap["emergency"] = self.emergency_controller.snapshot()
+        if self.incident_log is not None:
+            with contextlib.suppress(Exception):
+                snap["incidents"] = self.incident_log.snapshot()
         if self.control_plane is not None:
             with contextlib.suppress(Exception):
                 snap["operations"] = self.control_plane.snapshot()

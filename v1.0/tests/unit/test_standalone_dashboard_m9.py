@@ -18,8 +18,12 @@ async def test_standalone_provider_reads_last_snapshot_and_forces_controls_offli
     audit.write_text(json.dumps({
         "action": "pause", "target": "agent", "outcome": "completed",
     }) + "\n", encoding="utf-8")
+    incidents = tmp_path / "incidents.jsonl"
+    incidents.write_text(json.dumps({
+        "incident_id": "inc:1", "status": "open", "severity": "warning",
+    }) + "\n", encoding="utf-8")
     provider = StandaloneSnapshotProvider(
-        snapshot_path=snapshot, audit_path=audit,
+        snapshot_path=snapshot, audit_path=audit, incident_path=incidents,
     )
     await provider.start()
     value = await provider.snapshot()
@@ -28,6 +32,7 @@ async def test_standalone_provider_reads_last_snapshot_and_forces_controls_offli
     assert value["runtime"]["mode"] == "standalone"
     assert value["runtime"]["controls_available"] is False
     assert value["operations"]["audit"][0]["action"] == "pause"
+    assert value["incidents"]["unresolved"] == 1
     assert (await provider.health_check()).is_ok
 
 
