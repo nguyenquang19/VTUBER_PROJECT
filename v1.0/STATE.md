@@ -1,5 +1,34 @@
 # STATE — Mai project
 
+## Master Plan M9 — Live operations maturity (2026-08-09) — XONG
+
+- M9.1 thêm health supervisor cho llama/TTS/input/dashboard với bounded auto-restart tối đa
+  3 lần, exponential backoff, restart window và circuit breaker; emergency/shutdown có thể
+  pause recovery. Feature `live_operations` mặc định ON và có Prometheus metrics.
+- M9.2 graceful shutdown theo thứ tự: pause recovery, stop driver/input/speech, đóng websocket,
+  stop service/LLM, lưu AgentState/runtime snapshot atomic và flush logger; step lỗi không chặn
+  cleanup còn lại.
+- M9.3 Agent tab hiển thị runtime, active goal/open threads/environment/action queue/audit và
+  control pin/cancel/pause/resume. `scripts/dashboard_standalone.py` chạy dashboard không cần
+  `StreamRuntime`, tự mở browser Windows; khi runtime offline mọi mutating control bị khóa.
+- M9.4 emergency controller đóng speech/environment-action gate trước mọi await, hủy synthesis,
+  audio hiện tại và queue; resume prune goal hết TTL trước khi mở gate. M6/game executor
+  vẫn hoãn; adapter tương lai bắt buộc dùng environment gate/cancel callback này.
+- M9.5 controlled acceptance chạy đủ `7200.01s`: 144.000 produced/144.000 consumed,
+  data loss 0, checksum match, 0 error, queue high-water 1, latency p95 `0.062ms`, memory growth
+  `0.625MB`, không deadlock/runtime error. Mọi gate pass trong
+  `docs/baselines/m9_live_operations.json`.
+- M9.6 thêm incident ledger append-only/schema 1/PII-safe, incident từ operator alert,
+  restart failure và circuit open; dashboard embedded/standalone đều xem được. Runbook tại
+  `docs/runbooks/LIVE_OPERATIONS.md`; post-stream tool export checklist metadata-only và fail nếu
+  shutdown/audit/incident/soak chưa sạch.
+- Regression: affected M9 suites `203 passed`; full `1432 passed, 1 warning`; CI offline
+  `1427 passed, 5 deselected, 1 warning`; compile check và `git diff --check` sạch. Warning
+  Starlette/httpx là deprecation đã có từ trước.
+- Commits code: `a3a8349`, `2608954`, `07c08c2`, `9156d45`, `f774e67`, `66d24bf`.
+- **M9 đã đạt DoD. Master plan toàn cục chưa thể coi là xong vì M6 environment thật
+  vẫn được user hoãn và M8 fine-tune data/candidate gate vẫn `NOT_READY`.**
+
 ## Master Plan M8 — Eval, data và fine-tune (2026-08-09) — INFRA XONG, DATA NOT_READY
 
 - M8.1 thêm 12 scenario versioned chia đủ director/agency/continuity/safety/environment/persona;

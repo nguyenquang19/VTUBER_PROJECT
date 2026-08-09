@@ -1,12 +1,14 @@
 # Current Phase
 
 - Master plan: `docs/MASTER_PLAN_AGENT_MATURITY.md`
-- Current gate: **M8 — Eval, data và fine-tune**
-- Last completed task: **M8.5 — versioned baseline and readiness audit**
-- Status: **INFRASTRUCTURE COMPLETE — FINE-TUNE DATA GATE NOT_READY**
+- Current gate: **M9 — Live operations maturity**
+- Last completed task: **M9.6 + controlled acceptance soak 2 giờ**
+- Status: **M9 COMPLETE — 7/7 SOAK GATES PASS**
 - Deferred gate: **M6 — Một environment thật, tool-safe** (user chưa có game/environment thật).
-- Next action: collect/review data under `mai-agent-v1`; do not start SFT, DPO, model
-  promotion, or M9 until the M8 readiness and candidate DoD pass.
+- Outstanding gate: **M8 fine-tune data/candidate `NOT_READY`**; hạ tầng M8 đã xong nhưng
+  local eligible data vẫn chưa đạt ngưỡng.
+- Next action: user review M9; sau đó thu thập/review data `mai-agent-v1` hoặc quay lại M6 khi
+  có environment thật. Không tự bắt đầu gate mới.
 
 `STATE.md` remains the detailed historical ledger. This file is the short source of truth for the
 active task required by the repository workflow.
