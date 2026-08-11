@@ -1,0 +1,57 @@
+# Project: Mai - AI VTuber
+
+## Tài liệu chính
+
+- `README.md` — cách chạy và thứ tự source of truth.
+- `docs/README.md` — mục lục tài liệu chuẩn hóa; chọn tài liệu theo loại task.
+- `docs/01_SYSTEM_OVERVIEW.md` — phạm vi, boundary, ownership và lifecycle.
+- `docs/02_DATA_PIPELINE.md` — pipeline input → decision → generation → delivery → commit.
+- `docs/03_COMPONENT_REFERENCE.md` — component/file chịu trách nhiệm.
+- `docs/04_DATA_AND_STORAGE.md` — contract dữ liệu, bounded state và commit semantics.
+- `docs/05_CONFIGURATION.md` — YAML, feature toggle và quy trình tune an toàn.
+- `docs/06_OPERATIONS_AND_TROUBLESHOOTING.md` — vận hành và chẩn đoán.
+- `docs/07_TESTING_AND_EXTENSION.md` — test và quy trình mở rộng.
+- `docs/08_SECURITY_RECOVERY.md` — an toàn, PII, rollback và recovery.
+
+Không yêu cầu `PHASE.md`, `docs/QUICKSTART.md` hoặc `docs/ARCHITECTURE.md`; các tài liệu cũ đó đã được
+chuẩn hóa và gộp vào bộ tài liệu trên. Dự án không dùng phase/roadmap làm source of truth. Khi tài liệu
+và code mâu thuẫn, áp dụng thứ tự source of truth trong `README.md`.
+
+Conversation continuity và Thread Engine dùng trực tiếp các mục tương ứng trong `docs/02_DATA_PIPELINE.md`,
+`docs/03_COMPONENT_REFERENCE.md`, `docs/04_DATA_AND_STORAGE.md`, `docs/05_CONFIGURATION.md` và
+`docs/07_TESTING_AND_EXTENSION.md`; không tìm kế hoạch/architecture cũ đã bị gộp hoặc xóa.
+
+## Ràng buộc bắt buộc
+
+1. **OS:** Windows 11 only. Dùng PowerShell, không dùng Bash syntax.
+2. **LLM backend:** llama.cpp (`llama-server.exe`), không dùng Ollama, transformers hoặc vLLM.
+3. **Ngôn ngữ:** Python 3.11+, type hints đầy đủ, async/await cho I/O.
+4. **Interface-based:** service mới crossing subsystem phải implement interface trong `interfaces/`.
+5. **Feature toggle:** feature tùy chọn mới phải đăng ký với `FeatureManager`.
+6. **Observable:** feature mới có ít nhất một metric.
+7. **Config over code:** không hardcode threshold/magic number; đặt cấu hình production trong YAML.
+8. **Simplicity:** làm bản đơn giản, deterministic và test được trước.
+
+## Ranh giới nghiêm cấm
+
+- Không tạo code chưa test được.
+- Không tạo file ngoài scope task.
+- Không tự chuyển sang task khác khi task hiện tại chưa được user review.
+- Không dùng Bash command trên Windows.
+- Không dùng SIGTERM/SIGKILL; process Windows do runtime sở hữu dùng `proc.terminate()`.
+- Không copy code từ phiên bản deprecated.
+
+## Workflow bắt buộc
+
+Trước khi sửa code:
+
+1. Đọc `docs/README.md`, sau đó đọc các tài liệu module liên quan task.
+2. Liệt kê file sẽ tạo/sửa.
+3. Liệt kê test sẽ viết/chạy.
+4. Xác nhận với user rồi mới code.
+
+Sau khi code:
+
+1. Chạy test targeted và hiển thị output.
+2. Nếu thay đổi output/decision, replay corpus hoặc scenario deterministic tương ứng.
+3. Dừng và báo user review; không tự chuyển sang task tiếp theo.

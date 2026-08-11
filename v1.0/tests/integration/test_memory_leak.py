@@ -56,7 +56,7 @@ async def _idle_cycle(sm, bus, metrics, triggers, health, sub, i: int) -> None:
         sub_get_nowait(sub)
 
     # metrics
-    metrics.tick_fake_metrics(t=float(i))
+    metrics.update_gpu_metrics_from_csv("10, 1024, 16384")
 
     # trigger queue churn (enqueue + drain + TTL)
     ev = InputEvent(

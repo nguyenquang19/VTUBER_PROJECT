@@ -1,4 +1,4 @@
-"""Test C0.3 — Director loop (ROADMAP §C0.4).
+"""Test C0.3 — Director loop (docs/03_COMPONENT_REFERENCE.md §C0.4).
 
 DoD:
 - 1h giả lập: Director hoàn thành ≥80% segment planned
@@ -48,11 +48,12 @@ def _segments() -> list[Segment]:
 def _director(pool=None, pulse=None, **over) -> Director:
     pool = pool or _pool()
     pulse = pulse or _pulse()
+    segments = over.pop("segments", _segments())
     kw = dict(dead_air_seconds=20.0, max_consecutive_read_chat=3,
               max_refs_per_turn=3, backlog_summary_threshold=12,
-              summary_score_ceiling=15.0)
+              summary_score_ceiling=15.0, chat_gate_enabled=True)
     kw.update(over)
-    d = Director(pool, pulse, _segments(), **kw)
+    d = Director(pool, pulse, segments, **kw)
     d.start(now=0.0)
     return d
 
@@ -76,6 +77,50 @@ class TestReadModes:
         assert dec.action == DirectorAction.READ_CHAT
         assert dec.read_mode == ReadMode.SINGLE
         assert dec.refs[0].msg_id == "m"
+
+    def test_low_single_waits_below_actionable_score(self) -> None:
+        pool = _pool()
+        pulse = _pulse(tempo_low_per_min=0.0)
+        pulse.record(now=0.0, user_id="u1")
+        pool.add("c", "xin chào", now=0.0, kind="chat")
+        d = _director(pool=pool, pulse=pulse)
+
+        dec = d.decide(now=1.0)
+
+        assert dec.action == DirectorAction.WAIT
+        assert dec.reason == "below_actionable_score"
+        assert pool.size() == 1  # giữ lại để có thể cluster hoặc decay
+
+    def test_question_above_gate_is_read(self) -> None:
+        pool = _pool()
+        pool.add("q", "có nên học tiếp không", now=0.0, kind="question")
+        d = _director(pool=pool)
+
+        dec = d.decide(now=1.0)
+
+        assert dec.action == DirectorAction.READ_CHAT
+        assert dec.refs[0].msg_id == "q"
+
+    def test_repeated_generic_chat_crosses_gate_by_cluster(self) -> None:
+        pool = _pool()
+        for i in range(3):
+            pool.add(f"c{i}", "game về nước rồi", now=0.0, kind="chat")
+        d = _director(pool=pool)
+
+        dec = d.decide(now=1.0)
+
+        assert dec.action == DirectorAction.READ_CHAT
+        assert dec.read_mode == ReadMode.CLUSTER
+
+    def test_disabling_gate_restores_low_single_read(self) -> None:
+        pool = _pool()
+        pool.add("c", "xin chào", now=0.0, kind="chat")
+        d = _director(pool=pool, chat_gate_enabled=False)
+
+        dec = d.decide(now=1.0)
+
+        assert dec.action == DirectorAction.READ_CHAT
+        assert dec.read_mode == ReadMode.SINGLE
 
     def test_cluster_merge(self) -> None:
         pool = _pool()
@@ -114,6 +159,20 @@ class TestReadModes:
         dec = d.decide(now=3.0)
         assert dec.read_mode == ReadMode.VIBE
 
+    def test_hype_does_not_swallow_question(self) -> None:
+        pool = _pool()
+        pulse = _pulse()
+        pool.add("q", "có nên chơi tiếp không", now=0.0, kind="question")
+        for i in range(30):
+            pulse.record(now=i * 0.1, user_id=f"u{i % 2}")
+        d = _director(pool=pool, pulse=pulse)
+
+        dec = d.decide(now=3.0)
+
+        assert dec.action == DirectorAction.READ_CHAT
+        assert dec.read_mode == ReadMode.SINGLE
+        assert dec.refs[0].msg_id == "q"
+
 
 class TestProactive:
     def test_dead_air_triggers_self_talk(self) -> None:
@@ -128,7 +187,37 @@ class TestProactive:
     def test_cold_chat_self_talk(self) -> None:
         d = _director()
         dec = d.decide(now=5.0)   # pool rỗng, chưa dead-air nhưng COLD
-        assert dec.action == DirectorAction.SELF_TALK
+        assert dec.action == DirectorAction.WAIT
+        assert dec.reason == "idle"
+
+    def test_self_talk_global_cooldown_blocks_persistent_cold_chat(self) -> None:
+        d = _director(
+            segments=[Segment("main", "main", 300.0, {"self_talk"})],
+            self_talk_cooldown_seconds=45.0,
+        )
+        first = d.decide(now=20.0)
+        assert first.action == DirectorAction.SELF_TALK
+        d.mark_spoke(first.action, now=20.0)
+
+        blocked = d.decide(now=41.0)
+        assert blocked.action == DirectorAction.WAIT
+        assert blocked.reason == "self_talk_cooldown"
+
+        ready = d.decide(now=65.0)
+        assert ready.action == DirectorAction.SELF_TALK
+
+    def test_no_material_defer_does_not_fake_last_spoken_time(self) -> None:
+        d = _director(
+            segments=[Segment("main", "main", 300.0, {"self_talk"})],
+        )
+        last_spoke = d._last_speak_ts
+        d.defer_self_talk(90.0)
+        blocked = d.decide(now=30.0)
+        assert blocked.action == DirectorAction.WAIT
+        assert blocked.reason == "thought_unavailable"
+        assert d._last_speak_ts == last_spoke
+        d.clear_self_talk_defer()
+        assert d.decide(now=30.0).action == DirectorAction.SELF_TALK
 
     def test_consecutive_read_chat_forces_break(self) -> None:
         # DoD: không chuỗi read_chat vô hạn — sau max_consec → ép self_talk
@@ -151,10 +240,17 @@ class TestProactive:
         # (không cold theo silence). Pool rỗng, chưa dead-air → chỉ urge kích.
         pool = _pool()
         pulse = _pulse(tempo_low_per_min=0.0, cold_silence_seconds=90.0)
-        d = _director(pool=pool, pulse=pulse)
+        d = _director(
+            pool=pool, pulse=pulse,
+            segments=[Segment("main", "main", 300.0, {"self_talk"})],
+        )
         d.mark_spoke(DirectorAction.SELF_TALK, now=0.0)  # reset dead-air
         pulse.record(now=1.0, user_id="a")               # không cold theo silence
-        dec = d.decide(now=1.0, urge_ready=True)
+        blocked = d.decide(now=1.0, urge_ready=True)
+        assert blocked.action == DirectorAction.WAIT
+        d.mark_spoke(DirectorAction.READ_CHAT, now=44.0)
+        pulse.record(now=44.0, user_id="b")
+        dec = d.decide(now=45.0, urge_ready=True)
         assert dec.action == DirectorAction.SELF_TALK
         assert dec.reason == "urge_ready"
 
@@ -165,6 +261,17 @@ class TestSegments:
         dec = d.decide(now=11.0)
         assert dec.action == DirectorAction.TRANSITION
         assert dec.next_segment == "main"
+
+    def test_transition_when_time_up_with_chat_backlog(self) -> None:
+        pool = _pool()
+        pool.add("q", "Mai đang chơi gì?", now=0.0, kind="mention")
+        d = _director(pool=pool)
+
+        dec = d.decide(now=11.0)
+
+        assert dec.action == DirectorAction.TRANSITION
+        assert dec.next_segment == "main"
+        assert pool.size() == 1
 
     def test_advance_moves_segment(self) -> None:
         d = _director()
@@ -225,8 +332,8 @@ class TestOneHourSim:
         assert len(seen_segments) >= 3
         # không chuỗi read_chat vô hạn (cap 3)
         assert max_read_streak <= 3
-        # không dead-air > 20s (dead_air policy self_talk)
-        assert max_gap <= 21.0
+        # Khoảng nghỉ self-talk toàn cục 45s; không được dồn theo tick 1s.
+        assert max_gap <= 46.0
 
 
 class TestFromLoader:

@@ -50,7 +50,7 @@ from services.agent.types import (
 )
 
 
-SpeakFn = Callable[[str, str], Awaitable[None]]
+SpeakFn = Callable[[str, str], Awaitable[Any]]
 
 
 @dataclass
@@ -61,6 +61,17 @@ class StreamRuntimeConfig:
     enable_autonomy: bool = True
     enable_dashboard: bool = False
     on_token: Callable[[str], None] | None = None
+
+
+@dataclass
+class _TTSRuntimeStack:
+    """Delivery stack after startup gates; primary may be degraded to subtitle-only."""
+
+    primary: Any
+    subtitle: Any
+    player: Any
+    pipeline: Any
+    degraded_reason: str | None = None
 
 
 class StreamRuntime:
@@ -295,7 +306,23 @@ class StreamRuntime:
         await self._stop_llm()
         await self._stop_agent_state()
 
-    def _operations_snapshot(self) -> dict[str, Any]:
+    def set_shutdown_coordinator(self, coordinator: Any) -> None:
+        self._shutdown_coordinator = coordinator
+
+    def shutdown_steps(self) -> tuple[tuple[str, Callable[[], Awaitable[None]]], ...]:
+        """Return the ordered public shutdown contract used by operations."""
+        return (
+            ("pause_recovery", self._stop_recovery),
+            ("stop_driver", self._stop_driver),
+            ("stop_input", self._stop_input),
+            ("stop_speech", self._stop_speech),
+            ("close_dashboard", self._stop_dashboard),
+            ("stop_supporting_services", self._stop_supporting_services),
+            ("stop_llm", self._stop_llm),
+            ("stop_agent_state", self._stop_agent_state),
+        )
+
+    def operations_snapshot(self) -> dict[str, Any]:
         return {
             "runtime": {
                 "running": self._running,
@@ -320,6 +347,10 @@ class StreamRuntime:
                 if self._emergency_controller is not None else None
             ),
             "incidents": self._incident_log.snapshot() if self._incident_log is not None else None,
+            "decisions": (
+                self._director_loop.decision_snapshot()
+                if self._director_loop is not None else None
+            ),
             "metrics": self.get_metrics(),
         }
 
@@ -337,7 +368,7 @@ class StreamRuntime:
                 await asyncio.sleep(tick_s)
                 mood = self._get_current_mood()
                 self._autonomy.tick(mood)
-                ctx = self._build_runtime_context()
+                ctx = self.runtime_context()
                 decision = self._autonomy.maybe_generate(mood, ctx)
                 if decision is not None:
                     await self._execute_ambient(decision)
@@ -349,14 +380,16 @@ class StreamRuntime:
     async def _execute_ambient(self, decision) -> None:
         """Chạy 1 ambient turn — share turn_lock với ChatRouter (không đè chat turn)."""
         req_id = f"ambient_{uuid.uuid4().hex[:8]}"
-        async with self._router._turn_lock:   # noqa: SLF001 — share intentionally
+        async with self._router.turn_lock:
             try:
                 parsed = await self._runner.run_ambient_turn(req_id, decision.prompt_text)
             except Exception as e:
                 self._log.warning("ambient_turn_failed", error=str(e))
                 return
 
-            if not parsed.ok or not parsed.text:
+            # Canned fallback giữ ok=False cho data-quality nhưng text vẫn phải
+            # được deliver trong legacy autonomy path.
+            if not parsed.text:
                 return
 
             # Post-check dedup: regen 1 lần nếu quá giống ambient gần đây
@@ -387,7 +420,7 @@ class StreamRuntime:
         except Exception:
             return MoodState()
 
-    def _build_runtime_context(self) -> RuntimeContext:
+    def runtime_context(self) -> RuntimeContext:
         now = time.time()
         # Cắt buckets > 10 phút
         cutoff = now - 600
@@ -400,11 +433,33 @@ class StreamRuntime:
             pass
 
         memory_recent: list[str] = []
+        environment_summary: str | None = None
         # Working memory từ MemoryFallbackManager nếu có
         if self._memory is not None:
             try:
-                snap = self._memory._fallback.snapshot()  # noqa: SLF001
+                snap = self._memory.fallback_snapshot()
                 memory_recent = [e.content for e in snap[-3:]]
+            except Exception:
+                pass
+
+        # Recent grounded chat/state is available even when semantic memory is
+        # disabled. This gives Thought Engine a live anchor instead of forcing
+        # silence-only introspection.
+        if self._agent_state is not None:
+            try:
+                state = self._agent_state.snapshot()
+                grounded_chat = [
+                    str(event.payload.get("text") or "").strip()[:240]
+                    for event in state.recent_events
+                    if event.kind in {
+                        AgentEventKind.CHAT_RECEIVED,
+                        AgentEventKind.DONATION_RECEIVED,
+                    }
+                    and str(event.payload.get("text") or "").strip()
+                ]
+                memory_recent = [*memory_recent, *grounded_chat[-3:]][-3:]
+                environment = state.environment_summary or {}
+                environment_summary = str(environment.get("summary") or "").strip() or None
             except Exception:
                 pass
 
@@ -414,6 +469,7 @@ class StreamRuntime:
             operator_online=False,  # MVP chưa detect operator
             consecutive_ignored=self._autonomy.urge.consecutive_ignored,
             working_memory_recent=memory_recent,
+            environment_summary=environment_summary,
         )
 
     def note_chat_activity(self) -> None:
@@ -488,8 +544,7 @@ class StreamRuntime:
                 confidence=1.0,
                 payload={
                     "source_services": [
-                        getattr(source, "service_id", "unknown")
-                        for source in getattr(self._router, "_sources", [])
+                        source_id for source_id in self._router.source_ids
                     ],
                     "tts_enabled": self.cfg.enable_tts and self._tts_pipeline is not None,
                     "memory_enabled": self.cfg.enable_memory and self._memory is not None,
@@ -507,6 +562,95 @@ class StreamRuntime:
 # ─────────────────────── Factory ───────────────────────
 
 
+async def _build_tts_runtime_stack(
+    loader: Any,
+    metrics: MetricsCollector,
+    *,
+    primary_factory: Callable[[Any], Any] | None = None,
+    subtitle_factory: Callable[[Any], Any] | None = None,
+    player_factory: Callable[[int], Any] | None = None,
+) -> _TTSRuntimeStack:
+    """Start TTS behind bounded health gates and retain a real subtitle sink."""
+    from services.tts.audio_player import AudioPlayer
+    from services.tts.subtitle_fallback import SubtitleFallbackService
+    from services.tts.tts_pipeline import TTSPipeline
+    from services.tts.vieneu_service import VieNeuTtsService
+
+    primary_factory = primary_factory or (lambda value: VieNeuTtsService.from_loader(value))
+    subtitle_factory = subtitle_factory or (
+        lambda value: SubtitleFallbackService.from_loader(value)
+    )
+    player_factory = player_factory or (lambda sample_rate: AudioPlayer(sample_rate=sample_rate))
+    startup_timeout_s = float(loader.get("models", "tts.startup_timeout_s", 30.0))
+    health_timeout_s = float(loader.get("models", "tts.health_timeout_s", 5.0))
+    fallback_enabled = bool(loader.get("models", "tts_fallback.enabled", True))
+    log = get_logger("stream_runtime")
+
+    subtitle = None
+    subtitle_error: str | None = None
+    if fallback_enabled:
+        candidate = subtitle_factory(loader)
+        try:
+            await asyncio.wait_for(candidate.start(), timeout=health_timeout_s)
+            health = await asyncio.wait_for(
+                candidate.health_check(), timeout=health_timeout_s,
+            )
+            if not health.is_ok:
+                raise RuntimeError(health.message or "subtitle health gate failed")
+            subtitle = candidate
+        except Exception as exc:
+            subtitle_error = f"{type(exc).__name__}: {exc}"
+            log.warning("subtitle_startup_gate_failed", error=subtitle_error)
+
+    primary = primary_factory(loader)
+    player = None
+    degraded_reason: str | None = None
+    try:
+        await asyncio.wait_for(primary.start(), timeout=startup_timeout_s)
+        health = await asyncio.wait_for(primary.health_check(), timeout=health_timeout_s)
+        if not health.is_ok:
+            raise RuntimeError(health.message or "TTS health gate failed")
+        player = player_factory(int(getattr(primary, "sample_rate", 48000)))
+        await asyncio.wait_for(player.start(), timeout=health_timeout_s)
+    except Exception as exc:
+        reason = "startup_timeout" if isinstance(exc, asyncio.TimeoutError) else type(exc).__name__
+        degraded_reason = f"{reason}: {exc}".rstrip()
+        log.warning(
+            "tts_primary_unavailable_subtitle_only",
+            error=degraded_reason,
+            subtitle_available=subtitle is not None,
+        )
+        if player is not None:
+            with contextlib.suppress(Exception):
+                await asyncio.wait_for(player.stop(), timeout=health_timeout_s)
+        with contextlib.suppress(Exception):
+            await asyncio.wait_for(primary.stop(), timeout=health_timeout_s)
+        primary = None
+        player = None
+
+    if primary is None and subtitle is None:
+        detail = degraded_reason or "TTS primary unavailable"
+        if subtitle_error:
+            detail += f"; subtitle={subtitle_error}"
+        raise RuntimeError(f"không có TTS/subtitle delivery sink: {detail}")
+
+    pipeline = TTSPipeline.from_loader(
+        loader,
+        primary=primary,
+        subtitle=subtitle,
+        player=player,
+        fallback=FallbackManager(),
+        metrics=metrics,
+    )
+    return _TTSRuntimeStack(
+        primary=primary,
+        subtitle=subtitle,
+        player=player,
+        pipeline=pipeline,
+        degraded_reason=degraded_reason,
+    )
+
+
 async def build_stream_runtime(
     *,
     loader,
@@ -514,11 +658,13 @@ async def build_stream_runtime(
     cfg: StreamRuntimeConfig,
 ) -> StreamRuntime:
     """Build đầy đủ stack theo flags. Raise nếu llama-server không chạy."""
-    # B0: setup structlog + JSONL sinks (turns.jsonl để baseline eval)
-    turn_logger = setup_from_config(loader)
-    pref_logger = _make_pref_logger(loader)   # T2: DPO pairs sink
+    from orchestrator.runtime_config_validation import validate_runtime_config
 
+    validate_runtime_config(loader)
     metrics = MetricsCollector()
+    # B0: setup structlog + JSONL sinks (turns.jsonl để baseline eval)
+    turn_logger = setup_from_config(loader, metrics=metrics)
+    pref_logger = _make_pref_logger(loader)   # T2: DPO pairs sink
     feature_manager = FeatureManager.from_config(loader)
 
     # M1: one shared grounded working state for every stream producer.
@@ -528,13 +674,20 @@ async def build_stream_runtime(
     from services.agent.goal_manager import GoalManager
     from services.agent.open_thread_manager import OpenThreadManager
     from services.agent.thread_detector import RuleThreadDetector
+    from services.agent.topic_matcher import LexicalTopicMatcher
+    from services.agent.conversation_move_planner import ConversationMovePlanner
     from services.agent.session_recap import SessionRecapManager
     from services.agent.mood_policy import MoodActionPolicy
 
     event_ledger = EventLedger.from_loader(loader, metrics=metrics)
-    thread_detector = RuleThreadDetector.from_loader(loader)
+    topic_matcher = LexicalTopicMatcher.from_loader(loader, metrics=metrics)
+    conversation_move_planner = ConversationMovePlanner.from_loader(
+        loader, metrics=metrics,
+    )
+    thread_detector = RuleThreadDetector.from_loader(loader, matcher=topic_matcher)
     open_thread_manager = OpenThreadManager.from_loader(
         loader, metrics=metrics, detector=thread_detector,
+        move_planner=conversation_move_planner, matcher=topic_matcher,
     )
     session_recap = SessionRecapManager.from_loader(loader, metrics=metrics)
     agent_state = AgentState.from_loader(
@@ -710,6 +863,7 @@ async def build_stream_runtime(
     except KeyError:
         get_logger("stream_runtime").warning("conversation_continuity_feature_missing")
         continuity_enabled = False
+    open_thread_manager.set_enabled(continuity_enabled)
 
     # ─── Output filter (M0.2) ───
     # Tạo service cả khi feature đang OFF để dashboard có thể bật runtime về sau.
@@ -734,7 +888,9 @@ async def build_stream_runtime(
 
     # ─── Emotion ───
     # A1: drift_detector đã bỏ (Kênh B tắt, LLM không tự report mood)
-    emotion = EmotionOrchestrator.from_loader(loader, memory=None, agent_state=agent_state)
+    emotion = EmotionOrchestrator.from_loader(
+        loader, memory=None, agent_state=agent_state, metrics=metrics,
+    )
     goal_manager.set_mood_context_providers(
         emotion.current_mood, emotion.active_tone_flags,
     )
@@ -759,7 +915,7 @@ async def build_stream_runtime(
         memory = MemoryFallbackManager(primary=semantic, fallback=working)
         await memory.start()
         memory_extractor = MemoryExtractor()
-        emotion._modifiers._memory = memory  # noqa: SLF001 rewire
+        emotion.set_memory_service(memory)
     relationship_manager.set_memory_service(memory)
 
     # ─── Runner ───
@@ -781,13 +937,15 @@ async def build_stream_runtime(
     )
 
     async def _enable_conversation_continuity() -> None:
+        open_thread_manager.set_enabled(True)
         runner.set_conversation_context_renderer(conversation_context)
 
     async def _disable_conversation_continuity() -> None:
+        open_thread_manager.set_enabled(False)
         runner.set_conversation_context_renderer(None)
 
     async def _conversation_continuity_health() -> bool:
-        return runner.conversation_context_enabled
+        return runner.conversation_context_enabled and open_thread_manager.enabled
 
     feature_manager.attach_handlers(
         "conversation_continuity",
@@ -838,35 +996,17 @@ async def build_stream_runtime(
     speak_callback: SpeakFn | None = None
     emergency_ref: dict[str, Any] = {"controller": None}
     if cfg.enable_tts:
-        from services.tts.audio_player import AudioPlayer
-        from services.tts.subtitle_fallback import SubtitleFallbackService
-        from services.tts.tts_pipeline import TTSPipeline
-        from services.tts.vieneu_service import VieNeuTtsService
+        from interfaces.tts import TTSDeliveryMode, TTSDeliveryResult
 
-        tts_svc = VieNeuTtsService.from_loader(loader)
-        try:
-            await tts_svc.start()
-            audio_player = AudioPlayer(sample_rate=tts_svc.sample_rate)
-            await audio_player.start()
-            subtitle = SubtitleFallbackService(
-                on_subtitle=lambda rid, txt: None,
-            )
-            tts_pipeline = TTSPipeline(
-                primary=tts_svc, subtitle=subtitle, player=audio_player,
-                fallback=FallbackManager(), metrics=metrics,
-            )
+        tts_stack = await _build_tts_runtime_stack(loader, metrics)
+        tts_svc = tts_stack.primary
+        audio_player = tts_stack.player
+        tts_pipeline = tts_stack.pipeline
 
-            async def _speak(req_id: str, text: str) -> None:
-                await tts_pipeline.speak(req_id, text)
+        async def _speak(req_id: str, text: str) -> TTSDeliveryResult:
+            return await tts_pipeline.speak(req_id, text)
 
-            speak_callback = _speak
-        except Exception as e:
-            get_logger("stream_runtime").warning(
-                "tts_load_failed_continue_without", error=str(e),
-            )
-            tts_svc = None
-            audio_player = None
-            tts_pipeline = None
+        speak_callback = _speak
 
     # ─── A3: Response pacing + filler ───
     # Wrap speak_callback: delay biến thiên trước khi nói + filler audio (nếu có clip).
@@ -923,15 +1063,19 @@ async def build_stream_runtime(
     if speak_callback is not None:
         _raw_speak = speak_callback
 
-        async def _paced_speak(req_id: str, text: str) -> None:
+        async def _paced_speak(req_id: str, text: str) -> Any:
             emergency = emergency_ref.get("controller")
             if emergency is not None and not emergency.permits_speech():
-                return
+                return TTSDeliveryResult(
+                    request_id=req_id, mode=TTSDeliveryMode.CANCELLED, cancelled=True,
+                )
             plan = natural_timing.plan(req_id, text, pacer)
             if plan.delay_seconds > 0:
                 await asyncio.sleep(plan.delay_seconds)
             if emergency is not None and not emergency.permits_speech():
-                return
+                return TTSDeliveryResult(
+                    request_id=req_id, mode=TTSDeliveryMode.CANCELLED, cancelled=True,
+                )
             if plan.allow_filler:
                 clip = filler.maybe_pick(time.time())
                 if clip is not None:
@@ -939,12 +1083,15 @@ async def build_stream_runtime(
             if emergency is not None and not emergency.permits_speech():
                 if audio_player is not None:
                     await audio_player.cancel_all()
-                return
-            await _raw_speak(req_id, text)
+                return TTSDeliveryResult(
+                    request_id=req_id, mode=TTSDeliveryMode.CANCELLED, cancelled=True,
+                )
+            delivery = await _raw_speak(req_id, text)
             if tts_pipeline is not None:
                 natural_timing.observe_ttfa(
                     tts_pipeline.get_metrics().get("tts_pipeline_last_ttfa_ms")
                 )
+            return delivery
 
         speak_callback = _paced_speak
 
@@ -952,6 +1099,23 @@ async def build_stream_runtime(
     autonomy = None
     if cfg.enable_autonomy:
         autonomy = AutonomyEngine.from_loader(loader)
+
+    # Self-talk content planner is separate from Director timing/priority.
+    from services.autonomy.self_talk_planner import SelfTalkPlanner
+    from services.emotion.mood_style import MoodStyleTable
+    try:
+        self_talk_status = await feature_manager.get_status("self_talk_planner")
+        self_talk_enabled = self_talk_status in (
+            FeatureStatus.ENABLED, FeatureStatus.DEGRADED,
+        )
+    except KeyError:
+        get_logger("stream_runtime").warning("self_talk_planner_feature_missing")
+        self_talk_enabled = False
+    self_talk_planner = SelfTalkPlanner.from_loader(
+        loader,
+        mood_style=MoodStyleTable.from_loader(loader),
+        enabled=self_talk_enabled,
+    )
 
     # ─── C0.4: Director stack — cầm nhịp thay FIFO ───
     from services.director.chat_pulse import ChatPulse
@@ -986,11 +1150,60 @@ async def build_stream_runtime(
     behavior_library = BehaviorLibrary.from_loader(
         loader, metrics=metrics, enabled=behavior_enabled,
     )
+    try:
+        chat_gate_status = await feature_manager.get_status("director_chat_gate")
+        chat_gate_enabled = chat_gate_status in (
+            FeatureStatus.ENABLED, FeatureStatus.DEGRADED,
+        )
+    except KeyError:
+        get_logger("stream_runtime").warning("director_chat_gate_feature_missing")
+        chat_gate_enabled = False
     director = Director.from_loader(
         pool, pulse, loader, mood_policy=mood_policy,
         proactive_policy=proactive_policy,
+        chat_gate_enabled=chat_gate_enabled,
+    )
+
+    async def _enable_director_chat_gate() -> None:
+        director.set_chat_gate_enabled(True)
+
+    async def _disable_director_chat_gate() -> None:
+        director.set_chat_gate_enabled(False)
+
+    async def _director_chat_gate_health() -> bool:
+        return director.chat_gate_enabled
+
+    feature_manager.attach_handlers(
+        "director_chat_gate",
+        enable=_enable_director_chat_gate,
+        disable=_disable_director_chat_gate,
+        health=_director_chat_gate_health,
     )
     action_context_builder = ActionContextBuilder.from_loader(loader)
+    from services.director.action_transaction import ActionTransactionManager
+    try:
+        transaction_status = await feature_manager.get_status("action_transactions")
+        transactions_enabled = transaction_status in (
+            FeatureStatus.ENABLED, FeatureStatus.DEGRADED,
+        )
+    except KeyError:
+        get_logger("stream_runtime").warning("action_transactions_feature_missing")
+        transactions_enabled = False
+    action_transactions = ActionTransactionManager.from_loader(
+        loader, metrics=metrics, enabled=transactions_enabled,
+    )
+    from services.director.decision_record import DecisionRecordManager
+    try:
+        decision_record_status = await feature_manager.get_status("decision_records")
+        decision_records_enabled = decision_record_status in (
+            FeatureStatus.ENABLED, FeatureStatus.DEGRADED,
+        )
+    except KeyError:
+        get_logger("stream_runtime").warning("decision_records_feature_missing")
+        decision_records_enabled = False
+    decision_records = DecisionRecordManager.from_loader(
+        loader, metrics=metrics, enabled=decision_records_enabled,
+    )
     turn_lock = asyncio.Lock()   # 1 lock chung: ChatRouter intake + DirectorLoop
     try:
         arbiter_status = await feature_manager.get_status("director_goal_arbiter")
@@ -1020,6 +1233,58 @@ async def build_stream_runtime(
         action_context_builder=action_context_builder,
         behavior_library=behavior_library,
         repair_policy=repair_policy,
+        transaction_manager=action_transactions,
+        decision_records=decision_records,
+        self_talk_planner=self_talk_planner,
+        thread_manager=open_thread_manager,
+    )
+
+    async def _enable_self_talk_planner() -> None:
+        self_talk_planner.set_enabled(True)
+
+    async def _disable_self_talk_planner() -> None:
+        self_talk_planner.set_enabled(False)
+
+    async def _self_talk_planner_health() -> bool:
+        return self_talk_planner.enabled
+
+    feature_manager.attach_handlers(
+        "self_talk_planner",
+        enable=_enable_self_talk_planner,
+        disable=_disable_self_talk_planner,
+        health=_self_talk_planner_health,
+    )
+
+    async def _enable_action_transactions() -> None:
+        action_transactions.set_enabled(True)
+
+    async def _disable_action_transactions() -> None:
+        action_transactions.set_enabled(False)
+
+    async def _action_transactions_health() -> bool:
+        return action_transactions.enabled
+
+    feature_manager.attach_handlers(
+        "action_transactions",
+        enable=_enable_action_transactions,
+        disable=_disable_action_transactions,
+        health=_action_transactions_health,
+    )
+
+    async def _enable_decision_records() -> None:
+        decision_records.set_enabled(True)
+
+    async def _disable_decision_records() -> None:
+        decision_records.set_enabled(False)
+
+    async def _decision_records_health() -> bool:
+        return decision_records.enabled
+
+    feature_manager.attach_handlers(
+        "decision_records",
+        enable=_enable_decision_records,
+        disable=_disable_decision_records,
+        health=_decision_records_health,
     )
 
     async def _enable_director_goal_arbiter() -> None:
@@ -1052,6 +1317,38 @@ async def build_stream_runtime(
         enable=_enable_mood_behavior_policy,
         disable=_disable_mood_behavior_policy,
         health=_mood_behavior_policy_health,
+    )
+
+    async def _enable_mood_v2_shadow() -> None:
+        emotion.set_affect_shadow_enabled(True)
+
+    async def _disable_mood_v2_shadow() -> None:
+        emotion.set_affect_shadow_enabled(False)
+
+    async def _mood_v2_shadow_health() -> bool:
+        return emotion.affect_shadow_enabled
+
+    feature_manager.attach_handlers(
+        "mood_v2_shadow",
+        enable=_enable_mood_v2_shadow,
+        disable=_disable_mood_v2_shadow,
+        health=_mood_v2_shadow_health,
+    )
+
+    async def _enable_mood_v2_prompt() -> None:
+        emotion.set_affect_prompt_enabled(True)
+
+    async def _disable_mood_v2_prompt() -> None:
+        emotion.set_affect_prompt_enabled(False)
+
+    async def _mood_v2_prompt_health() -> bool:
+        return emotion.affect_prompt_enabled
+
+    feature_manager.attach_handlers(
+        "mood_v2_prompt",
+        enable=_enable_mood_v2_prompt,
+        disable=_disable_mood_v2_prompt,
+        health=_mood_v2_prompt_health,
     )
 
     async def _enable_proactive_hosting() -> None:
@@ -1163,6 +1460,8 @@ async def build_stream_runtime(
             agent_state=agent_state,
             goal_manager=goal_manager,
             relationship_manager=relationship_manager,
+            decision_records=decision_records,
+            self_talk_planner=self_talk_planner,
             control_plane=control_plane,
             incident_log=incident_log,
             data_dir=loader.get("logging", "jsonl.dir", "logs"),
@@ -1170,6 +1469,15 @@ async def build_stream_runtime(
             port=int(loader.get("system", "dashboard.port", 7860)),
             push_interval_s=float(loader.get(
                 "system", "dashboard.push_interval_s", 1.0,
+            )),
+            gpu_metrics_command=str(loader.get(
+                "system", "dashboard.gpu_metrics.command", "nvidia-smi",
+            )),
+            gpu_metrics_timeout_s=float(loader.get(
+                "system", "dashboard.gpu_metrics.timeout_s", 1.0,
+            )),
+            gpu_metrics_refresh_s=float(loader.get(
+                "system", "dashboard.gpu_metrics.refresh_s", 2.0,
             )),
         )
         dashboard_task = asyncio.create_task(dashboard_server.serve(), name="dashboard")
@@ -1314,35 +1622,24 @@ async def build_stream_runtime(
 
         shutdown_coordinator = ShutdownCoordinator.from_loader(
             loader,
-            snapshot_provider=rt._operations_snapshot,  # noqa: SLF001
+            snapshot_provider=rt.operations_snapshot,
             flush_callback=flush_logging,
             metrics=metrics,
         )
-        for name, callback in (
-            ("pause_recovery", rt._stop_recovery),
-            ("stop_driver", rt._stop_driver),
-            ("stop_input", rt._stop_input),
-            ("stop_speech", rt._stop_speech),
-            ("close_dashboard", rt._stop_dashboard),
-            ("stop_supporting_services", rt._stop_supporting_services),
-            ("stop_llm", rt._stop_llm),
-            ("stop_agent_state", rt._stop_agent_state),
-        ):
+        for name, callback in rt.shutdown_steps():
             shutdown_coordinator.register_step(name, callback)
-        rt._shutdown_coordinator = shutdown_coordinator  # noqa: SLF001
+        rt.set_shutdown_coordinator(shutdown_coordinator)
     # DirectorLoop dùng runtime ctx của rt (silence/chat_count/memory) cho self_talk material
-    director_loop._runtime_ctx_fn = rt._build_runtime_context  # noqa: SLF001
+    director_loop.set_runtime_context_provider(rt.runtime_context)
 
     # Hook chat activity — chat đến → reset silence + đếm activity (cho ChatPulse/urge)
-    _orig_process = router._process  # noqa: SLF001
-
-    async def _hook_process(event):
+    def _on_input_activity(event) -> None:
         if autonomy is not None:
             autonomy.on_external_activity()
+        director_loop.on_chat_activity()
         rt.note_chat_activity()
-        await _orig_process(event)
 
-    router._process = _hook_process  # noqa: SLF001
+    router.add_activity_listener(_on_input_activity)
 
     return rt
 

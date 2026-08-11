@@ -5,6 +5,20 @@ open_threads:
   evidence_max: 4
   field_max_chars: 240
   terminal_history_max: 32
+  contributions_max: 8
+  open_questions_max: 3
+  park_after_seconds: 300
+
+topic_matcher:
+  min_score: 0.34
+  min_shared_terms: 1
+  topic_weight: 0.65
+  summary_weight: 0.35
+
+move_planner:
+  summarize_after_moves: 4
+  invite_after_moves: 2
+  compare_after_viewer_contributions: 2
 
 detector:
   evidence_excerpt_max_chars: 220

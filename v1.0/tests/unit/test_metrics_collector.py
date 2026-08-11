@@ -6,8 +6,10 @@ from prometheus_client import CollectorRegistry
 from orchestrator.metrics_collector import MetricsCollector
 
 
-def fresh() -> MetricsCollector:
-    return MetricsCollector(registry=CollectorRegistry())
+def fresh(gpu_query_runner=None) -> MetricsCollector:
+    return MetricsCollector(
+        registry=CollectorRegistry(), gpu_query_runner=gpu_query_runner,
+    )
 
 
 class TestMetricDefinitions:
@@ -17,12 +19,12 @@ class TestMetricDefinitions:
         assert m.trigger_decisions_total is not None
         assert m.state_transitions_total is not None
 
-    def test_three_fake_metrics_exist(self) -> None:
-        """PROCESS 0.F: 3 metric giả."""
+    def test_real_gpu_metrics_exist(self) -> None:
         m = fresh()
-        assert m.fake_gpu_util is not None
-        assert m.fake_vram_mb is not None
-        assert m.fake_chat_rate is not None
+        assert m.gpu_util is not None
+        assert m.vram_used_mb is not None
+        assert m.vram_total_mb is not None
+        assert m.gpu_metrics_available is not None
 
     def test_separate_registry_no_duplicate_error(self) -> None:
         # tạo nhiều instance không lỗi "Duplicated timeseries"
@@ -52,47 +54,60 @@ class TestRecorders:
         assert "mai_pipeline_ttfa_seconds_count 1.0" in text
 
 
-class TestFakeMetrics:
-    def test_tick_updates_values(self) -> None:
-        m = fresh()
-        snap = m.tick_fake_metrics(t=0.0)
-        assert "gpu_util_percent" in snap
-        assert "vram_mb" in snap
-        assert "chat_rate_per_min" in snap
+class TestGpuMetrics:
+    def test_nvidia_csv_updates_real_snapshot(self) -> None:
+        m = fresh(lambda _command, _timeout: "17, 2048, 16384\n")
+        snap = m.sample_gpu_metrics(refresh_s=0.0)
+        assert snap["gpu_util_percent"] == 17.0
+        assert snap["vram_mb"] == 2048.0
+        assert snap["vram_total_mb"] == 16384.0
+        assert snap["gpu_metrics_available"] is True
+        assert snap["gpu_metrics_stale"] is False
+        assert snap["source"] == "nvidia-smi"
 
-    def test_values_change_over_time(self) -> None:
-        m = fresh()
-        a = m.tick_fake_metrics(t=0.0)
-        b = m.tick_fake_metrics(t=5.0)
-        assert a != b  # DoD: metric giả cập nhật realtime
+    def test_failed_query_never_invents_gpu_values(self) -> None:
+        def fail(_command: str, _timeout: float) -> str:
+            raise FileNotFoundError("nvidia-smi")
 
-    def test_gpu_in_reasonable_range(self) -> None:
-        m = fresh()
-        for t in range(0, 50):
-            snap = m.tick_fake_metrics(t=float(t))
-            assert 0 <= snap["gpu_util_percent"] <= 100
+        snap = fresh(fail).sample_gpu_metrics(refresh_s=0.0)
+        assert snap["gpu_util_percent"] is None
+        assert snap["vram_mb"] is None
+        assert snap["gpu_metrics_available"] is False
+        assert snap["gpu_metrics_stale"] is False
+        assert "FileNotFoundError" in snap["gpu_metrics_error"]
 
-    def test_chat_rate_non_negative(self) -> None:
-        m = fresh()
-        for t in range(0, 50):
-            assert m.tick_fake_metrics(t=float(t))["chat_rate_per_min"] >= 0
+    def test_failed_refresh_marks_last_real_sample_stale(self) -> None:
+        outputs = iter(("8, 1024, 16384", RuntimeError("driver unavailable")))
 
-    def test_snapshot_matches_last_tick(self) -> None:
-        m = fresh()
-        m.tick_fake_metrics(t=3.0)
-        snap = m.snapshot()
-        assert set(snap) == {"gpu_util_percent", "vram_mb", "chat_rate_per_min"}
+        def query(_command: str, _timeout: float) -> str:
+            value = next(outputs)
+            if isinstance(value, Exception):
+                raise value
+            return value
+
+        m = fresh(query)
+        assert m.sample_gpu_metrics(refresh_s=0.0)["gpu_metrics_available"] is True
+        stale = m.sample_gpu_metrics(refresh_s=0.0)
+        assert stale["gpu_util_percent"] == 8.0
+        assert stale["gpu_metrics_available"] is False
+        assert stale["gpu_metrics_stale"] is True
+
+    def test_invalid_values_are_rejected_without_fake_fallback(self) -> None:
+        m = fresh(lambda _command, _timeout: "140, 10, 20")
+        snap = m.sample_gpu_metrics(refresh_s=0.0)
+        assert snap["gpu_util_percent"] is None
+        assert snap["gpu_metrics_available"] is False
 
 
 class TestPrometheusExport:
     def test_export_is_bytes(self) -> None:
         m = fresh()
-        m.tick_fake_metrics(t=1.0)
         assert isinstance(m.prometheus_text(), bytes)
 
-    def test_export_contains_fake_gauges(self) -> None:
-        m = fresh()
-        m.tick_fake_metrics(t=1.0)
+    def test_export_contains_real_gpu_gauges(self) -> None:
+        m = fresh(lambda _command, _timeout: "20, 3000, 16000")
+        m.sample_gpu_metrics(refresh_s=0.0)
         text = m.prometheus_text().decode()
-        assert "mai_fake_gpu_util_percent" in text
-        assert "mai_fake_vram_mb" in text
+        assert "mai_gpu_util_percent 20.0" in text
+        assert "mai_vram_used_mb 3000.0" in text
+        assert "mai_gpu_metrics_available 1.0" in text

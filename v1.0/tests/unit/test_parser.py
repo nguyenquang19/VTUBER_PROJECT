@@ -1,4 +1,4 @@
-"""Test parser output LLM (ARCHITECTURE 7.4/8.2, persona.md B, milestone 1.D)."""
+"""Test parser output LLM (ARCHITECTURE 7.4/8.2, config/prompts/persona_system.txt B, milestone 1.D)."""
 from __future__ import annotations
 
 from services.llm.parser import ParsedResponse, parse_response

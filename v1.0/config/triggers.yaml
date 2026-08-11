@@ -4,7 +4,7 @@
 # continuation/scheduled/operator_voice_interrupt — add khi log thực tế cần.
 # priority khớp đúng code mẫu 7.9.1.
 #
-# MVP scope (spike/day3_report.md): voice input skip. `operator_voice` giữ
+# MVP scope (docs/01_SYSTEM_OVERVIEW.md): voice input skip. `operator_voice` giữ
 # nguyên type + priority, nhưng nguồn là operator TEXT từ dashboard
 # (EventSource.DASHBOARD), không phải voice. Wire STT sau ở Phase 5.
 

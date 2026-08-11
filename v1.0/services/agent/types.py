@@ -47,6 +47,32 @@ class ThreadKind(str, Enum):
     STORY = "story"
 
 
+class ThreadStatus(str, Enum):
+    ACTIVE = "active"
+    WAITING = "waiting"
+    PARKED = "parked"
+
+
+class ThreadSpeaker(str, Enum):
+    VIEWER = "viewer"
+    MAI = "mai"
+    SYSTEM = "system"
+
+
+class ConversationMove(str, Enum):
+    CLARIFY = "clarify"
+    DEEPEN = "deepen"
+    COMPARE = "compare"
+    CHALLENGE = "challenge"
+    SYNTHESIZE = "synthesize"
+    REVISE = "revise"
+    INVITE = "invite"
+    SUMMARIZE = "summarize"
+    PARK = "park"
+    RESUME = "resume"
+    CLOSE = "close"
+
+
 class ThreadOperation(str, Enum):
     CREATE = "create"
     UPDATE = "update"
@@ -62,6 +88,10 @@ class ThreadSignal:
     evidence: "ThreadEvidence"
     target_thread_id: str | None = None
     reason: str | None = None
+    speaker: ThreadSpeaker = ThreadSpeaker.SYSTEM
+    status: ThreadStatus | None = None
+    move: ConversationMove | None = None
+    is_open_question: bool = False
 
 
 @dataclass(frozen=True)
@@ -85,6 +115,39 @@ class ThreadEvidence:
             "detector": self.detector,
             "confidence": self.confidence,
         }
+
+
+@dataclass(frozen=True)
+class ThreadContribution:
+    source_event_id: str
+    text: str
+    speaker: ThreadSpeaker
+
+    def __post_init__(self) -> None:
+        if not self.source_event_id.strip() or not self.text.strip():
+            raise ValueError("thread contribution needs source_event_id and text")
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "source_event_id": self.source_event_id,
+            "text": self.text,
+            "speaker": self.speaker.value,
+        }
+
+
+@dataclass(frozen=True)
+class TopicMatch:
+    thread_id: str
+    score: float
+    shared_terms: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not self.thread_id.strip():
+            raise ValueError("topic match needs thread_id")
+        if not 0.0 <= float(self.score) <= 1.0:
+            raise ValueError("topic match score must be within [0, 1]")
+        object.__setattr__(self, "score", float(self.score))
+        object.__setattr__(self, "shared_terms", tuple(self.shared_terms))
 
 
 @dataclass(frozen=True)
@@ -168,12 +231,23 @@ class OpenThread:
     kind: ThreadKind = ThreadKind.QUESTION
     evidence: tuple[ThreadEvidence, ...] = ()
     origin_event_id: str | None = None
+    status: ThreadStatus = ThreadStatus.ACTIVE
+    claims: tuple[ThreadContribution, ...] = ()
+    viewer_contributions: tuple[ThreadContribution, ...] = ()
+    open_questions: tuple[ThreadContribution, ...] = ()
+    last_move: ConversationMove | None = None
+    next_move: ConversationMove | None = None
+    move_count: int = 0
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "created_at", _as_utc(self.created_at))
         object.__setattr__(self, "updated_at", _as_utc(self.updated_at))
         object.__setattr__(self, "expires_at", _as_utc(self.expires_at))
         object.__setattr__(self, "evidence", tuple(self.evidence))
+        object.__setattr__(self, "claims", tuple(self.claims))
+        object.__setattr__(self, "viewer_contributions", tuple(self.viewer_contributions))
+        object.__setattr__(self, "open_questions", tuple(self.open_questions))
+        object.__setattr__(self, "move_count", max(0, int(self.move_count)))
         if not self.thread_id.strip() or not self.topic.strip() or not self.summary.strip():
             raise ValueError("open thread needs id, topic, and summary")
 
@@ -188,6 +262,13 @@ class OpenThread:
             "kind": self.kind.value,
             "evidence": [item.to_dict() for item in self.evidence],
             "origin_event_id": self.origin_event_id,
+            "status": self.status.value,
+            "claims": [item.to_dict() for item in self.claims],
+            "viewer_contributions": [item.to_dict() for item in self.viewer_contributions],
+            "open_questions": [item.to_dict() for item in self.open_questions],
+            "last_move": self.last_move.value if self.last_move else None,
+            "next_move": self.next_move.value if self.next_move else None,
+            "move_count": self.move_count,
         }
 
 

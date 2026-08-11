@@ -19,6 +19,8 @@ from services.emotion.modifiers import ModifierEngine
 from services.input.chat_router import ChatRouter, _to_emotion_event
 from interfaces.animation import MoodState
 from services.llm.parser import ParsedResponse
+from services.director.chat_pulse import ChatPulse
+from services.director.salience import SaliencePool
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -265,6 +267,31 @@ class TestSpeakCallback:
         await r.stop()
         assert spoken == []
 
+    async def test_canned_fallback_text_is_still_delivered(self, emotion) -> None:
+        src = FakeSource()
+
+        class CannedRunner(FakeRunner):
+            async def run_turn(self, request_id, user_text, viewer_id=None,
+                               session_id=None, trigger_type=None, event_category=None):
+                self.calls.append({"request_id": request_id})
+                return ParsedResponse(
+                    text="Câu dự phòng", mood=MoodState(), raw="<canned>", ok=False,
+                ), 1
+
+        spoken: list[tuple[str, str]] = []
+
+        async def speak(req_id, text):
+            spoken.append((req_id, text))
+
+        router = ChatRouter([src], emotion, CannedRunner(), speak=speak)
+        await router.start()
+        src.enqueue(make_event("hi", event_id="fallback-event"))
+        await _wait_for(lambda: bool(spoken), timeout=2.0)
+        await router.stop()
+
+        assert spoken == [("fallback-event", "Câu dự phòng")]
+        assert router.get_metrics()["router_speak_calls"] == 1
+
 
 # ---------- Conversion helper ----------
 
@@ -289,6 +316,28 @@ class TestToEmotionEvent:
         ev = make_event("hi", is_super_chat=True)  # no amount
         emo = _to_emotion_event(ev)
         assert emo.kind.value == "chat"
+
+
+class TestDirectorIntake:
+    async def test_uses_yaml_kind_detection_before_pool_scoring(self, emotion) -> None:
+        from orchestrator.config_loader import ConfigLoader
+
+        loader = ConfigLoader(REPO_ROOT / "config")
+        loader.load_all()
+        pool = SaliencePool.from_loader(loader)
+        pulse = ChatPulse.from_loader(loader)
+        router = ChatRouter(
+            [FakeSource()], emotion, FakeRunner(), pool=pool, pulse=pulse,
+        )
+
+        await router._process(make_event(
+            "em có nên tập trung học tiếp", event_id="question-no-mark",
+        ))
+
+        top = pool.peek_top(datetime.now().timestamp())
+        assert top is not None
+        assert top.kind == "question"
+        assert top.base_score == 25.0
 
 
 # ---------- utils ----------

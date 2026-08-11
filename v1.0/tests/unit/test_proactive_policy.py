@@ -87,3 +87,26 @@ def test_source_cooldown_and_metrics_prevent_immediate_replay() -> None:
     blocked = policy.choose(value, allowed_actions={"follow_up"}, silence_ready=False)
     assert blocked is not None and blocked.action is DirectorAction.WAIT
     assert metrics.proactive_candidate_snapshot()["open_thread:selected"] == 1
+
+
+def test_silence_fallback_has_global_cooldown() -> None:
+    policy = _policy()
+    first_input = _input(AgentStateSnapshot())
+    first = policy.choose(
+        first_input, allowed_actions={"self_talk"}, silence_ready=True,
+    )
+    assert first is not None and first.source is ProactiveSource.SILENCE
+    policy.mark_used(first, first_input.now)
+
+    blocked = policy.choose(
+        DirectorInput(now=120.0, agent_state=AgentStateSnapshot(), goals=GoalSnapshot()),
+        allowed_actions={"self_talk"}, silence_ready=True,
+    )
+    assert blocked is not None and blocked.action is DirectorAction.WAIT
+    assert blocked.reason == "silence_cooldown"
+
+    ready = policy.choose(
+        DirectorInput(now=145.0, agent_state=AgentStateSnapshot(), goals=GoalSnapshot()),
+        allowed_actions={"self_talk"}, silence_ready=True,
+    )
+    assert ready is not None and ready.action is DirectorAction.SELF_TALK

@@ -67,15 +67,9 @@ class MoodActionPolicy:
         mood: MoodState | None,
         tone_flags: set[str] | tuple[str, ...] = (),
     ) -> int:
-        delta = self._mood_delta("agenda", kind.value, mood)
-        delta += self._flag_delta("agenda", kind.value, tone_flags)
-        value = max(
-            self.config.priority_min,
-            min(self.config.priority_max, int(base_priority) + int(delta)),
-        )
-        if self.enabled and delta:
-            self._record("agenda", f"{kind.value}:{int(delta):+d}")
-        return value
+        # M10.6 correctness boundary: mood/tone can shape delivery, but never
+        # reorder grounded goals or hard priorities.
+        return int(base_priority)
 
     def action_score(
         self,

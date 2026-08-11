@@ -1,0 +1,107 @@
+{
+  "schema_version": 1,
+  "milestone": "M10.6",
+  "marker": "mood_v2_shadow_status",
+  "sanitized": true,
+  "implementation_status": "hybrid_shadow_ready",
+  "features": {
+    "mood_v2_shadow": true,
+    "mood_v2_prompt": false,
+    "hybrid_composer_wired": true,
+    "legacy_mood_retained": true
+  },
+  "automated_gates": {
+    "turn_affect_and_session_mood": true,
+    "deterministic_replay": true,
+    "grounded_cause_ref": true,
+    "goal_priority_unchanged": true,
+    "safety_and_donation_unchanged": true,
+    "prompt_rollback": true
+  },
+  "test_evidence": {
+    "targeted_passed": 29,
+    "affected_regression_passed": 306,
+    "ci_offline_passed": 1508,
+    "ci_offline_deselected": 3
+  },
+  "generation_evidence": {
+    "balanced_categories": 10,
+    "generated_turn_pairs": 100,
+    "generated_outputs": 200,
+    "selected_turn_pairs": 50,
+    "selected_outputs": 100,
+    "same_input_context_per_pair": true,
+    "same_sampling_seed_per_pair": true,
+    "blind_artifact": "docs/baselines/m10_mood_ab_blind_review.json"
+  },
+  "human_ab_gate": {
+    "status": "failed",
+    "collected_turns": 50,
+    "minimum_turns": 50,
+    "minimum_appropriate_ratio": 0.8,
+    "appropriate_ratio": 0.6,
+    "persona_average": 3.14,
+    "naturalness_average": 3.06,
+    "overacting_ratio": 0.78,
+    "v1_wins": 16,
+    "v2_wins": 13,
+    "ties": 21,
+    "final_artifact": "docs/baselines/m10_mood_ab_final.json",
+    "cutover_approved": false
+  },
+  "tuning_iteration": {
+    "status": "superseded_by_hybrid_candidate",
+    "response_modes": 11,
+    "generated_turn_pairs": 50,
+    "generated_outputs": 100,
+    "selected_turn_pairs": 25,
+    "selected_outputs": 50,
+    "same_input_context_per_pair": true,
+    "same_sampling_seed_per_pair": true,
+    "empty_outputs": 0,
+    "v1_average_chars": 158.8,
+    "v2_average_chars": 141.7,
+    "blind_artifact": "docs/baselines/m10_mood_ab_blind_review_tuned_25.json",
+    "offline_tests_passed": 1519,
+    "offline_tests_deselected": 3,
+    "sampling_tests_passed": 25,
+    "cutover_approved": false
+  },
+  "hybrid_candidate": {
+    "status": "smoke_passed_formal_gate_pending",
+    "legacy_tone_categories": [
+      "chat_compliment",
+      "chat_genuine_sad_share"
+    ],
+    "v2_primary_categories": [
+      "chat_mention_direct",
+      "chat_insult_troll",
+      "chat_spam_flood",
+      "chat_jailbreak_attempt",
+      "chat_sexual_advance",
+      "donation_small",
+      "donation_large",
+      "operator_sudden_shutdown"
+    ],
+    "single_response_plan": true,
+    "targeted_tests_passed": 47,
+    "affected_tests_passed": 72,
+    "offline_tests_passed": 1531,
+    "offline_tests_deselected": 3,
+    "human_smoke_target": 10,
+    "human_smoke_generated_pairs": 10,
+    "human_smoke_generated_outputs": 20,
+    "human_smoke_prompt_leakage": false,
+    "human_smoke_artifact": "docs/baselines/m10_mood_hybrid_smoke_blind_review.json",
+    "human_smoke_final_artifact": "docs/baselines/m10_mood_hybrid_smoke_final.json",
+    "human_smoke_appropriate_ratio": 1.0,
+    "human_smoke_persona_average": 4.0,
+    "human_smoke_naturalness_average": 3.5,
+    "human_smoke_overacting_ratio": 0.2,
+    "human_smoke_hybrid_wins": 5,
+    "human_smoke_v1_wins": 4,
+    "human_smoke_ties": 1,
+    "cutover_approved": false
+  },
+  "overall_status": "hybrid_smoke_passed_formal_gate_pending"
+}

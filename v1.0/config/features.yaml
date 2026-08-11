@@ -8,7 +8,7 @@
 
 features:
   input_voice:
-    enabled: false              # STT deferred — xem spike/day3_report.md
+    enabled: false              # STT deferred — xem docs/01_SYSTEM_OVERVIEW.md
     vram_cost_mb: 1024
     latency_impact_ms: 150
     category: input
@@ -127,6 +127,14 @@ features:
     depends_on: []
     conflicts_with: []
 
+  director_chat_gate:
+    enabled: true               # chỉ mở turn cho chat đủ điểm; OFF = hành vi salience cũ
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: agent
+    depends_on: []
+    conflicts_with: []
+
   thread_extraction:
     enabled: false              # M4.2 optional post-hoc llama.cpp extraction
     vram_cost_mb: 0
@@ -144,15 +152,63 @@ features:
     conflicts_with: []
 
   mood_behavior_policy:
-    enabled: true               # M5 mood changes agenda/action scores, not prompt only
+    enabled: true               # Legacy soft Director pacing only; never changes goal priority
     vram_cost_mb: 0
     latency_impact_ms: 0
     category: agent
     depends_on: []
     conflicts_with: []
 
+  mood_v2_shadow:
+    enabled: true               # M10.6 observe beside v1 without changing live delivery
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: agent
+    depends_on: []
+    conflicts_with: []
+
+  mood_v2_prompt:
+    enabled: true               # Operator-approved Hybrid v1 mood + v2 turn policy production cutover
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: agent
+    depends_on: [mood_v2_shadow]
+    conflicts_with: []
+
+  action_transactions:
+    enabled: true               # M10.1 commit action effects only after delivery success
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: agent
+    depends_on: []
+    conflicts_with: []
+
+  decision_records:
+    enabled: true               # M10.3 versioned action/reason/evidence/transaction view
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: agent
+    depends_on: []
+    conflicts_with: []
+
+  operator_dashboard_v2:
+    enabled: true               # Operator-approved M10 full-live cutover; /legacy remains rollback
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: operations
+    depends_on: ["decision_records"]
+    conflicts_with: []
+
   proactive_hosting:
     enabled: true               # M5 grounded goal/thread/environment before silence fallback
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: agent
+    depends_on: []
+    conflicts_with: []
+
+  self_talk_planner:
+    enabled: true               # cause-first Thought Engine; no fixed semantic topic pool
     vram_cost_mb: 0
     latency_impact_ms: 0
     category: agent
@@ -189,6 +245,14 @@ features:
     latency_impact_ms: 0
     category: evaluation
     depends_on: []
+    conflicts_with: []
+
+  evaluation_acceptance:
+    enabled: true               # M10.5 deterministic text-only failure acceptance
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: evaluation
+    depends_on: [evaluation_harness]
     conflicts_with: []
 
   live_operations:

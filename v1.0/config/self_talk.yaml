@@ -1,0 +1,43 @@
+# Cause-first Thought Engine. Director decides WHEN; this file controls how a
+# grounded observation becomes an intention and a bounded spoken mini-arc.
+self_talk:
+  wait_for_chat_seconds: 75
+  resume_after_chat_seconds: 12
+  min_silence_seconds: 20
+  unavailable_retry_seconds: 90
+  thought_ledger_size: 32
+  semantic_repeat_threshold: 0.72
+  output_repeat_threshold: 0.88
+  stage_repeat_threshold: 0.72
+  stage_repeat_min_tokens: 4
+  max_previous_text_chars: 280
+  recent_context_min_tokens: 3
+  silence_intention: "nhận xét thật ngắn về chính khoảng im lặng, không suy đoán nguyên nhân và không mô tả môi trường"
+  silence_allow_question: true
+  grounded_categories: [follow_up_topic, environment_reaction, roast_chat]
+
+  cause_directions:
+    silence: "Sự thật duy nhất là khoảng im lặng. Chỉ nói về chính nhịp im lặng hoặc cảm giác hiện tại của Mai; CẤM mô tả phòng, màn hình, cảnh vật, âm thanh hay sự kiện chưa có trong mỏ neo. Đây là một câu one-shot, không mở chủ đề dài."
+    recent_context: "Chỉ bám vào câu chat trong mỏ neo; nếu câu mơ hồ thì thừa nhận chưa rõ. Không tự điền phần người xem chưa nói và tuyệt đối không khẳng định ai đó biết, nghĩ, muốn, không quan tâm hoặc đã làm gì khi mỏ neo không ghi rõ."
+    environment: "Chỉ dùng chi tiết đã được ghi là quan sát môi trường xác thực."
+
+  question_endings: ["nhỉ", "hả", "à", "ư", "không", "chưa", "sao", "gì", "nào"]
+  question_starters: ["ai", "gì", "sao", "tại sao", "vì sao", "bao nhiêu", "khi nào", "ở đâu", "có phải", "liệu"]
+  question_particles: ["nhỉ", "hả", "ư"]
+
+  stage_directions:
+    open: "Mở ý như một suy nghĩ vừa nảy ra bằng đúng 1 câu ngắn; kết thúc bằng nhận xét khẳng định, không dùng dấu hỏi hoặc đuôi hỏi nhỉ/hả/à/không/chưa/sao/gì/nào."
+    develop: "Chỉ nói phần ý mới nối trực tiếp câu trước; không nhắc lại hoặc diễn đạt lại câu trước, không đổi mạch; kết thúc bằng nhận xét khẳng định, không dùng đuôi hỏi."
+    invite: "Output chỉ được có đúng một câu hỏi kết thúc mới bám trực tiếp vào mạch; xóa mọi câu hỏi dẫn nhập, không nhắc lại câu trước, sau câu này phải chờ phản hồi."
+
+  stage_limits:
+    open: {max_sentences: 1, allow_question: false}
+    develop: {max_sentences: 2, allow_question: false}
+    invite: {max_sentences: 2, allow_question: true}
+    grounded: {max_sentences: 2, allow_question: true}
+
+  # Đây là thao tác nhận thức chung, không phải topic/seed nội dung.
+  cognitive_moves:
+    - "chỉ ra một chi tiết có thật trong mỏ neo và nói phản ứng của Mai về chính chi tiết đó"
+    - "nói phần Mai hiểu chắc từ mỏ neo rồi nêu rõ phần còn thiếu dữ kiện"
+    - "nêu một sở thích hoặc quan điểm của Mai về chủ đề trong mỏ neo, không gán ý định hay hành động cho người khác"

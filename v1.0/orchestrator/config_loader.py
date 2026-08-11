@@ -25,6 +25,7 @@ CONFIG_FILES: dict[str, str] = {
     "data_privacy": "data_privacy.yaml",          # M0.4 privacy/retention
     "agent_state": "agent_state.yaml",            # M1 grounded working state
     "agent_goals": "agent_goals.yaml",            # M2 goal/agenda policy
+    "conversation": "conversation.yaml",           # bounded thread/context/repair policy
     "hosting": "hosting.yaml",                    # M5 mood/persona/proactive hosting
     "relationships": "relationships.yaml",        # M7 privacy-safe social history
     "evaluation": "evaluation.yaml",              # M8 eval/data/fine-tune gates
@@ -38,10 +39,13 @@ CONFIG_FILES: dict[str, str] = {
     "chat_sources": "chat_sources.yaml",             # Platform.A stream mode
     "autonomy": "autonomy.yaml",                     # Autonomy Engine v2
     "autonomy_content_pool": "autonomy_content_pool.yaml",
+    "self_talk": "self_talk.yaml",                 # cause-first Thought Engine
     "pacing": "pacing.yaml",                          # A3 nhịp + filler
     "chat_salience": "chat_salience.yaml",            # C0.1 salience pool
     "director": "director.yaml",                       # C0.3 director loop
     "mood_style": "mood_style.yaml",                   # mood → chỉ dẫn giọng
+    "affect_v2": "affect_v2.yaml",                     # M10.6 turn/session affect
+    "mood_ab_cases": "mood_ab_cases.yaml",             # M10.6 balanced blind replay
 }
 
 ReloadCallback = Callable[[str, dict[str, Any]], None]

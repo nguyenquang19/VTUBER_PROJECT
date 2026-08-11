@@ -23,6 +23,7 @@ def _goal(
     *,
     ttl: int = 60,
     metadata: dict | None = None,
+    parent_thread_id: str | None = None,
 ) -> Goal:
     return Goal(
         goal_id=goal_id,
@@ -34,6 +35,7 @@ def _goal(
         created_at=NOW,
         expires_at=NOW + timedelta(seconds=ttl),
         success_conditions=("done",),
+        parent_thread_id=parent_thread_id,
         metadata=metadata or {},
     )
 
@@ -127,3 +129,36 @@ async def test_service_lifecycle_and_metrics() -> None:
     manager.submit(_goal("g1"))
     assert manager.get_metrics()["goal_created_total"] == 1
     await manager.stop()
+
+
+def test_reconcile_threads_cancels_stale_goal_and_activates_valid_next() -> None:
+    manager = _manager(Clock())
+    assert manager.submit(_goal("stale", parent_thread_id="thread-old"))
+    assert manager.submit(_goal(
+        "valid", priority=30, parent_thread_id="thread-live",
+    ))
+
+    assert manager.reconcile_threads({"thread-live"}) == 1
+
+    snapshot = manager.snapshot()
+    assert snapshot.active is not None
+    assert snapshot.active.goal_id == "valid"
+    stale = next(goal for goal in snapshot.recent_terminal if goal.goal_id == "stale")
+    assert stale.status is GoalStatus.CANCELLED
+    assert stale.suspend_reason == "parent_thread_missing"
+    assert manager.get_metrics()["goal_reconciled_total"] == 1
+
+
+def test_reconcile_threads_keeps_unbound_and_operator_goals() -> None:
+    manager = _manager(Clock())
+    assert manager.submit(_goal("unbound"))
+    assert manager.submit(_goal(
+        "operator", GoalKind.OPERATOR_PINNED, 90,
+        parent_thread_id="thread-old",
+    ))
+
+    assert manager.reconcile_threads(set()) == 0
+    snapshot = manager.snapshot()
+    assert snapshot.active is not None
+    assert snapshot.active.goal_id == "operator"
+    assert any(goal.goal_id == "unbound" for goal in snapshot.suspended)

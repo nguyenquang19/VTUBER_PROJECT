@@ -3,7 +3,7 @@
 #
 # Tuning history:
 # - stiffness 0.30, damping 0.75, tick_hz 10 → over-damped nhẹ, không dao động (spec test 10k tick)
-# - baseline "buc" cao hơn các chiều khác — Mai ngang sẵn, đúng persona.md Phần B
+# - baseline "buc" cao hơn các chiều khác — Mai ngang sẵn, đúng config/prompts/persona_system.txt Phần B
 
 mood_engine:
   tick_hz: 10                    # 10 lần/giây (đủ mượt cho animation VTube Studio Phase 6)
@@ -15,6 +15,6 @@ mood_engine:
   baseline:                      # "tính cách nghỉ" — target mặc định khi không sự kiện
     vui: 5
     buon: 3
-    buc: 4                       # hơi cao — Mai ngang sẵn (persona.md B)
+    buc: 4                       # hơi cao — Mai ngang sẵn (config/prompts/persona_system.txt B)
     bon_chon: 3
     nguong: 2

@@ -1,0 +1,290 @@
+# 03 — Component reference
+
+## 1. Composition và orchestration
+
+### `orchestrator/stream_runtime.py`
+
+Vai trò: composition root của live system. `build_stream_runtime()` load feature status, dựng service,
+start llama.cpp, wire callback và trả `StreamRuntime`. `StreamRuntime.start()/stop()` quản lifecycle.
+
+Input: `ConfigLoader`, danh sách `InputService`, `StreamRuntimeConfig`.
+
+Output: runtime đang chạy, operations snapshot và các side effect platform/audio/dashboard.
+
+Khi sửa:
+
+- Chỉ nối dependency ở đây; không đặt business decision mới vào composition root.
+- Service I/O mới phải start trước consumer và stop theo thứ tự ngược.
+- Mọi private access chéo subsystem là dấu hiệu cần public method/interface.
+- Config critical phải validate trước khi start process/model.
+
+### `orchestrator/config_loader.py`
+
+Load YAML theo logical name, hỗ trợ dotted path và hot reload atomic. Parse lỗi giữ config cũ. Thêm
+file YAML mới phải đăng ký trong `CONFIG_FILES`; field runtime critical cần thêm vào validation model.
+
+### `orchestrator/features.py`
+
+Quản lý feature graph, dependency, conflict, VRAM budget và handler enable/disable/health. Core feature
+không toggle; feature mới phải có config và ít nhất một metric.
+
+### `orchestrator/event_bus.py`
+
+Pub/sub async bounded. Queue overflow theo `drop_oldest` hoặc `drop_newest`; không dùng EventBus làm
+nguồn dữ liệu bền vững. Subscriber chậm không được block producer.
+
+## 2. Input subsystem
+
+### Platform adapters
+
+| File | Input | Output | Failure chính |
+|---|---|---|---|
+| `services/input/youtube_chat.py` | video ID, pytchat stream | `InputEvent(CHAT_YOUTUBE)` | video end/404/rate limit |
+| `services/input/discord_chat.py` | env token, channel IDs | `InputEvent(CHAT_DISCORD)` | token/intent/permission/queue full |
+
+Adapter phải giữ platform SDK ở boundary, chuẩn hóa timestamp/metadata và không log credential.
+
+### `services/input/chat_router.py`
+
+Start emotion + source consumer. Mỗi event được emotion-classify rồi đi vào Director intake hoặc
+legacy FIFO runner. Router ghi activity, grounded event và speech-completed event. Nếu delivery trả
+`delivered=false`, không được ghi speech completed.
+
+Điểm debug: `_handle_event()`, `_to_emotion_event()`, intake callback, metrics `router_*`.
+
+## 3. Emotion và Hybrid affect
+
+### `services/emotion/classifier.py`
+
+Chuyển text/metadata thành `EmotionEvent` category và cause đã sanitize. Category là chìa khóa tune
+response strategy; classifier sai sẽ kéo theo mood/directive sai.
+
+### `orchestrator/mood_engine.py`
+
+Legacy mood nhiều chiều `vui/buon/buc/bon_chon/nguong`, có position/target/decay. Đây là nguồn tone
+được giữ để rollback và cho hai nhóm Hybrid cần sắc thái mềm.
+
+### `services/emotion/affect_v2.py`
+
+Duy trì `TurnAffect` có TTL và `SessionMood` decay theo elapsed time. Cause chỉ giữ bounded
+`source_event_id`, không giữ raw viewer text.
+
+### `services/emotion/hybrid_affect.py`
+
+Tạo đúng một `ResponsePlan`:
+
+- compliment và genuine sad share lấy tone legacy với response mode mềm;
+- mention/troll/spam/jailbreak/sexual/donation/recovery lấy strategy v2;
+- tone flag cụ thể có thể override style;
+- không đổi safety, donation hoặc goal priority.
+
+### `orchestrator/emotion_orchestrator.py`
+
+Chạy legacy và v2 trên cùng event, expose snapshot và delivery directive. Rollback tức thời bằng
+`mood_v2_prompt=false`; legacy mood engine không bị xóa.
+
+Khi mood có bug, kiểm tra theo thứ tự: classifier category → processed cause → legacy position/target
+→ TurnAffect/SessionMood → Hybrid ResponsePlan → prompt directive.
+
+## 4. Agent state, goal và continuity
+
+| Component | Trách nhiệm | Không được làm |
+|---|---|---|
+| `EventLedger` | recent grounded events, dedup/bounds | lưu transcript vô hạn |
+| `AgentState` | reducer tạo topic/phase/environment/last speech | tự quyết định action |
+| `GoalManager` | active/candidate/suspended goal, TTL/status | cho LLM tự commit goal |
+| `AgendaPolicy` | xếp thứ tự goal/thread grounded | để mood đổi hard priority |
+| `OpenThreadManager` | thread đang mở và evidence | tạo fact không provenance |
+| `ConversationContextComposer` | context bounded liên quan query | dump toàn state vào prompt |
+| `ConversationRepairPolicy` | nhận biết contradiction/uncertain recall | bịa fact để lấp chỗ trống |
+| `RelationshipManager` | profile/note/narrative/gag pseudonymous | lưu PII/raw ID trực tiếp |
+
+Source files nằm trong `services/agent/` và `services/relationship/`. Snapshot types bất biến nằm ở
+`services/agent/types.py`, goal types ở `services/agent/goal_types.py`.
+
+## 5. Director subsystem
+
+### `services/director/salience.py`
+
+Pool chat bounded, chấm salience, decay, cluster/dedup. Donation/direct mention và recency ảnh hưởng
+candidate score theo config. Nếu spam làm mất chat quan trọng, kiểm tra capacity, decay, cluster và
+eviction trước khi sửa Director.
+
+`kind_detection` trong `chat_salience.yaml` nhận diện mention/question bằng pattern cấu hình, gồm câu
+hỏi tiếng Việt không có dấu `?`. Chat thường vẫn vào pool để gom cụm; không đồng nghĩa nó được mở turn.
+
+### `services/director/chat_pulse.py`
+
+Đo nhịp chat theo cửa sổ thời gian và tạo pulse state. Pulse ảnh hưởng pacing/hosting, không phải
+nguồn truth về nội dung.
+
+### `services/director/director.py`
+
+Pure decision layer: `DirectorInput -> DirectorDecision`. Hard arbitration gồm safety hold,
+donation/operator state; soft arbitration gồm salience, goal/thread, proactive candidate và cooldown.
+Unit test của Director nên dùng snapshot deterministic, không gọi LLM/TTS.
+
+Feature `director_chat_gate` so top score với `director.min_actionable_score`. Candidate thấp điểm trả
+`WAIT/below_actionable_score`, trừ khi backlog đủ lớn để `SUMMARY`; feature OFF khôi phục hành vi cũ.
+Hết thời lượng segment vẫn transition dù pool còn chat, sau khi hard priority và goal đã được xét.
+
+`COLD` là trạng thái kéo dài, không phải edge event: nó chỉ cho phép silence self-talk sau
+`dead_air_seconds`. Sau một self-talk đã delivery, `self_talk_cooldown_seconds` chặn mọi silence/urge/mood
+self-talk mới cho tới hết khoảng nghỉ; break sau chuỗi read-chat vẫn được ưu tiên để tránh đọc FIFO vô hạn.
+Không có material hoặc delivery thất bại không được cập nhật `last_spoke`.
+
+### `services/director/director_loop.py`
+
+Driver tick, transaction owner và action executor. Flow chính: evict stale → build input → decide →
+record decision → reserve → generate → deliver → commit/release. Chỉ file này được phép phối hợp
+business side effect sau delivery.
+
+### `services/autonomy/self_talk_planner.py`
+
+Thought Engine nội dung có state bounded, không phải scheduler. Nó dựng `Thought` từ cause thật theo
+thứ tự grounded material, environment, recent context rồi silence; mỗi thought có intention và
+evidence refs. `cognitive_moves` là thao tác nhận thức chung như chú ý/so sánh/đặt giả định, không phải
+topic hay seed nội dung. Thought có recent/environment material dùng arc `open`, `develop`, `invite`,
+rồi `wait`; riêng cause `silence` là one-shot một lần cho mỗi quiet episode để không kéo dài một premise
+rỗng. Thought Ledger bounded chống lặp cả intention lẫn lời đã nói.
+
+`validate_output()` enforce số câu, câu hỏi theo nghĩa (không chỉ dấu `?`), đúng một câu hỏi ở `invite`
+và coverage chống chép lại stage trước; Director chỉ regenerate một lần. `can_deliver()` chặn pending
+ambient nếu chat đến trong generation. Mọi chat mở global quiet gate; chat suspend arc `open/develop`
+thay vì xóa, nhưng resolve arc đang `wait`. `prepare/release/commit` bảo đảm chặng chỉ tiến khi delivery
+trả `delivered=true`.
+
+Mood đi qua `MoodStyleTable` để đổi thái độ, nhịp và độ dài. Mood không tạo thought cause, không chọn
+lại lịch sử, không thêm người/game/sự kiện và không làm thay đổi hard priority. Feature runtime:
+`self_talk_planner`.
+
+### `services/director/action_transaction.py`
+
+State machine bounded với idempotency cache. Illegal transition phải fail; duplicate committed không
+deliver lại. Snapshot chỉ giữ recent transaction theo giới hạn YAML.
+
+### `services/director/decision_record.py`
+
+Audit bounded cho action/reason/evidence/candidate/transaction result. Không chứa raw chat, token hoặc
+viewer identity. Dashboard render view model này thay vì tự đoán reason.
+
+## 6. LLM subsystem
+
+### `services/llm/process_manager.py`
+
+Tạo command `llama-server.exe`, quản process do runtime sở hữu, chờ health và stop process đã tạo.
+Không dùng Ollama/transformers/vLLM. Nếu server có sẵn, manager không được giết process operator-owned.
+
+### `services/llm/llama_cpp_llm.py`
+
+HTTP streaming client cho llama.cpp. Input `LLMRequest`, output ordered `LLMToken`. Theo dõi TTFT,
+token count, decode throughput và cancel request.
+
+### `services/llm/prompt_manager.py`
+
+Load persona system prompt, giữ history bounded, ghép mood/agent/memory/relationship/action context.
+Persona prefix cần byte-stable để tận dụng cache. Không commit history ở đây trước delivery.
+
+### `services/llm/llm_turn.py`
+
+Điều phối một turn: build request → fallback generation → parse → filter/regenerate → metrics/log →
+pending delivery. `finalize_delivery(request_id, success)` là ranh giới commit history/memory.
+
+### Parser/filter/fallback
+
+- `services/llm/parser.py`: strip reasoning/meta, parse output contract.
+- `services/filter/rule_filter.py`: deterministic safety/persona rules.
+- `services/filter/regenerator.py`: generation lại khi verdict yêu cầu.
+- `services/llm/canned_response.py`: fallback cuối không cần primary model.
+- `orchestrator/fallback_manager.py`: chain handler có timeout từng level.
+
+`DirectorLoop` treats the final filter verdict as a delivery gate: an exhausted
+`regenerate`, `replace`, or `block` verdict never reaches TTS and never commits a transaction.
+The rejected chat/thread/goal is quarantined after the bounded attempts so it cannot be selected on
+every following tick. Candidate filter hits and delivered-output violations are separate metrics.
+
+## 7. TTS subsystem
+
+| Component | Input | Output | Chú ý |
+|---|---|---|---|
+| `sentence_splitter.py` | Vietnamese text | ordered sentences | sửa splitter phải test viết tắt/dấu câu |
+| `vieneu_service.py` | `TTSRequest` | `AudioChunk` stream | enroll reference trực tiếp vào RAM một lần khi start |
+| `audio_player.py` | chunks | sound device | queue bounded, cancel, no-overlap |
+| `subtitle_fallback.py` | sentence request | empty final chunk + file/event sink | file atomic, require real sink |
+| `tts_pipeline.py` | full response text | `TTSDeliveryResult` | lock synth, fallback per sentence, hỗ trợ subtitle-only |
+| `natural_timing.py` | action/context/latency | timing plan | config-driven, không che LLM latency |
+
+## 8. Memory và relationship
+
+- `WorkingMemoryService`: in-memory recent entries, không bền qua restart.
+- `SemanticMemoryService`: embed bằng BGE-M3 và lưu vector/metadata SQLite; optional.
+- `MemoryFallbackManager`: semantic lỗi thì fallback working memory.
+- `MemoryExtractor`: chỉ extract từ committed viewer turn; ambient không tạo memory fact.
+- `RelationshipStore/Manager`: SQLite profile/note/narrative/running gag, TTL và consent config.
+
+Memory không được block hoặc làm fail turn chính. Fact prompt phải có provenance/confidence phù hợp.
+
+## 9. Dashboard và operations
+
+### `dashboard/dashboard_server.py`
+
+FastAPI server, `/operator`, `/legacy`, `/api/snapshot` và WebSocket. Operator v2 lấy
+`operator_overview` dựng server-side. Mutating endpoint gọi control plane/manager public API; standalone
+mode khóa mutation.
+
+GPU utilization và VRAM trong dashboard lấy từ `nvidia-smi` với timeout/refresh trong `system.yaml`.
+Query lỗi phải trả unavailable/stale rõ ràng, không sinh số demo.
+
+Operator v2 render mood từ `mood_pos` float thành năm cột realtime; `current_mood` integer chỉ dùng cho
+policy/prompt và không đủ mịn cho animation. Vạch trắng là target, chiều cao cột là position. Snapshot
+đính `sampled_at` và `ticks`; standalone root vẫn mở operator v2 nhưng ghi rõ runtime offline.
+
+### Operations services
+
+| File | Trách nhiệm |
+|---|---|
+| `health_supervisor.py` | bounded restart/backoff/circuit breaker |
+| `shutdown_coordinator.py` | ordered best-effort graceful shutdown |
+| `emergency_control.py` | đóng speech/action gate, cancel, resume prune stale |
+| `control_plane.py` | pause/resume/cancel/pin và audit |
+| `incident_log.py` | append-only sanitized incident ledger |
+| `post_stream_review.py` | kiểm tra snapshot/audit/incident/soak |
+| `standalone_snapshot.py` | đọc snapshot/log khi runtime offline |
+
+## 10. Evaluation và data tools
+
+`services/evaluation/` chứa scenario loader/harness, deterministic simulator, acceptance runner,
+human review, mood A/B, data quality và candidate readiness. Đây là offline tooling; không thêm LLM
+shadow call vào live path. Scripts tương ứng nằm trong `scripts/`.
+
+## 11. Conversation Thread Engine
+
+The long-form continuity path extends the existing `OpenThreadManager` rather than creating a second
+conversation store:
+
+- `topic_matcher.py`: deterministic lexical match with a hard reject threshold;
+- `conversation_move_planner.py`: chooses `deepen`, `clarify`, `compare`, `invite`, `summarize`,
+  `resume`, and other public conversation moves;
+- `thread_detector.py`: converts grounded chat and delivered speech into lifecycle signals;
+- `open_thread_manager.py`: owns bounded evidence, claims, viewer contributions, open questions,
+  active/waiting/parked status, TTL, and terminal history;
+- `conversation_context.py` and `action_context.py`: expose only bounded facts and the selected public
+  move to llama.cpp;
+- `director_loop.py`: publishes spoken progress only after typed delivery success.
+
+`conversation_continuity` is the owning feature toggle. Topic matcher and move planner lifecycle is owned
+by `OpenThreadManager`; their counters are included in thread metrics.
+
+Before every Director arbitration, `GoalManager.reconcile_threads()` cancels thread-bound goals whose
+parent is no longer present. This housekeeping must run before `snapshot()` so an expired thread cannot
+leave a `CONTINUE_THREAD` goal blocking live chat until its independent TTL expires.
+
+Temporal words such as `nãy/lúc nãy` do not select the most recent thread by themselves. They require a
+lexical topic match; only explicit continuation phrases such as `kể tiếp/nói tiếp/rồi sao` may use the
+single-active-thread fallback. This prevents fast-room remarks from hijacking an unrelated thread.
+
+`scripts/stress_youtube_llm.py` reuses the full replay/Director path but replaces the offline stub with
+the production llama.cpp turn runner and rule filter. It records every generation, final delivery,
+fallback, TTFT/decode rate, thread outcome and a bounded operator-review sample.
+Quality gates inspect only outputs that crossed the delivery boundary; rejected candidates remain in
+`candidate_flags` for safety observability and filter tuning.

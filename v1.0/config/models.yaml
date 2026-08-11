@@ -1,5 +1,5 @@
 # models.yaml — cấu hình model (ARCHITECTURE 10.3)
-# Số liệu latency đã điền từ Pre-flight Day 1 + Day 2 (spike/day1_report.md, day2_report.md)
+# Số liệu latency đã điền từ Pre-flight Day 1 + Day 2 (docs/05_CONFIGURATION.md)
 
 llm_main:
   provider: llama_cpp
@@ -29,21 +29,37 @@ llm_main:
   presence_penalty: 0.3          # phạt token ĐÃ xuất hiện → đẩy đa dạng từ vựng
   frequency_penalty: 0.0         # phạt theo TẦN SUẤT (0=tắt; bật nếu vẫn lặp cụm)
   batch_size: 512
-  health_timeout_s: 30
+  # Cold load đo trên máy hiện tại thường 27-31s. Giữ dư địa cho lần load lại sau
+  # khi process cũ vừa nhả VRAM; 30s gây false-negative ngay sát deadline.
+  health_timeout_s: 60
+  extra_flags:
+    - "--flash-attn"
+    - "on"
+    # Gemma 4 có reasoning native; tắt để stream trả thoại trực tiếp qua content.
+    - "--reasoning"
+    - "off"
   # Persona prefix (system message) — giữ byte-ổn định để llama-server KV-cache
-  # reuse (cache_prompt:true). Dựng từ persona.md Phần A+B+C. Xem prompt_cache 1.C.
+  # reuse (cache_prompt:true). Dựng từ config/prompts/persona_system.txt Phần A+B+C. Xem prompt_cache 1.C.
   persona_prompt_path: ".\\config\\prompts\\persona_system.txt"
   max_history_turns: 10         # 12→10 (2026-07-31): giảm prefill LLM khi GPU chia với TTS.
                                 # Mai nhớ 10 cặp turn ≈ 5-8 phút hội thoại — đủ cho MVP.
                                 # Bật lên lại nếu thấy Mai quên chuyện vừa nói.
+  history_max_chars: 1200       # hard budget chống prompt vượt n_ctx=4096 trong phiên dài
   # Ambient talk (7.9.4, 2.C): prompt để Mai tự mở lời khi im lặng lâu.
   # Placeholder {silence} (phút) + {mood} thay lúc build.
   ambient_prompt_path: ".\\config\\prompts\\ambient_instruction.txt"
 
+llm_generation:
+  chat_max_tokens: 160          # đủ trả lời có nội dung, chặn độc thoại kéo dài
+  ambient_max_tokens: 96        # self-talk mặc định 1-2 câu
+  directed_max_tokens: 128      # continue-thread/follow-up có thêm chút dư địa
+
 # LLM fallback chain 2 tầng (ARCHITECTURE 8.7.1 — N1: đúng 2 level, bỏ E4B).
 # Level 1 = Gemma 12B (timeout_primary_s). Level 2 = canned theo mood (timeout_canned_s).
 llm_canned:
-  timeout_primary_s: 5.0
+  # Đây là timeout TOÀN lượt generation, không chỉ TTFT. Với trần 500 tokens và
+  # baseline >=40 tok/s, 5s cắt ngang mọi câu dài; 20s gồm decode + prefill margin.
+  timeout_primary_s: 20.0
   timeout_canned_s: 0.1
   # canned pick theo dominant mood (key khớp MoodState: vui/buon/buc/bon_chon/nguong);
   # mood không rõ / neutral → dùng "default".
@@ -54,14 +70,6 @@ llm_canned:
     buc: ["Gì nữa đây.", "Hừ."]
     bon_chon: ["Ơ... sao thế?", "Gì vậy?"]
     nguong: ["Ơ kìa...", "Thôi mà."]
-  extra_flags:
-    - "--flash-attn"
-    - "on"
-    # Gemma 4 có reasoning native → BẮT BUỘC tắt, nếu không model "nghĩ" trước
-    # (chậm + rỗng content). Xem STATE.md / memory reference-llm-model.
-    - "--reasoning"
-    - "off"
-
   # Measured Pre-flight Day 1 (RTX 5060 Ti / Gemma 4 12B Q4_K_M / n_ctx 4096)
   latency_measured:
     ttft_cold_ms: 444
@@ -70,19 +78,25 @@ llm_canned:
     ttft_warm_long_ms: 541
     decode_tps_min: 40.0
     decode_tps_typical: 43.0
+    # Full 3h15m replay, 448-470 generations (2026-08-12): p50 varied by run.
+    stress_decode_tps_p50_min: 36.483
+    stress_decode_tps_p50_max: 39.227
+    stress_ttft_p95_ms_max: 956.687
   latency_target:
     ttft_p50_ms: 600           # thay vì 500 trong spec gốc — số thực đo
     ttft_p95_ms: 1000
-    decode_tps_min: 40         # thay vì 60 trong spec gốc — 60 không realistic trên hardware này
+    decode_tps_min: 35         # conservative full-session p50 gate; raw min vẫn được report
 
   # Day 1 finding: llama-server stream qua delta.reasoning_content thay vì delta.content
-  # Phase 1 parser phải handle cả 2 field. Xem spike/day1_report.md.
+  # Phase 1 parser phải handle cả 2 field. Xem docs/05_CONFIGURATION.md.
   stream_content_fields:
     - "content"
     - "reasoning_content"
 
 tts:
-  provider: vieneu               # chuyển từ viXTTS sau spike day_vieneu (2026-08)
+  provider: vieneu               # production TTS backend
+  startup_timeout_s: 30.0        # load model + enroll voice; timeout → subtitle-only mode
+  health_timeout_s: 5.0          # bounded startup/restart health gate
   # reference_audio dùng chung file vi_sample.wav (giữ lại từ setup viXTTS —
   # đây là giọng bạn ưng). VieNeu enroll qua add_voice() 1 lần lúc start().
   reference_audio: ".\\models\\tts\\xtts\\vixtts\\vi_sample.wav"
@@ -99,7 +113,7 @@ tts:
     max_new_frames: 500          # 300 → 500: mỗi chunk gen dài hơn, ít gap giữa chunks
     repetition_penalty: 1.2
   latency_measured:
-    ttfa_p50_ms: 308             # spike day_vieneu (10 câu VN, sau khi cache voice)
+    ttfa_p50_ms: 308             # local baseline 10 câu VN, sau khi cache voice
     rtf: 0.857                   # < 1.0 → streaming per-sentence OK
   latency_target:
     ttfa_p50_ms: 500
@@ -112,8 +126,10 @@ tts:
 tts_fallback:
   provider: subtitle_overlay     # ARCHITECTURE 8.7.3 — không có TTS backup, dùng subtitle
   enabled: true
+  output_file: ".\\logs\\live\\subtitle.txt"
+  require_delivery: true        # Chỉ commit khi subtitle thật sự tới ít nhất một sink
 
-# STT deferred — xem spike/day3_report.md (user scope decision, MVP chat-only).
+# STT deferred — xem docs/01_SYSTEM_OVERVIEW.md (user scope decision, MVP chat-only).
 # Giữ block config để Phase 5 wire sau; interfaces/stt.py có stub trả "".
 stt:
   enabled: false

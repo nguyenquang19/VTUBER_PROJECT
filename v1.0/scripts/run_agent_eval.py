@@ -10,6 +10,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from orchestrator.config_loader import ConfigLoader  # noqa: E402
+from services.evaluation.acceptance import TextAcceptanceRunner  # noqa: E402
 from services.evaluation.harness import ScenarioEvaluationHarness  # noqa: E402
 from services.evaluation.review import build_live_artifact, finalize_human_review  # noqa: E402
 from services.evaluation.types import ObservedOutcome  # noqa: E402
@@ -51,6 +52,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", type=Path)
     parser.add_argument("--run-id", default="manual-live-eval")
     parser.add_argument("--validate-suite", action="store_true")
+    parser.add_argument("--acceptance", action="store_true")
+    parser.add_argument("--seed", type=int)
     args = parser.parse_args(argv)
     try:
         if args.review:
@@ -66,6 +69,25 @@ def main(argv: list[str] | None = None) -> int:
             "features", "features.evaluation_harness.enabled", False,
         ))
         harness = ScenarioEvaluationHarness.from_loader(loader, enabled=enabled)
+        if args.acceptance:
+            acceptance_enabled = enabled and bool(loader.get(
+                "features", "features.evaluation_acceptance.enabled", False,
+            ))
+            runner = TextAcceptanceRunner.from_loader(
+                loader, enabled=acceptance_enabled,
+            )
+            artifact = runner.run(seed=args.seed)
+            target = args.output or runner.artifact_file
+            _write_json(target, artifact)
+            print(json.dumps({
+                "output": str(target),
+                "status": artifact["status"],
+                "passed": artifact["passed"],
+                "seed": artifact["seed"],
+                "scenario_count": artifact["scenario_count"],
+                "sanitized": artifact["sanitized"],
+            }, ensure_ascii=False))
+            return 0 if artifact["passed"] else 1
         if args.validate_suite:
             summary = {
                 "contract_id": harness.suite().contract_id,

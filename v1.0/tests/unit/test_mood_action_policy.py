@@ -23,21 +23,21 @@ def _policy(metrics=None) -> MoodActionPolicy:
     ), metrics=metrics)
 
 
-def test_strong_mood_changes_goal_priority_but_weak_mood_does_not() -> None:
+def test_mood_never_changes_goal_priority() -> None:
     policy = _policy()
     assert policy.goal_priority(
         GoalKind.CONTINUE_THREAD, 40, MoodState(bon_chon=8), (),
-    ) == 50
+    ) == 40
     assert policy.goal_priority(
         GoalKind.CONTINUE_THREAD, 40, MoodState(bon_chon=5), (),
     ) == 40
 
 
-def test_tone_flag_and_mood_both_affect_real_scores() -> None:
+def test_tone_flag_and_mood_only_affect_soft_director_scores() -> None:
     policy = _policy()
     assert policy.goal_priority(
         GoalKind.ANSWER_FOLLOW_UP, 70, MoodState(), {"force_gentle_tone"},
-    ) == 85
+    ) == 70
     assert policy.proactive_ready(MoodState(bon_chon=8))
     assert not policy.proactive_ready(
         MoodState(bon_chon=8), {"force_gentle_tone"},
@@ -49,8 +49,8 @@ def test_policy_disable_is_backward_compatible_and_metric_is_observable() -> Non
     policy = _policy(metrics)
     assert policy.goal_priority(
         GoalKind.CONTINUE_THREAD, 40, MoodState(bon_chon=8), (),
-    ) == 50
-    assert metrics.mood_adjustment_snapshot()
+    ) == 40
+    assert metrics.mood_adjustment_snapshot() == {}
     policy.set_enabled(False)
     assert policy.goal_priority(
         GoalKind.CONTINUE_THREAD, 40, MoodState(bon_chon=10), (),

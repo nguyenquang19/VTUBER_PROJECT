@@ -9,6 +9,10 @@ dashboard:
   port: 7860
   ws_path: "/ws"
   push_interval_s: 1.0
+  gpu_metrics:
+    command: "nvidia-smi"
+    timeout_s: 1.0
+    refresh_s: 2.0
 
 paths:
   data_dir: "data"
@@ -57,7 +61,7 @@ event_bus:
 
 resources:
   # RTX 5060 Ti 16GB. Baseline đã chiếm: Gemma 12B Q4_K_M ~8000MB (Pre-flight Day 1)
-  # + VieNeu-TTS v3 Turbo 400MB (spike day_vieneu) = ~8400MB. Budget cho toggleable
+  # + VieNeu-TTS v3 Turbo 400MB (local measured baseline) = ~8400MB. Budget cho toggleable
   # feature là phần còn lại, trừ 1000MB buffer cho OS/driver/fragmentation.
   # (Trước swap 2026-08: viXTTS chiếm 1790MB → budget hẹp hơn 1390MB.)
   vram_total_mb: 16384

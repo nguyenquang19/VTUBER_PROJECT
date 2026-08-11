@@ -88,7 +88,14 @@ class AgendaPolicy:
     ) -> tuple[Goal, ...]:
         if event.kind is AgentEventKind.DONATION_RECEIVED:
             return (self._donation(event, mood, tone_flags),)
-        if event.kind is AgentEventKind.SPEECH_FINAL and _is_specific_question(event):
+        if (
+            event.kind is AgentEventKind.SPEECH_FINAL
+            and _is_specific_question(event)
+        ) or (
+            event.kind is AgentEventKind.SPEECH_COMPLETED
+            and event.payload.get("expects_chat_answer") is True
+            and _is_specific_question(event)
+        ):
             return (self._wait_for_answer(event, state, mood, tone_flags),)
         if event.kind is AgentEventKind.CHAT_RECEIVED:
             active = goals.active
@@ -207,16 +214,22 @@ class AgendaPolicy:
 
 
 def _is_specific_question(event: GroundedEvent) -> bool:
-    text = " ".join(str(event.payload.get("text") or "").split())
-    return "?" in text and len(text) >= 4
+    text = " ".join(str(event.payload.get("text") or "").split()).rstrip('"”’)]}')
+    return text.endswith("?") and len(text) >= 4
 
 
 def _thread_for_event(event: GroundedEvent, state: AgentStateSnapshot) -> Any:
     for thread in reversed(state.open_threads):
-        if thread.thread_id == event.event_id or thread.thread_id in {
-            event.event_id.removeprefix("agent:chat:"),
-            event.provenance.source_event_id,
-        }:
+        evidence_ids = {item.source_event_id for item in thread.evidence}
+        if (
+            thread.thread_id == event.event_id
+            or thread.origin_event_id == event.event_id
+            or event.event_id in evidence_ids
+            or thread.thread_id in {
+                event.event_id.removeprefix("agent:chat:"),
+                event.provenance.source_event_id,
+            }
+        ):
             return thread
     return None
 

@@ -30,6 +30,9 @@ class FixedGoals:
     def snapshot(self) -> GoalSnapshot:
         return self._snapshot
 
+    def reconcile_threads(self, _open_thread_ids: set[str]) -> int:
+        return 0
+
 
 def _goal(kind: GoalKind, now: datetime, **over: object) -> Goal:
     values: dict[str, object] = {

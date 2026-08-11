@@ -22,6 +22,17 @@ class EvalOutcome(str, Enum):
     NOT_OBSERVED = "not_observed"
 
 
+class EvaluationFault(str, Enum):
+    NONE = "none"
+    GENERATION_ERROR = "generation_error"
+    FILTER_REJECT = "filter_reject"
+    DELIVERY_ERROR = "delivery_error"
+    DUPLICATE_EVENT = "duplicate_event"
+    LOGGING_ERROR = "logging_error"
+    DASHBOARD_ERROR = "dashboard_error"
+    SHUTDOWN_BEFORE_COMMIT = "shutdown_before_commit"
+
+
 @dataclass(frozen=True)
 class ExpectedOutcome:
     action: str | None = None
@@ -115,4 +126,45 @@ class ScenarioResult:
             "source_refs": list(self.source_refs),
             "human_review_required": self.human_review_required,
             "reason": self.reason,
+        }
+
+
+@dataclass(frozen=True)
+class SimulationResult:
+    scenario_id: str
+    seed: int
+    fault: EvaluationFault
+    started_at: float
+    trace: tuple[str, ...]
+    observed: ObservedOutcome
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "trace", tuple(self.trace))
+
+    def replay_key(self) -> tuple[Any, ...]:
+        return (
+            self.scenario_id,
+            self.seed,
+            self.fault.value,
+            self.started_at,
+            self.trace,
+            self.observed.action,
+            self.observed.state,
+            tuple(sorted(self.observed.invariants.items())),
+            self.observed.source_refs,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "scenario_id": self.scenario_id,
+            "seed": self.seed,
+            "fault": self.fault.value,
+            "started_at": self.started_at,
+            "trace": list(self.trace),
+            "observed": {
+                "action": self.observed.action,
+                "state": self.observed.state,
+                "invariants": dict(self.observed.invariants),
+                "source_refs": list(self.observed.source_refs),
+            },
         }

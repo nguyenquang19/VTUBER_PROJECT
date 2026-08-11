@@ -57,6 +57,13 @@ class TestRegistryBasics:
     async def test_default_status_disabled(self, mgr: FeatureManager) -> None:
         assert await mgr.get_status("a") is FeatureStatus.DISABLED
 
+    async def test_production_registers_director_chat_gate(self) -> None:
+        loader = ConfigLoader(REPO_ROOT / "config")
+        loader.load_all()
+        production = FeatureManager.from_config(loader)
+
+        assert await production.get_status("director_chat_gate") is FeatureStatus.ENABLED
+
 
 class TestCoreFeatures:
     async def test_enable_core_raises(self, mgr: FeatureManager) -> None:

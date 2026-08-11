@@ -16,7 +16,7 @@ from typing import Any, AsyncIterator
 import numpy as np
 import pytest
 
-from interfaces.tts import AudioChunk, TTSRequest
+from interfaces.tts import AudioChunk, TTSDeliveryMode, TTSRequest
 from orchestrator.fallback_manager import FallbackManager
 from orchestrator.metrics_collector import MetricsCollector
 from services.tts.audio_player import AudioPlayer
@@ -108,12 +108,14 @@ class TestBasicPipeline:
         pipe, primary, player, backend, metrics = make_pipeline()
         await player.start()
         try:
-            await pipe.speak("r1", "Chào cậu. Khoẻ không?")
+            result = await pipe.speak("r1", "Chào cậu. Khoẻ không?")
             assert primary.calls == 2   # 2 câu → 2 lần synthesize_stream
             await _wait(lambda: len(backend.play_events) >= 4)
         finally:
             await player.stop()
         assert pipe.get_metrics()["tts_pipeline_sentences_total"] == 2
+        assert result.delivered is True
+        assert result.mode is TTSDeliveryMode.AUDIO
         assert metrics.tts_snapshot()["turns_total"] == 1
 
     async def test_ttfa_measured(self) -> None:
@@ -156,10 +158,12 @@ class TestFallbackToSubtitle:
         pipe, _p, player, _backend, metrics = make_pipeline(primary=primary)
         await player.start()
         try:
-            await pipe.speak("r1", "chào cậu")
+            result = await pipe.speak("r1", "chào cậu")
         finally:
             await player.stop()
         assert pipe.get_metrics()["tts_pipeline_last_level_max"] == 1
+        assert result.delivered is True
+        assert result.mode is TTSDeliveryMode.SUBTITLE
         assert metrics.tts_snapshot()["subtitle_fallback_total"] == 1
 
     async def test_subtitle_sink_receives_text(self) -> None:
@@ -195,6 +199,49 @@ class TestEdges:
         assert primary.calls == 0
         assert pipe.get_metrics()["tts_pipeline_sentences_total"] == 0
 
+    async def test_audio_and_subtitle_failure_is_not_delivered(self) -> None:
+        primary = FakeTTS(raise_on_call=1)
+        subtitle = SubtitleFallbackService(require_delivery=True)
+        player = AudioPlayer(sample_rate=24000, backend=FakePlayerBackend())
+        pipe = TTSPipeline(
+            primary=primary,
+            subtitle=subtitle,
+            player=player,
+            fallback=FallbackManager(),
+            timeout_primary_s=1.0,
+            timeout_subtitle_s=0.5,
+        )
+        await player.start()
+        try:
+            result = await pipe.speak("r-fail", "không tới được output")
+        finally:
+            await player.stop()
+        assert result.delivered is False
+        assert result.mode is TTSDeliveryMode.NONE
+        assert result.failed_sentences == 1
+
+    async def test_mixed_audio_and_subtitle_counts_as_delivered(self) -> None:
+        primary = FakeTTS(chunks_per_sentence=1, raise_on_call=2)
+        subtitle = SubtitleFallbackService(on_subtitle=lambda _rid, _text: None)
+        player = AudioPlayer(sample_rate=24000, backend=FakePlayerBackend())
+        pipe = TTSPipeline(
+            primary=primary,
+            subtitle=subtitle,
+            player=player,
+            fallback=FallbackManager(),
+            timeout_primary_s=1.0,
+            timeout_subtitle_s=0.5,
+        )
+        await player.start()
+        try:
+            result = await pipe.speak("r-mixed", "câu một. câu hai.")
+        finally:
+            await player.stop()
+        assert result.delivered is True
+        assert result.mode is TTSDeliveryMode.MIXED
+        assert result.audio_sentences == 1
+        assert result.subtitle_sentences == 1
+
     async def test_cancel_stops_pipeline(self) -> None:
         # 3 câu, cancel giữa
         pipe, primary, player, _backend, _m = make_pipeline(chunk_delay=0.03)
@@ -216,9 +263,11 @@ class TestEdges:
             task = asyncio.create_task(pipe.speak("r-live", "mot. hai. ba."))
             await asyncio.sleep(0.02)
             await pipe.cancel_all()
-            await asyncio.wait_for(task, timeout=2.0)
+            result = await asyncio.wait_for(task, timeout=2.0)
             await asyncio.sleep(0)
         finally:
             await player.stop()
         assert "r-live#0" in primary.cancelled
         assert player.get_metrics()["audio_queue_size"] == 0
+        assert result.delivered is False
+        assert result.mode is TTSDeliveryMode.CANCELLED

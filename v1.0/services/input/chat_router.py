@@ -63,6 +63,7 @@ class ChatRouter:
         self._extra_activity_hook = chat_pulse_hook
         self._agent_state = agent_state
         self._relationship_manager = relationship_manager
+        self._activity_listeners: list[Callable[[InputEvent], None]] = []
 
         self._running = False
         # C0.4: share turn_lock với DirectorLoop nếu được cấp (1 driver duy nhất)
@@ -124,6 +125,18 @@ class ChatRouter:
 
     # ---------- Metrics ----------
 
+    @property
+    def turn_lock(self) -> asyncio.Lock:
+        return self._turn_lock
+
+    @property
+    def source_ids(self) -> tuple[str, ...]:
+        return tuple(getattr(source, "service_id", "unknown") for source in self._sources)
+
+    def add_activity_listener(self, callback: Callable[[InputEvent], None]) -> None:
+        if callback not in self._activity_listeners:
+            self._activity_listeners.append(callback)
+
     def get_metrics(self) -> dict[str, Any]:
         return {
             "router_events_received": self._events_received,
@@ -174,6 +187,11 @@ class ChatRouter:
 
     async def _process(self, event: InputEvent) -> None:
         """1 event → emotion + (intake: bơm pool/pulse) HOẶC (FIFO: run_turn)."""
+        for callback in tuple(self._activity_listeners):
+            try:
+                callback(event)
+            except Exception:
+                continue
         emo_event = _to_emotion_event(event)
         try:
             processed = await self._emotion.handle_event(emo_event)
@@ -213,9 +231,14 @@ class ChatRouter:
 
             # Speak (TTS) — optional, không await trong lock nếu speak dài
             # nhưng vẫn giữ trong lock để đảm bảo audio Mai không overlap
-            if self._speak is not None and parsed.ok and parsed.text:
+            # Canned fallback có parse_ok=False để không lọt vào dataset, nhưng
+            # vẫn phải tới TTS/subtitle để runtime không đứng hình.
+            if self._speak is not None and parsed.text:
                 try:
-                    await self._speak(event.event_id or "no_id", parsed.text)
+                    delivery = await self._speak(event.event_id or "no_id", parsed.text)
+                    if delivery is False or getattr(delivery, "delivered", True) is False:
+                        self._log.warning("router_delivery_not_reached")
+                        return
                     self._speak_calls += 1
                 except Exception as e:
                     self._log.warning("router_speak_failed", error=str(e))
@@ -309,7 +332,8 @@ class ChatRouter:
         is_super = bool(emo_event.meta.get("platform_type") == "donation")
         amount = int(emo_event.meta.get("amount_vnd", 0) or 0)
         text = event.content or ""
-        kind = _classify_kind(text)
+        classify_kind = getattr(self._pool, "classify_kind", None)
+        kind = classify_kind(text) if callable(classify_kind) else _classify_kind(text)
         try:
             self._pool.add(
                 msg_id=event.event_id or f"m{self._intake_pooled}",

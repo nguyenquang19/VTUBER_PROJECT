@@ -57,7 +57,8 @@ async def test_chat_streams_content(loader, running_server) -> None:
         assert m["llm_last_tokens_out"] > 0
         print(f"\nTTFT={m['llm_last_ttft_ms']:.0f}ms tokens={m['llm_last_tokens_out']} "
               f"decode={m['llm_last_decode_tps']}")
-        print(f"OUTPUT: {text[:150]}")
+        # PowerShell/CI có thể để stdout ở cp1252; !a giữ debug output ASCII-safe.
+        print(f"OUTPUT: {text[:150]!a}")
     finally:
         await svc.stop()
 

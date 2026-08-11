@@ -1,4 +1,4 @@
-"""eval_transcript — B0 baseline eval theo ROADMAP_AUTONOMOUS_HOST §BƯỚC 0.
+"""eval_transcript — B0 baseline eval theo docs/03_COMPONENT_REFERENCE.md §BƯỚC 0.
 
 Đọc `logs/turns.jsonl` (schema từ LLMTurnRunner._log_turn), in 4 metric:
 

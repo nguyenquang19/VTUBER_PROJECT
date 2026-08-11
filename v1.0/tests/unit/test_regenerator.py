@@ -98,6 +98,25 @@ class TestPassThrough:
         assert llm.calls == 0                     # không regen block
         assert regen.get_metrics()["filter_regen_attempts_total"] == 0
 
+    async def test_request_context_reaches_identity_guard(self) -> None:
+        guard = {
+            "foreign_names": ["anami"],
+            "first_person_patterns": [r"\bnếu tớ\b"],
+        }
+        llm = ScriptedLLM([CLEAN_BODY])
+        regen = FilterRegenerator(
+            make_filter(identity_guard=guard), llm, max_attempts=1,
+        )
+        bad = parse_response("Nếu tớ có thân xác thì tớ sẽ đi ăn.")
+
+        final, verdict = await regen.check_and_maybe_regen(
+            base_request("Nếu Anami có thân xác thì làm gì?"), bad,
+        )
+
+        assert llm.calls == 1
+        assert final.text == "Chào cậu."
+        assert verdict.passed is True
+
 
 class TestRegenerateRecovered:
     async def test_recovers_on_second_attempt(self) -> None:
@@ -201,7 +220,7 @@ class TestFromLoader:
         loader.load_all()
         regen = FilterRegenerator.from_loader(loader, make_filter(), ScriptedLLM([CLEAN_BODY]))
         # config đặt 1
-        assert regen._max_attempts == 1
+        assert regen._max_attempts == 2
 
 
 class TestLLMTurnRunnerIntegration:

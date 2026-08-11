@@ -2,7 +2,7 @@
 
 DoD kiểm ở đây:
 - Dashboard mở ở localhost, toggle giả bật/tắt được
-- Metric giả có trong snapshot (realtime push qua WS)
+- Metric NVIDIA có trong snapshot (không phát sinh số giả)
 - Emergency stop → PAUSED từ mọi state
 - Resume → IDLE
 """
@@ -74,10 +74,12 @@ class TestSnapshot:
         assert "vram" in snap
 
     def test_metrics_present(self, client: TestClient) -> None:
-        """DoD: metric giả."""
+        """GPU/VRAM fields always expose availability instead of fake values."""
         m = client.get("/api/snapshot").json()["metrics"]
         assert "gpu_util_percent" in m
         assert "vram_mb" in m
+        assert "gpu_metrics_available" in m
+        assert m["source"] == "nvidia-smi"
 
     def test_prometheus_endpoint(self, client: TestClient) -> None:
         r = client.get("/metrics")

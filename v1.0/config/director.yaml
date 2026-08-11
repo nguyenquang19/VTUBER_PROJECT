@@ -1,4 +1,4 @@
-# director.yaml — C0.3 Director loop (ROADMAP_AUTONOMOUS_HOST §C0.4)
+# director.yaml — C0.3 Director loop (docs/03_COMPONENT_REFERENCE.md §C0.4)
 #
 # Đạo diễn: biến reactive (đáp mọi tin) → host (biết NÊN làm gì). State machine
 # segment + bảng action + vài rule if/else. KHÔNG utility-scoring nhiều chiều,
@@ -6,16 +6,34 @@
 
 director:
   tick_seconds: 1.5               # nhịp Director hỏi decide() — TÁCH khỏi autonomy (5s)
-  dead_air_seconds: 20            # DoD: không để dead-air > 20s → tự nói
+  dead_air_seconds: 20            # im tối thiểu trước khi self-talk được cân nhắc
+  self_talk_cooldown_seconds: 45  # khoảng nghỉ toàn cục giữa 2 self-talk đã delivery
   max_consecutive_read_chat: 3    # đáp chat liên tiếp quá N → ép xen chủ động
   max_refs_per_turn: 3            # read_chat gộp tối đa 3 tin (chống "máy đọc chat")
   backlog_summary_threshold: 12   # pool > N tin + điểm top thấp → 1 câu tổng, không đáp lẻ
   summary_score_ceiling: 15.0     # top score dưới ngưỡng này (khi backlog cao) → summary
+  min_actionable_score: 15.0      # dưới ngưỡng: giữ để cluster/decay nhưng không mở turn riêng
+
+  transactions:
+    max_recent: 256               # bounded idempotency/trace cache
+
+  decision_records:
+    max_recent: 256               # bounded operator trace cache
+    max_evidence_refs: 8          # chỉ ID grounded, không raw chat/viewer identity
+    max_label_chars: 120
+    hard_rejection_reasons:
+      - safety_hold
+      - donation_evidence_missing
+      - follow_up_evidence_missing
+      - goal_action_not_allowed
+      - thread_missing
+      - unsupported_goal_kind
 
   # Segment: mỗi phần {goal, duration_seconds, allowed_actions}. Duration là
   # kế hoạch — Director tự chuyển khi hết giờ (Mai thông báo). Số thật tune sau.
   arbiter:
     ask_follow_up_before_expiry_s: 20
+    continue_thread_chat_grace_s: 3
     donation_sla_seconds: 5
     context:
       max_chars: 900

@@ -125,7 +125,11 @@ async def _build_runtime(
         "LlamaCppLLMService",
         SimpleNamespace(from_loader=lambda _loader: fake_llm),
     )
-    monkeypatch.setattr(stream_runtime_module, "setup_from_config", lambda _loader: None)
+    monkeypatch.setattr(
+        stream_runtime_module,
+        "setup_from_config",
+        lambda _loader, metrics=None: None,
+    )
     monkeypatch.setattr(
         stream_runtime_module,
         "_make_pref_logger",

@@ -1,6 +1,6 @@
 """Sentence splitter tiếng Việt cho pipeline TTS (Phase 4 4.C).
 
-TTS xử theo câu (spike day2: chia câu → synthesize → giấu latency câu N+1). Tách
+TTS xử theo câu để synthesize tuần tự và giảm perceived latency. Tách
 theo dấu ngắt cuối câu (. ! ? …) VÀ giữ nguyên dấu, không cắt trong số thập phân
 (3.14) hoặc viết tắt số (1.250.000). VN không có logic phức tạp như Anh (Mr./Dr.);
 YAGNI: regex đơn giản đã đủ.

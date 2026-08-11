@@ -39,13 +39,6 @@ models/**/*.safetensors
 cache/
 *.cache
 
-# Spike outputs (audio samples, benchmarks intermediate)
-spike/**/*.wav
-spike/**/*.mp3
-spike/**/*.flac
-spike/**/output/
-spike/**/temp/
-
 # OS
 Thumbs.db
 Desktop.ini

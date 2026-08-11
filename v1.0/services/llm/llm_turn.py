@@ -16,6 +16,7 @@ from __future__ import annotations
 import re
 import time
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable
 
@@ -35,6 +36,17 @@ from services.agent.types import (
 
 _CHAIN_ID = "llm"
 TokenSink = Callable[[str], None]
+
+
+@dataclass(frozen=True)
+class _PendingDelivery:
+    parsed: ParsedResponse
+    mode: str
+    trigger_type: str | None
+    session_id: str
+    history_user_text: str | None = None
+    viewer_id: str | None = None
+    commit_history: bool = False
 
 # A1.1: detect mood block trong RAW output LLM để đo hiệu quả A1 (root cause #1).
 # parsed.text đã bị parser strip mood block, không phản ánh LLM có tự report hay không.
@@ -108,6 +120,10 @@ class LLMTurnRunner:
         agent_context_renderer: Any = None,
         conversation_context_renderer: Any = None,
         data_contract_versions: dict[str, str] | None = None,
+        pending_delivery_max: int = 256,
+        chat_max_tokens: int | None = None,
+        ambient_max_tokens: int | None = None,
+        directed_max_tokens: int | None = None,
     ) -> None:
         self._svc = svc
         self._pm = prompt_manager
@@ -136,6 +152,11 @@ class LLMTurnRunner:
         self._last_rejected_text: str | None = None
         self._memory_writes_scheduled = 0
         self._memory_writes_skipped = 0
+        self._pending_delivery_max = max(1, int(pending_delivery_max))
+        self._chat_max_tokens = _positive_optional(chat_max_tokens)
+        self._ambient_max_tokens = _positive_optional(ambient_max_tokens)
+        self._directed_max_tokens = _positive_optional(directed_max_tokens)
+        self._pending_deliveries: dict[str, _PendingDelivery] = {}
         self._fb.register_chain(
             _CHAIN_ID,
             [self._primary, self._canned_handler],
@@ -221,6 +242,18 @@ class LLMTurnRunner:
                     "evaluation", "data_contract.agenda_policy_version", ""
                 )),
             },
+            pending_delivery_max=int(loader.get(
+                "director", "director.transactions.max_recent", 256,
+            )),
+            chat_max_tokens=loader.get(
+                "models", "llm_generation.chat_max_tokens", None,
+            ),
+            ambient_max_tokens=loader.get(
+                "models", "llm_generation.ambient_max_tokens", None,
+            ),
+            directed_max_tokens=loader.get(
+                "models", "llm_generation.directed_max_tokens", None,
+            ),
         )
 
     async def _primary(self, request: Any) -> ParsedResponse:
@@ -265,6 +298,7 @@ class LLMTurnRunner:
         history_user_text: str | None = None,
         commit_history: bool = True,
         stage_direction: str | None = None,
+        defer_delivery_commit: bool = False,
     ) -> tuple[ParsedResponse, int]:
         """Trả (parsed, level_used). level_used=0 primary, 1 canned.
 
@@ -279,6 +313,7 @@ class LLMTurnRunner:
         grounded_context = self._render_agent_context(user_text, viewer_id=viewer_id)
         request = self._build_request_maybe_with_mood(
             request_id, user_text, event_category, stage_direction, grounded_context,
+            max_tokens=self._chat_max_tokens,
         )
         hist_text = history_user_text if history_user_text is not None else user_text
         # T1: snapshot cause + history_len TRƯỚC khi clear/commit (clear_tone_flags
@@ -293,7 +328,7 @@ class LLMTurnRunner:
         result = await self._fb.execute(_CHAIN_ID, request)
         latency_ms = int((time.perf_counter() - t0) * 1000)
         parsed: ParsedResponse = result.value
-        if commit_history:
+        if commit_history and not defer_delivery_commit:
             self._pm.commit_turn(hist_text, parsed.text)
         # A1: canned mood update chỉ khi có tín hiệu mood (defensive).
         if parsed.ok and parsed.mood.dominant() != "neutral":
@@ -305,7 +340,7 @@ class LLMTurnRunner:
 
         # Phase 7.F: auto-extract memory từ turn (fire-and-forget) — dùng text gốc,
         # skip khi commit_history=False (không có tin cụ thể để nhớ).
-        if commit_history:
+        if commit_history and not defer_delivery_commit:
             self._schedule_memory_write(
                 hist_text, parsed, viewer_id, effective_session_id, trigger_type,
             )
@@ -332,16 +367,29 @@ class LLMTurnRunner:
             self.log_pref_pair(self._last_rejected_text, parsed.text, reason,
                                session_id=effective_session_id,
                                user_text=user_text, request=request)
-        self._record_speech_event(
-            request_id=request_id,
-            parsed=parsed,
-            session_id=effective_session_id,
-            mode="chat",
-            trigger_type=trigger_type,
-        )
+        if defer_delivery_commit:
+            self._store_pending_delivery(request_id, _PendingDelivery(
+                parsed=parsed,
+                mode="chat",
+                trigger_type=trigger_type,
+                session_id=effective_session_id,
+                history_user_text=hist_text,
+                viewer_id=viewer_id,
+                commit_history=commit_history,
+            ))
+        else:
+            self._record_speech_event(
+                request_id=request_id,
+                parsed=parsed,
+                session_id=effective_session_id,
+                mode="chat",
+                trigger_type=trigger_type,
+            )
         return parsed, result.level_used
 
-    async def run_ambient_turn(self, request_id: str, prompt_text: str) -> ParsedResponse:
+    async def run_ambient_turn(
+        self, request_id: str, prompt_text: str, *, defer_delivery_commit: bool = False,
+    ) -> ParsedResponse:
         """Mai tự nói (Autonomy Engine v2 — Aut.D wire).
 
         Khác run_turn thường:
@@ -356,6 +404,7 @@ class LLMTurnRunner:
         self._reset_filter_tracking()
         request = self._pm.build_request(
             request_id, prompt_text,
+            max_tokens=self._ambient_max_tokens,
             grounded_context=self._render_agent_context(prompt_text),
         )
         # T1: ambient — cause snapshot + history_len trước clear
@@ -391,21 +440,29 @@ class LLMTurnRunner:
             session_id=self.session_id,
             extra=self._build_log_extra(request, None, history_len_at_gen),
         )
-        self._record_speech_event(
-            request_id=request_id,
-            parsed=parsed,
-            session_id=self.session_id,
-            mode="ambient",
-            trigger_type=None,
-        )
+        if defer_delivery_commit:
+            self._store_pending_delivery(request_id, _PendingDelivery(
+                parsed=parsed, mode="ambient", trigger_type=None,
+                session_id=self.session_id,
+            ))
+        else:
+            self._record_speech_event(
+                request_id=request_id,
+                parsed=parsed,
+                session_id=self.session_id,
+                mode="ambient",
+                trigger_type=None,
+            )
         return parsed
 
     async def run_directed_turn(
-        self, request_id: str, system_context: str,
+        self, request_id: str, system_context: str, *, defer_delivery_commit: bool = False,
     ) -> ParsedResponse:
         """Run a Director-initiated turn whose action context is system-only."""
         self._reset_filter_tracking()
-        request = self._pm.build_directed_request(request_id, system_context)
+        request = self._pm.build_directed_request(
+            request_id, system_context, max_tokens=self._directed_max_tokens,
+        )
         try:
             self._log_cause = self._emotion.active_cause() if self._emotion else None
         except Exception:
@@ -434,14 +491,55 @@ class LLMTurnRunner:
             session_id=self.session_id,
             extra=self._build_log_extra(request, None, history_len_at_gen),
         )
+        if defer_delivery_commit:
+            self._store_pending_delivery(request_id, _PendingDelivery(
+                parsed=parsed,
+                mode="director_action",
+                trigger_type="director_goal_action",
+                session_id=self.session_id,
+            ))
+        else:
+            self._record_speech_event(
+                request_id=request_id,
+                parsed=parsed,
+                session_id=self.session_id,
+                mode="director_action",
+                trigger_type="director_goal_action",
+            )
+        return parsed
+
+    def finalize_delivery(self, request_id: str, success: bool) -> bool:
+        """Finalize a deferred turn exactly once at the delivery boundary."""
+        pending = self._pending_deliveries.pop(request_id, None)
+        if pending is None:
+            return False
+        if not success:
+            return True
+        if pending.commit_history and pending.history_user_text is not None:
+            self._pm.commit_turn(pending.history_user_text, pending.parsed.text)
+            self._schedule_memory_write(
+                pending.history_user_text,
+                pending.parsed,
+                pending.viewer_id,
+                pending.session_id,
+                pending.trigger_type,
+            )
         self._record_speech_event(
             request_id=request_id,
-            parsed=parsed,
-            session_id=self.session_id,
-            mode="director_action",
-            trigger_type="director_goal_action",
+            parsed=pending.parsed,
+            session_id=pending.session_id,
+            mode=pending.mode,
+            trigger_type=pending.trigger_type,
         )
-        return parsed
+        return True
+
+    def _store_pending_delivery(
+        self, request_id: str, pending: _PendingDelivery,
+    ) -> None:
+        self._pending_deliveries[request_id] = pending
+        while len(self._pending_deliveries) > self._pending_delivery_max:
+            oldest = next(iter(self._pending_deliveries))
+            self._pending_deliveries.pop(oldest, None)
 
     def _record_speech_event(
         self,
@@ -488,23 +586,31 @@ class LLMTurnRunner:
         self, request_id: str, user_text: str, event_category: str | None,
         stage_direction: str | None = None,
         grounded_context: str | None = None,
+        max_tokens: int | None = None,
     ):
         if self._emotion is None:
             # Không emotion nhưng vẫn cần chỉ thị sân khấu → dùng build_request_with_mood
             # với mood neutral nếu có stage_direction; ngược lại build_request thường.
             if stage_direction is None:
                 return self._pm.build_request(
-                    request_id, user_text, grounded_context=grounded_context,
+                    request_id, user_text, max_tokens=max_tokens,
+                    grounded_context=grounded_context,
                 )
             from interfaces.animation import MoodState
             return self._pm.build_request_with_mood(
                 request_id=request_id, user_text=user_text,
                 current_mood=MoodState(), stage_direction=stage_direction,
+                max_tokens=max_tokens,
                 grounded_context=grounded_context,
             )
         cause = None
+        affect_directive = None
         try:
             cause = self._emotion.active_cause()   # A4
+        except Exception:
+            pass
+        try:
+            affect_directive = self._emotion.delivery_directive()
         except Exception:
             pass
         return self._pm.build_request_with_mood(
@@ -514,7 +620,9 @@ class LLMTurnRunner:
             event_category=event_category,
             tone_flags=self._emotion.active_tone_flags(),
             cause=cause,
+            affect_directive=affect_directive,
             stage_direction=stage_direction,
+            max_tokens=max_tokens,
             grounded_context=grounded_context,
         )
 
@@ -755,3 +863,12 @@ def _dominant_mood(parsed: ParsedResponse) -> tuple[str | None, int | None]:
         return name, 0
     val = getattr(parsed.mood, name, 0)
     return name, int(val)
+
+
+def _positive_optional(value: Any) -> int | None:
+    if value is None:
+        return None
+    parsed = int(value)
+    if parsed <= 0:
+        raise ValueError("generation token caps must be positive")
+    return parsed

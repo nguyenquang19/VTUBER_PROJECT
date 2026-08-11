@@ -121,6 +121,14 @@ class TestHistoryWindow:
         with pytest.raises(ValueError):
             PromptManager(cache(), max_history_turns=-1)
 
+    def test_character_budget_keeps_latest_complete_turn(self) -> None:
+        m = mgr(max_history_turns=10, history_max_chars=10)
+        m.commit_turn("user-one", "answer-one")
+        m.commit_turn("u2", "answer2")
+        history = m.history()
+        assert [item.content for item in history] == ["u2", "answer2"]
+        assert sum(len(item.content) for item in history) <= 10
+
 
 class TestCommitSelfTalk:
     def test_appends_lone_assistant(self) -> None:

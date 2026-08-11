@@ -65,6 +65,105 @@ class TestCatch:
         assert v.passed is False
         assert v.suggested_action == "block"
 
+    async def test_foreign_identity_first_person_confusion_is_regenerated(self) -> None:
+        guard = {
+            "foreign_names": ["anami"],
+            "first_person_patterns": [r"\bnếu tớ\b", r"\bđể tớ\b"],
+        }
+        context = {"messages": [
+            {"role": "user", "content": "Nếu Anami có thân xác thì làm gì?"},
+        ]}
+        verdict = await rf(identity_guard=guard).check(
+            "Nếu tớ có thân xác thì tớ sẽ đi ăn.", context,
+        )
+
+        assert verdict.passed is False
+        assert FilterCategory.PERSONA_BREAK in verdict.categories_hit
+        assert verdict.suggested_action == "regenerate"
+
+    async def test_foreign_identity_explicitly_distinguished_is_allowed(self) -> None:
+        guard = {
+            "foreign_names": ["anami"],
+            "first_person_patterns": [r"\bnếu tớ\b", r"\bđể tớ\b"],
+        }
+        context = {"messages": [
+            {"role": "user", "content": "Anami thích gì?"},
+        ]}
+        verdict = await rf(identity_guard=guard).check(
+            "Tớ không biết Anami thích gì đâu.", context,
+        )
+
+        assert verdict.passed is True
+
+    async def test_foreign_identity_implicit_guess_is_regenerated(self) -> None:
+        guard = {
+            "foreign_names": ["anami"],
+            "require_name_in_response": True,
+            "knowledge_request_patterns": [r"\?", r"\bmuốn\b"],
+            "uncertainty_patterns": [r"\bkhông biết\b"],
+        }
+        context = {"messages": [{
+            "role": "user",
+            "content": "Nếu Anami có thân xác thì muốn làm gì?",
+        }]}
+
+        verdict = await rf(identity_guard=guard).check(
+            "Thì chắc là đi ăn, nghe mọi người bàn về mình cũng vui.", context,
+        )
+
+        assert verdict.passed is False
+        assert FilterCategory.PERSONA_BREAK in verdict.categories_hit
+
+    async def test_foreign_identity_uncertainty_with_name_is_allowed(self) -> None:
+        guard = {
+            "foreign_names": ["anami"],
+            "require_name_in_response": True,
+            "knowledge_request_patterns": [r"\?", r"\bthích\b"],
+            "uncertainty_patterns": [r"\bkhông biết\b"],
+        }
+        context = {"messages": [{
+            "role": "user", "content": "Anami thích đi đâu?",
+        }]}
+
+        verdict = await rf(identity_guard=guard).check(
+            "Tớ không biết Anami thích đi đâu đâu.", context,
+        )
+
+        assert verdict.passed is True
+
+    async def test_system_directed_foreign_context_allows_neutral_continuation(self) -> None:
+        guard = {
+            "foreign_names": ["anami"],
+            "knowledge_request_patterns": [r"\?", r"\bmuốn\b"],
+            "uncertainty_patterns": [r"\bkhông biết\b"],
+            "first_person_patterns": [r"\bnếu tớ\b"],
+        }
+        context = {"messages": [{
+            "role": "system",
+            "content": "Continue thread: Anami muốn làm gì?",
+        }]}
+
+        verdict = await rf(identity_guard=guard).check(
+            "Nói chung cứ để xem thế nào đã.", context,
+        )
+
+        assert verdict.passed is True
+
+    async def test_system_directed_foreign_context_still_blocks_takeover(self) -> None:
+        guard = {
+            "foreign_names": ["anami"],
+            "first_person_patterns": [r"\bnếu tớ\b"],
+        }
+        context = {"messages": [{
+            "role": "system", "content": "Continue thread about Anami.",
+        }]}
+
+        verdict = await rf(identity_guard=guard).check(
+            "Nếu tớ có thân xác thì tớ sẽ đi ăn.", context,
+        )
+
+        assert verdict.passed is False
+
 
 class TestSeverityActionCombine:
     async def test_multiple_hits_takes_highest_action(self) -> None:

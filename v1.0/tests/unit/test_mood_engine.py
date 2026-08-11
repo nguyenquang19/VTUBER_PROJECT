@@ -125,6 +125,16 @@ class TestTick:
         assert isinstance(m, MoodState)
         assert isinstance(m.vui, int)
 
+    def test_float_position_changes_before_rounded_mood_changes(self) -> None:
+        """Dashboard must render `pos`, otherwise smooth movement looks frozen."""
+        e = make()
+        e.apply_appraisal({"buc": 9})
+        rounded_before = e.current_state().buc
+        float_before = e.snapshot()["pos"]["buc"]
+        e.tick(dt=0.1)
+        assert e.snapshot()["pos"]["buc"] > float_before
+        assert e.current_state().buc == rounded_before
+
     def test_negative_dt_raises(self) -> None:
         e = make()
         with pytest.raises(MoodEngineError):

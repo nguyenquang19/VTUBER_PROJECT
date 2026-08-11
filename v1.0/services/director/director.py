@@ -1,4 +1,4 @@
-"""Director — đạo diễn stream, quyết định NÊN làm gì (C0.3, ROADMAP §C0.4).
+"""Director — đạo diễn stream, quyết định NÊN làm gì (C0.3, docs/03_COMPONENT_REFERENCE.md §C0.4).
 
 Biến reactive (đáp mọi tin FIFO) → host: pure decision engine đọc
 (segment, ChatPulse, SaliencePool top, dead-air, urge) → chốt 1 action.
@@ -82,11 +82,15 @@ class Director:
         pulse: ChatPulse,
         segments: list[Segment],
         dead_air_seconds: float = 20.0,
+        self_talk_cooldown_seconds: float = 45.0,
         max_consecutive_read_chat: int = 3,
         max_refs_per_turn: int = 3,
         backlog_summary_threshold: int = 12,
         summary_score_ceiling: float = 15.0,
+        min_actionable_score: float = 15.0,
+        chat_gate_enabled: bool = False,
         ask_follow_up_before_expiry_s: float = 20.0,
+        continue_thread_chat_grace_s: float = 3.0,
         mood_policy: Any = None,
         proactive_policy: Any = None,
         clock: Any = None,
@@ -97,11 +101,17 @@ class Director:
         self._pulse = pulse
         self._segments = segments
         self._dead_air = float(dead_air_seconds)
+        self._self_talk_cooldown = max(0.0, float(self_talk_cooldown_seconds))
         self._max_consec = max(1, int(max_consecutive_read_chat))
         self._max_refs = max(1, int(max_refs_per_turn))
         self._backlog_thr = int(backlog_summary_threshold)
         self._summary_ceiling = float(summary_score_ceiling)
+        self._min_actionable_score = max(0.0, float(min_actionable_score))
+        self._chat_gate_enabled = bool(chat_gate_enabled)
         self._ask_follow_up_before_expiry_s = max(0.0, float(ask_follow_up_before_expiry_s))
+        self._continue_thread_chat_grace_s = max(
+            0.0, float(continue_thread_chat_grace_s),
+        )
         self._mood_policy = mood_policy
         self._proactive_policy = proactive_policy
         self._clock = clock or time.time
@@ -109,6 +119,8 @@ class Director:
         self._seg_idx = 0
         self._seg_started_at: float | None = None
         self._last_speak_ts: float | None = None
+        self._last_self_talk_ts: float | None = None
+        self._self_talk_deferred_until = 0.0
         self._consecutive_read_chat = 0
         self._transitions = 0
 
@@ -117,6 +129,7 @@ class Director:
         cls, pool: SaliencePool, pulse: ChatPulse, loader, clock: Any = None,
         mood_policy: Any = None,
         proactive_policy: Any = None,
+        chat_gate_enabled: bool = True,
     ) -> "Director":
         d = loader.get("director", "director", {}) or {}
         segs_raw = d.get("segments", []) or []
@@ -134,12 +147,20 @@ class Director:
         return cls(
             pool=pool, pulse=pulse, segments=segments,
             dead_air_seconds=float(d.get("dead_air_seconds", 20.0)),
+            self_talk_cooldown_seconds=float(
+                d.get("self_talk_cooldown_seconds", 45.0)
+            ),
             max_consecutive_read_chat=int(d.get("max_consecutive_read_chat", 3)),
             max_refs_per_turn=int(d.get("max_refs_per_turn", 3)),
             backlog_summary_threshold=int(d.get("backlog_summary_threshold", 12)),
             summary_score_ceiling=float(d.get("summary_score_ceiling", 15.0)),
+            min_actionable_score=float(d.get("min_actionable_score", 15.0)),
+            chat_gate_enabled=chat_gate_enabled,
             ask_follow_up_before_expiry_s=float(
                 d.get("arbiter", {}).get("ask_follow_up_before_expiry_s", 20.0)
+            ),
+            continue_thread_chat_grace_s=float(
+                d.get("arbiter", {}).get("continue_thread_chat_grace_s", 3.0)
             ),
             mood_policy=mood_policy,
             proactive_policy=proactive_policy,
@@ -153,11 +174,21 @@ class Director:
         self._seg_idx = 0
         self._seg_started_at = now
         self._last_speak_ts = now
+        self._last_self_talk_ts = None
+        self._self_talk_deferred_until = 0.0
 
     @property
     def summary_ceiling(self) -> float:
         """Ngưỡng điểm cho SUMMARY — DirectorLoop dùng để purge backlog thấp (Task 3)."""
         return self._summary_ceiling
+
+    @property
+    def chat_gate_enabled(self) -> bool:
+        return self._chat_gate_enabled
+
+    def set_chat_gate_enabled(self, enabled: bool) -> None:
+        """Runtime toggle; OFF khôi phục việc đọc mọi candidate trên storage floor."""
+        self._chat_gate_enabled = bool(enabled)
 
     def current_segment(self) -> Segment:
         return self._segments[self._seg_idx]
@@ -178,10 +209,22 @@ class Director:
         """Caller gọi sau khi Mai nói xong 1 turn. Cập nhật dead-air + đếm read_chat."""
         now = self._clock() if now is None else now
         self._last_speak_ts = now
+        if action == DirectorAction.SELF_TALK:
+            self._last_self_talk_ts = now
         if action == DirectorAction.READ_CHAT:
             self._consecutive_read_chat += 1
         else:
             self._consecutive_read_chat = 0
+
+    def defer_self_talk(self, until: float) -> None:
+        """Back off failed/no-material ambient attempts without faking speech."""
+        self._self_talk_deferred_until = max(
+            self._self_talk_deferred_until, float(until),
+        )
+
+    def clear_self_talk_defer(self) -> None:
+        """New external evidence may make a fresh thought possible immediately."""
+        self._self_talk_deferred_until = 0.0
 
     # ---------- decision ----------
 
@@ -200,6 +243,7 @@ class Director:
         allowed = seg.allowed_actions
         seg_started_at = now if self._seg_started_at is None else self._seg_started_at
         top = director_input.chat_candidates[0] if director_input.chat_candidates else None
+        top_actionable = self._is_actionable(top)
 
         if director_input.safety_hold:
             return DirectorDecision(
@@ -214,13 +258,23 @@ class Director:
                 goal_id=_matching_donation_goal_id(director_input.goals.active, donation),
             )
 
-        if director_input.goals.active is not None:
+        if (
+            director_input.goals.active is not None
+            and not (
+                director_input.goals.active.kind is GoalKind.CONTINUE_THREAD
+                and top_actionable
+                and (
+                    now - director_input.goals.active.created_at.timestamp()
+                    < self._continue_thread_chat_grace_s
+                )
+            )
+        ):
             return self._goal_decision(seg, director_input.goals.active, director_input)
 
-        # 1. Hết giờ segment → chuyển (Mai thông báo). Segment cuối không auto-chuyển.
+        # 1. Hết giờ segment → chuyển sau hard priority/goal. Backlog không được
+        # giữ một segment vô hạn; chat vẫn còn nguyên trong pool sau transition.
         if (
-            top is None
-            and not self.is_last_segment()
+            not self.is_last_segment()
             and (now - seg_started_at) >= seg.duration_seconds
         ):
             if "transition" in allowed:
@@ -231,6 +285,10 @@ class Director:
                 )
 
         dead_air = float("inf") if self._last_speak_ts is None else now - self._last_speak_ts
+        self_talk_ready = (
+            self._last_self_talk_ts is None
+            or now - self._last_self_talk_ts >= self._self_talk_cooldown
+        ) and now >= self._self_talk_deferred_until and director_input.self_talk_ready
         try:
             pulse_state = PulseState(director_input.pulse_state)
         except ValueError:
@@ -246,7 +304,14 @@ class Director:
             )
 
         # 3. Hype-spam → react vibe (turn ngắn, không đáp lẻ 30 câu)
-        if pulse_state == PulseState.HYPE_SPAM and read_allowed and top is not None and not consec_hit:
+        if (
+            pulse_state == PulseState.HYPE_SPAM
+            and read_allowed
+            and top is not None
+            and top_actionable
+            and not consec_hit
+            and (not self._chat_gate_enabled or top.kind == "chat")
+        ):
             return DirectorDecision(
                 action=DirectorAction.READ_CHAT, segment=seg.name,
                 reason="hype_spam_vibe", refs=director_input.chat_candidates[:self._max_refs],
@@ -254,19 +319,36 @@ class Director:
             )
 
         # 4. Có tin đáng đáp + chưa đáp chat liên tiếp quá nhiều → read_chat
-        if read_allowed and top is not None and not consec_hit:
+        if read_allowed and top is not None and top_actionable and not consec_hit:
+            return self._read_decision(seg, top, director_input)
+
+        # Backlog thấp điểm chỉ tạo một room summary, không biến từng chat thường
+        # thành một turn riêng.
+        if (
+            read_allowed
+            and top is not None
+            and not top_actionable
+            and not consec_hit
+            and director_input.pool_size >= self._backlog_thr
+            and top.score < self._summary_ceiling
+        ):
             return self._read_decision(seg, top, director_input)
 
         # 5. Chủ động: chat nguội / dead-air / bị ép xen / urge sẵn
+        silence_ready = dead_air >= self._dead_air and self_talk_ready
+        mood_proactive_ready = self._mood_proactive_ready(director_input)
         proactive_trigger = (
-            pulse_state == PulseState.COLD
-            or dead_air >= self._dead_air
-            or consec_hit
-            or director_input.urge_ready
-            or self._mood_proactive_ready(director_input)
+            silence_ready
+            or (
+                consec_hit
+                and director_input.self_talk_ready
+                and now >= self._self_talk_deferred_until
+            )
+            or (director_input.urge_ready and self_talk_ready)
+            or (mood_proactive_ready and self_talk_ready)
         )
         proactive = self._proactive_choice(
-            director_input, allowed, silence_ready=proactive_trigger,
+            director_input, allowed, silence_ready=silence_ready,
         )
         if proactive is not None:
             return DirectorDecision(
@@ -286,8 +368,8 @@ class Director:
             if "self_talk" in allowed:
                 reason = (
                     "consec_read_chat_break" if consec_hit else
-                    "cold_chat" if pulse_state == PulseState.COLD else
-                    "dead_air" if dead_air >= self._dead_air else
+                    "cold_chat" if silence_ready and pulse_state == PulseState.COLD else
+                    "dead_air" if silence_ready else
                     "urge_ready" if director_input.urge_ready else
                     "mood_action_score"
                 )
@@ -303,10 +385,42 @@ class Director:
                 )
 
         # 6. Bị ép xen nhưng không self_talk được, vẫn còn tin → thà đáp còn hơn im
-        if read_allowed and top is not None:
+        if read_allowed and top is not None and top_actionable:
             return self._read_decision(seg, top, director_input)
 
+        if read_allowed and top is not None and not top_actionable:
+            return DirectorDecision(
+                action=DirectorAction.WAIT,
+                segment=seg.name,
+                reason="below_actionable_score",
+            )
+
+        if (
+            "self_talk" in allowed and dead_air >= self._dead_air
+            and not self_talk_ready
+        ):
+            return DirectorDecision(
+                action=DirectorAction.WAIT,
+                segment=seg.name,
+                reason=(
+                    "thought_unavailable"
+                    if now < self._self_talk_deferred_until
+                    else director_input.self_talk_wait_reason
+                    if not director_input.self_talk_ready
+                    else "self_talk_cooldown"
+                ),
+            )
+
         return DirectorDecision(action=DirectorAction.WAIT, segment=seg.name, reason="idle")
+
+    def _is_actionable(self, top: DirectorChatRef | None) -> bool:
+        if top is None:
+            return False
+        if not self._chat_gate_enabled:
+            return True
+        if top.is_super:
+            return True
+        return top.score >= self._min_actionable_score
 
     def _proactive_choice(
         self, value: DirectorInput, allowed: set[str], *, silence_ready: bool,
@@ -457,6 +571,11 @@ class Director:
             "director_segment_idx": self._seg_idx,
             "director_transitions": self._transitions,
             "director_consecutive_read_chat": self._consecutive_read_chat,
+            "director_chat_gate_enabled": self._chat_gate_enabled,
+            "director_min_actionable_score": self._min_actionable_score,
+            "director_self_talk_cooldown_seconds": self._self_talk_cooldown,
+            "director_last_self_talk_ts": self._last_self_talk_ts,
+            "director_self_talk_deferred_until": self._self_talk_deferred_until,
         }
 
 

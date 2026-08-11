@@ -1,4 +1,4 @@
-"""Test C0.1 — SaliencePool (ROADMAP §C0.1).
+"""Test C0.1 — SaliencePool (docs/03_COMPONENT_REFERENCE.md §C0.1).
 
 DoD:
 - superchat 500k luôn được nhặt trước chat thường
@@ -50,6 +50,38 @@ class TestScoring:
         p.add("sc", "quà nè", now=0.0, kind="chat",
               amount_vnd=500_000, is_super=True)
         assert p.peek_top(now=0.0).msg_id == "sc"
+
+
+class TestKindDetection:
+    def test_from_loader_detects_question_without_question_mark(self) -> None:
+        from orchestrator.config_loader import ConfigLoader
+
+        loader = ConfigLoader(REPO_ROOT / "config")
+        loader.load_all()
+        pool = SaliencePool.from_loader(loader)
+
+        assert pool.classify_kind("em có nên tập trung học tiếp") == "question"
+        assert pool.classify_kind("bao giờ Mai stream tiếp") == "mention"
+        assert pool.classify_kind("mai mốt bạn có con") == "chat"
+
+    def test_mention_beats_question(self) -> None:
+        pool = SaliencePool(
+            base_tier=_BASE,
+            mention_patterns=[r"\bmai\b"],
+            question_patterns=[r"\?", r"\bcó nên\b"],
+        )
+
+        assert pool.classify_kind("Mai có nên chơi tiếp không?") == "mention"
+
+    def test_invalid_pattern_is_skipped_and_observable(self) -> None:
+        pool = SaliencePool(
+            base_tier=_BASE,
+            mention_patterns=["["],
+            question_patterns=[r"\?"],
+        )
+
+        assert pool.classify_kind("ổn không?") == "question"
+        assert pool.get_metrics()["salience_invalid_kind_patterns"] == 1
 
 
 class TestDecay:

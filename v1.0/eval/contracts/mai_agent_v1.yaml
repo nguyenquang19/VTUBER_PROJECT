@@ -1,7 +1,7 @@
 schema_version: 1
 contract_id: "mai-agent-v1"
 architecture_version: "mai-agent-v1"
-persona_version: "5cacb00a34a1"
+persona_version: "a755c6d68383"
 turn_schema_version: 2
 sft_schema_version: 1
 dpo_schema_version: 1

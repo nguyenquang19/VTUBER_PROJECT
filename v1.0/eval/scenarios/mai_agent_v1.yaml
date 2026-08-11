@@ -79,4 +79,73 @@ scenarios:
     expected: {state: regenerated, invariants: {duplicate_output_committed: false}}
     human_rubric:
       - {dimension: repetition, instruction: Rate whether the alternative avoids formulaic repetition.}
-
+  - id: director.generation_failure_releases
+    version: 1
+    group: director
+    description: Generation failure releases the reservation without committing the action.
+    inputs:
+      simulation: {action: read_chat, fault: generation_error}
+    expected:
+      action: read_chat
+      state: released
+      invariants: {data_loss: 0, false_commits: 0, commits: 0, deliveries: 0, decision_evidence_complete: true}
+  - id: safety.filter_rejection_releases
+    version: 1
+    group: safety
+    description: Filter rejection cannot cross the delivery or commit boundary.
+    inputs:
+      simulation: {action: read_chat, fault: filter_reject}
+    expected:
+      action: read_chat
+      state: released
+      invariants: {data_loss: 0, false_commits: 0, commits: 0, deliveries: 0, decision_evidence_complete: true}
+  - id: director.delivery_failure_releases
+    version: 1
+    group: director
+    description: Delivery failure releases the action and preserves accounting.
+    inputs:
+      simulation: {action: ack_donation, fault: delivery_error}
+    expected:
+      action: ack_donation
+      state: released
+      invariants: {data_loss: 0, false_commits: 0, commits: 0, deliveries: 0, decision_evidence_complete: true}
+  - id: agency.duplicate_event_is_idempotent
+    version: 1
+    group: agency
+    description: A duplicate event does not deliver or commit the same action twice.
+    inputs:
+      simulation: {action: read_chat, fault: duplicate_event}
+    expected:
+      action: read_chat
+      state: committed
+      invariants: {events_received: 2, events_accounted: 2, data_loss: 0, false_commits: 0, commits: 1, duplicate_deliveries: 0}
+  - id: continuity.logging_failure_isolated
+    version: 1
+    group: continuity
+    description: A fail-safe logging error does not kill the Brain or create a false commit.
+    inputs:
+      simulation: {action: continue_thread, fault: logging_error}
+    expected:
+      action: continue_thread
+      state: committed
+      invariants: {data_loss: 0, false_commits: 0, commits: 1, brain_alive: true, deadlocked: false}
+  - id: environment.dashboard_failure_isolated
+    version: 1
+    group: environment
+    description: Dashboard failure is observational and cannot stop action processing.
+    inputs:
+      simulation: {action: self_talk, fault: dashboard_error}
+    expected:
+      action: self_talk
+      state: committed
+      invariants: {data_loss: 0, false_commits: 0, commits: 1, brain_alive: true, deadlocked: false}
+  - id: agency.shutdown_before_commit_releases
+    version: 1
+    group: agency
+    description: Shutdown after delivery but before commit releases without a false state commit.
+    inputs:
+      simulation: {action: transition, fault: shutdown_before_commit}
+    expected:
+      action: transition
+      state: released
+      invariants: {data_loss: 0, false_commits: 0, commits: 0, deliveries: 1, deadlocked: false, decision_evidence_complete: true}

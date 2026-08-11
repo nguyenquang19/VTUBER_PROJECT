@@ -33,6 +33,7 @@ class ProactivePolicyConfig:
     environment_category: str = "environment_reaction"
     silence_category: str = "complain_silence"
     environment_summary_max_chars: int = 220
+    silence_cooldown_seconds: float = 45.0
 
     @classmethod
     def from_loader(cls, loader: Any) -> "ProactivePolicyConfig":
@@ -53,8 +54,15 @@ class ProactivePolicyConfig:
             environment_summary_max_chars=int(
                 loader.get("hosting", prefix + "environment_summary_max_chars", 220)
             ),
+            silence_cooldown_seconds=float(loader.get(
+                "director", "director.self_talk_cooldown_seconds", 45.0,
+            )),
         )
-        if value.source_cooldown_seconds < 0 or value.environment_summary_max_chars <= 0:
+        if (
+            value.source_cooldown_seconds < 0
+            or value.silence_cooldown_seconds < 0
+            or value.environment_summary_max_chars <= 0
+        ):
             raise ValueError("invalid proactive policy limits")
         return value
 
@@ -86,9 +94,13 @@ class ProactiveHostingPolicy:
     ) -> ProactiveChoice | None:
         if not self.enabled or value.goals.active is not None:
             return None
-        if value.agent_state.open_threads:
+        eligible_threads = tuple(
+            thread for thread in value.agent_state.open_threads
+            if getattr(thread.status, "value", "active") == "active"
+        )
+        if eligible_threads:
             thread = max(
-                value.agent_state.open_threads,
+                eligible_threads,
                 key=lambda item: (item.updated_at, item.thread_id),
             )
             source_key = f"open_thread:{thread.thread_id}"
@@ -132,6 +144,15 @@ class ProactiveHostingPolicy:
                     "grounded_source_cooldown", source_id,
                 )
         if silence_ready and "self_talk" in allowed_actions:
+            source_key = f"{ProactiveSource.SILENCE.value}:silence"
+            if not self._ready(
+                source_key, value.now, self.config.silence_cooldown_seconds,
+            ):
+                self._record(ProactiveSource.SILENCE.value, "cooldown")
+                return ProactiveChoice(
+                    ProactiveSource.SILENCE, DirectorAction.WAIT, "",
+                    "silence_cooldown", "silence",
+                )
             return self._selected(ProactiveChoice(
                 ProactiveSource.SILENCE, DirectorAction.SELF_TALK,
                 self.config.silence_category, "silence_fallback", "silence",
@@ -139,16 +160,21 @@ class ProactiveHostingPolicy:
         return None
 
     def mark_used(self, choice: ProactiveChoice, now: float) -> None:
-        if choice.source is not ProactiveSource.SILENCE:
-            self._last_used[f"{choice.source.value}:{choice.source_id}"] = float(now)
+        self._last_used[f"{choice.source.value}:{choice.source_id}"] = float(now)
         self._record(choice.source.value, "used")
 
     def mark_source_used(self, source: str, identifier: str, now: float) -> None:
         self._last_used[f"{source}:{identifier}"] = float(now)
 
-    def _ready(self, source_key: str, now: float) -> bool:
+    def _ready(
+        self, source_key: str, now: float, cooldown_seconds: float | None = None,
+    ) -> bool:
         used = self._last_used.get(source_key)
-        return used is None or now - used >= self.config.source_cooldown_seconds
+        cooldown = (
+            self.config.source_cooldown_seconds
+            if cooldown_seconds is None else max(0.0, float(cooldown_seconds))
+        )
+        return used is None or now - used >= cooldown
 
     def _selected(self, choice: ProactiveChoice) -> ProactiveChoice:
         self._record(choice.source.value, "selected")

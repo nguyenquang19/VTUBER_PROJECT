@@ -44,6 +44,21 @@ class FakeEngine:
             yield chunk
 
 
+class FakeV3Core:
+    def __init__(self) -> None:
+        self.prepare_calls: list[tuple[str, bool, bool]] = []
+
+    def prepare_reference(self, path: str, *, denoise: bool, use_ref_codes: bool):
+        self.prepare_calls.append((path, denoise, use_ref_codes))
+        return np.ones(192, dtype=np.float32), np.ones((4, 16), dtype=np.int64)
+
+
+class FakeV3Engine(FakeEngine):
+    def __init__(self) -> None:
+        super().__init__()
+        self.engine = FakeV3Core()
+
+
 @pytest.fixture
 def ref_wav(tmp_path: Path) -> Path:
     """Ref audio giả (empty file) — VieNeuTtsService chỉ check tồn tại."""
@@ -83,6 +98,24 @@ class TestLifecycle:
         svc = make_svc(missing, engine=FakeEngine())
         with pytest.raises(VieNeuError, match="reference_audio không tồn tại"):
             await svc.start()
+
+    async def test_v3_enrolls_directly_without_wrapper_temp_file(
+        self, ref_wav: Path,
+    ) -> None:
+        engine = FakeV3Engine()
+        svc = make_svc(ref_wav, engine=engine)
+
+        await svc.start()
+        _ = [
+            chunk async for chunk in svc.synthesize_stream(
+                TTSRequest(request_id="v3", text="xin chào"),
+            )
+        ]
+
+        assert engine.add_voice_calls == []
+        assert engine.engine.prepare_calls == [(str(ref_wav), True, True)]
+        assert isinstance(engine.last_kwargs["voice"], dict)
+        assert engine.last_kwargs["voice"]["speaker_emb"].shape == (192,)
 
     async def test_health_unhealthy_before_start(self, ref_wav: Path) -> None:
         svc = make_svc(ref_wav)

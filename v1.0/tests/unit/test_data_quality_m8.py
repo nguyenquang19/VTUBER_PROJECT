@@ -17,7 +17,7 @@ def _turn(session: str = "session-a", turn_id: int = 1) -> dict:
         "schema_version": 2,
         "session_id": session,
         "turn_id": turn_id,
-        "persona_version": "5cacb00a34a1",
+        "persona_version": "a755c6d68383",
         "architecture_version": "mai-agent-v1",
         "context_schema_version": "mai-context-v1",
         "agenda_policy_version": "mai-agenda-v1",

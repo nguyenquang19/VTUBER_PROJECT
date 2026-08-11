@@ -1,22 +1,26 @@
 """Metrics collector: prometheus_client (ARCHITECTURE 5.3, Phase 0 task 10).
 
-Phase 0 scope: định nghĩa metric objects thật (5.3) + vài "metric giả" tự cập
-nhật để dashboard có gì hiển thị realtime trước khi có LLM/TTS thật.
+GPU/VRAM production metrics are sampled from nvidia-smi; unavailable data is
+reported explicitly and is never replaced with synthetic values.
 
 Dùng CollectorRegistry riêng (không phải global REGISTRY) để test tạo nhiều
 instance không bị "Duplicated timeseries".
 """
 from __future__ import annotations
 
-import math
+import subprocess
 import time
-from typing import Any
+from typing import Any, Callable
 
 from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram, generate_latest
 
 
 class MetricsCollector:
-    def __init__(self, registry: CollectorRegistry | None = None) -> None:
+    def __init__(
+        self,
+        registry: CollectorRegistry | None = None,
+        gpu_query_runner: Callable[[str, float], str] | None = None,
+    ) -> None:
         self.registry = registry or CollectorRegistry()
 
         # --- Metric thật theo spec 5.3 ---
@@ -139,6 +143,34 @@ class MetricsCollector:
             registry=self.registry,
         )
         self._director_actions: dict[tuple[str, str], int] = {}
+        self.action_transactions_total_c = Counter(
+            "mai_action_transactions_total",
+            "Delivery-aware Director action transaction state changes",
+            ["state"],
+            registry=self.registry,
+        )
+        self._action_transactions: dict[str, int] = {}
+        self.director_decision_records_total_c = Counter(
+            "mai_director_decision_records_total",
+            "Versioned Director decision record outcomes",
+            ["action", "outcome"],
+            registry=self.registry,
+        )
+        self._director_decision_records: dict[tuple[str, str], int] = {}
+        self.operator_dashboard_views_total_c = Counter(
+            "mai_operator_dashboard_views_total",
+            "Operator dashboard page views by version",
+            ["version"],
+            registry=self.registry,
+        )
+        self._operator_dashboard_views: dict[str, int] = {}
+        self.logging_sink_errors_total_c = Counter(
+            "mai_logging_sink_errors_total",
+            "Fail-safe JSONL sink errors that did not escape into runtime",
+            ["sink", "error"],
+            registry=self.registry,
+        )
+        self._logging_sink_errors: dict[tuple[str, str], int] = {}
 
         # --- Conversation continuity metrics (Master Plan M4) ---
         self.thread_events_total_c = Counter(
@@ -181,6 +213,20 @@ class MetricsCollector:
             registry=self.registry,
         )
         self._mood_adjustments: dict[tuple[str, str], int] = {}
+        self.affect_v2_events_total_c = Counter(
+            "mai_affect_v2_events_total",
+            "Mood v2 shadow observations by style and outcome",
+            ["style", "outcome"],
+            registry=self.registry,
+        )
+        self._affect_v2_events: dict[tuple[str, str], int] = {}
+        self.mood_ab_reviews_total_c = Counter(
+            "mai_mood_ab_reviews_total",
+            "Blind Mood v1/v2 review outcomes",
+            ["outcome"],
+            registry=self.registry,
+        )
+        self._mood_ab_reviews: dict[str, int] = {}
         self.proactive_candidates_total_c = Counter(
             "mai_proactive_candidates_total",
             "Grounded proactive candidate selection and completion",
@@ -221,6 +267,13 @@ class MetricsCollector:
             registry=self.registry,
         )
         self._eval_scenarios: dict[tuple[str, str], int] = {}
+        self.eval_acceptance_runs_total_c = Counter(
+            "mai_eval_acceptance_runs_total",
+            "Deterministic text acceptance run outcomes",
+            ["outcome"],
+            registry=self.registry,
+        )
+        self._eval_acceptance_runs: dict[str, int] = {}
         self.health_supervisor_actions_total_c = Counter(
             "mai_health_supervisor_actions_total",
             "Bounded health supervisor observations and recovery actions",
@@ -255,22 +308,34 @@ class MetricsCollector:
         )
         self._incidents: dict[tuple[str, str], int] = {}
 
-        # --- 3 "metric giả" cho Phase 0 (chưa có service thật) ---
-        # DoD: "Metric giả cập nhật realtime trên chart"
-        self.fake_gpu_util = Gauge(
-            "mai_fake_gpu_util_percent", "Fake GPU utilization (Phase 0 demo)",
+        # --- Real NVIDIA device metrics for the operator dashboard ---
+        self.gpu_util = Gauge(
+            "mai_gpu_util_percent", "NVIDIA GPU utilization",
             registry=self.registry,
         )
-        self.fake_vram_mb = Gauge(
-            "mai_fake_vram_mb", "Fake VRAM usage (Phase 0 demo)",
+        self.vram_used_mb = Gauge(
+            "mai_vram_used_mb", "NVIDIA VRAM currently used",
             registry=self.registry,
         )
-        self.fake_chat_rate = Gauge(
-            "mai_fake_chat_rate_per_min", "Fake chat rate (Phase 0 demo)",
+        self.vram_total_mb = Gauge(
+            "mai_vram_total_mb", "NVIDIA VRAM total",
             registry=self.registry,
         )
-
-        self._start = time.perf_counter()
+        self.gpu_metrics_available = Gauge(
+            "mai_gpu_metrics_available", "1 when the latest NVIDIA query succeeded",
+            registry=self.registry,
+        )
+        self.gpu_query_failures = Counter(
+            "mai_gpu_query_failures_total", "Failed NVIDIA metric queries",
+            registry=self.registry,
+        )
+        self._gpu_query_runner = gpu_query_runner
+        self._gpu_util_percent: float | None = None
+        self._vram_used_mb: float | None = None
+        self._vram_total_mb: float | None = None
+        self._gpu_available = False
+        self._gpu_last_error = "not_sampled"
+        self._gpu_last_attempt = 0.0
 
     # ---------- recorders (service thật gọi ở phase sau) ----------
 
@@ -331,6 +396,67 @@ class MetricsCollector:
         key = (str(target), str(reason))
         self._mood_adjustments[key] = self._mood_adjustments.get(key, 0) + 1
         self.mood_adjustments_total_c.labels(target=key[0], reason=key[1]).inc()
+
+    def record_affect_v2_event(self, style: str, outcome: str) -> None:
+        key = (str(style), str(outcome))
+        self._affect_v2_events[key] = self._affect_v2_events.get(key, 0) + 1
+        self.affect_v2_events_total_c.labels(style=key[0], outcome=key[1]).inc()
+
+    def affect_v2_snapshot(self) -> dict[str, int]:
+        return {
+            f"{style}:{outcome}": count
+            for (style, outcome), count in sorted(self._affect_v2_events.items())
+        }
+
+    def record_mood_ab_review(self, outcome: str) -> None:
+        key = str(outcome)
+        self._mood_ab_reviews[key] = self._mood_ab_reviews.get(key, 0) + 1
+        self.mood_ab_reviews_total_c.labels(outcome=key).inc()
+
+    def mood_ab_review_snapshot(self) -> dict[str, int]:
+        return dict(sorted(self._mood_ab_reviews.items()))
+
+    def record_action_transaction(self, state: str) -> None:
+        key = str(state)
+        self._action_transactions[key] = self._action_transactions.get(key, 0) + 1
+        self.action_transactions_total_c.labels(state=key).inc()
+
+    def record_director_decision_record(self, action: str, outcome: str) -> None:
+        key = (str(action), str(outcome))
+        self._director_decision_records[key] = (
+            self._director_decision_records.get(key, 0) + 1
+        )
+        self.director_decision_records_total_c.labels(
+            action=key[0], outcome=key[1],
+        ).inc()
+
+    def record_logging_sink_error(self, sink: str, error: str) -> None:
+        key = (str(sink), str(error))
+        self._logging_sink_errors[key] = self._logging_sink_errors.get(key, 0) + 1
+        self.logging_sink_errors_total_c.labels(sink=key[0], error=key[1]).inc()
+
+    def logging_sink_snapshot(self) -> dict[str, int]:
+        return {
+            f"{sink}:{error}": count
+            for (sink, error), count in sorted(self._logging_sink_errors.items())
+        }
+
+    def action_transaction_snapshot(self) -> dict[str, int]:
+        return dict(sorted(self._action_transactions.items()))
+
+    def director_decision_record_snapshot(self) -> dict[str, int]:
+        return {
+            f"{action}:{outcome}": count
+            for (action, outcome), count in sorted(self._director_decision_records.items())
+        }
+
+    def record_operator_dashboard_view(self, version: str) -> None:
+        key = str(version)
+        self._operator_dashboard_views[key] = self._operator_dashboard_views.get(key, 0) + 1
+        self.operator_dashboard_views_total_c.labels(version=key).inc()
+
+    def operator_dashboard_view_snapshot(self) -> dict[str, int]:
+        return dict(sorted(self._operator_dashboard_views.items()))
 
     def mood_adjustment_snapshot(self) -> dict[str, int]:
         return {
@@ -395,6 +521,14 @@ class MetricsCollector:
             f"{group}:{outcome}": count
             for (group, outcome), count in sorted(self._eval_scenarios.items())
         }
+
+    def record_eval_acceptance_run(self, outcome: str) -> None:
+        key = str(outcome)
+        self._eval_acceptance_runs[key] = self._eval_acceptance_runs.get(key, 0) + 1
+        self.eval_acceptance_runs_total_c.labels(outcome=key).inc()
+
+    def eval_acceptance_snapshot(self) -> dict[str, int]:
+        return dict(sorted(self._eval_acceptance_runs.items()))
 
     def record_health_supervisor_action(self, service_id: str, action: str) -> None:
         key = (str(service_id), str(action))
@@ -610,40 +744,91 @@ class MetricsCollector:
             }
         }
 
-    # ---------- fake updater (Phase 0 demo) ----------
+    # ---------- NVIDIA system metrics ----------
 
-    def tick_fake_metrics(self, t: float | None = None) -> dict[str, float]:
-        """Cập nhật 3 metric giả bằng sóng sin lệch pha → chart có chuyển động.
+    def sample_gpu_metrics(
+        self,
+        *,
+        command: str = "nvidia-smi",
+        timeout_s: float = 1.0,
+        refresh_s: float = 2.0,
+    ) -> dict[str, Any]:
+        """Sample the first NVIDIA GPU, with bounded refresh and explicit staleness."""
+        now = time.monotonic()
+        if now - self._gpu_last_attempt < refresh_s:
+            return self.snapshot()
+        self._gpu_last_attempt = now
+        try:
+            runner = self._gpu_query_runner or self._run_nvidia_smi
+            output = runner(command, timeout_s)
+            return self.update_gpu_metrics_from_csv(output)
+        except Exception as exc:
+            self._gpu_available = False
+            self._gpu_last_error = f"{type(exc).__name__}: {exc}"
+            self.gpu_metrics_available.set(0)
+            self.gpu_query_failures.inc()
+            return self.snapshot()
 
-        Trả snapshot để dashboard push qua WebSocket.
-        """
-        t = t if t is not None else (time.perf_counter() - self._start)
-        gpu = 50 + 40 * math.sin(t / 3)
-        vram = 9800 + 300 * math.sin(t / 5 + 1)
-        chat = max(0.0, 30 + 25 * math.sin(t / 7 + 2))
-        self.fake_gpu_util.set(gpu)
-        self.fake_vram_mb.set(vram)
-        self.fake_chat_rate.set(chat)
-        return {
-            "gpu_util_percent": round(gpu, 1),
-            "vram_mb": round(vram, 1),
-            "chat_rate_per_min": round(chat, 1),
-        }
+    def update_gpu_metrics_from_csv(self, output: str) -> dict[str, Any]:
+        """Parse `utilization.gpu,memory.used,memory.total` nvidia-smi CSV."""
+        line = next((item.strip() for item in output.splitlines() if item.strip()), "")
+        parts = [part.strip() for part in line.split(",")]
+        if len(parts) != 3:
+            raise ValueError("nvidia-smi returned an unexpected column count")
+        utilization, used_mb, total_mb = (float(part) for part in parts)
+        if not 0.0 <= utilization <= 100.0:
+            raise ValueError("GPU utilization is outside 0..100")
+        if used_mb < 0.0 or total_mb <= 0.0 or used_mb > total_mb:
+            raise ValueError("VRAM values are invalid")
+        self._gpu_util_percent = utilization
+        self._vram_used_mb = used_mb
+        self._vram_total_mb = total_mb
+        self._gpu_available = True
+        self._gpu_last_error = ""
+        self.gpu_util.set(utilization)
+        self.vram_used_mb.set(used_mb)
+        self.vram_total_mb.set(total_mb)
+        self.gpu_metrics_available.set(1)
+        return self.snapshot()
+
+    @staticmethod
+    def _run_nvidia_smi(command: str, timeout_s: float) -> str:
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        completed = subprocess.run(
+            [
+                command,
+                "--query-gpu=utilization.gpu,memory.used,memory.total",
+                "--format=csv,noheader,nounits",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=timeout_s,
+            creationflags=flags,
+        )
+        return completed.stdout
 
     # ---------- export ----------
 
     def snapshot(self) -> dict[str, Any]:
-        """Giá trị hiện tại của các metric giả (cho dashboard)."""
+        """Latest real GPU/VRAM sample; stale data remains explicitly marked."""
         return {
-            "gpu_util_percent": round(self._gauge_value(self.fake_gpu_util), 1),
-            "vram_mb": round(self._gauge_value(self.fake_vram_mb), 1),
-            "chat_rate_per_min": round(self._gauge_value(self.fake_chat_rate), 1),
+            "gpu_util_percent": (
+                round(self._gpu_util_percent, 1)
+                if self._gpu_util_percent is not None else None
+            ),
+            "vram_mb": (
+                round(self._vram_used_mb, 1) if self._vram_used_mb is not None else None
+            ),
+            "vram_total_mb": (
+                round(self._vram_total_mb, 1) if self._vram_total_mb is not None else None
+            ),
+            "gpu_metrics_available": self._gpu_available,
+            "gpu_metrics_stale": not self._gpu_available and self._gpu_util_percent is not None,
+            "gpu_metrics_error": self._gpu_last_error or None,
+            "source": "nvidia-smi",
+            "chat_rate_per_min": None,
         }
-
-    @staticmethod
-    def _gauge_value(gauge: Gauge) -> float:
-        # prometheus_client Gauge: đọc value hiện tại
-        return gauge._value.get()  # type: ignore[attr-defined]
 
     def prometheus_text(self) -> bytes:
         """Export Prometheus exposition format (cho /metrics endpoint)."""

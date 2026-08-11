@@ -77,7 +77,25 @@ class ActionContextBuilder:
                 f"Thread ID: {self._field(thread.thread_id)}",
                 f"Thread topic: {self._field(thread.topic)}",
                 f"Thread summary: {self._field(thread.summary)}",
+                f"Thread status: {thread.status.value}",
+                f"Conversation move: {thread.next_move.value if thread.next_move else 'deepen'}",
             ])
+            if thread.claims:
+                lines.append(
+                    "Already said (do not repeat): "
+                    + self._field(" | ".join(item.text for item in thread.claims[-2:]))
+                )
+            if thread.viewer_contributions:
+                lines.append(
+                    "Viewer contributions: "
+                    + self._field(
+                        " | ".join(item.text for item in thread.viewer_contributions[-2:])
+                    )
+                )
+            if thread.open_questions:
+                lines.append(
+                    "Open question: " + self._field(thread.open_questions[-1].text)
+                )
         elif action is DirectorAction.ASK_FOLLOW_UP:
             lines.append(f"Question: {self._field(str(goal.metadata.get('question') or ''))}")
         elif action is DirectorAction.SHARE_GOAL_PROGRESS:

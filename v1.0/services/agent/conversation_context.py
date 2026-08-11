@@ -161,10 +161,32 @@ class ConversationContextComposer(ConversationContextService):
             return "Open thread: none recorded"
         thread = max(state.open_threads, key=lambda item: (item.updated_at, item.thread_id))
         evidence_ids = ",".join(item.source_event_id for item in thread.evidence) or "legacy"
-        return (
-            f"Open thread [{thread.thread_id}; kind={thread.kind.value}; evidence={evidence_ids}]: "
-            f"{_compact(thread.summary, self.config.item_max_chars)}"
-        )
+        parts = [
+            f"Open thread [{thread.thread_id}; kind={thread.kind.value}; "
+            f"status={thread.status.value}; evidence={evidence_ids}]",
+            f"summary={_compact(thread.summary, self.config.item_max_chars)}",
+            f"next_move={thread.next_move.value if thread.next_move else 'none'}",
+        ]
+        if thread.claims:
+            parts.append(
+                "already_said=" + _compact(
+                    " | ".join(item.text for item in thread.claims[-2:]),
+                    self.config.item_max_chars,
+                )
+            )
+        if thread.viewer_contributions:
+            parts.append(
+                "viewer_input=" + _compact(
+                    " | ".join(item.text for item in thread.viewer_contributions[-2:]),
+                    self.config.item_max_chars,
+                )
+            )
+        if thread.open_questions:
+            parts.append(
+                "open_question="
+                + _compact(thread.open_questions[-1].text, self.config.item_max_chars)
+            )
+        return "; ".join(parts)
 
     def _goal_line(self, goals: GoalSnapshot) -> str:
         if goals.active is None:

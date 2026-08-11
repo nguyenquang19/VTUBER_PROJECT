@@ -11,7 +11,10 @@ if TYPE_CHECKING:
     from services.agent.types import AgentStateSnapshot, GroundedEvent
     from services.agent.goal_types import Goal, GoalSnapshot
     from services.agent.goal_proposal import GoalProposal
-    from services.agent.types import OpenThread, ThreadEvidence, ThreadKind
+    from services.agent.types import (
+        ConversationMove, OpenThread, ThreadEvidence, ThreadKind, ThreadSpeaker,
+        ThreadStatus, TopicMatch,
+    )
     from services.agent.types import SessionRecap
     from services.agent.thread_extraction import ThreadExtraction
     from services.agent.behavior_library import BehaviorDecision
@@ -67,6 +70,10 @@ class GoalManagerService(Service):
         """Return an immutable, pruned goal snapshot."""
 
     @abstractmethod
+    def reconcile_threads(self, open_thread_ids: set[str] | tuple[str, ...]) -> int:
+        """Cancel thread-bound goals whose parent thread is no longer open."""
+
+    @abstractmethod
     def pin_operator(
         self, *, reason: str, success_condition: str, parent_thread_id: str | None = None,
     ) -> "Goal | None":
@@ -111,12 +118,18 @@ class OpenThreadManagerService(Service):
         summary: str,
         evidence: "ThreadEvidence",
         thread_id: str | None = None,
+        speaker: "ThreadSpeaker | None" = None,
+        status: "ThreadStatus | None" = None,
+        move: "ConversationMove | None" = None,
+        is_open_question: bool = False,
     ) -> "OpenThread | None":
         """Create one grounded thread, or reject invalid/duplicate evidence."""
 
     @abstractmethod
     def update(
         self, thread_id: str, *, summary: str, evidence: "ThreadEvidence",
+        speaker: "ThreadSpeaker | None" = None, status: "ThreadStatus | None" = None,
+        move: "ConversationMove | None" = None, is_open_question: bool = False,
     ) -> bool:
         """Update a live thread with new grounded evidence."""
 
@@ -131,6 +144,24 @@ class OpenThreadManagerService(Service):
     @abstractmethod
     def snapshot(self) -> tuple["OpenThread", ...]:
         """Return an immutable bounded view of open threads."""
+
+    @abstractmethod
+    def set_status(self, thread_id: str, status: "ThreadStatus") -> bool:
+        """Move one live thread between active, waiting, and parked states."""
+
+
+class TopicMatcherService(Service):
+    @abstractmethod
+    def match(
+        self, text: str, open_threads: tuple["OpenThread", ...],
+    ) -> "TopicMatch | None":
+        """Return the strongest related thread, or None below the grounded threshold."""
+
+
+class ConversationMovePlannerService(Service):
+    @abstractmethod
+    def choose(self, thread: "OpenThread") -> "ConversationMove":
+        """Choose the next bounded public conversation move for one thread."""
 
 
 class ThreadExtractionService(Service):

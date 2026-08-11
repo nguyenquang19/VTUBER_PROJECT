@@ -1,44 +1,40 @@
-# Mai — AI VTuber (v1.0)
+# Mai — AI VTuber runtime
 
-AI VTuber tiếng Việt chạy 100% local trên Windows 11 / RTX 5060 Ti 16GB.
+Mai là hệ thống AI VTuber chạy local trên Windows 11. Backend hội thoại là `llama.cpp`, đầu vào
+hiện tại là YouTube/Discord chat, đầu ra là text, audio VieNeu-TTS và subtitle fallback. Runtime có
+Director quyết định hành động, mood Hybrid, memory tùy chọn, transaction tại ranh giới delivery,
+operator dashboard và bộ công cụ đánh giá/vận hành.
 
-## Stack
-- **LLM:** llama.cpp (llama-server) + Gemma 4 12B Q4_K_M
-- **TTS:** VieNeu-TTS v3 Turbo (48kHz, GPU streaming)
-- **STT:** faster-whisper small (Phase 5, deferred)
-- **Storage:** SQLite + sqlite-vec
-- **Dashboard:** FastAPI + Vanilla JS (canvas chart, 100% local)
-
-## Tài liệu
-
-Bộ tài liệu kỹ thuật canonical ở **[docs/dev_manual/](docs/dev_manual/README.md)** — đọc file đó trước.
-
-- [docs/dev_manual/01_architecture.md](docs/dev_manual/01_architecture.md) — kiến trúc + data flow
-- [docs/dev_manual/02_modules.md](docs/dev_manual/02_modules.md) — logic từng module
-- [docs/dev_manual/03_operations.md](docs/dev_manual/03_operations.md) — chạy / config / dashboard / debug
-- [docs/dev_manual/04_extending.md](docs/dev_manual/04_extending.md) — thêm module / đóng góp
-- [docs/CLAUDE.md](docs/CLAUDE.md) — rules N1-N8 cho AI
-- [docs/persona.md](docs/persona.md) — persona spec
-- [STATE.md](STATE.md) — trạng thái build hiện tại
-
-## Setup nhanh
-```powershell
-python -m venv venv
-.\venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -r requirements.lock.txt
-.\scripts\check_environment.ps1 -SkipLlamaHealth
-python -m pytest tests -m "not llm and not slow" --tb=short -q
-python scripts\smoke_offline.py
-```
-
-Entrypoint stream hiện hành:
+## Chạy live
 
 ```powershell
-python scripts\stream_youtube.py --video VIDEO_ID --tts --dashboard
-python scripts\stream_discord.py --tts --dashboard
+# YouTube
+.\scripts\start_live.ps1 -Platform youtube -VideoId "VIDEO_ID"
+
+# Discord
+$env:DISCORD_BOT_TOKEN = "YOUR_TOKEN"
+.\scripts\start_live.ps1 -Platform discord
+
+# YouTube + Discord
+$env:DISCORD_BOT_TOKEN = "YOUR_TOKEN"
+.\scripts\start_live.ps1 -Platform youtube -VideoId "VIDEO_ID" -WithDiscord
 ```
 
-Smoke offline không khởi tạo kết nối YouTube/Discord thật và không cần llama-server hay
-secret. Xem [docs/dev_manual/03_operations.md](docs/dev_manual/03_operations.md) cho setup,
-cấu hình live và cách chạy đầy đủ.
+Launcher mặc định bật TTS và dashboard. Thêm `-Memory` để bật semantic memory. Dashboard ở
+`http://127.0.0.1:7860`; dashboard cũ luôn còn tại `/legacy`. OBS có thể đọc subtitle fallback từ
+`logs\live\subtitle.txt`.
+
+## Bắt đầu đọc tài liệu
+
+- [Mục lục kỹ thuật](docs/README.md)
+- [Tổng quan hệ thống](docs/01_SYSTEM_OVERVIEW.md)
+- [Pipeline dữ liệu end-to-end](docs/02_DATA_PIPELINE.md)
+- [Tra cứu component](docs/03_COMPONENT_REFERENCE.md)
+- [Vận hành và sửa lỗi](docs/06_OPERATIONS_AND_TROUBLESHOOTING.md)
+
+## Nguyên tắc source of truth
+
+Tài liệu mô tả code đang chạy, không mô tả roadmap. Khi tài liệu và code mâu thuẫn, ưu tiên theo
+thứ tự: model/interface trong `interfaces/` → runtime composition trong
+`orchestrator/stream_runtime.py` → implementation trong `services/` → YAML trong `config/` → tài
+liệu này. Mọi thay đổi contract hoặc pipeline phải cập nhật tài liệu tương ứng trong cùng change.

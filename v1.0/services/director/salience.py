@@ -1,4 +1,4 @@
-"""SaliencePool — chấm điểm + decay + cluster chat (C0.1, ROADMAP §C0.1).
+"""SaliencePool — chấm điểm + decay + cluster chat (C0.1, docs/03_COMPONENT_REFERENCE.md §C0.1).
 
 Thay lock FIFO "đáp mọi tin" bằng POOL có điểm: chat tới → score → vào pool
 (KHÔNG tự thành turn). Director khi chọn read_chat mới nhặt top từ pool.
@@ -17,6 +17,7 @@ KHÔNG ML ranker, KHÔNG LLM chấm mỗi tin (chậm + tốn).
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -49,6 +50,8 @@ class SaliencePool:
         cluster_coef: float = 5.0,
         pool_max: int = 50,
         floor: float = 3.0,
+        mention_patterns: list[str] | None = None,
+        question_patterns: list[str] | None = None,
     ) -> None:
         self._base_tier = {k: float(v) for k, v in (base_tier or {}).items()}
         self._sc_coef = float(superchat_coef)
@@ -58,6 +61,13 @@ class SaliencePool:
         self._cluster_coef = float(cluster_coef)
         self._pool_max = max(1, int(pool_max))
         self._floor = float(floor)
+        self._invalid_kind_patterns = 0
+        self._mention_patterns = self._compile_patterns(
+            mention_patterns or [r"\bmai\b"],
+        )
+        self._question_patterns = self._compile_patterns(
+            question_patterns or [r"\?"],
+        )
 
         self._items: dict[str, PooledMessage] = {}
         self._added = 0
@@ -76,9 +86,33 @@ class SaliencePool:
             cluster_coef=float(s.get("cluster_coef", 5.0)),
             pool_max=int(s.get("pool_max", 50)),
             floor=float(s.get("floor", 3.0)),
+            mention_patterns=list(s.get("kind_detection", {}).get(
+                "mention_patterns", [r"\bmai\b"],
+            ) or []),
+            question_patterns=list(s.get("kind_detection", {}).get(
+                "question_patterns", [r"\?"],
+            ) or []),
         )
 
     # ---------- scoring ----------
+
+    def _compile_patterns(self, patterns: list[str]) -> tuple[re.Pattern[str], ...]:
+        compiled: list[re.Pattern[str]] = []
+        for pattern in patterns:
+            try:
+                compiled.append(re.compile(str(pattern), re.IGNORECASE))
+            except re.error:
+                self._invalid_kind_patterns += 1
+        return tuple(compiled)
+
+    def classify_kind(self, text: str) -> str:
+        """Phân hạng salience bằng pattern YAML; mention thắng question thắng chat."""
+        value = text or ""
+        if any(pattern.search(value) for pattern in self._mention_patterns):
+            return "mention"
+        if any(pattern.search(value) for pattern in self._question_patterns):
+            return "question"
+        return "chat"
 
     def _base_for(self, kind: str, amount_vnd: int, is_super: bool) -> float:
         base = self._base_tier.get(kind, self._base_tier.get("chat", 10.0))
@@ -197,6 +231,7 @@ class SaliencePool:
             "salience_added": self._added,
             "salience_clustered": self._clustered,
             "salience_evicted": self._evicted,
+            "salience_invalid_kind_patterns": self._invalid_kind_patterns,
         }
 
 

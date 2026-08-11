@@ -1,4 +1,4 @@
-# chat_salience.yaml — C0.1 Salience pool (ROADMAP_AUTONOMOUS_HOST §C0.1)
+# chat_salience.yaml — C0.1 Salience pool (docs/03_COMPONENT_REFERENCE.md §C0.1)
 #
 # Thay FIFO "đáp mọi tin" bằng POOL có điểm + decay: tin quan trọng (superchat,
 # câu hỏi, mention) nổi lên; tin cũ tự rụng; tin trùng gom cụm. Director nhặt
@@ -11,8 +11,18 @@ salience:
   # Điểm nền theo loại tin
   base_tier:
     chat: 10          # chat thường
-    question: 25      # có dấu ? — đáng đáp hơn
+    question: 25      # câu hỏi theo pattern — đáng đáp hơn
     mention: 35       # gọi thẳng "Mai" — ưu tiên cao nhất trong chat thường
+
+  # Nhận diện loại tin trước khi chấm điểm. Pattern đặt trong YAML để tune bằng
+  # transcript mà không sửa code; mention thắng question thắng chat.
+  kind_detection:
+    mention_patterns:
+      - '\bmai\b(?!\s+(mốt|sau|này|kia)\b)'
+    question_patterns:
+      - '\?'
+      - '\b(ai|gì|sao|tại sao|vì sao|bao giờ|khi nào|ở đâu|thế nào|như nào|bao nhiêu|mấy giờ)\b'
+      - '\b(có nên|có phải|có được|được không|đc không|ổn không|nên không|hay không)\b'
 
   # Superchat/donation cộng vào base_tier: 40 * log1p(amount_vnd / 1000)
   #   20k → +122 · 100k → +185 · 500k → +249

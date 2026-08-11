@@ -31,12 +31,36 @@ class RuleFilter(FilterService):
         patterns: dict[str, list[str]],
         severity: dict[str, str],
         action: dict[str, str],
+        identity_guard: dict[str, Any] | None = None,
         event_bus: Any = None,
     ) -> None:
         self._log = get_logger("filter")
         self._severity = dict(severity or {})
         self._action = dict(action or {})
         self._event_bus = event_bus
+        guard = dict(identity_guard or {})
+        self._foreign_names = tuple(
+            str(value).casefold() for value in guard.get("foreign_names", ())
+            if str(value).strip()
+        )
+        self._first_person_patterns = tuple(
+            re.compile(str(value), re.IGNORECASE)
+            for value in guard.get("first_person_patterns", ())
+            if str(value).strip()
+        )
+        self._knowledge_request_patterns = tuple(
+            re.compile(str(value), re.IGNORECASE)
+            for value in guard.get("knowledge_request_patterns", ())
+            if str(value).strip()
+        )
+        self._uncertainty_patterns = tuple(
+            re.compile(str(value), re.IGNORECASE)
+            for value in guard.get("uncertainty_patterns", ())
+            if str(value).strip()
+        )
+        self._require_name_in_response = bool(
+            guard.get("require_name_in_response", False)
+        )
 
         # Compile per category — bỏ pattern lỗi + category lạ (fail-safe).
         self._compiled: dict[FilterCategory, list[re.Pattern[str]]] = {}
@@ -66,6 +90,7 @@ class RuleFilter(FilterService):
             patterns=f.get("patterns", {}),
             severity=f.get("severity", {}),
             action=f.get("action", {}),
+            identity_guard=f.get("identity_guard", {}),
             event_bus=event_bus,
         )
 
@@ -98,6 +123,9 @@ class RuleFilter(FilterService):
                 cat for cat, pats in self._compiled.items()
                 if any(p.search(text) for p in pats)
             ]
+            if self._foreign_identity_confusion(text, context):
+                hits.append(FilterCategory.PERSONA_BREAK)
+            hits = list(dict.fromkeys(hits))
             elapsed = int((time.perf_counter() - t0) * 1000)
             if not hits:
                 return FilterVerdict.allow(latency_ms=elapsed)
@@ -137,3 +165,50 @@ class RuleFilter(FilterService):
             self._fail_open_total += 1
             self._log.warning("filter_fail_open", error=str(e))
             return FilterVerdict.fail_open(str(e), latency_ms=int((time.perf_counter() - t0) * 1000))
+
+    def _foreign_identity_confusion(
+        self, text: str, context: dict[str, Any] | None,
+    ) -> bool:
+        if not self._foreign_names or not context:
+            return False
+        messages = context.get("messages") or ()
+        direct_user_text = next(
+            (
+                str(message.get("content") or "")
+                for message in reversed(messages)
+                if str(message.get("role") or "") == "user"
+            ),
+            "",
+        )
+        context_text = direct_user_text or next(
+            (
+                str(message.get("content") or "")
+                for message in reversed(messages)
+                if str(message.get("content") or "").strip()
+            ),
+            "",
+        )
+        folded_user = context_text.casefold()
+        name = next(
+            (value for value in self._foreign_names if value in folded_user), None,
+        )
+        if name is None:
+            return False
+        folded_response = text.casefold()
+        if any(pattern.search(text) for pattern in self._first_person_patterns):
+            return True
+        if self._require_name_in_response and name not in folded_response:
+            return True
+        # A system-only directed continuation may quote an old question. It is not
+        # itself a direct request, so apply identity-takeover checks but do not force
+        # every neutral continuation to repeat an uncertainty disclaimer.
+        if not direct_user_text:
+            return False
+        asks_unknown_fact = any(
+            pattern.search(direct_user_text)
+            for pattern in self._knowledge_request_patterns
+        )
+        states_uncertainty = any(
+            pattern.search(text) for pattern in self._uncertainty_patterns
+        )
+        return asks_unknown_fact and not states_uncertainty

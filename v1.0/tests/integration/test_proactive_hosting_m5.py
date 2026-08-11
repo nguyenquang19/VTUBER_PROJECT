@@ -10,6 +10,7 @@ from services.director.director import Director, DirectorAction, Segment
 from services.director.director_loop import DirectorLoop
 from services.director.proactive_policy import ProactiveHostingPolicy, ProactivePolicyConfig
 from services.director.salience import SaliencePool
+from services.tts.tts_pipeline import TTSDeliveryMode, TTSDeliveryResult
 
 NOW = datetime(2026, 8, 8, 12, 0, tzinfo=timezone.utc)
 
@@ -77,6 +78,20 @@ class _Goals:
         return GoalSnapshot()
 
 
+async def _delivered_speech(_text: str, _request_id: str) -> TTSDeliveryResult:
+    return TTSDeliveryResult(
+        request_id=_request_id,
+        delivered=True,
+        mode=TTSDeliveryMode.SUBTITLE,
+        sentences_total=1,
+        sentences_delivered=1,
+        audio_sentences=0,
+        subtitle_sentences=1,
+        failed_sentences=0,
+        cancelled=False,
+    )
+
+
 async def test_director_continues_grounded_thread_before_silence_and_cools_down() -> None:
     thread = OpenThread(
         "thread-1", "coffee story", "unfinished coffee story", NOW, NOW,
@@ -97,6 +112,7 @@ async def test_director_continues_grounded_thread_before_silence_and_cools_down(
     loop = DirectorLoop(
         director, pool, pulse, _Runner(), autonomy=autonomy,
         agent_state=state, goal_manager=_Goals(), clock=lambda: clock["now"],
+        speak=_delivered_speech,
     )
 
     assert await loop.tick_once() is DirectorAction.FOLLOW_UP
@@ -125,6 +141,7 @@ async def test_director_uses_only_grounded_salient_environment() -> None:
     loop = DirectorLoop(
         director, pool, pulse, _Runner(), autonomy=autonomy,
         agent_state=state, goal_manager=_Goals(), clock=lambda: 101.0,
+        speak=_delivered_speech,
     )
     assert await loop.tick_once() is DirectorAction.SELF_TALK
     assert autonomy.calls == [(

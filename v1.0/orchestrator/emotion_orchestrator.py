@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from interfaces.animation import MoodState
+from interfaces.affect import AffectComposer, TurnAffect
 from orchestrator.logger import get_logger
 from orchestrator.mood_engine import MoodEngine
 from services.emotion.appraisal import AppraisalTable
@@ -31,6 +32,10 @@ from services.emotion.classifier import (
     sanitize_alias,
 )
 from services.emotion.modifiers import ModifierEngine
+from services.emotion.affect_style import AffectStyleRenderer
+from services.emotion.affect_v2 import AffectV2
+from services.emotion.hybrid_affect import HybridAffectComposer
+from services.emotion.mood_style import MoodStyleTable
 from services.agent.types import (
     AgentEventKind,
     AgentEventSource,
@@ -57,6 +62,11 @@ class EmotionOrchestrator:
         engine: MoodEngine,
         tick_hz: int = 10,
         agent_state: Any = None,
+        affect_v2: AffectV2 | None = None,
+        affect_renderer: AffectStyleRenderer | None = None,
+        affect_composer: AffectComposer | None = None,
+        affect_shadow_enabled: bool = False,
+        affect_prompt_enabled: bool = False,
     ) -> None:
         self._classifier = classifier
         self._appraisal = appraisal
@@ -65,6 +75,11 @@ class EmotionOrchestrator:
         self._tick_hz = int(tick_hz)
         self._dt = 1.0 / self._tick_hz
         self._agent_state = agent_state
+        self._affect_v2 = affect_v2
+        self._affect_renderer = affect_renderer
+        self._affect_composer = affect_composer
+        self._affect_shadow_enabled = bool(affect_shadow_enabled)
+        self._affect_prompt_enabled = bool(affect_prompt_enabled)
 
         # Buffer per-dim: targets[dim] = list of float (nhiều event trong 1 tick)
         self._pending: dict[str, list[float]] = defaultdict(list)
@@ -87,11 +102,22 @@ class EmotionOrchestrator:
         memory: Any = None,
         filter_service: Any = None,
         agent_state: Any = None,
+        metrics: Any = None,
     ) -> "EmotionOrchestrator":
         classifier = classifier or EventClassifier.from_loader(loader, filter_service=filter_service)
         appraisal = appraisal or AppraisalTable.from_loader(loader)
         modifiers = modifiers or ModifierEngine.from_loader(loader, memory=memory)
         engine = engine or MoodEngine.from_loader(loader)
+        shadow_enabled = bool(loader.get(
+            "features", "features.mood_v2_shadow.enabled", False,
+        ))
+        prompt_enabled = bool(loader.get(
+            "features", "features.mood_v2_prompt.enabled", False,
+        ))
+        affect_v2 = AffectV2.from_loader(
+            loader, metrics=metrics, enabled=shadow_enabled,
+        )
+        mood_style = MoodStyleTable.from_loader(loader)
         return cls(
             classifier=classifier,
             appraisal=appraisal,
@@ -99,6 +125,13 @@ class EmotionOrchestrator:
             engine=engine,
             tick_hz=engine.tick_hz,
             agent_state=agent_state,
+            affect_v2=affect_v2,
+            affect_renderer=AffectStyleRenderer.from_loader(loader),
+            affect_composer=HybridAffectComposer.from_loader(
+                loader, mood_style=mood_style,
+            ),
+            affect_shadow_enabled=shadow_enabled,
+            affect_prompt_enabled=prompt_enabled,
         )
 
     # ---------- lifecycle ----------
@@ -107,10 +140,14 @@ class EmotionOrchestrator:
         """Start background tick loop 10Hz. Idempotent."""
         if self._tick_task is not None and not self._tick_task.done():
             return
+        if self._affect_v2 is not None:
+            await self._affect_v2.start()
         self._tick_task = asyncio.create_task(self._tick_loop(), name="emotion_tick")
         self._log.info("emotion_orchestrator_ready", tick_hz=self._tick_hz)
 
     async def stop(self) -> None:
+        if self._affect_v2 is not None:
+            await self._affect_v2.stop()
         if self._tick_task is None:
             return
         self._tick_task.cancel()
@@ -158,6 +195,17 @@ class EmotionOrchestrator:
         cause = self._derive_cause(event, category)
         if cause is not None:
             self._active_cause = cause
+
+        if self._affect_v2 is not None and self._affect_shadow_enabled:
+            try:
+                self._affect_v2.observe(
+                    category,
+                    targets=final_targets,
+                    tone_flag=flag,
+                    cause_ref=str((event.meta or {}).get("source_event_id") or "") or None,
+                )
+            except Exception as exc:
+                self._log.warning("affect_v2_shadow_failed", error=str(exc))
 
         processed = ProcessedEvent(
             category=category, targets=final_targets, tone_flag=flag, cause=cause,
@@ -225,7 +273,7 @@ class EmotionOrchestrator:
         return self._engine.tick(dt or self._dt)
 
     def apply_llm_hint(self, mood_state: MoodState) -> None:
-        """A1 (ROADMAP_AUTONOMOUS_HOST §PHASE A): Kênh B ĐÃ BỎ — no-op.
+        """A1 (docs/03_COMPONENT_REFERENCE.md §PHASE A): Kênh B ĐÃ BỎ — no-op.
 
         Giữ signature để backward compat với caller cũ. LLM không còn tự report
         mood (persona đã xoá mood block instruction). Mood engine giờ chỉ đi 1
@@ -245,15 +293,68 @@ class EmotionOrchestrator:
         """A4: cause hiện tại (object cảm xúc) — Prompt đọc, clear cùng tone flags."""
         return self._active_cause
 
+    def current_turn_affect(self) -> TurnAffect | None:
+        if self._affect_v2 is None or not self._affect_shadow_enabled:
+            return None
+        return self._affect_v2.current_turn_affect()
+
+    def delivery_directive(self) -> str | None:
+        """Return one hybrid prompt directive only after explicit consumer cutover."""
+        if (
+            not self._affect_prompt_enabled
+            or self._affect_v2 is None
+            or self._affect_renderer is None
+        ):
+            return None
+        affect = self._affect_v2.current_turn_affect()
+        if self._affect_composer is not None:
+            plan = self._affect_composer.compose(
+                self._last_category or "default",
+                affect,
+                self.current_mood(),
+                self.active_tone_flags(),
+            )
+            return self._affect_renderer.directive_for_plan(
+                plan, self._affect_v2.current_session_mood(),
+            )
+        return self._affect_renderer.directive_for(
+            affect, self._affect_v2.current_session_mood(),
+        )
+
+    @property
+    def affect_shadow_enabled(self) -> bool:
+        return self._affect_shadow_enabled
+
+    @property
+    def affect_prompt_enabled(self) -> bool:
+        return self._affect_prompt_enabled
+
+    def set_affect_shadow_enabled(self, enabled: bool) -> None:
+        self._affect_shadow_enabled = bool(enabled)
+        if self._affect_v2 is not None:
+            self._affect_v2.set_enabled(enabled)
+        if not enabled:
+            self._affect_prompt_enabled = False
+
+    def set_affect_prompt_enabled(self, enabled: bool) -> None:
+        self._affect_prompt_enabled = bool(enabled) and self._affect_shadow_enabled
+
     def clear_tone_flags(self) -> None:
         """Prompt/Filter gọi sau khi đã đọc & xử cờ (1 lần dùng cho 1 turn).
         A4: clear luôn cause (cùng vòng đời per-turn)."""
         self._active_flags.clear()
         self._active_cause = None
+        if self._affect_v2 is not None:
+            self._affect_v2.advance_turn()
 
     def reset_session(self) -> None:
         """Session mới: reset modifier counters (không reset mood engine)."""
         self._modifiers.reset_session()
+        if self._affect_v2 is not None:
+            self._affect_v2.reset_session()
+
+    def set_memory_service(self, memory: Any = None) -> None:
+        self._modifiers.set_memory_service(memory)
 
     # ---------- introspection ----------
 
@@ -265,6 +366,8 @@ class EmotionOrchestrator:
             "emotion_last_category": self._last_category,
             **self._engine.get_metrics(),
             **self._modifiers.get_metrics(),
+            **(self._affect_v2.get_metrics() if self._affect_v2 is not None else {}),
+            **(self._affect_composer.get_metrics() if self._affect_composer is not None else {}),
         }
 
     def snapshot(self) -> dict[str, Any]:
@@ -276,4 +379,18 @@ class EmotionOrchestrator:
             "active_flags": sorted(self._active_flags),
             "last_category": self._last_category,
             "pending_events": {d: list(v) for d, v in self._pending.items()},
+            "affect_v2": (
+                {
+                    **self._affect_v2.snapshot(),
+                    "shadow_enabled": self._affect_shadow_enabled,
+                    "prompt_enabled": self._affect_prompt_enabled,
+                    "delivery_directive": self.delivery_directive(),
+                    "hybrid": (
+                        self._affect_composer.snapshot()
+                        if self._affect_composer is not None
+                        and hasattr(self._affect_composer, "snapshot") else None
+                    ),
+                }
+                if self._affect_v2 is not None else None
+            ),
         }

@@ -1,6 +1,6 @@
-"""Parser output LLM (ARCHITECTURE 7.4/8.2, persona.md Phần B, milestone 1.D).
+"""Parser output LLM (ARCHITECTURE 7.4/8.2, config/prompts/persona_system.txt Phần B, milestone 1.D).
 
-**A1 (ROADMAP_AUTONOMOUS_HOST §PHASE A):** persona đã BỎ yêu cầu mood block —
+**A1 (docs/03_COMPONENT_REFERENCE.md §PHASE A):** persona đã BỎ yêu cầu mood block —
 Mai chỉ nói thoại. Parser giữ khả năng strip mood block DEFENSIVE (nếu LLM lỡ
 vẫn sinh do prompt cũ trong ngữ cảnh) nhưng KHÔNG còn dùng nó làm control flow.
 `ok` = True miễn có text non-empty. `mood` = MoodState() default nếu không có

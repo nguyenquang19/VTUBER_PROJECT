@@ -97,6 +97,9 @@ class ModifierEngine:
             "mod_session_troll_count": self._session_troll_count,
         }
 
+    def set_memory_service(self, memory: Any = None) -> None:
+        self._memory = memory
+
     def reset_session(self) -> None:
         """Gọi khi stream/session mới bắt đầu (repeated_troll count + grudge reset)."""
         self._session_troll_count = 0

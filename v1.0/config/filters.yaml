@@ -10,7 +10,32 @@
 filter:
   # 3.B: nếu suggested_action == regenerate → thử build hint + re-prompt LLM
   # tối đa max_regenerate_attempts lần. Đặt 0 để tắt.
-  max_regenerate_attempts: 1
+  max_regenerate_attempts: 2
+
+  identity_guard:
+    foreign_names: ["anami"]
+    # Khi chat hỏi về một người khác mà context không có nguồn xác thực, Mai phải
+    # nhắc đúng tên và nói rõ là không biết; không được đoán hoặc nhập vai người đó.
+    require_name_in_response: false
+    knowledge_request_patterns:
+      - "\\?"
+      - "\\b(?:gì|đâu|nào|đang|muốn|thích|biết|nghĩ|làm sao|thế nào)\\b"
+    uncertainty_patterns:
+      - "\\b(?:không|chẳng|chưa) (?:biết|rõ)\\b"
+      - "\\bkhông có (?:thông tin|dữ kiện)\\b"
+      - "\\bkhông dám đoán\\b"
+      - "\\btớ chịu\\b"
+    first_person_patterns:
+      - "\\bnếu tớ\\b"
+      - "\\bnếu (?:ý cậu|cái tên [^ ]+) (?:là|chính là) tớ\\b"
+      - "\\bnếu [^.!?]{0,40} chính là tớ\\b"
+      - "\\bđể tớ\\b"
+      - "\\bcho tớ\\b"
+      - "\\bthì tớ đang\\b"
+      - "\\btớ (?:muốn|thích|sẽ|đang)\\b"
+      - "\\b(?:tiếng|màn hình|cơ thể|thân xác) của tớ\\b"
+      - "\\b(?:tiếng|màn hình|cơ thể|thân xác) của mình\\b"
+      - "\\bbàn (?:tán )?về mình\\b"
 
   patterns:
     # C.3 hedge robot + C.5 lộ system prompt

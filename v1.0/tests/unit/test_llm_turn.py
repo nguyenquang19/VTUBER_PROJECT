@@ -141,6 +141,20 @@ class TestPrimarySuccess:
         await runner.run_turn("r1", "chào")
         assert canned.pick() == "V"
 
+    async def test_deferred_delivery_commits_history_only_after_success(self) -> None:
+        runner, pm, *_ = make_runner(FakeLLM(VALID))
+        await runner.run_turn("deferred", "chào", defer_delivery_commit=True)
+        assert pm.history() == []
+        assert runner.finalize_delivery("deferred", True) is True
+        assert [item.content for item in pm.history()] == ["chào", "Chào cậu."]
+        assert runner.finalize_delivery("deferred", True) is False
+
+    async def test_failed_deferred_delivery_discards_history(self) -> None:
+        runner, pm, *_ = make_runner(FakeLLM(VALID))
+        await runner.run_turn("failed", "chào", defer_delivery_commit=True)
+        assert runner.finalize_delivery("failed", False) is True
+        assert pm.history() == []
+
 
 class TestFallbackToCanned:
     async def test_primary_raises_falls_to_canned(self) -> None:
@@ -198,3 +212,24 @@ class TestFromLoader:
         canned = CannedResponder.from_loader(loader)
         LLMTurnRunner.from_loader(loader, FakeLLM(VALID), pm, fb, canned)
         assert fb.has_chain("llm")
+        assert fb._chains["llm"].timeouts == [20.0, 0.1]
+        assert pm._history_max_chars == 1200
+
+    async def test_generation_caps_are_applied_per_turn_kind(self) -> None:
+        fake = FakeLLM(VALID)
+        pm = PromptManager(PromptCache("persona test"), max_history_turns=2)
+        runner = LLMTurnRunner(
+            fake,
+            pm,
+            FallbackManager(),
+            CannedResponder({"default": ["fallback"]}),
+            chat_max_tokens=160,
+            ambient_max_tokens=96,
+            directed_max_tokens=128,
+        )
+
+        await runner.run_turn("chat", "xin chào")
+        await runner.run_ambient_turn("ambient", "tự mở lời")
+        await runner.run_directed_turn("directed", "tiếp tục chủ đề")
+
+        assert [request.max_tokens for request in fake.requests] == [160, 96, 128]

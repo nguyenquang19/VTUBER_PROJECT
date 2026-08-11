@@ -73,6 +73,23 @@ def test_non_question_speech_creates_nothing() -> None:
     assert _policy().candidates_for(event, AgentStateSnapshot(), GoalSnapshot()) == ()
 
 
+def test_delivered_reply_echoing_viewer_question_does_not_create_wait_goal() -> None:
+    reply = _event(
+        AgentEventKind.SPEECH_COMPLETED, "speech-reply", "Viewer asked coffee?",
+        action="read_chat", expects_chat_answer=False,
+    )
+    assert _policy().candidates_for(reply, AgentStateSnapshot(), GoalSnapshot()) == ()
+
+    invitation = _event(
+        AgentEventKind.SPEECH_COMPLETED, "speech-invite", "Chat prefers coffee?",
+        action="continue_thread", expects_chat_answer=True,
+    )
+    goal = _policy().candidates_for(
+        invitation, AgentStateSnapshot(), GoalSnapshot(),
+    )[0]
+    assert goal.kind is GoalKind.WAIT_FOR_CHAT_ANSWER
+
+
 def test_chat_while_waiting_creates_answer_follow_up() -> None:
     event = _event(AgentEventKind.CHAT_RECEIVED, "chat-2", "Tớ chọn cà phê")
     goal = _policy().candidates_for(
@@ -102,7 +119,7 @@ def test_unrelated_event_creates_nothing() -> None:
     assert _policy().candidates_for(event, AgentStateSnapshot(), GoalSnapshot()) == ()
 
 
-def test_agenda_applies_mood_priority_to_created_goal() -> None:
+def test_agenda_does_not_apply_mood_priority_to_created_goal() -> None:
     kinds = list(GoalKind)
     mood_policy = MoodActionPolicy(MoodPolicyConfig(
         6, 0, 100, 50,
@@ -125,4 +142,4 @@ def test_agenda_applies_mood_priority_to_created_goal() -> None:
         event, AgentStateSnapshot(open_threads=(thread,)), GoalSnapshot(),
         mood=MoodState(bon_chon=8),
     )[0]
-    assert goal.priority == 50
+    assert goal.priority == 40

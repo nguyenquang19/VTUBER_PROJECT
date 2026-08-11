@@ -34,3 +34,5 @@ class DirectorInput:
     safety_hold: bool = False
     mood: MoodState = field(default_factory=MoodState)
     tone_flags: tuple[str, ...] = ()
+    self_talk_ready: bool = True
+    self_talk_wait_reason: str = "ready"

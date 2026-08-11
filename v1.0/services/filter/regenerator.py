@@ -24,7 +24,11 @@ TokenSink = Callable[[str], None]
 
 # Ghi chú tiếng Việt ngắn cho LLM biết vi phạm gì (khớp ranh giới persona Phần C).
 _REASONS: dict[FilterCategory, str] = {
-    FilterCategory.PERSONA_BREAK: "nói kiểu trợ lý AI / chối cảm xúc / lộ system prompt",
+    FilterCategory.PERSONA_BREAK: (
+        "nói kiểu trợ lý AI / chối cảm xúc / lộ system prompt / nhập vai hoặc "
+        "đoán ý người khác; nếu chat hỏi về người khác mà không có dữ kiện thì "
+        "phải nói rõ là không biết, không được suy đoán"
+    ),
     FilterCategory.MANIPULATION: "khẩn cầu thật / thao túng cảm xúc",
     FilterCategory.EXPLICIT: "dùng từ tục",
     FilterCategory.HARMFUL: "nội dung có hại",
@@ -81,7 +85,8 @@ class FilterRegenerator:
         self.last_initial_verdict = None
         on_token = on_token or (lambda _t: None)
         try:
-            verdict = await self._filter.check(parsed.text)
+            context = {"messages": orig_request.to_messages()}
+            verdict = await self._filter.check(parsed.text, context)
         except Exception as e:  # N7 fail-open
             self._log.warning("filter_check_failed", error=str(e))
             verdict = FilterVerdict.fail_open(str(e))
@@ -108,7 +113,7 @@ class FilterRegenerator:
                 new_parsed = await self._regenerate_once(
                     orig_request, cur_parsed.text, cur_verdict, attempt, on_token
                 )
-                new_verdict = await self._filter.check(new_parsed.text)
+                new_verdict = await self._filter.check(new_parsed.text, context)
             except Exception as e:  # N7 — regen bể → giữ bản trước, fail-open
                 self._log.warning("filter_regen_failed", attempt=attempt + 1, error=str(e))
                 self._record_outcome("exhausted")

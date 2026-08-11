@@ -12,6 +12,9 @@ jsonl:
   turns_file: "turns.jsonl"       # 1 dòng / turn hội thoại (schema ARCHITECTURE 9.3)
   events_file: "events.jsonl"     # log hệ thống chung
 
+fail_safe:
+  buffer_records: 256              # bounded in-memory records while disk sink is degraded
+
 rotation:
   enabled: true
   max_size_mb: 100

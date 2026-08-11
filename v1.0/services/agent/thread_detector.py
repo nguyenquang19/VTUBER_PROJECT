@@ -6,12 +6,16 @@ from dataclasses import dataclass
 from typing import Any
 
 from services.agent.types import (
-    AgentEventKind, GroundedEvent, OpenThread, ThreadEvidence, ThreadKind,
-    ThreadOperation, ThreadSignal,
+    AgentEventKind, ConversationMove, GroundedEvent, OpenThread, ThreadEvidence,
+    ThreadKind, ThreadOperation, ThreadSignal, ThreadSpeaker, ThreadStatus,
 )
 
 _FOLLOW_UP = re.compile(
     r"\b(kể tiếp|tiếp đi|nói tiếp|rồi sao|thế còn|vậy còn|nãy|lúc nãy|continue)\b",
+    re.IGNORECASE,
+)
+_EXPLICIT_FOLLOW_UP = re.compile(
+    r"\b(kể tiếp|tiếp đi|nói tiếp|rồi sao|thế còn|vậy còn|continue)\b",
     re.IGNORECASE,
 )
 _PROMISE = re.compile(
@@ -44,17 +48,24 @@ class ThreadDetectorConfig:
 
 
 class RuleThreadDetector:
-    def __init__(self, config: ThreadDetectorConfig | None = None) -> None:
+    def __init__(
+        self, config: ThreadDetectorConfig | None = None, *, matcher: Any = None,
+    ) -> None:
         self.config = config or ThreadDetectorConfig()
+        self._matcher = matcher
 
     @classmethod
-    def from_loader(cls, loader: Any) -> "RuleThreadDetector":
-        return cls(ThreadDetectorConfig.from_loader(loader))
+    def from_loader(cls, loader: Any, *, matcher: Any = None) -> "RuleThreadDetector":
+        return cls(ThreadDetectorConfig.from_loader(loader), matcher=matcher)
 
     def detect(
         self, event: GroundedEvent, open_threads: tuple[OpenThread, ...],
     ) -> tuple[ThreadSignal, ...]:
-        if event.kind not in (AgentEventKind.CHAT_RECEIVED, AgentEventKind.SPEECH_FINAL):
+        if event.kind not in (
+            AgentEventKind.CHAT_RECEIVED,
+            AgentEventKind.SPEECH_FINAL,
+            AgentEventKind.SPEECH_COMPLETED,
+        ):
             return ()
         text = _compact(event.payload.get("text"), self.config.evidence_excerpt_max_chars)
         if not text:
@@ -65,30 +76,98 @@ class RuleThreadDetector:
             detector="rule",
             confidence=event.confidence,
         )
-        target = _best_target(open_threads, text)
+        target = self._target(event, open_threads, text)
+        speaker = (
+            ThreadSpeaker.VIEWER
+            if event.kind is AgentEventKind.CHAT_RECEIVED else ThreadSpeaker.MAI
+        )
+        if event.kind is AgentEventKind.SPEECH_COMPLETED:
+            if target is None:
+                return ()
+            move = _move(event.payload.get("conversation_move")) or target.next_move
+            if _RESOLVE.search(text) or move is ConversationMove.CLOSE:
+                return (ThreadSignal(
+                    ThreadOperation.RESOLVE, target.kind, target.topic, target.summary,
+                    evidence, target_thread_id=target.thread_id,
+                    reason="delivered_completion", speaker=speaker, move=move,
+                ),)
+            waiting = _ends_with_question(text)
+            status = (
+                ThreadStatus.PARKED
+                if move is ConversationMove.PARK else
+                ThreadStatus.WAITING if waiting else ThreadStatus.ACTIVE
+            )
+            return (ThreadSignal(
+                ThreadOperation.UPDATE, target.kind, target.topic, text,
+                evidence, target_thread_id=target.thread_id, speaker=speaker,
+                status=status,
+                move=move, is_open_question=waiting,
+            ),)
         if target is not None and _RESOLVE.search(text):
             return (ThreadSignal(
                 ThreadOperation.RESOLVE, target.kind, target.topic, target.summary,
                 evidence, target_thread_id=target.thread_id, reason="explicit_completion",
+                speaker=speaker,
             ),)
         if target is not None and _FOLLOW_UP.search(text):
             return (ThreadSignal(
                 ThreadOperation.UPDATE, target.kind, target.topic, text,
-                evidence, target_thread_id=target.thread_id,
+                evidence, target_thread_id=target.thread_id, speaker=speaker,
+                status=ThreadStatus.ACTIVE,
+            ),)
+        if target is not None and event.kind is AgentEventKind.CHAT_RECEIVED:
+            return (ThreadSignal(
+                ThreadOperation.UPDATE, target.kind, target.topic, text,
+                evidence, target_thread_id=target.thread_id, speaker=speaker,
+                status=ThreadStatus.ACTIVE,
             ),)
         if event.kind is AgentEventKind.SPEECH_FINAL and _PROMISE.search(text):
             return (ThreadSignal(
                 ThreadOperation.CREATE, ThreadKind.PROMISE, _topic(text), text, evidence,
+                speaker=speaker,
             ),)
         if "?" in text:
             return (ThreadSignal(
                 ThreadOperation.CREATE, ThreadKind.QUESTION, _topic(text), text, evidence,
+                speaker=speaker,
             ),)
         if event.kind is AgentEventKind.SPEECH_FINAL and _STORY.search(text):
             return (ThreadSignal(
                 ThreadOperation.CREATE, ThreadKind.STORY, _topic(text), text, evidence,
+                speaker=speaker,
             ),)
         return ()
+
+    def _target(
+        self, event: GroundedEvent, open_threads: tuple[OpenThread, ...], text: str,
+    ) -> OpenThread | None:
+        explicit_id = str(event.payload.get("thread_id") or "").strip()
+        if explicit_id:
+            return next(
+                (thread for thread in open_threads if thread.thread_id == explicit_id), None,
+            )
+        if event.kind is AgentEventKind.SPEECH_COMPLETED:
+            return None
+        match = self._matcher.match(text, open_threads) if self._matcher is not None else None
+        if match is not None:
+            return next(
+                (thread for thread in open_threads if thread.thread_id == match.thread_id),
+                None,
+            )
+        # "nãy/lúc nãy" is only a temporal reference in fast chat. Without a
+        # lexical match it must not hijack whichever thread happened to be active.
+        if _EXPLICIT_FOLLOW_UP.search(text) or _RESOLVE.search(text):
+            candidates = tuple(
+                thread for thread in open_threads if thread.status is not ThreadStatus.PARKED
+            )
+            if candidates:
+                return max(candidates, key=lambda item: (item.updated_at, item.thread_id))
+            parked = tuple(
+                thread for thread in open_threads if thread.status is ThreadStatus.PARKED
+            )
+            if len(parked) == 1:
+                return parked[0]
+        return None
 
 
 def _best_target(open_threads: tuple[OpenThread, ...], text: str) -> OpenThread | None:
@@ -105,6 +184,18 @@ def _best_target(open_threads: tuple[OpenThread, ...], text: str) -> OpenThread 
         reverse=True,
     )
     return ranked[0]
+
+
+def _move(value: Any) -> ConversationMove | None:
+    try:
+        return ConversationMove(str(value)) if value else None
+    except ValueError:
+        return None
+
+
+def _ends_with_question(text: str) -> bool:
+    compact = " ".join(str(text).split()).rstrip('"”’)]}')
+    return len(compact) >= 4 and compact.endswith("?")
 
 
 def _topic(text: str) -> str:

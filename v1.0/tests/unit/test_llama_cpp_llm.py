@@ -179,6 +179,12 @@ class TestStreaming:
         assert tokens == ["ừ"]
 
 
+    async def test_optional_seed_is_forwarded_for_deterministic_replay(self) -> None:
+        svc, writer = make_service(http_response(sse_body(chat_stream(["ok"]))))
+        _ = [token async for token in svc.generate_stream(req(seed=20260809))]
+        assert sent_payload(writer)["seed"] == 20260809
+
+
 class TestErrors:
     async def test_http_error_raises(self) -> None:
         svc, _ = make_service(http_response(b"boom", status=b"HTTP/1.1 500 Internal Server Error"))

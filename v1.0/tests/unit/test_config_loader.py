@@ -175,6 +175,7 @@ class TestReload:
     def test_name_for_path_maps_known_files(self, tmp_config_dir: Path) -> None:
         loader = ConfigLoader(tmp_config_dir)
         assert loader.name_for_path(Path("whatever/system.yaml")) == "system"
+        assert loader.name_for_path(Path("whatever/conversation.yaml")) == "conversation"
         assert loader.name_for_path(Path("whatever/state_machine.yaml")) == "state_machine"
         assert loader.name_for_path(Path("whatever/random.yaml")) is None
 
@@ -224,7 +225,12 @@ class TestRealConfigFiles:
         assert "data_privacy" in loader.loaded_names()
         assert "features" in loader.loaded_names()
         assert "agent_goals" in loader.loaded_names()
+        assert "conversation" in loader.loaded_names()
         assert "hosting" in loader.loaded_names()
+        assert loader.require("conversation", "open_threads.max_open") == 8
+        assert loader.require("conversation", "open_threads.park_after_seconds") == 300
+        assert loader.require("conversation", "topic_matcher.min_score") == 0.34
+        assert loader.require("conversation", "move_planner.summarize_after_moves") == 4
         assert loader.require("hosting", "behavior_library.behaviors.repair.directive")
 
     def test_real_config_has_phase0_keys(self) -> None:
@@ -239,11 +245,11 @@ class TestRealConfigFiles:
     def test_models_config_matches_preflight(self) -> None:
         loader = ConfigLoader(REPO_ROOT / "config")
         loader.load_all()
-        # Stack chốt: llama.cpp, context 4096 (CLAUDE.md Section 3)
+        # Production stack: llama.cpp with context 4096.
         assert loader.require("models", "llm_main.provider") == "llama_cpp"
         assert loader.require("models", "llm_main.context_size") == 4096
         assert loader.require("models", "llm_main.port") == 8080
-        # TTS chuyển sang VieNeu-TTS v3 Turbo (spike day_vieneu, 2026-08)
+        # Production TTS is VieNeu-TTS v3 Turbo.
         assert loader.require("models", "tts.provider") == "vieneu"
         assert loader.require("models", "tts.params.style") == "tu_nhien"
         # STT deferred theo scope decision

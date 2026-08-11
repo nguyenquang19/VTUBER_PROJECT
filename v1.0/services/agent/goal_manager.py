@@ -14,6 +14,12 @@ from services.agent.types import (
 )
 
 
+_THREAD_BOUND_GOAL_KINDS = frozenset({
+    GoalKind.CONTINUE_THREAD,
+    GoalKind.ANSWER_FOLLOW_UP,
+})
+
+
 @dataclass(frozen=True)
 class GoalLimits:
     candidates_max: int
@@ -180,6 +186,40 @@ class GoalManager(GoalManagerService):
             suspended=self._snapshot.suspended,
             recent_terminal=self._snapshot.recent_terminal,
         )
+
+    def reconcile_threads(self, open_thread_ids: set[str] | tuple[str, ...]) -> int:
+        """Remove invalid thread goals before they can block Director arbitration."""
+        now = _utc(self._clock())
+        self._prune(now)
+        available = {str(thread_id) for thread_id in open_thread_ids if str(thread_id)}
+        goals = (
+            *((self._snapshot.active,) if self._snapshot.active else ()),
+            *self._snapshot.candidates,
+            *self._snapshot.suspended,
+        )
+        stale = tuple(
+            goal for goal in goals
+            if (
+                goal.kind in _THREAD_BOUND_GOAL_KINDS
+                and bool(goal.parent_thread_id)
+                and goal.parent_thread_id not in available
+            )
+        )
+        if not stale:
+            return 0
+        for goal in stale:
+            current = self._find(goal.goal_id)
+            if current is None:
+                continue
+            self._remove(current.goal_id)
+            self._append_terminal(current.with_status(
+                GoalStatus.CANCELLED,
+                suspend_reason="parent_thread_missing",
+            ))
+            self._record("cancelled", current.kind.value)
+            self._record("reconciled", "parent_thread_missing")
+        self._activate_next(now)
+        return len(stale)
 
     def pin_operator(
         self, *, reason: str, success_condition: str, parent_thread_id: str | None = None,

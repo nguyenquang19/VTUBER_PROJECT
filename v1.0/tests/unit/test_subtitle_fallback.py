@@ -1,6 +1,8 @@
 """Test SubtitleFallbackService (Phase 4, 4.C)."""
 from __future__ import annotations
 
+import pytest
+
 from interfaces.tts import TTSRequest
 from services.tts.subtitle_fallback import SubtitleFallbackService
 
@@ -52,9 +54,46 @@ class TestFailSafe:
         svc = SubtitleFallbackService()
         await svc.cancel("r")           # không raise
 
+    async def test_required_delivery_without_sink_fails(self) -> None:
+        svc = SubtitleFallbackService(require_delivery=True)
+        with pytest.raises(RuntimeError, match="no working delivery sink"):
+            _ = [
+                chunk async for chunk in svc.synthesize_stream(
+                    TTSRequest(request_id="r", text="x"),
+                )
+            ]
+
+    async def test_writes_atomic_overlay_file(self, tmp_path) -> None:
+        output = tmp_path / "live" / "subtitle.txt"
+        svc = SubtitleFallbackService(output_file=output, require_delivery=True)
+        _ = [
+            chunk async for chunk in svc.synthesize_stream(
+                TTSRequest(request_id="r", text="Mai đang nói"),
+            )
+        ]
+        assert output.read_text(encoding="utf-8") == "Mai đang nói"
+        assert not output.with_suffix(".txt.tmp").exists()
+
 
 class TestHealth:
-    async def test_always_healthy(self) -> None:
+    async def test_without_verified_sink_is_degraded(self) -> None:
         svc = SubtitleFallbackService()
         h = await svc.health_check()
-        assert h.is_ok is True
+        assert h.is_ok is False
+        assert h.state.value == "degraded"
+
+    async def test_callback_sink_is_healthy(self) -> None:
+        svc = SubtitleFallbackService(on_subtitle=lambda _rid, _text: None)
+        assert (await svc.health_check()).is_ok is True
+
+    async def test_writable_file_sink_is_healthy(self, tmp_path) -> None:
+        svc = SubtitleFallbackService(
+            output_file=tmp_path / "live" / "subtitle.txt", require_delivery=True,
+        )
+        assert (await svc.health_check()).is_ok is True
+
+    async def test_required_delivery_without_sink_is_unhealthy(self) -> None:
+        svc = SubtitleFallbackService(require_delivery=True)
+        h = await svc.health_check()
+        assert h.is_ok is False
+        assert h.state.value == "unhealthy"

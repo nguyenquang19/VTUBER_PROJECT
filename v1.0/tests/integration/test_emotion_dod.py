@@ -6,7 +6,7 @@ DoD 7 items:
 3. Saturation 100 event — covered ở test_mood_engine + test_emotion_orchestrator
 4. Target decay — covered ở test_mood_engine
 5. 2 cờ tone nối Prompt + Filter — INTEGRATION test dưới đây
-6. ~~Drift detector~~ — A1 (ROADMAP_AUTONOMOUS_HOST): bỏ Kênh B + drift detector.
+6. ~~Drift detector~~ — A1 (docs/03_COMPONENT_REFERENCE.md): bỏ Kênh B + drift detector.
 7. Live ≥100 turn subjective — SKIP (user duyệt)
 
 Test này focus items 5 + end-to-end mood evolution (item 6 đã xoá).
@@ -126,7 +126,7 @@ class TestToneFlagsWiredToPrompt:
         assert "force_deflect" not in ctx
 
 
-# ---------- DoD 6 (drift detector) — ĐÃ XOÁ ở A1 (ROADMAP §PHASE A) ----------
+# ---------- DoD 6 (drift detector) — ĐÃ XOÁ ở A1 (docs/03_COMPONENT_REFERENCE.md §PHASE A) ----------
 # Kênh B tắt hoàn toàn. LLM không còn tự report mood → không có gì để drift-detect.
 
 

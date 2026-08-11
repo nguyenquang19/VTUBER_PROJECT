@@ -256,7 +256,8 @@ async def _autonomy_bg_loop(
                 parsed = await runner.run_ambient_turn(
                     f"ambient_cli_{autonomy.urge._ticks}", decision.prompt_text,
                 )
-                if parsed.ok and parsed.text:
+                # Canned fallback có ok=False nhưng vẫn là câu cần phát.
+                if parsed.text:
                     if autonomy.check_dedup(parsed.text):
                         parsed = await runner.run_ambient_turn(
                             f"ambient_cli_{autonomy.urge._ticks}_r", decision.prompt_text,

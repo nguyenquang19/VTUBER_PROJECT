@@ -66,6 +66,17 @@ class MemoryFallbackManager(MemoryService):
             **self._fallback.get_metrics(),
         }
 
+    def fallback_snapshot(self) -> list[MemoryEntry]:
+        """Expose recent fallback entries without leaking the wrapped service."""
+        snapshot = getattr(self._fallback, "snapshot", None)
+        if not callable(snapshot):
+            return []
+        try:
+            value = snapshot()
+            return list(value) if isinstance(value, (list, tuple)) else []
+        except Exception:
+            return []
+
     # ---------- MemoryService ----------
 
     async def write(self, entry: MemoryEntry) -> None:

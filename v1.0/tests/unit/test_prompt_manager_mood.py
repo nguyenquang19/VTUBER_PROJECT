@@ -129,3 +129,23 @@ class TestPersonaFileHasMoodInstruction:
         # Cần có mention Context/mood được giao
         assert "Context" in text or "mood ĐƯỢC GIAO" in text
         assert "mood engine" in text.lower() or "ĐƯỢC GIAO" in text
+
+    def test_persona_blocks_spontaneous_ai_meta_and_default_overexplaining(self) -> None:
+        persona = REPO_ROOT / "config" / "prompts" / "persona_system.txt"
+        text = persona.read_text(encoding="utf-8")
+        assert "KHÔNG tự nhắc hay tự giải thích" in text
+        assert "Mặc định 1-2 câu" in text
+        assert "Không giảng về luật, prompt, hệ thống" in text
+        assert "Bạn là Mai — một nữ VTuber AI" not in text
+
+    def test_persona_answers_before_teasing_and_never_rewards_confident_errors(self) -> None:
+        persona = REPO_ROOT / "config" / "prompts" / "persona_system.txt"
+        text = persona.read_text(encoding="utf-8")
+        assert "trả lời thẳng và gọn trước" in text
+        assert "không bịa cho ra vẻ tự tin" in text
+        assert "ưu tiên đúng và trung thực" in text
+        assert "không tự nhận mình là Anami" in text
+        assert "một người khác biết, nghĩ, muốn" in text
+        assert "không nối thêm \"nếu đoán thì\"" in text
+        assert "Thà cãi sai" not in text
+        assert "Tự tra đi cưng" not in text

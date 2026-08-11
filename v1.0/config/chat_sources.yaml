@@ -11,5 +11,5 @@ discord:
   # Token đọc từ env var (KHÔNG hardcode). Đặt trong .env hoặc shell:
   #   $env:DISCORD_BOT_TOKEN = "your_bot_token_here"
   token_env_var: "DISCORD_BOT_TOKEN"
-  channel_ids: [1526011673192829002]                # list int, VD [123456789012345678]. Rỗng = mọi channel bot join.
+  channel_ids: [1364280311780741221]                # list int, VD [123456789012345678]. Rỗng = mọi channel bot join.
   queue_maxsize: 500             # drop_newest khi vượt (spam protection)

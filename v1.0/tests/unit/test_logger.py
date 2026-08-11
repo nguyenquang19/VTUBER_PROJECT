@@ -96,6 +96,51 @@ class TestJsonlWriter:
         assert not path.with_suffix(".jsonl.1").exists()
         assert len(path.read_text(encoding="utf-8").strip().split("\n")) == 2
 
+    def test_permission_failure_is_buffered_and_recovers(
+        self, tmp_path: Path, monkeypatch,
+    ) -> None:
+        path = tmp_path / "events.jsonl"
+        errors: list[tuple[str, str]] = []
+        writer = JsonlWriter(
+            path,
+            degraded_buffer_records=2,
+            error_callback=lambda sink, error: errors.append((sink, error)),
+        )
+        original_open = Path.open
+        blocked = True
+
+        def guarded_open(target, *args, **kwargs):
+            if blocked and target == path:
+                raise PermissionError("read-only log directory")
+            return original_open(target, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "open", guarded_open)
+        assert writer.write({"n": 1}) is False
+        metrics = writer.get_metrics()
+        assert metrics["logging_sink_degraded"] is True
+        assert metrics["logging_sink_buffered_records"] == 1
+        assert errors == [("events", "PermissionError")]
+
+        blocked = False
+        assert writer.flush() is True
+        assert json.loads(path.read_text(encoding="utf-8"))["n"] == 1
+        assert writer.get_metrics()["logging_sink_degraded"] is False
+
+    def test_degraded_buffer_is_bounded(self, tmp_path: Path, monkeypatch) -> None:
+        path = tmp_path / "events.jsonl"
+        writer = JsonlWriter(path, degraded_buffer_records=2)
+
+        def fail_open(target, *args, **kwargs):
+            raise PermissionError("blocked")
+
+        monkeypatch.setattr(Path, "open", fail_open)
+        for value in range(3):
+            assert writer.write({"n": value}) is False
+        metrics = writer.get_metrics()
+        assert metrics["logging_sink_buffered_records"] == 2
+        assert metrics["logging_sink_buffer_dropped_total"] == 1
+        assert metrics["logging_sink_errors_total"] == 3
+
 
 class TestTurnLogger:
     def test_log_turn_adds_timestamp(self, tmp_path: Path) -> None:

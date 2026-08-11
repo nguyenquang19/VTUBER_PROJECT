@@ -1,4 +1,4 @@
-"""Response pacing + filler (A3, ROADMAP_AUTONOMOUS_HOST §PHASE A).
+"""Response pacing + filler (A3, docs/03_COMPONENT_REFERENCE.md §PHASE A).
 
 Hai thành phần độc lập, pure-logic (RNG inject → test tất định):
 

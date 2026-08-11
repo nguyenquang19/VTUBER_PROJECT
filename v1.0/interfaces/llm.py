@@ -29,6 +29,7 @@ class LLMRequest(BaseModel):
     messages: list[ChatMessage] = Field(default_factory=list)
     max_tokens: int = 300
     temperature: float = 0.85
+    seed: int | None = None
     stop_sequences: list[str] = Field(default_factory=list)
 
     def to_messages(self) -> list[dict[str, str]]:

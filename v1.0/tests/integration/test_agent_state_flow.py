@@ -74,6 +74,10 @@ class ProbeService:
     async def stop(self) -> None:
         self.stopped = True
 
+    @property
+    def source_ids(self) -> tuple[str, ...]:
+        return ()
+
 
 def _loader() -> ConfigLoader:
     loader = ConfigLoader(REPO_ROOT / "config")
@@ -225,7 +229,6 @@ async def test_runtime_records_grounded_environment_and_owns_shared_state() -> N
     loader = _loader()
     state = _state(loader)
     router = ProbeService()
-    router._sources = []
     llm = ProbeService()
     runner = type("Runner", (), {"session_id": "runtime-session", "filter_enabled": False})()
     runtime = StreamRuntime(

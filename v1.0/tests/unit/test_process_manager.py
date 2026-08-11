@@ -63,6 +63,10 @@ class TestFromLoader:
         assert cfg.context_size == 4096
         assert cfg.kv_cache_type_k == "q8_0"
         assert cfg.model_path.endswith(".gguf")
+        assert cfg.health_timeout_s == 60
+        assert cfg.extra_flags == ["--flash-attn", "on", "--reasoning", "off"]
+        assert cfg.health_timeout_s == 60
+        assert cfg.extra_flags == ["--flash-attn", "on", "--reasoning", "off"]
 
     def test_real_config_binary_and_model_exist(self) -> None:
         """Path trong config phải trỏ tới file thật trên máy (1.A DoD)."""

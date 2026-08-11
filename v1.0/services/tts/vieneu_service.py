@@ -1,6 +1,6 @@
 """VieNeuTtsService — VieNeu-TTS v3 Turbo streaming (Phase 4).
 
-Chốt spike day_vieneu (benchmark_clone.py):
+Production baseline:
 - VieNeu-TTS v3 Turbo (48kHz, GPU PyTorch), clone qua vi_sample.wav
 - BẮT BUỘC `add_voice()` trong start() để enroll ref audio 1 lần → cache
   speaker_emb + ref_codes. Nếu KHÔNG cache, mỗi infer re-encode ref → TTFA 5626ms.
@@ -86,6 +86,7 @@ class VieNeuTtsService(TTSService):
 
         self._engine = engine
         self._voice_enrolled = False
+        self._voice_profile: dict[str, Any] | None = None
 
         self._cancelled: set[str] = set()
         self._log = get_logger("tts")
@@ -96,6 +97,8 @@ class VieNeuTtsService(TTSService):
         self._last_chunks: int = 0
         self._last_audio_ms: int = 0
         self._last_rtf: float | None = None
+        self._last_startup_ms: float | None = None
+        self._startup_errors = 0
 
     @classmethod
     def from_loader(cls, loader, engine: Any = None) -> "VieNeuTtsService":
@@ -119,11 +122,20 @@ class VieNeuTtsService(TTSService):
     # ---------- Service ----------
 
     async def start(self) -> None:
+        started_at = time.perf_counter()
         _patch_torchaudio_load()  # bypass torchcodec/FFmpeg trên Windows
-        if self._engine is None:
-            self._engine = await asyncio.to_thread(self._load_engine)
-        # Enroll ref audio 1 LẦN (cache speaker_emb + ref_codes) — critical.
-        await asyncio.to_thread(self._enroll_reference)
+        try:
+            if self._engine is None:
+                self._engine = await asyncio.to_thread(self._load_engine)
+            # Enroll ref audio 1 LẦN (cache speaker_emb + ref_codes) — critical.
+            await asyncio.to_thread(self._enroll_reference)
+        except Exception:
+            self._startup_errors += 1
+            self._voice_enrolled = False
+            self._voice_profile = None
+            raise
+        finally:
+            self._last_startup_ms = (time.perf_counter() - started_at) * 1000
         info: dict[str, Any] = {
             "reference_audio": str(self.reference_audio),
             "sample_rate": self.sample_rate,
@@ -142,6 +154,7 @@ class VieNeuTtsService(TTSService):
     async def stop(self) -> None:
         self._engine = None
         self._voice_enrolled = False
+        self._voice_profile = None
         await asyncio.to_thread(self._reclaim_memory)
 
     async def health_check(self) -> HealthStatus:
@@ -157,6 +170,8 @@ class VieNeuTtsService(TTSService):
             "tts_last_chunks": self._last_chunks,
             "tts_last_audio_ms": self._last_audio_ms,
             "tts_last_rtf": self._last_rtf,
+            "tts_last_startup_ms": self._last_startup_ms,
+            "tts_startup_errors_total": self._startup_errors,
         }
 
     def _load_engine(self) -> Any:
@@ -166,9 +181,28 @@ class VieNeuTtsService(TTSService):
     def _enroll_reference(self) -> None:
         if not self.reference_audio.exists():
             raise VieNeuError(f"reference_audio không tồn tại: {self.reference_audio}")
-        # add_voice encode ref → speaker_emb + ref_codes (chậm 1 lần ~500-2000ms)
-        # sau đó infer_stream(voice=_VOICE_NAME) chỉ lookup dict → cực nhanh.
-        self._engine.add_voice(_VOICE_NAME, str(self.reference_audio), denoise=self.denoise)
+        # VieNeu v3 wrapper pre-cleans vào ~/.cache trước add_voice(). Trên Windows
+        # thư mục profile có thể bị policy/antivirus chặn và làm mkstemp treo vô hạn.
+        # Engine v3 đã nhận WAV trực tiếp, nên enroll vào profile RAM để không tạo
+        # temp ngoài workspace. Fake/legacy engine vẫn dùng public add_voice().
+        core = getattr(self._engine, "engine", None)
+        prepare_reference = getattr(core, "prepare_reference", None)
+        if callable(prepare_reference):
+            speaker_emb, ref_codes = prepare_reference(
+                str(self.reference_audio),
+                denoise=self.denoise,
+                use_ref_codes=True,
+            )
+            self._voice_profile = {
+                "speaker_emb": speaker_emb,
+                "codes": ref_codes,
+                "style": self.style,
+            }
+        else:
+            self._engine.add_voice(
+                _VOICE_NAME, str(self.reference_audio), denoise=self.denoise,
+            )
+            self._voice_profile = None
         self._voice_enrolled = True
 
     def _reclaim_memory(self) -> None:
@@ -199,7 +233,7 @@ class VieNeuTtsService(TTSService):
             try:
                 gen = self._engine.infer_stream(
                     text=request.text,
-                    voice=_VOICE_NAME,
+                    voice=self._voice_profile or _VOICE_NAME,
                     style=self.style,
                     temperature=self.temperature,
                     top_k=self.top_k,

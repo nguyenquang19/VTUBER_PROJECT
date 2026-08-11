@@ -24,6 +24,8 @@ def test_dashboard_runs_without_runtime_and_disables_mutating_controls(tmp_path:
     )
     client = TestClient(DashboardServer(snapshot_provider=provider).app)
 
+    assert "Mai Operator Console" in client.get("/").text
+
     value = client.get("/api/snapshot").json()
     assert value["runtime"]["online"] is False
     assert value["agent"]["active_goal_ref"] == "goal:last"

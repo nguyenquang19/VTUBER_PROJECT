@@ -1,6 +1,6 @@
-"""Dashboard server: FastAPI + WebSocket (ARCHITECTURE 6, Phase 0 task 11).
+"""Dashboard server: FastAPI + WebSocket operator surface.
 
-Tab (Phase 0): toggle giả, metric giả, state machine, triggers.
+System GPU/VRAM values come from bounded nvidia-smi sampling.
 Frontend: HTML + Vanilla JS + Chart.js (6.1). Alpine.js để Phase 6.
 
 Dependency-injected (FeatureManager, state machine, trigger manager, metrics,
@@ -32,6 +32,80 @@ def _string_list(value: Any) -> list[str]:
     return [str(item).strip() for item in value if str(item).strip()]
 
 
+def _build_operator_overview(snapshot: dict[str, Any]) -> dict[str, Any]:
+    """Build one action-first view so the browser never reconstructs Brain state."""
+    runtime = dict(snapshot.get("runtime") or {})
+    operations = dict(snapshot.get("operations") or {})
+    emergency = dict(snapshot.get("emergency") or {})
+    incidents = dict(snapshot.get("incidents") or {})
+    decisions = dict(snapshot.get("decisions") or {})
+    current = dict(decisions.get("current") or {})
+    goals = dict(snapshot.get("goals") or {})
+    health = dict(snapshot.get("health_supervisor") or {})
+    targets = dict(health.get("targets") or {})
+    unhealthy = [
+        service_id for service_id, value in targets.items()
+        if str((value or {}).get("health", "unknown")) not in {"healthy", "unknown"}
+        or bool((value or {}).get("circuit_open"))
+    ]
+
+    status = "ready"
+    headline = "Hệ thống sẵn sàng"
+    action_required = "Không có việc khẩn cấp."
+    recovery_action = None
+    if not runtime.get("online", False):
+        status = "critical"
+        headline = "Runtime đang offline"
+        action_required = "Khởi động hoặc kết nối lại runtime trước khi điều khiển Mai."
+        recovery_action = "restart_runtime"
+    elif emergency.get("latched", False):
+        status = "critical"
+        headline = "Emergency stop đang khóa output"
+        action_required = str(emergency.get("reason") or "Xác minh an toàn trước khi resume.")
+        recovery_action = "resume_emergency"
+    elif int(incidents.get("unresolved") or 0) > 0:
+        status = "critical"
+        headline = "Có incident chưa xử lý"
+        action_required = "Mở danh sách incident và xử lý nguyên nhân trước khi tiếp tục live."
+        recovery_action = "inspect_incidents"
+    elif unhealthy:
+        status = "warning"
+        headline = "Có service cần chú ý"
+        action_required = "Kiểm tra recovery/circuit của: " + ", ".join(unhealthy)
+        recovery_action = "inspect_health"
+    elif operations.get("paused", False):
+        status = "warning"
+        headline = "Agent đang tạm dừng"
+        action_required = str(operations.get("pause_reason") or "Resume khi đã sẵn sàng.")
+        recovery_action = "resume_agent"
+    elif current.get("hard_rejection_reason") or current.get("delivery_state") == "failed":
+        status = "warning"
+        headline = "Quyết định gần nhất cần kiểm tra"
+        action_required = str(
+            current.get("hard_rejection_reason") or current.get("outcome") or "delivery_failed"
+        )
+        recovery_action = "inspect_decision"
+
+    return {
+        "schema_version": 1,
+        "overall_status": status,
+        "headline": headline,
+        "action_required": action_required,
+        "recovery_action": recovery_action,
+        "runtime_online": bool(runtime.get("online", False)),
+        "controls_available": bool(runtime.get("controls_available", False)),
+        "unresolved_incidents": int(incidents.get("unresolved") or 0),
+        "unhealthy_services": unhealthy,
+        "current_action": current.get("action"),
+        "current_reason": current.get("reason"),
+        "current_delivery_state": current.get("delivery_state"),
+        "current_outcome": current.get("outcome"),
+        "decision_id": current.get("decision_id"),
+        "evidence_refs": list(current.get("evidence_refs") or []),
+        "active_goal": goals.get("active"),
+    }
+
+
 class DashboardServer:
     def __init__(
         self,
@@ -52,6 +126,8 @@ class DashboardServer:
         agent_state: Any = None,      # M1: shared grounded state, read-only snapshot
         goal_manager: Any = None,     # M2: read + audited operator controls
         relationship_manager: Any = None,  # M7: audited social record controls
+        decision_records: Any = None,      # M10.3: versioned Director decision view
+        self_talk_planner: Any = None,     # cause-first thought state, read-only
         control_plane: Any = None,          # M9: pause/resume/action queue/audit
         snapshot_provider: Any = None,      # M9: standalone read-only provider
         health_supervisor: Any = None,      # M9: bounded recovery snapshot
@@ -59,6 +135,9 @@ class DashboardServer:
         incident_log: Any = None,            # M9: versioned incident ledger
         data_dir: str = "logs",       # nơi ghi ratings/corrections
         push_interval_s: float = 1.0,
+        gpu_metrics_command: str = "nvidia-smi",
+        gpu_metrics_timeout_s: float = 1.0,
+        gpu_metrics_refresh_s: float = 2.0,
         host: str = "127.0.0.1",
         port: int = 7860,
     ) -> None:
@@ -79,6 +158,8 @@ class DashboardServer:
         self.agent_state = agent_state
         self.goal_manager = goal_manager
         self.relationship_manager = relationship_manager
+        self.decision_records = decision_records
+        self.self_talk_planner = self_talk_planner
         self.control_plane = control_plane
         self.snapshot_provider = snapshot_provider
         self.health_supervisor = health_supervisor
@@ -88,6 +169,9 @@ class DashboardServer:
         self._ratings_writer = None       # lazy JsonlWriter
         self._corrections_writer = None
         self.push_interval_s = push_interval_s
+        self.gpu_metrics_command = gpu_metrics_command
+        self.gpu_metrics_timeout_s = float(gpu_metrics_timeout_s)
+        self.gpu_metrics_refresh_s = float(gpu_metrics_refresh_s)
         self.host = host
         self.port = int(port)
         self._log = get_logger("dashboard")
@@ -138,7 +222,12 @@ class DashboardServer:
             }
 
         if self.metrics is not None:
-            snap["metrics"] = self.metrics.tick_fake_metrics()
+            snap["metrics"] = await asyncio.to_thread(
+                self.metrics.sample_gpu_metrics,
+                command=self.gpu_metrics_command,
+                timeout_s=self.gpu_metrics_timeout_s,
+                refresh_s=self.gpu_metrics_refresh_s,
+            )
             if hasattr(self.metrics, "llm_snapshot"):
                 snap["llm"] = self.metrics.llm_snapshot()
 
@@ -214,7 +303,14 @@ class DashboardServer:
         # là ground-truth duy nhất sau khi bỏ LLM self-report).
         if self.emotion is not None and hasattr(self.emotion, "snapshot"):
             with contextlib.suppress(Exception):
-                snap["mood"] = self.emotion.snapshot()
+                mood = self.emotion.snapshot()
+                mood["sampled_at"] = datetime.now(timezone.utc).isoformat()
+                if hasattr(self.emotion, "get_metrics"):
+                    mood["ticks"] = self.emotion.get_metrics().get("mood_ticks")
+                snap["mood"] = mood
+        if self.self_talk_planner is not None:
+            with contextlib.suppress(Exception):
+                snap["thought_engine"] = self.self_talk_planner.snapshot()
 
         if self.health is not None:
             snap["health"] = self.health.snapshot()
@@ -231,6 +327,9 @@ class DashboardServer:
             with contextlib.suppress(Exception):
                 snap["relationships"] = self.relationship_manager.snapshot().to_dict()
                 snap["relationship_metrics"] = self.relationship_manager.get_metrics()
+        if self.decision_records is not None:
+            with contextlib.suppress(Exception):
+                snap["decisions"] = self.decision_records.snapshot()
         if self.health_supervisor is not None:
             with contextlib.suppress(Exception):
                 snap["health_supervisor"] = self.health_supervisor.snapshot()
@@ -258,9 +357,36 @@ class DashboardServer:
                 "mode": "standalone",
                 "controls_available": False,
             })
+        snap["operator_overview"] = _build_operator_overview(snap)
         return snap
 
     # ---------- app ----------
+
+    async def _operator_v2_enabled(self) -> bool:
+        if self.snapshot_provider is not None:
+            return True
+        if self.features is None:
+            return False
+        try:
+            from orchestrator.features import FeatureStatus
+            status = await self.features.get_status("operator_dashboard_v2")
+            return status in (FeatureStatus.ENABLED, FeatureStatus.DEGRADED)
+        except Exception:
+            return False
+
+    def _record_dashboard_view(self, version: str) -> None:
+        if self.metrics is not None and hasattr(
+            self.metrics, "record_operator_dashboard_view",
+        ):
+            with contextlib.suppress(Exception):
+                self.metrics.record_operator_dashboard_view(version)
+
+    @staticmethod
+    def _read_template(name: str) -> str:
+        path = _TEMPLATES / name
+        if path.exists():
+            return path.read_text(encoding="utf-8")
+        return "<h1>Mai Dashboard</h1><p>template chưa có</p>"
 
     def _build_app(self) -> FastAPI:
         app = FastAPI(title="Mai Dashboard")
@@ -270,10 +396,19 @@ class DashboardServer:
 
         @app.get("/", response_class=HTMLResponse)
         async def index() -> str:
-            index_file = _TEMPLATES / "index.html"
-            if index_file.exists():
-                return index_file.read_text(encoding="utf-8")
-            return "<h1>Mai Dashboard</h1><p>template chưa có</p>"
+            template = "operator_v2.html" if await self._operator_v2_enabled() else "index.html"
+            self._record_dashboard_view("v2" if template.startswith("operator") else "legacy")
+            return self._read_template(template)
+
+        @app.get("/operator", response_class=HTMLResponse)
+        async def operator_dashboard() -> str:
+            self._record_dashboard_view("v2")
+            return self._read_template("operator_v2.html")
+
+        @app.get("/legacy", response_class=HTMLResponse)
+        async def legacy_dashboard() -> str:
+            self._record_dashboard_view("legacy")
+            return self._read_template("index.html")
 
         @app.get("/api/snapshot")
         async def api_snapshot() -> JSONResponse:

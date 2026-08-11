@@ -63,3 +63,14 @@ def test_non_conversational_event_or_plain_statement_produces_no_signal() -> Non
     assert detector.detect(
         _event("env", AgentEventKind.ENVIRONMENT_OBSERVED, "ignored"), (),
     ) == ()
+
+
+def test_temporal_nay_does_not_hijack_unrelated_active_thread() -> None:
+    detector = RuleThreadDetector()
+
+    signals = detector.detect(
+        _event("other", AgentEventKind.CHAT_RECEIVED, "nãy cao nhất thấy 6 mà"),
+        (_thread(),),
+    )
+
+    assert signals == ()

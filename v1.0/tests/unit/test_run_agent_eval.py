@@ -10,7 +10,7 @@ def test_cli_validates_versioned_suite(capsys) -> None:
     assert main(["--validate-suite"]) == 0
     value = json.loads(capsys.readouterr().out)
     assert value["contract_id"] == "mai-agent-v1"
-    assert value["scenario_count"] == 12
+    assert value["scenario_count"] == 19
     assert value["feature_enabled"] is True
 
 

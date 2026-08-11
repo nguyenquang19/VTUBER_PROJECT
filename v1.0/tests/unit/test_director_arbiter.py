@@ -107,12 +107,28 @@ def test_donation_wins_over_active_goal_even_when_not_top_candidate() -> None:
     assert decision.refs == (donation,)
 
 
-def test_active_continue_thread_blocks_unrelated_chat() -> None:
+def test_actionable_live_chat_precedes_soft_continue_thread_goal() -> None:
     now = datetime.fromtimestamp(1.0, tz=timezone.utc)
     thread = OpenThread("thread-1", "game", "unfinished game topic", now, now, now + timedelta(minutes=5))
     goal = _goal(GoalKind.CONTINUE_THREAD, parent_thread_id="thread-1")
     value = replace(
         _input(), agent_state=AgentStateSnapshot(open_threads=(thread,)),
+        goals=GoalSnapshot(active=goal),
+    )
+    decision = _director().decide(value)
+    assert decision.action is DirectorAction.READ_CHAT
+
+
+def test_continue_thread_goal_wins_after_bounded_chat_grace() -> None:
+    now = datetime.fromtimestamp(1.0, tz=timezone.utc)
+    thread = OpenThread(
+        "thread-1", "game", "unfinished game topic",
+        now, now, now + timedelta(minutes=5),
+    )
+    goal = _goal(GoalKind.CONTINUE_THREAD, parent_thread_id="thread-1")
+    value = replace(
+        _input(), now=5.0,
+        agent_state=AgentStateSnapshot(open_threads=(thread,)),
         goals=GoalSnapshot(active=goal),
     )
     decision = _director().decide(value)

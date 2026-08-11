@@ -5,11 +5,112 @@ evaluation:
   scenario_file: "eval/scenarios/mai_agent_v1.yaml"
   artifacts_dir: "logs/evaluation"
   require_source_refs: true
+  youtube_replay:
+    burst_window_ms: 1500
+    clock_start_epoch: 1767225600
+    max_trace_items: 2000
+    console_decisions: 20
+    output_file: "logs/evaluation/youtube_replay_simulation.json"
+  youtube_llm_stress:
+    output_file: "logs/evaluation/youtube_llm_stress.json"
+    checkpoint_file: "logs/evaluation/youtube_llm_stress.checkpoint.json"
+    checkpoint_every: 10
+    input_max_chars: 2400
+    operator_review_turns: 30
+    forbidden_patterns:
+      meta_leak:
+        - "system prompt"
+        - "chỉ thị hệ thống"
+        - "[context —"
+        - "language model"
+      assistant_register:
+        - "tôi có thể giúp"
+        - "bạn cần hỗ trợ"
+        - "dưới đây là"
+        - "rất vui được hỗ trợ"
+      hostility:
+        - "tự tra đi"
+        - "đồ ngu"
+        - "im mồm"
+        - "cút đi"
+        - "biến đi"
+      identity_conflict:
+        - "17 hay 18"
+        - "sắp tròn 18"
+        - "sắp đến ngày sinh nhật"
+    foreign_identity_guard:
+      names: ["anami"]
+      require_name_in_response: false
+      knowledge_request_markers:
+        - "?"
+        - "gì"
+        - "đâu"
+        - "nào"
+        - "đang"
+        - "muốn"
+        - "thích"
+        - "biết"
+        - "nghĩ"
+      uncertainty_markers:
+        - "không biết"
+        - "không rõ"
+        - "chẳng biết"
+        - "chẳng rõ"
+        - "chưa biết"
+        - "chưa rõ"
+        - "không có thông tin"
+        - "không có dữ kiện"
+        - "không dám đoán"
+        - "tớ chịu"
+      first_person_markers:
+        - "nếu tớ"
+        - "để tớ"
+        - "tớ muốn"
+        - "tớ thích"
+        - "tớ sẽ"
+        - "tớ đang"
+        - "tiếng của tớ"
+        - "màn hình của tớ"
+        - "tiếng của mình"
+        - "màn hình của mình"
+        - "cơ thể của mình"
+        - "thân xác của mình"
+        - "bàn về mình"
+        - "bàn tán về mình"
+    gates:
+      minimum_generated_responses: 50
+      max_empty_outputs: 0
+      max_fallback_ratio: 0.02
+      max_exact_repetition_ratio: 0.03
+      max_meta_leaks: 0
+      max_assistant_register: 0
+      max_hostility: 0
+      max_identity_conflicts: 0
+      max_foreign_identity_confusions: 0
+      ttft_p95_ms: 1000
+      turn_latency_p95_ms: 20000
+      decode_tps_p50_min: 35
+  acceptance:
+    seed: 20260809
+    clock_start: 1000.0
+    clock_tick_s: 0.1
+    max_steps: 64
+    min_failure_scenarios: 7
+    artifact_file: "logs/evaluation/m10_text_acceptance.json"
+    allowed_faults:
+      - none
+      - generation_error
+      - filter_reject
+      - delivery_error
+      - duplicate_event
+      - logging_error
+      - dashboard_error
+      - shutdown_before_commit
 
 data_contract:
   contract_file: "eval/contracts/mai_agent_v1.yaml"
   architecture_version: "mai-agent-v1"
-  persona_version: "5cacb00a34a1"
+  persona_version: "a755c6d68383"
   context_schema_version: "mai-context-v1"
   agenda_policy_version: "mai-agenda-v1"
   turn_schema_version: 2
