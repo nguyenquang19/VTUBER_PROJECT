@@ -1,8 +1,19 @@
-# Project: Mai - AI VTuber
+# Project: Mai v1.0.0 - AI VTuber
+
+## Product baseline
+
+- Current frozen baseline: `1.0.0`; source: `config/system.yaml::app.version`.
+- Đọc `docs/00_V1_0_BASELINE.md` trước mọi task để phân biệt capability production, optional và
+  interface-only.
+- Mood v2, schema v3, M8/M10 và `mai-agent-v1` là nhãn component/contract, không phải product version.
+- Mọi product change được chấp nhận sau baseline phải tăng ít nhất patch version, thêm
+  `CHANGELOG.md`, cập nhật tài liệu áp dụng và có regression evidence.
+- Không sửa mô tả lịch sử v1.0.0 để làm như feature phát sinh sau này đã có trong baseline.
 
 ## Tài liệu chính
 
 - `README.md` — cách chạy và thứ tự source of truth.
+- `docs/00_V1_0_BASELINE.md` — release baseline, capability, invariant và version policy.
 - `docs/README.md` — mục lục tài liệu chuẩn hóa; chọn tài liệu theo loại task.
 - `docs/01_SYSTEM_OVERVIEW.md` — phạm vi, boundary, ownership và lifecycle.
 - `docs/02_DATA_PIPELINE.md` — pipeline input → decision → generation → delivery → commit.
@@ -45,7 +56,7 @@ Conversation continuity và Thread Engine dùng trực tiếp các mục tương
 
 Trước khi sửa code:
 
-1. Đọc `docs/README.md`, sau đó đọc các tài liệu module liên quan task.
+1. Đọc `docs/00_V1_0_BASELINE.md`, `docs/README.md`, sau đó đọc tài liệu module liên quan task.
 2. Liệt kê file sẽ tạo/sửa.
 3. Liệt kê test sẽ viết/chạy.
 4. Xác nhận với user rồi mới code.
@@ -55,3 +66,6 @@ Sau khi code:
 1. Chạy test targeted và hiển thị output.
 2. Nếu thay đổi output/decision, replay corpus hoặc scenario deterministic tương ứng.
 3. Dừng và báo user review; không tự chuyển sang task tiếp theo.
+
+Nếu thay đổi được user chấp nhận để phát hành, xác định patch/minor/major theo baseline, tăng
+`config/system.yaml::app.version` và cập nhật `CHANGELOG.md` trong cùng change.

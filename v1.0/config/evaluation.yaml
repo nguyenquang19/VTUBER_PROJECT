@@ -113,7 +113,7 @@ data_contract:
   persona_version: "a755c6d68383"
   context_schema_version: "mai-context-v1"
   agenda_policy_version: "mai-agenda-v1"
-  turn_schema_version: 2
+  turn_schema_version: 3
   sft_schema_version: 1
   dpo_schema_version: 1
   split_seed: 20260809

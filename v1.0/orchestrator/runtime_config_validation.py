@@ -12,6 +12,7 @@ class RuntimeCriticalConfig(BaseModel):
     log_dir: str = Field(min_length=1)
     events_file: str = Field(min_length=1)
     turns_file: str = Field(min_length=1)
+    delivery_outcomes_file: str = Field(min_length=1)
     rotation_max_size_mb: int = Field(gt=0)
     rotation_keep_files: int = Field(gt=0)
     logging_buffer_records: int = Field(gt=0)
@@ -58,6 +59,9 @@ def validate_runtime_config(loader: Any) -> RuntimeCriticalConfig:
             log_dir=loader.get("logging", "jsonl.dir", "logs"),
             events_file=loader.get("logging", "jsonl.events_file", "events.jsonl"),
             turns_file=loader.get("logging", "jsonl.turns_file", "turns.jsonl"),
+            delivery_outcomes_file=loader.get(
+                "logging", "jsonl.delivery_outcomes_file", "delivery_outcomes.jsonl",
+            ),
             rotation_max_size_mb=loader.get("logging", "rotation.max_size_mb", 100),
             rotation_keep_files=loader.get("logging", "rotation.keep_files", 5),
             logging_buffer_records=loader.get(

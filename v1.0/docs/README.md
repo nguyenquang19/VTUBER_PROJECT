@@ -1,9 +1,16 @@
-# Tài liệu kỹ thuật Mai
+# Tài liệu kỹ thuật Mai v1.0.0
+
+> **Applies to:** Mai `1.0.0`
+>
+> **Baseline:** frozen ngày 2026-08-12
+>
+> **Bắt đầu tại:** [00 — Baseline và version policy](00_V1_0_BASELINE.md)
 
 Bộ tài liệu này được tổ chức theo nhiệm vụ bảo trì, không theo lịch sử milestone.
 
 | Tài liệu | Dùng khi nào |
 |---|---|
+| [00 — v1.0.0 baseline](00_V1_0_BASELINE.md) | Khóa product version, capability, invariant và quy tắc nâng cấp |
 | [01 — Tổng quan](01_SYSTEM_OVERVIEW.md) | Hiểu phạm vi, kiến trúc, process và dependency chính |
 | [02 — Pipeline dữ liệu](02_DATA_PIPELINE.md) | Theo dấu input → decision → LLM → delivery → commit |
 | [03 — Component reference](03_COMPONENT_REFERENCE.md) | Xác định class/file chịu trách nhiệm khi có bug |
@@ -13,6 +20,17 @@ Bộ tài liệu này được tổ chức theo nhiệm vụ bảo trì, không 
 | [07 — Testing và extension](07_TESTING_AND_EXTENSION.md) | Thêm adapter/feature/action mà không phá boundary |
 | [08 — Security và recovery](08_SECURITY_RECOVERY.md) | PII, credential, emergency, rollback, restore |
 
+## Thứ tự đọc cho AI/người mới
+
+1. `00` để biết hệ thống nào thực sự thuộc v1.0.0 và cái gì chưa production.
+2. `01` + `02` để hiểu kiến trúc, lifecycle và delivery boundary.
+3. `03` để tìm đúng owner/file trước khi sửa.
+4. `04`–`08` theo data/config/operations/testing/security của task.
+5. Sau tài liệu, đọc interface → composition root → implementation → YAML theo source-of-truth order.
+
+Không dùng tài liệu phase/roadmap cũ. Khi thấy “v2”, “v3”, M8/M10 trong code, kiểm tra baseline trước:
+đó thường là version component/schema, không phải product release.
+
 ## Quy ước tài liệu
 
 - Đường dẫn là tương đối từ repository root trừ khi ghi rõ khác.
@@ -21,6 +39,7 @@ Bộ tài liệu này được tổ chức theo nhiệm vụ bảo trì, không 
 - `Degraded success` nghĩa là audio lỗi nhưng toàn bộ nội dung đã tới subtitle sink.
 - `Fail-safe` nghĩa là subsystem lỗi nhưng runtime chính tiếp tục; không đồng nghĩa dữ liệu được commit.
 - File trong `docs/baselines/*.json` là evidence máy đọc, không phải hướng dẫn chỉnh tay.
+- Nhãn `Applies to` cho biết release mà tài liệu mô tả; thay đổi release phải cập nhật nhãn và changelog.
 
 ## Bản đồ sửa lỗi nhanh
 

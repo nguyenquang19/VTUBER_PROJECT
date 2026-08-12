@@ -1,10 +1,12 @@
 """Export dataset fine-tune (T5, Phase 8 data pipeline).
 
-Đọc logs/{turns,ratings,pref_pairs,corrections}.jsonl → emit:
+Đọc logs/{turns,delivery_outcomes,ratings,pref_pairs,corrections}.jsonl → emit bundle bất biến:
+  - canonical/turns.jsonl + manifest/checksum/provenance
   - SFT (messages format): dạy model NÓI như Mai
   - DPO (prompt/chosen/rejected): dạy model tránh câu dở
 
 Lọc rác:
+  - chỉ nhận generation attempt có delivery outcome `delivered=true`
   - bỏ level_used=1 (canned — không phải giọng Mai)
   - bỏ parse_ok=false / mai_text rỗng
   - bỏ filter_verdict.passed=false chưa regen (câu bị chặn)
@@ -17,8 +19,10 @@ Chạy:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import shutil
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
@@ -30,6 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from services.data.sanitize import mask_known_identifier, mask_pii_with_count  # noqa: E402
 from services.evaluation.data_quality import (  # noqa: E402
     DatasetQualityGate,
+    index_delivery_outcomes,
     load_data_contract,
     quality_report,
 )
@@ -249,7 +254,13 @@ def main() -> None:
     ratings, invalid_ratings = _read_jsonl_with_stats(in_dir / "ratings.jsonl")
     pref_pairs, invalid_prefs = _read_jsonl_with_stats(in_dir / "pref_pairs.jsonl")
     corrections, invalid_corrections = _read_jsonl_with_stats(in_dir / "corrections.jsonl")
-    invalid_total = invalid_turns + invalid_ratings + invalid_prefs + invalid_corrections
+    delivery_outcomes, invalid_outcomes = _read_jsonl_with_stats(
+        in_dir / "delivery_outcomes.jsonl",
+    )
+    invalid_total = (
+        invalid_turns + invalid_ratings + invalid_prefs
+        + invalid_corrections + invalid_outcomes
+    )
 
     persona_text = ""
     pf = Path(args.persona_file)
@@ -277,7 +288,9 @@ def main() -> None:
         turns, gate,
         ratings=ratings_by_identity,
         corrections=set(corrections_by_identity),
+        delivery_outcomes=index_delivery_outcomes(delivery_outcomes),
     )
+    canonical_turns = [gate.canonicalize_turn(turn) for turn in eligible_turns]
     eligible_identities = {
         identity for turn in eligible_turns
         if (identity := _identity(turn, "turns")) is not None
@@ -292,7 +305,7 @@ def main() -> None:
 
     scrubber = DatasetScrubber()
     sft = build_sft(
-        eligible_turns, ratings_by_identity, corrections_by_identity, args.persona, persona_text,
+        canonical_turns, ratings_by_identity, corrections_by_identity, args.persona, persona_text,
         scrubber,
     )
     dpo = build_dpo(eligible_pref_pairs, eligible_corrections, turns_by_identity, scrubber)
@@ -300,22 +313,29 @@ def main() -> None:
     dpo_splits = gate.partition(dpo)
 
     out_dir = Path(args.out_dir)
-    stamp = datetime.now().strftime("%Y%m%d")
-    sft_path = out_dir / f"sft_train_{stamp}.jsonl"
-    dpo_path = out_dir / f"dpo_train_{stamp}.jsonl"
+    dataset_path: Path | None = None
     if not args.dry_run:
-        out_dir.mkdir(parents=True, exist_ok=True)
-        for split, records in sft_splits.items():
-            _write(out_dir / f"sft_{split}_{stamp}.jsonl", records)
-        for split, records in dpo_splits.items():
-            _write(out_dir / f"dpo_{split}_{stamp}.jsonl", records)
-        _write_json(out_dir / f"quality_report_{stamp}.json", {
+        dataset_path = write_dataset_bundle(
+            out_dir=out_dir,
+            contract=gate.contract,
+            source_paths=[
+                in_dir / "turns.jsonl",
+                in_dir / "delivery_outcomes.jsonl",
+                in_dir / "ratings.jsonl",
+                in_dir / "corrections.jsonl",
+                in_dir / "pref_pairs.jsonl",
+            ],
+            canonical_turns=canonical_turns,
+            sft_splits=sft_splits,
+            dpo_splits=dpo_splits,
+            quality={
             **report,
             "sft_split_counts": {key: len(value) for key, value in sft_splits.items()},
             "dpo_split_counts": {key: len(value) for key, value in dpo_splits.items()},
             "invalid_records": invalid_total,
             "pii_masks": scrubber.masked_fields,
-        })
+            },
+        )
 
     # thống kê
     kinds = Counter(t.get("kind") for t in turns)
@@ -331,14 +351,94 @@ def main() -> None:
     print(f"quarantined:      {report['quarantined_turns']}")
     print(f"quarantine why:   {report['quarantine_reason_counts']}")
     suffix = " (dry-run, không ghi file)" if args.dry_run else ""
-    print(f"SFT xuất:         {len(sft)}  → {sft_path}{suffix}")
-    print(f"DPO xuất:         {len(dpo)}  → {dpo_path}{suffix}")
+    destination = dataset_path or out_dir
+    print(f"SFT xuất:         {len(sft)}  → {destination}{suffix}")
+    print(f"DPO xuất:         {len(dpo)}  → {destination}{suffix}")
     print(f"  DPO nguồn:      {dict(Counter(d['source'] for d in dpo))}")
     print(f"SFT splits:       {dict((key, len(value)) for key, value in sft_splits.items())}")
     print(f"DPO splits:       {dict((key, len(value)) for key, value in dpo_splits.items())}")
 
 
+def write_dataset_bundle(
+    *,
+    out_dir: Path,
+    contract: Any,
+    source_paths: list[Path],
+    canonical_turns: list[Record],
+    sft_splits: dict[str, list[Record]],
+    dpo_splits: dict[str, list[Record]],
+    quality: Record,
+    now: datetime | None = None,
+) -> Path:
+    """Atomically create one immutable, self-describing dataset directory."""
+    created_at = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    sources = [_source_manifest(path) for path in source_paths if path.exists()]
+    fingerprint = hashlib.sha256(
+        json.dumps(sources, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    ).hexdigest()[:10]
+    dataset_id = (
+        f"{contract.contract_id}-{created_at.strftime('%Y%m%dT%H%M%S%fZ')}-{fingerprint}"
+    )
+    out_dir.mkdir(parents=True, exist_ok=True)
+    final_dir = out_dir / dataset_id
+    temporary = out_dir / f".{dataset_id}.tmp"
+    if final_dir.exists() or temporary.exists():
+        raise FileExistsError(f"dataset bundle already exists: {dataset_id}")
+    try:
+        temporary.mkdir()
+        _write(temporary / "canonical" / "turns.jsonl", canonical_turns)
+        for split, records in sft_splits.items():
+            _write(temporary / "sft" / f"{split}.jsonl", records)
+        for split, records in dpo_splits.items():
+            _write(temporary / "dpo" / f"{split}.jsonl", records)
+        _write_json(temporary / "quality_report.json", quality)
+        manifest: Record = {
+            "schema_version": 1,
+            "dataset_id": dataset_id,
+            "created_at": created_at.isoformat(),
+            "contract_id": contract.contract_id,
+            "contract_schema_version": contract.schema_version,
+            "canonical_schema_version": contract.canonical_schema_version,
+            "source_turn_schema_version": contract.turn_schema_version,
+            "compatible_turn_schema_versions": list(
+                contract.compatible_turn_schema_versions,
+            ),
+            "delivery_outcome_schema_version": contract.delivery_outcome_schema_version,
+            "canonical_adapter_ids": sorted({
+                str(row.get("canonical_adapter_id")) for row in canonical_turns
+            }),
+            "compatible_persona_versions": list(contract.compatible_persona_versions),
+            "sources": sources,
+            "counts": {
+                "canonical_turns": len(canonical_turns),
+                "sft": {key: len(value) for key, value in sft_splits.items()},
+                "dpo": {key: len(value) for key, value in dpo_splits.items()},
+                "quarantined_turns": int(quality.get("quarantined_turns", 0)),
+            },
+        }
+        _write_json(temporary / "manifest.json", manifest)
+        temporary.replace(final_dir)
+    except Exception:
+        if temporary.exists():
+            shutil.rmtree(temporary)
+        raise
+    return final_dir
+
+
+def _source_manifest(path: Path) -> Record:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return {
+        "path": path.name,
+        "size_bytes": path.stat().st_size,
+        "sha256": digest.hexdigest(),
+    }
+
+
 def _write(path: Path, records: list[Record]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
     with temporary.open("w", encoding="utf-8") as f:
         for r in records:
@@ -349,6 +449,7 @@ def _write(path: Path, records: list[Record]) -> None:
 
 
 def _write_json(path: Path, value: Record) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(
         json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8",

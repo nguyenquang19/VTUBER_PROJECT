@@ -1,5 +1,15 @@
 # 01 — Tổng quan hệ thống
 
+> **Applies to:** Mai `1.0.0`
+>
+> **Release baseline:** `docs/00_V1_0_BASELINE.md`
+
+## 0. Product identity và source of truth
+
+Mai v1.0.0 là một local Windows runtime, không phải cloud multi-tenant service. Product version lấy từ
+`config/system.yaml::app.version`. `StreamRuntime` và interface/implementation đang compose mới là
+behavior thật; feature flag enabled nhưng chưa có external adapter không được gọi là output production.
+
 ## 1. Phạm vi runtime hiện tại
 
 Hệ thống chạy một process Python chính và có thể quản lý một process `llama-server.exe`. Python
@@ -58,7 +68,10 @@ flowchart LR
 | Transaction | `interfaces/action_transaction.py` | Side effect chỉ commit sau `DELIVERED` |
 | Decision audit | `interfaces/decision_record.py` | Mỗi quyết định có reason/evidence/result bounded |
 | Memory | `interfaces/memory.py` | Lỗi memory không làm chết turn chính |
+| Relationship | `interfaces/relationship.py` | Identity pseudonymous, context có provenance/consent |
+| Self-talk | `interfaces/self_talk.py` | Thought stage chỉ tiến sau delivered commit |
 | Operations | `interfaces/operations.py` | Health, shutdown, emergency và control có contract riêng |
+| Evaluation/data | `interfaces/evaluation.py`, frozen data contract | Eval/export không suy diễn delivery từ attempt log |
 
 ## 4. Ownership và dependency
 
@@ -111,3 +124,16 @@ Shutdown mức cao:
 7. Lưu runtime snapshot, flush logger.
 
 Không dùng kill process Python hàng loạt; Ctrl+C đi qua graceful shutdown.
+
+## 7. Dependency ngoài process
+
+| Dependency | Vai trò | Boundary/fallback |
+|---|---|---|
+| llama.cpp `llama-server.exe` + GGUF | LLM production | health gate; canned fallback khi generation lỗi |
+| VieNeu-TTS + CUDA/audio device | speech production | subtitle-only nếu real file sink healthy |
+| pytchat/YouTube | chat source | adapter health/reconnect; replay offline để test |
+| Discord bot API | chat source | env credential + adapter queue |
+| SQLite | memory/relationship | migration + pre-migration backup |
+| FastAPI/WebSocket | operator dashboard | standalone snapshot mode khi runtime offline |
+
+Không external dependency nào được phép tự commit Director state hoặc bypass typed delivery result.

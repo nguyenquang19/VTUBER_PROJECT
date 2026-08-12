@@ -1,5 +1,9 @@
 # 05 — Configuration và feature toggles
 
+> **Applies to:** Mai `1.0.0`
+>
+> Product version: `config/system.yaml::app.version`; component/schema version không phải product version.
+
 ## 1. Cách config được load
 
 `ConfigLoader` map logical name sang YAML trong `config/`, load UTF-8 và truy cập bằng dotted path.
@@ -31,9 +35,10 @@ Ví dụ: `loader.get("models", "llm_main.port", 8080)`. Reload là atomic; YAML
 | `filters.yaml` | rule categories/regen |
 | `state_machine.yaml` | conversation states/transitions |
 | `triggers.yaml` | trigger policy/rate limit |
-| `logging.yaml` | JSONL/rotation/degraded buffer |
-| `data_privacy.yaml` | hash, raw log notice, retention, backup |
+| `logging.yaml` | attempt/outcome JSONL, rotation, degraded buffer |
+| `data_privacy.yaml` | hash, retention, multi-source backup, dataset paths |
 | `evaluation.yaml` | scenario, quality, fine-tune/release gates |
+| `eval/contracts/mai_agent_v1.yaml` | canonical schema và compatibility matrix dữ liệu |
 | `operations.yaml` | health, restart, shutdown, incident, soak |
 | `conversation.yaml` | open thread, recap, context, extraction và repair bounds |
 | `mood_ab_cases.yaml` | offline blind-review corpus |
@@ -43,6 +48,7 @@ Ví dụ: `loader.get("models", "llm_main.port", 8080)`. Reload là atomic; YAML
 ### Enabled
 
 `filter_rule`, `tts_streaming`, `animation_smooth`, `data_collector`, `director_goal_arbiter`,
+`director_chat_gate`,
 `conversation_continuity`, `mood_behavior_policy`, `mood_v2_shadow`, `mood_v2_prompt`,
 `action_transactions`, `decision_records`, `operator_dashboard_v2`, `proactive_hosting`,
 `self_talk_planner`, `behavior_library`, `natural_timing`, `relationship_memory`, `evaluation_harness`,
@@ -187,7 +193,16 @@ deterministic; xem incident root cause trước.
 Field mới phải có type/range validation nếu ảnh hưởng port, timeout, queue, rotation, transaction hoặc
 resource. Default trong code chỉ là compatibility fallback; giá trị production phải có trong YAML.
 
-### Conversation threads
+## 7. Product và data version
+
+- `system.yaml::app.version` là product version duy nhất (`1.0.0` ở baseline).
+- `evaluation.yaml::data_contract.contract_file` trỏ tới frozen contract.
+- `eval/contracts/mai_agent_v1.yaml` sở hữu turn/delivery/canonical/SFT/DPO compatibility.
+- Các field version lặp lại trong `evaluation.yaml` phải khớp contract và chỉ là runtime compatibility
+  view; thay schema phải sửa contract/adapter trước.
+- Feature mới được phát hành sau baseline phải tăng product version và changelog theo `docs/00`.
+
+## 8. Conversation threads
 
 `conversation.yaml` owns thread lifecycle and matching policy. `open_threads` bounds open/terminal state,
 evidence, contributions, questions, park time and TTL. `topic_matcher` owns the reject threshold and

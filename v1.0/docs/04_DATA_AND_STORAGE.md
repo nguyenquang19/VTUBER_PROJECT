@@ -1,5 +1,9 @@
 # 04 — Data contracts và storage
 
+> **Applies to:** Mai `1.0.0`
+>
+> **Frozen data matrix:** architecture `mai-agent-v1`, turn `3`, delivery `1`, canonical `1`.
+
 ## 1. Contract chính
 
 Các contract runtime dùng Pydantic model hoặc frozen dataclass. Không truyền dict tự do qua boundary
@@ -49,7 +53,8 @@ transaction/delivery outcome. Record phục vụ operator; không phải raw rea
 | Path | Format | Writer | Nội dung | Restore/retention |
 |---|---|---|---|---|
 | `logs/events.jsonl` | JSONL | structlog `JsonlWriter` | event, error, transition | rotate; backup thủ công |
-| `logs/turns.jsonl` | JSONL | `TurnLogger` | one sanitized record/turn | input eval/export |
+| `logs/turns.jsonl` | JSONL | `TurnLogger` | generation attempts schema v3 | append-only segment; rotates |
+| `logs/delivery_outcomes.jsonl` | JSONL | `TurnLogger` | delivered true/false keyed by turn | append-only segment; rotates |
 | `logs/pref_pairs.jsonl` | JSONL | LLMTurnRunner | chosen/rejected DPO pairs | data quality gate |
 | `logs/ratings.jsonl` | JSONL | dashboard | human rating | export dataset |
 | `logs/corrections.jsonl` | JSONL | dashboard | operator correction | export dataset |
@@ -59,15 +64,18 @@ transaction/delivery outcome. Record phục vụ operator; không phải raw rea
 | `logs/operations/last_runtime_snapshot.json` | JSON | shutdown | final bounded runtime state | standalone dashboard/review |
 | `data/mai.db` | SQLite | migrations/memory/relationship | schema, vectors, profiles | pre-migration backup |
 | `data/privacy_salt.bin` | bytes | sanitizer setup | local HMAC/hash salt | không chia sẻ/commit |
-| `backups/data/backup_*` | files + manifest | backup script | JSONL copies + SHA-256 | verify before restore |
+| `data/datasets/<dataset_id>/` | directory | exporter | canonical/SFT/DPO/quality/manifest | immutable artifact |
+| `backups/data/runtime_logs/backup_*` | files + manifest | backup script | raw JSONL + SHA-256 | restore vào `logs` |
+| `backups/data/dataset_artifacts/backup_*` | files + manifest | backup script | dataset bundles + SHA-256 | restore vào `data/datasets` |
 | `backups/mai.db.pre_migration_*` | SQLite copy | MigrationRunner | DB trước migration | manual DB recovery |
 | `docs/baselines/*.json` | JSON | eval/release scripts | sanitized machine evidence | versioned evidence |
 
 ## 3. Turn log schema thực dụng
 
-`LLMTurnRunner._log_turn()` ghi schema versioned. Field quan trọng khi debug:
+`LLMTurnRunner._log_turn()` ghi generation attempt schema v3. Field quan trọng khi debug:
 
 - identity: schema version, session ID, request/turn ID;
+- record type: `generation_attempt`; delivery không nằm trong record này;
 - trigger: trigger type, event category;
 - input/output: masked user text và Mai text;
 - generation: fallback level, parse status, timing, history length;
@@ -76,10 +84,43 @@ transaction/delivery outcome. Record phục vụ operator; không phải raw rea
 - data quality: raw mood-block presence, continuation;
 - provenance: source/evidence refs không chứa credential.
 
-Không dựa vào field không versioned trong downstream exporter. Khi đổi schema, tăng version, update
-exporter, fixture và compatibility test.
+Outcome được append riêng với `record_type=delivery_outcome`, schema v1, cùng composite identity và
+`delivered` boolean. Không dựa vào attempt đơn lẻ để train. Khi đổi schema, tăng version, thêm canonical
+adapter, update fixture/compatibility test; tuyệt đối không relabel raw record thành version mới.
 
-## 4. SQLite
+## 4. Ba lớp lưu trữ bền vững
+
+| Lớp | Có được sửa? | Mục đích |
+|---|---|---|
+| Raw journal segment | append-only tới khi rotate | giữ bằng chứng đúng thời điểm phát sinh |
+| Canonical | tạo lại từ raw | ổn định field cho consumer, có source schema + adapter ID |
+| Dataset bundle | immutable | snapshot phục vụ train/eval, có manifest và checksum |
+
+Compatibility được khai báo trong `eval/contracts/mai_agent_v1.yaml` theo từng trục schema, persona,
+architecture, context và agenda. Version khác không mặc định là rác: nếu contract cho phép và code có
+adapter thì được tái sử dụng; nếu thiếu provenance/delivery hoặc không có adapter thì quarantine. Mỗi
+dataset dùng split theo session cố định, do đó cùng một session không rò giữa train/validation/holdout.
+
+### 4.1. Dataset bundle v1.0.0
+
+```text
+data/datasets/<dataset_id>/
+  manifest.json
+  quality_report.json
+  canonical/turns.jsonl
+  sft/train.jsonl
+  sft/validation.jsonl
+  sft/holdout.jsonl
+  dpo/train.jsonl
+  dpo/validation.jsonl
+  dpo/holdout.jsonl
+```
+
+Manifest giữ dataset ID, timestamp UTC, contract/schema/adapter, compatible persona, checksum/size nguồn
+và count. Dataset directory đã publish là immutable; build lại tạo ID mới. Raw segment có thể bị xóa bởi
+rotation sau giới hạn `max_size_mb × (keep_files + active file)`, nên backup là lớp lưu dài hạn thật.
+
+## 5. SQLite
 
 Migration files:
 
@@ -91,7 +132,7 @@ Migration files:
 `MigrationRunner` backup DB trước mỗi migration rồi chạy transaction. Migration fail không được đánh
 dấu applied. Không sửa migration đã phát hành; thêm file số thứ tự mới.
 
-## 5. In-memory bounded state
+## 6. In-memory bounded state
 
 Các cấu trúc không bền qua restart nhưng phải bounded:
 
@@ -107,7 +148,7 @@ Các cấu trúc không bền qua restart nhưng phải bounded:
 
 Mọi cấu trúc mới trong live loop cần max size/TTL từ YAML và metric high-water/drop/evict phù hợp.
 
-## 6. Commit semantics theo loại dữ liệu
+## 7. Commit semantics theo loại dữ liệu
 
 | Dữ liệu | Trước delivery | Sau delivery success | Sau delivery failure |
 |---|---|---|---|
@@ -122,13 +163,14 @@ Mọi cấu trúc mới trong live loop cần max size/TTL từ YAML và metric 
 Diagnostic logs được phép ghi trước commit vì chúng mô tả attempt; không được dùng chúng như bằng
 chứng action nghiệp vụ đã hoàn tất.
 
-## 7. Backup và restore contract
+## 8. Backup và restore contract
 
-`backup_data.py` chỉ copy source, không xóa. Manifest schema 1 chứa path tương đối, size và SHA-256.
+`backup_data.py` chỉ copy source, không xóa. Nó backup riêng raw runtime journal và dataset artifact.
+Manifest schema 1 chứa path tương đối, size và SHA-256.
 `restore_data.py` mặc định verify-only, reject path traversal/checksum mismatch và refuse overwrite nếu
 không có `--overwrite`. Restore không xóa file ngoài manifest.
 
-## 8. Conversation thread contract
+## 9. Conversation thread contract
 
 `OpenThread` is immutable and bounded. It contains topic/summary, status, evidence, Mai claims, viewer
 contributions, open questions, last/next public move, move count, timestamps and origin event ID.

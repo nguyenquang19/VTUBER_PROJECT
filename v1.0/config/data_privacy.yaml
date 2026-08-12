@@ -12,8 +12,23 @@ raw_logs:
   auto_delete: false
 
 backup:
-  source_dir: "logs"
   destination_dir: "backups/data"
-  include_patterns:
-    - "*.jsonl"
-    - "*.jsonl.*"
+  sources:
+    - name: "runtime_logs"
+      source_dir: "logs"
+      include_patterns:
+        - "*.jsonl"
+        - "*.jsonl.*"
+    - name: "dataset_artifacts"
+      source_dir: "data/datasets"
+      include_patterns:
+        - "*.jsonl"
+        - "*/manifest.json"
+        - "*/quality_report.json"
+        - "*/*/*.jsonl"
+
+dataset_storage:
+  raw_journal_dir: "logs"
+  artifact_dir: "data/datasets"
+  quarantine_on_missing_delivery: true
+  immutable_bundles: true

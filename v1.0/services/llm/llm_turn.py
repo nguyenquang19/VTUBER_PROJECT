@@ -40,6 +40,7 @@ TokenSink = Callable[[str], None]
 
 @dataclass(frozen=True)
 class _PendingDelivery:
+    turn_id: int
     parsed: ParsedResponse
     mode: str
     trigger_type: str | None
@@ -56,7 +57,8 @@ _RAW_MOOD_BLOCK_RE = re.compile(
 )
 
 # Phase 8 data pipeline: schema version cho turns.jsonl (versioned để export parse đúng).
-_TURN_SCHEMA_VERSION = 2
+_TURN_SCHEMA_VERSION = 3
+_DELIVERY_OUTCOME_SCHEMA_VERSION = 1
 _MOOD_DIMS = ("vui", "buon", "buc", "bon_chon", "nguong")
 
 
@@ -347,7 +349,8 @@ class LLMTurnRunner:
 
         # B0 + T1: transcript sink làm giàu (SFT record)
         log_kind = "director_read" if trigger_type == "director_read" else "chat_reply"
-        self._log_turn(
+        turn_id = self._log_turn(
+            request_id=request_id,
             kind=log_kind,
             user_text=user_text,
             parsed=parsed,
@@ -369,6 +372,7 @@ class LLMTurnRunner:
                                user_text=user_text, request=request)
         if defer_delivery_commit:
             self._store_pending_delivery(request_id, _PendingDelivery(
+                turn_id=turn_id,
                 parsed=parsed,
                 mode="chat",
                 trigger_type=trigger_type,
@@ -378,6 +382,11 @@ class LLMTurnRunner:
                 commit_history=commit_history,
             ))
         else:
+            self._log_delivery_outcome(
+                request_id=request_id, turn_id=turn_id,
+                session_id=effective_session_id, delivered=True,
+                mode="synchronous_return",
+            )
             self._record_speech_event(
                 request_id=request_id,
                 parsed=parsed,
@@ -429,7 +438,8 @@ class LLMTurnRunner:
             except Exception:
                 pass
         # B0 + T1: ambient transcript sink (kind=ambient tách với chat_reply)
-        self._log_turn(
+        turn_id = self._log_turn(
+            request_id=request_id,
             kind="ambient",
             user_text=None,
             parsed=parsed,
@@ -442,10 +452,16 @@ class LLMTurnRunner:
         )
         if defer_delivery_commit:
             self._store_pending_delivery(request_id, _PendingDelivery(
+                turn_id=turn_id,
                 parsed=parsed, mode="ambient", trigger_type=None,
                 session_id=self.session_id,
             ))
         else:
+            self._log_delivery_outcome(
+                request_id=request_id, turn_id=turn_id,
+                session_id=self.session_id, delivered=True,
+                mode="synchronous_return",
+            )
             self._record_speech_event(
                 request_id=request_id,
                 parsed=parsed,
@@ -480,7 +496,8 @@ class LLMTurnRunner:
                 self._emotion.clear_tone_flags()
             except Exception:
                 pass
-        self._log_turn(
+        turn_id = self._log_turn(
+            request_id=request_id,
             kind="director_action",
             user_text=None,
             parsed=parsed,
@@ -493,12 +510,18 @@ class LLMTurnRunner:
         )
         if defer_delivery_commit:
             self._store_pending_delivery(request_id, _PendingDelivery(
+                turn_id=turn_id,
                 parsed=parsed,
                 mode="director_action",
                 trigger_type="director_goal_action",
                 session_id=self.session_id,
             ))
         else:
+            self._log_delivery_outcome(
+                request_id=request_id, turn_id=turn_id,
+                session_id=self.session_id, delivered=True,
+                mode="synchronous_return",
+            )
             self._record_speech_event(
                 request_id=request_id,
                 parsed=parsed,
@@ -513,6 +536,13 @@ class LLMTurnRunner:
         pending = self._pending_deliveries.pop(request_id, None)
         if pending is None:
             return False
+        self._log_delivery_outcome(
+            request_id=request_id,
+            turn_id=pending.turn_id,
+            session_id=pending.session_id,
+            delivered=success,
+            mode="external_delivery",
+        )
         if not success:
             return True
         if pending.commit_history and pending.history_user_text is not None:
@@ -539,7 +569,15 @@ class LLMTurnRunner:
         self._pending_deliveries[request_id] = pending
         while len(self._pending_deliveries) > self._pending_delivery_max:
             oldest = next(iter(self._pending_deliveries))
-            self._pending_deliveries.pop(oldest, None)
+            evicted = self._pending_deliveries.pop(oldest, None)
+            if evicted is not None:
+                self._log_delivery_outcome(
+                    request_id=oldest,
+                    turn_id=evicted.turn_id,
+                    session_id=evicted.session_id,
+                    delivered=False,
+                    mode="pending_evicted",
+                )
 
     def _record_speech_event(
         self,
@@ -700,6 +738,7 @@ class LLMTurnRunner:
     def _log_turn(
         self,
         *,
+        request_id: str,
         kind: str,
         user_text: str | None,
         parsed: ParsedResponse,
@@ -709,7 +748,7 @@ class LLMTurnRunner:
         viewer_id: str | None,
         session_id: str | None,
         extra: dict | None = None,
-    ) -> None:
+    ) -> int:
         """Ghi 1 record turn vào turns.jsonl (B0 baseline + Phase 8 data pipeline).
 
         Fail-safe: sink lỗi chỉ log warning, KHÔNG raise (không giết turn). Mọi field
@@ -718,7 +757,7 @@ class LLMTurnRunner:
         self._turn_seq += 1
         self.last_turn_id = self._turn_seq   # T3: dashboard rating gắn turn cuối
         if self._turn_logger is None:
-            return
+            return self._turn_seq
         dominant_name, dominant_val = _dominant_mood(parsed)
         raw_text = getattr(parsed, "raw", "") or ""
         # T4: sanitize PII — hash viewer_id (không lưu channel id gốc), mask
@@ -727,6 +766,8 @@ class LLMTurnRunner:
         record = {
             "schema_version": _TURN_SCHEMA_VERSION,
             "turn_id": self._turn_seq,
+            "request_id": request_id,
+            "record_type": "generation_attempt",
             "kind": kind,
             "user_text": mask_pii(user_text),
             "mai_text": mask_pii(parsed.text),
@@ -761,6 +802,34 @@ class LLMTurnRunner:
             self._turn_logger.log_turn(record)
         except Exception as e:  # pragma: no cover — fail-safe
             get_logger("llm_turn").warning("turn_log_failed", error=str(e))
+        return self._turn_seq
+
+    def _log_delivery_outcome(
+        self,
+        *,
+        request_id: str,
+        turn_id: int,
+        session_id: str,
+        delivered: bool,
+        mode: str,
+    ) -> None:
+        """Append the authoritative delivery decision for one generation attempt."""
+        if self._turn_logger is None or not hasattr(self._turn_logger, "log_delivery"):
+            return
+        try:
+            self._turn_logger.log_delivery({
+                "schema_version": _DELIVERY_OUTCOME_SCHEMA_VERSION,
+                "record_type": "delivery_outcome",
+                "session_id": session_id,
+                "request_id": request_id,
+                "turn_id": turn_id,
+                "delivered": bool(delivered),
+                "mode": mode,
+            })
+        except Exception as exc:  # pragma: no cover - fail-safe
+            get_logger("llm_turn").warning(
+                "delivery_outcome_log_failed", error=str(exc),
+            )
 
     def log_pref_pair(
         self, rejected: str, chosen: str, reason: str,

@@ -1,5 +1,9 @@
 # 07 — Testing và extension guide
 
+> **Applies to:** Mai `1.0.0`
+>
+> Mọi change được phát hành sau baseline phải tăng product version và có changelog/regression evidence.
+
 ## 1. Test layers
 
 | Layer | Mục tiêu | External dependency |
@@ -119,6 +123,10 @@ cùng input/context/seed và human sample nếu đổi wording/style. Luôn gi�
 ## 9. Thay schema/log/storage
 
 - tăng schema version;
+- raw journal vẫn append-only, không rewrite/relabel version cũ;
+- thêm canonical adapter bằng code trước khi cho version vào compatibility contract;
+- test attempt pending/delivery fail không vào dataset và delivered=true mới được chọn;
+- dataset bundle mới không overwrite bundle cũ, manifest phải có checksum nguồn;
 - giữ reader compatibility hoặc migration rõ;
 - update exporter/eval fixture;
 - test corrupt/partial file;
@@ -151,7 +159,7 @@ cùng input/context/seed và human sample nếu đổi wording/style. Luôn gi�
 .\venv\Scripts\python.exe -m pytest tests -k "dashboard or health or shutdown or emergency or incident" -q
 
 # Data/memory/relationship
-.\venv\Scripts\python.exe -m pytest tests -k "memory or relationship or export or privacy or backup or restore" -q
+.\venv\Scripts\python.exe -m pytest tests -k "memory or relationship or export or data_quality or privacy or backup or restore or delivery_outcome" -q
 ```
 
 Sau targeted test, chạy offline regression. Nếu đổi llama command/client/parser, chạy marker `llm`. Nếu
@@ -169,8 +177,22 @@ Sau targeted test, chạy offline regression. Nếu đổi llama command/client/
 - Toggle OFF có rollback thật không?
 - Dashboard đọc source snapshot hay tự suy luận lại?
 - Test có bao phủ duplicate và partial failure không?
+- Change này là patch/minor/major và đã tăng `system.app.version` chưa?
+- `CHANGELOG.md`, nhãn `Applies to`, contract compatibility/migration đã cập nhật chưa?
 
-### Thread Engine regression command
+## 12. Release/version workflow sau v1.0.0
+
+1. Phân loại patch/minor/major theo `docs/00_V1_0_BASELINE.md`.
+2. Tăng `config/system.yaml::app.version` trong cùng change.
+3. Thêm changelog, nêu behavior/data/CLI và rollback/migration.
+4. Cập nhật mọi tài liệu bị ảnh hưởng; không rewrite lịch sử v1.0.0.
+5. Nếu contract/schema đổi, giữ reader compatibility hoặc thêm adapter/migration trước cutover.
+6. Chạy documentation guard, targeted tests, replay nếu output đổi và full offline regression.
+
+Docs-only correction sau baseline vẫn là patch release khi được chấp nhận để phát hành. Internal schema
+counter hoặc tên feature v2 không tự động quyết định product major version.
+
+## 13. Thread Engine regression
 
 ```powershell
 .\venv\Scripts\python.exe -m pytest tests\unit\test_topic_matcher.py `
@@ -183,7 +205,7 @@ Sau targeted test, chạy offline regression. Nếu đổi llama command/client/
 Required invariants: unrelated topics do not match, related topics resume the same thread, every retained
 point has provenance, state remains bounded, and missing/failed delivery never advances a thread.
 
-### Full YouTube replay with real llama.cpp
+## 14. Full YouTube replay với llama.cpp thật
 
 ```powershell
 .\venv\Scripts\python.exe scripts\stress_youtube_llm.py `

@@ -3,7 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from scripts.export_dataset import DatasetScrubber, build_dpo, build_sft
-from services.evaluation.data_quality import DatasetQualityGate, load_data_contract, quality_report
+from services.evaluation.data_quality import (
+    DatasetQualityGate,
+    index_delivery_outcomes,
+    load_data_contract,
+    quality_report,
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -12,9 +17,10 @@ ROOT = Path(__file__).resolve().parents[2]
 def test_contract_gate_correction_override_and_session_split_work_together() -> None:
     gate = DatasetQualityGate(load_data_contract(ROOT / "eval" / "contracts" / "mai_agent_v1.yaml"))
     turn = {
-        "schema_version": 2,
+        "schema_version": 3,
         "session_id": "session-corrected",
         "turn_id": 7,
+        "request_id": "request-7",
         "persona_version": "a755c6d68383",
         "architecture_version": "mai-agent-v1",
         "context_schema_version": "mai-context-v1",
@@ -30,6 +36,13 @@ def test_contract_gate_correction_override_and_session_split_work_together() -> 
     identity = ("session-corrected", 7)
     selected, report = quality_report(
         [turn], gate, ratings={identity: "bad"}, corrections={identity},
+        delivery_outcomes=index_delivery_outcomes([{
+            "schema_version": 1,
+            "session_id": turn["session_id"],
+            "request_id": turn["request_id"],
+            "turn_id": turn["turn_id"],
+            "delivered": True,
+        }]),
     )
     correction = {
         "session_id": identity[0], "turn_id": identity[1],

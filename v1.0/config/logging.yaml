@@ -10,6 +10,7 @@ jsonl:
   enabled: true
   dir: "logs"
   turns_file: "turns.jsonl"       # 1 dòng / turn hội thoại (schema ARCHITECTURE 9.3)
+  delivery_outcomes_file: "delivery_outcomes.jsonl"  # outcome sau delivery gate
   events_file: "events.jsonl"     # log hệ thống chung
 
 fail_safe:

@@ -1,5 +1,9 @@
 # 03 — Component reference
 
+> **Applies to:** Mai `1.0.0`
+>
+> Dùng tài liệu này để tìm owner; không đặt behavior mới vào file tiện tay gần nhất.
+
 ## 1. Composition và orchestration
 
 ### `orchestrator/stream_runtime.py`
@@ -256,6 +260,21 @@ policy/prompt và không đủ mịn cho animation. Vạch trắng là target, c
 `services/evaluation/` chứa scenario loader/harness, deterministic simulator, acceptance runner,
 human review, mood A/B, data quality và candidate readiness. Đây là offline tooling; không thêm LLM
 shadow call vào live path. Scripts tương ứng nằm trong `scripts/`.
+
+| Component | Trách nhiệm | Boundary quan trọng |
+|---|---|---|
+| `services/evaluation/data_quality.py` | contract, quality gate, delivery join, canonical adapter, session split | không mutate/relabel raw record |
+| `eval/contracts/mai_agent_v1.yaml` | compatibility matrix và schema version | source of truth data contract |
+| `scripts/export_dataset.py` | raw → canonical/SFT/DPO immutable bundle | chỉ nhận explicit `delivered=true` |
+| `scripts/backup_data.py` | backup multi-source + SHA-256 manifest | copy-only, không xóa source |
+| `scripts/restore_data.py` | verify/apply restore | verify-only mặc định, refuse overwrite |
+| `scripts/simulate_youtube_replay.py` | deterministic full chat timeline | stub delivery, không chấm naturalness |
+| `scripts/stress_youtube_llm.py` | replay với llama.cpp/filter thật | delivered flags tách candidate flags |
+| `scripts/check_finetune_readiness.py` | kiểm tra đủ data/review gate | không tự cutover model |
+
+`orchestrator/logger.py::TurnLogger` ghi generation attempt và delivery outcome ra hai journal riêng.
+`LLMTurnRunner.finalize_delivery()` là writer của authoritative outcome trên Director path; exporter join
+bằng `session_id + request_id + turn_id`.
 
 ## 11. Conversation Thread Engine
 

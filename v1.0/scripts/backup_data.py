@@ -96,16 +96,35 @@ def main() -> None:
 
     loader = ConfigLoader(Path(args.config_dir))
     loader.load_all()
-    manifest = backup_data(
-        Path(loader.get("data_privacy", "backup.source_dir", "logs")),
-        Path(loader.get("data_privacy", "backup.destination_dir", "backups/data")),
-        list(loader.get("data_privacy", "backup.include_patterns", ["*.jsonl"])),
-        dry_run=args.dry_run,
-    )
     mode = "DRY-RUN" if args.dry_run else "BACKUP"
-    print(f"{mode}: {manifest['file_count']} files → {manifest['backup_dir']}")
-    for entry in manifest["files"]:
-        print(f"  {entry['path']}  {entry['size_bytes']} bytes  sha256={entry['sha256']}")
+    destination = Path(loader.get(
+        "data_privacy", "backup.destination_dir", "backups/data",
+    ))
+    sources = loader.get("data_privacy", "backup.sources", None)
+    if not isinstance(sources, list):
+        sources = [{
+            "name": "runtime_logs",
+            "source_dir": loader.get("data_privacy", "backup.source_dir", "logs"),
+            "include_patterns": loader.get(
+                "data_privacy", "backup.include_patterns", ["*.jsonl"],
+            ),
+        }]
+    for source in sources:
+        if not isinstance(source, dict):
+            raise ValueError("backup source must be a mapping")
+        name = str(source.get("name") or "unnamed")
+        manifest = backup_data(
+            Path(str(source["source_dir"])),
+            destination / name,
+            [str(pattern) for pattern in source.get("include_patterns", ["*.jsonl"])],
+            dry_run=args.dry_run,
+        )
+        print(f"{mode} [{name}]: {manifest['file_count']} files → {manifest['backup_dir']}")
+        for entry in manifest["files"]:
+            print(
+                f"  {entry['path']}  {entry['size_bytes']} bytes  "
+                f"sha256={entry['sha256']}"
+            )
 
 
 if __name__ == "__main__":

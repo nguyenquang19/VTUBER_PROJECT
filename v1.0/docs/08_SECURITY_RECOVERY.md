@@ -1,5 +1,9 @@
 # 08 — Security, privacy và recovery
 
+> **Applies to:** Mai `1.0.0`
+>
+> Recovery phải giữ provenance/version; không restore dữ liệu cũ như thể nó thuộc schema mới.
+
 ## 1. Threat boundaries
 
 Nguồn không tin cậy gồm chat text, platform metadata, LLM output, dashboard request và file backup từ
@@ -39,6 +43,9 @@ làm identity mapping không còn nối được, vì vậy backup salt phải t
 - Relationship memory có TTL/max item và pseudonymous profile.
 - Dashboard snapshot bounded.
 - Evaluation/release evidence sanitized và không chứa raw transcript.
+- Dataset chỉ nhận turn có delivery outcome xác thực; pending/failed attempt ở raw journal nhưng bị
+  quarantine khỏi train artifact.
+- Xóa corpus lỗi thời phải backup trước, verify SHA-256, liệt kê exact target và không đụng DB/salt.
 
 ## 6. Emergency model
 
@@ -93,18 +100,30 @@ Rollback không được xóa evidence incident hoặc làm giả transaction co
 .\venv\Scripts\python.exe scripts\backup_data.py
 
 # Verify backup, chưa ghi
-.\venv\Scripts\python.exe scripts\restore_data.py backups\data\backup_<UTC>
+.\venv\Scripts\python.exe scripts\restore_data.py `
+  backups\data\runtime_logs\backup_<UTC>
 
 # Sau graceful stop, restore file chưa tồn tại
 .\venv\Scripts\python.exe scripts\restore_data.py `
-  backups\data\backup_<UTC> --apply
+  backups\data\runtime_logs\backup_<UTC> --destination logs --apply
 
 # Ghi đè chỉ khi operator đã xác minh target
 .\venv\Scripts\python.exe scripts\restore_data.py `
-  backups\data\backup_<UTC> --apply --overwrite
+  backups\data\runtime_logs\backup_<UTC> --destination logs --apply --overwrite
+
+# Dataset artifact dùng destination riêng
+.\venv\Scripts\python.exe scripts\restore_data.py `
+  backups\data\dataset_artifacts\backup_<UTC> --destination data\datasets --apply
 ```
 
 Restore reject absolute/path traversal và checksum mismatch. Nó không xóa file ngoài manifest.
+Backup config có nhiều source độc lập: `runtime_logs` và `dataset_artifacts`. Mỗi source tạo manifest
+riêng để restore không trộn raw journal với artifact đã canonicalize. Dataset bundle là immutable; khi
+cần build lại phải tạo dataset ID mới, không sửa file trong bundle cũ.
+
+Khi restore qua một product/schema release mới, verify checksum mới chỉ chứng minh file nguyên vẹn.
+Operator vẫn phải chạy compatibility gate/adapter của release đích; không sửa `schema_version` thủ công
+để ép dữ liệu v1.0.0 qua gate.
 
 ## 10. Incident handling
 

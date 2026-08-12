@@ -70,7 +70,9 @@ class TestChatReplyLogs:
         runner, path = _make(tmp_path, FakeLLM(VALID))
         await runner.run_turn("r1", "chào", trigger_type="chat_normal")
         r = _read_lines(path)[0]
-        assert r["schema_version"] == 2
+        assert r["schema_version"] == 3
+        assert r["request_id"] == "r1"
+        assert r["record_type"] == "generation_attempt"
         assert "persona_version" in r
         assert r["architecture_version"] == "mai-agent-v1"
         assert r["context_schema_version"] == "mai-context-v1"
@@ -151,6 +153,31 @@ class TestAmbientLogs:
         assert r["user_text"] is None
         assert r["mai_text"] == "Chào cậu."
         assert r["trigger_type"] is None
+
+
+class TestDeliveryOutcomeJournal:
+    async def test_deferred_success_and_failure_are_append_only(self, tmp_path: Path) -> None:
+        attempts = tmp_path / "turns.jsonl"
+        outcomes = tmp_path / "delivery_outcomes.jsonl"
+        logger = TurnLogger(JsonlWriter(attempts), JsonlWriter(outcomes))
+        pm = PromptManager(PromptCache("persona test"), max_history_turns=4)
+        runner = LLMTurnRunner(
+            FakeLLM(VALID), pm, FallbackManager(),
+            CannedResponder({"default": ["C"]}, rng=random.Random(0)),
+            turn_logger=logger,
+        )
+
+        await runner.run_ambient_turn("ok", "prompt", defer_delivery_commit=True)
+        await runner.run_ambient_turn("fail", "prompt", defer_delivery_commit=True)
+        assert runner.finalize_delivery("ok", True) is True
+        assert runner.finalize_delivery("fail", False) is True
+
+        rows = _read_lines(outcomes)
+        assert [(row["request_id"], row["delivered"]) for row in rows] == [
+            ("ok", True), ("fail", False),
+        ]
+        assert all(row["record_type"] == "delivery_outcome" for row in rows)
+        assert all(row["schema_version"] == 1 for row in rows)
 
 
 class TestNoLoggerNoOp:

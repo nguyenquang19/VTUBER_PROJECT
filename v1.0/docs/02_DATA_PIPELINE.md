@@ -1,5 +1,10 @@
 # 02 — Pipeline dữ liệu end-to-end
 
+> **Applies to:** Mai `1.0.0`
+>
+> **Invariant chính:** generation không đồng nghĩa delivery; delivery không đồng nghĩa commit cho tới
+> khi transaction hoàn tất.
+
 ## 1. Pipeline live chính
 
 ```mermaid
@@ -12,11 +17,11 @@ flowchart TD
     EMO --> MOOD["Mood v1 + Affect v2"]
     MOOD --> PLAN["Hybrid ResponsePlan"]
     ROUTER -->|"PooledMessage"| SAL["SaliencePool + ChatPulse"]
-    SAL --> GATE{"actionable score?"}
+    SAL --> ACTION_GATE{"actionable score?"}
     ROUTER -->|"GroundedEvent"| STATE["EventLedger + AgentState"]
     IN --> DIRIN["DirectorInput builder"]
-    GATE -->|"đủ điểm / backlog summary"| DIRIN
-    GATE -->|"chưa đủ"| HOLD["giữ để cluster/decay rồi evict"]
+    ACTION_GATE -->|"đủ điểm / backlog summary"| DIRIN
+    ACTION_GATE -->|"chưa đủ"| HOLD["giữ để cluster/decay rồi evict"]
     STATE --> DIRIN
     PLAN --> DIRIN
     DIRIN --> DIR["Director.decide"]
@@ -35,9 +40,9 @@ flowchart TD
     TTS -->|"error/timeout"| SUB["Atomic subtitle fallback"]
     PLAYER --> DEL["TTSDeliveryResult"]
     SUB --> DEL
-    DEL --> GATE{"All sentences delivered?"}
-    GATE -->|"yes"| COMMIT["mark delivered + commit"]
-    GATE -->|"no/cancel"| RELEASE["release; no business side effect"]
+    DEL --> DELIVERY_GATE{"All sentences delivered?"}
+    DELIVERY_GATE -->|"yes"| COMMIT["mark delivered + commit"]
+    DELIVERY_GATE -->|"no/cancel"| RELEASE["release; no business side effect"]
     COMMIT --> SIDE["history / memory / pool / goal / speech event"]
     COMMIT --> OBS["logs / metrics / decision record / dashboard"]
     RELEASE --> OBS
@@ -200,7 +205,9 @@ Nếu release, pending history/memory không được finalize và work nguồn 
 | Audio | sound device/stream mix | PCM bytes trong `AudioChunk` |
 | Subtitle | OBS Text Source | UTF-8 text file atomic |
 | Dashboard | operator browser | HTTP JSON + WebSocket snapshot |
-| Persistent turn log | eval/export | sanitized JSONL |
+| Generation-attempt journal | debug/canonicalizer | sanitized append-only JSONL |
+| Delivery-outcome journal | quality gate/canonicalizer | sanitized append-only JSONL |
+| Dataset bundle | train/eval | canonical JSONL + SFT/DPO splits + manifest |
 | Event/audit/incident | operator/debug | sanitized JSONL |
 | Memory/relationship | future turns | SQLite rows/vectors |
 | Runtime snapshot | post-stream recovery | JSON atomic |
@@ -229,8 +236,29 @@ flowchart LR
 
 Để debug, luôn bắt đầu từ `decision_id`/`transaction_id`/`request_id`, sau đó đối chiếu lần lượt:
 decision record → transaction state → turn log → TTS delivery mode → incident/health snapshot.
+Đối với data/export, tiếp tục join `turns.jsonl` với `delivery_outcomes.jsonl`; không suy luận delivery
+từ text đã generate.
 
-### Conversation Thread Engine
+## 11. Pipeline dữ liệu train dài hạn
+
+Pipeline train không đọc `turns.jsonl` như bằng chứng đã phát. Nó join ba lớp theo
+`session_id + request_id + turn_id`:
+
+1. `turns.jsonl` ghi generation attempt append-only trong từng rotated segment, kể cả candidate cuối
+   cùng thất bại delivery;
+2. `delivery_outcomes.jsonl` ghi outcome append-only tại delivery boundary;
+3. quality gate chỉ canonicalize attempt có outcome version hợp lệ và `delivered=true`.
+
+Canonicalizer dùng adapter được khai báo bằng code cho từng source schema. Việc thêm version vào danh
+sách compatibility trong contract nhưng chưa có adapter phải fail-fast. Export tạo một dataset directory
+mới có timestamp độ phân giải microsecond và source fingerprint; không ghi đè artifact đã tồn tại.
+Manifest giữ contract/schema, adapter ID, SHA-256 nguồn, count và split để dữ liệu cũ có thể được đánh
+giá lại khi persona/architecture nâng cấp mà không sửa raw journal.
+
+Active raw logs có rotation/capacity theo `logging.yaml`, vì vậy “append-only” không có nghĩa giữ vô hạn.
+Retention dài hạn phụ thuộc backup manifest có SHA-256 trước khi segment cũ bị rotation loại bỏ.
+
+## 12. Conversation Thread Engine
 
 Chat intake may create, match, resume, or add grounded viewer evidence to an open thread immediately.
 Topic matching is deterministic and returns no target below the configured threshold; unrelated chat must

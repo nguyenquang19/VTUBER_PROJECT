@@ -160,21 +160,42 @@ class JsonlWriter:
 
 
 class TurnLogger:
-    """Ghi turn hội thoại vào turns.jsonl theo schema ARCHITECTURE 9.3."""
+    """Append generation attempts and their delivery outcomes to separate journals."""
 
-    def __init__(self, writer: JsonlWriter) -> None:
+    def __init__(
+        self, writer: JsonlWriter, delivery_writer: JsonlWriter | None = None,
+    ) -> None:
         self._writer = writer
+        self._delivery_writer = delivery_writer
 
     def log_turn(self, turn: dict[str, Any]) -> None:
         record = dict(turn)
         record.setdefault("timestamp", datetime.now(timezone.utc).isoformat())
         self._writer.write(record)
 
+    def log_delivery(self, outcome: dict[str, Any]) -> None:
+        """Append an outcome without rewriting the original generation attempt."""
+        if self._delivery_writer is None:
+            return
+        record = dict(outcome)
+        record.setdefault("timestamp", datetime.now(timezone.utc).isoformat())
+        self._delivery_writer.write(record)
+
     def get_metrics(self) -> dict[str, Any]:
-        return self._writer.get_metrics()
+        return {
+            "attempts": self._writer.get_metrics(),
+            "delivery_outcomes": (
+                self._delivery_writer.get_metrics()
+                if self._delivery_writer is not None else None
+            ),
+        }
 
     def flush(self) -> bool:
-        return self._writer.flush()
+        attempts_ok = self._writer.flush()
+        outcomes_ok = (
+            self._delivery_writer.flush() if self._delivery_writer is not None else True
+        )
+        return attempts_ok and outcomes_ok
 
 
 _turn_logger: TurnLogger | None = None
@@ -200,6 +221,7 @@ def setup_logging(
     log_dir: str | Path = "logs",
     events_file: str = "events.jsonl",
     turns_file: str = "turns.jsonl",
+    delivery_outcomes_file: str = "delivery_outcomes.jsonl",
     rotation_enabled: bool = True,
     max_size_mb: int = 100,
     keep_files: int = 5,
@@ -264,7 +286,19 @@ def setup_logging(
             if metrics is not None and hasattr(metrics, "record_logging_sink_error") else None
         ),
     )
-    _turn_logger = TurnLogger(turns_writer)
+    delivery_writer = JsonlWriter(
+        log_dir / delivery_outcomes_file,
+        max_size_mb=max_size_mb,
+        keep_files=keep_files,
+        rotation_enabled=rotation_enabled,
+        source="delivery_outcome",
+        degraded_buffer_records=degraded_buffer_records,
+        error_callback=(
+            metrics.record_logging_sink_error
+            if metrics is not None and hasattr(metrics, "record_logging_sink_error") else None
+        ),
+    )
+    _turn_logger = TurnLogger(turns_writer, delivery_writer)
     _configured = True
     return _turn_logger
 
@@ -284,6 +318,9 @@ def setup_from_config(loader, metrics: Any = None) -> TurnLogger:
         log_dir=loader.get("logging", "jsonl.dir", "logs"),
         events_file=loader.get("logging", "jsonl.events_file", "events.jsonl"),
         turns_file=loader.get("logging", "jsonl.turns_file", "turns.jsonl"),
+        delivery_outcomes_file=loader.get(
+            "logging", "jsonl.delivery_outcomes_file", "delivery_outcomes.jsonl",
+        ),
         rotation_enabled=loader.get("logging", "rotation.enabled", True),
         max_size_mb=loader.get("logging", "rotation.max_size_mb", 100),
         keep_files=loader.get("logging", "rotation.keep_files", 5),

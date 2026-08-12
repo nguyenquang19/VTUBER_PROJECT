@@ -2,8 +2,12 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import json
+from datetime import datetime, timezone
 from pathlib import Path
+
+import pytest
 
 REPO = Path(__file__).resolve().parents[2]
 _spec = importlib.util.spec_from_file_location(
@@ -163,3 +167,35 @@ class TestDoD:
         assert "dry-run" in captured
         assert "invalid records:  1" in captured
         assert not output.exists()
+
+    def test_bundle_is_immutable_and_has_source_checksums(self, tmp_path: Path) -> None:
+        source = tmp_path / "turns.jsonl"
+        source.write_text('{"one":1}\n', encoding="utf-8")
+        contract = export.load_data_contract(REPO / "eval" / "contracts" / "mai_agent_v1.yaml")
+        now = datetime(2026, 8, 12, 1, 2, 3, tzinfo=timezone.utc)
+
+        bundle = export.write_dataset_bundle(
+            out_dir=tmp_path / "datasets",
+            contract=contract,
+            source_paths=[source],
+            canonical_turns=[{"schema_version": 1, "session_id": "s"}],
+            sft_splits={"train": [], "validation": [], "holdout": []},
+            dpo_splits={"train": [], "validation": [], "holdout": []},
+            quality={"quarantined_turns": 0},
+            now=now,
+        )
+        manifest = json.loads((bundle / "manifest.json").read_text(encoding="utf-8"))
+        assert manifest["contract_id"] == "mai-agent-v1"
+        assert manifest["sources"][0]["sha256"] == hashlib.sha256(
+            source.read_bytes(),
+        ).hexdigest()
+        assert (bundle / "canonical" / "turns.jsonl").exists()
+
+        with pytest.raises(FileExistsError):
+            export.write_dataset_bundle(
+                out_dir=tmp_path / "datasets", contract=contract,
+                source_paths=[source], canonical_turns=[],
+                sft_splits={"train": [], "validation": [], "holdout": []},
+                dpo_splits={"train": [], "validation": [], "holdout": []},
+                quality={}, now=now,
+            )

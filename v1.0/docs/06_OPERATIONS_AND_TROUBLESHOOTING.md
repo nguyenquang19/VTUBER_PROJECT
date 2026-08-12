@@ -1,5 +1,9 @@
 # 06 — Operations và troubleshooting
 
+> **Applies to:** Mai `1.0.0`
+>
+> Lệnh trong tài liệu dùng PowerShell trên Windows 11.
+
 ## 1. Preflight và khởi động
 
 Yêu cầu: Windows 11, Python 3.11+, llama.cpp binary, Gemma GGUF, TTS reference audio và credential
@@ -31,7 +35,8 @@ blocking gate sau startup; preflight thành công không thay thế runtime heal
 - Snapshot: `GET /api/snapshot`.
 - WebSocket: `/ws` theo config.
 - Subtitle OBS: `logs/live/subtitle.txt`.
-- Event/turn log: `logs/events.jsonl`, `logs/turns.jsonl`.
+- Event/generation/delivery log: `logs/events.jsonl`, `logs/turns.jsonl`,
+  `logs/delivery_outcomes.jsonl`.
 - Incident/audit: `logs/operations/`.
 
 ## 3. Checklist trước live
@@ -67,6 +72,10 @@ mọi Python process.
 Review kiểm tra final snapshot, JSONL parse, unresolved incident và soak evidence. Backup không xóa
 source.
 
+Backup tạo hai nhánh manifest: `backups/data/runtime_logs/` và
+`backups/data/dataset_artifacts/`. Raw log rotation chỉ giữ số segment cấu hình; session cần giữ lâu
+phải backup sau stream, không chờ tới lúc export dataset.
+
 ## 6. Debug theo correlation ID
 
 Ưu tiên ID thay vì đọc log theo timestamp thủ công:
@@ -74,8 +83,9 @@ source.
 1. Lấy `decision_id` từ dashboard decision record.
 2. Lấy `transaction_id` và state cuối.
 3. Lấy `request_id` dùng cho LLM/TTS.
-4. Tìm ID trong `events.jsonl` và `turns.jsonl`.
-5. Đối chiếu delivery mode/count và speech-completed event.
+4. Tìm ID trong `events.jsonl` và generation attempt trong `turns.jsonl`.
+5. Join `delivery_outcomes.jsonl` bằng `session_id + request_id + turn_id`.
+6. Đối chiếu delivery mode/count, transaction state và speech-completed event.
 
 Diễn giải nhanh:
 

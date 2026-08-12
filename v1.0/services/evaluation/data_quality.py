@@ -12,7 +12,9 @@ import yaml
 
 Record = dict[str, Any]
 Identity = tuple[str, int]
+DeliveryIdentity = tuple[str, str, int]
 SPLITS = ("train", "validation", "holdout")
+_CANONICAL_TURN_ADAPTERS = {3: "turn-v3-to-canonical-v1"}
 
 
 @dataclass(frozen=True)
@@ -20,12 +22,20 @@ class DataContract:
     schema_version: int
     contract_id: str
     architecture_version: str
+    compatible_architecture_versions: tuple[str, ...]
     persona_version: str
+    compatible_persona_versions: tuple[str, ...]
     turn_schema_version: int
+    compatible_turn_schema_versions: tuple[int, ...]
+    delivery_outcome_schema_version: int
+    canonical_schema_version: int
+    require_delivered: bool
     sft_schema_version: int
     dpo_schema_version: int
     context_schema_version: str
+    compatible_context_schema_versions: tuple[str, ...]
     agenda_policy_version: str
+    compatible_agenda_policy_versions: tuple[str, ...]
     required_turn_fields: tuple[str, ...]
     split_seed: int
     train_ratio: float
@@ -35,6 +45,18 @@ class DataContract:
     def __post_init__(self) -> None:
         if not self.contract_id or self.schema_version < 1:
             raise ValueError("data contract id and schema version are required")
+        if self.persona_version not in self.compatible_persona_versions:
+            raise ValueError("current persona must be in compatible persona versions")
+        if self.architecture_version not in self.compatible_architecture_versions:
+            raise ValueError("current architecture must be compatible")
+        if self.turn_schema_version not in self.compatible_turn_schema_versions:
+            raise ValueError("current turn schema must be compatible")
+        if any(version not in _CANONICAL_TURN_ADAPTERS for version in self.compatible_turn_schema_versions):
+            raise ValueError("compatible turn schema has no canonical adapter")
+        if self.context_schema_version not in self.compatible_context_schema_versions:
+            raise ValueError("current context schema must be compatible")
+        if self.agenda_policy_version not in self.compatible_agenda_policy_versions:
+            raise ValueError("current agenda policy must be compatible")
         total = self.train_ratio + self.validation_ratio + self.holdout_ratio
         if abs(total - 1.0) > 1e-9 or min(
             self.train_ratio, self.validation_ratio, self.holdout_ratio,
@@ -59,12 +81,40 @@ def load_data_contract(path: str | Path) -> DataContract:
         schema_version=int(value["schema_version"]),
         contract_id=str(value["contract_id"]),
         architecture_version=str(value["architecture_version"]),
+        compatible_architecture_versions=tuple(
+            str(item) for item in value.get(
+                "compatible_architecture_versions", [value["architecture_version"]],
+            )
+        ),
         persona_version=str(value["persona_version"]),
+        compatible_persona_versions=tuple(
+            str(item) for item in value.get(
+                "compatible_persona_versions", [value["persona_version"]],
+            )
+        ),
         turn_schema_version=int(value["turn_schema_version"]),
+        compatible_turn_schema_versions=tuple(
+            int(item) for item in value.get(
+                "compatible_turn_schema_versions", [value["turn_schema_version"]],
+            )
+        ),
+        delivery_outcome_schema_version=int(value["delivery_outcome_schema_version"]),
+        canonical_schema_version=int(value["canonical_schema_version"]),
+        require_delivered=bool(value.get("require_delivered", True)),
         sft_schema_version=int(value["sft_schema_version"]),
         dpo_schema_version=int(value["dpo_schema_version"]),
         context_schema_version=str(value["context_schema_version"]),
+        compatible_context_schema_versions=tuple(
+            str(item) for item in value.get(
+                "compatible_context_schema_versions", [value["context_schema_version"]],
+            )
+        ),
         agenda_policy_version=str(value["agenda_policy_version"]),
+        compatible_agenda_policy_versions=tuple(
+            str(item) for item in value.get(
+                "compatible_agenda_policy_versions", [value["agenda_policy_version"]],
+            )
+        ),
         required_turn_fields=tuple(str(item) for item in value["required_turn_fields"]),
         split_seed=int(split["seed"]),
         train_ratio=float(split["train_ratio"]),
@@ -85,17 +135,22 @@ class DatasetQualityGate:
             value = record.get(field)
             if value is None or (isinstance(value, str) and not value.strip()):
                 reasons.append(f"missing:{field}")
-        if record.get("schema_version") != self.contract.turn_schema_version:
+        if record.get("schema_version") not in self.contract.compatible_turn_schema_versions:
             reasons.append("incompatible:turn_schema_version")
-        expected_versions = {
-            "architecture_version": self.contract.architecture_version,
-            "persona_version": self.contract.persona_version,
-            "context_schema_version": self.contract.context_schema_version,
-            "agenda_policy_version": self.contract.agenda_policy_version,
+        compatible_versions = {
+            "architecture_version": self.contract.compatible_architecture_versions,
+            "context_schema_version": self.contract.compatible_context_schema_versions,
+            "agenda_policy_version": self.contract.compatible_agenda_policy_versions,
         }
-        for field, expected in expected_versions.items():
-            if record.get(field) is not None and record.get(field) != expected:
+        for field, compatible in compatible_versions.items():
+            if record.get(field) is not None and record.get(field) not in compatible:
                 reasons.append(f"incompatible:{field}")
+        persona_version = record.get("persona_version")
+        if (
+            persona_version is not None
+            and persona_version not in self.contract.compatible_persona_versions
+        ):
+            reasons.append("incompatible:persona_version")
         session_id = record.get("session_id")
         if isinstance(session_id, str) and session_id.startswith("legacy:"):
             reasons.append("incompatible:legacy_session")
@@ -110,6 +165,34 @@ class DatasetQualityGate:
             reasons.append("quality:filter_blocked")
         return QualityDecision(not reasons, tuple(sorted(set(reasons))))
 
+    def assess_delivery(self, outcome: Mapping[str, Any] | None) -> QualityDecision:
+        """Require an explicit, correctly versioned successful delivery outcome."""
+        if not self.contract.require_delivered:
+            return QualityDecision(True, ())
+        reasons: list[str] = []
+        if outcome is None:
+            reasons.append("delivery:missing_outcome")
+        else:
+            if outcome.get("schema_version") != self.contract.delivery_outcome_schema_version:
+                reasons.append("incompatible:delivery_outcome_schema_version")
+            if outcome.get("delivered") is not True:
+                reasons.append("delivery:not_delivered")
+        return QualityDecision(not reasons, tuple(sorted(set(reasons))))
+
+    def canonicalize_turn(self, record: Mapping[str, Any]) -> Record:
+        """Create a stable canonical copy while retaining source-schema provenance."""
+        source_schema = record.get("schema_version")
+        adapter_id = _CANONICAL_TURN_ADAPTERS.get(source_schema)
+        if adapter_id is None:
+            raise ValueError(f"no canonical adapter for turn schema {source_schema!r}")
+        canonical = dict(record)
+        canonical["source_schema_version"] = source_schema
+        canonical["canonical_adapter_id"] = adapter_id
+        canonical["schema_version"] = self.contract.canonical_schema_version
+        canonical["data_contract_id"] = self.contract.contract_id
+        canonical["record_type"] = "canonical_turn"
+        return canonical
+
     def assess_preference(self, record: Mapping[str, Any]) -> QualityDecision:
         reasons: list[str] = []
         prompt = record.get("prompt_ref") or {}
@@ -119,14 +202,15 @@ class DatasetQualityGate:
             reasons.append("incompatible:dpo_schema_version")
         if not str(record.get("session_id") or "").strip():
             reasons.append("missing:session_id")
-        for field, expected in (
-            ("architecture_version", self.contract.architecture_version),
-            ("persona_version", self.contract.persona_version),
-            ("context_schema_version", self.contract.context_schema_version),
-            ("agenda_policy_version", self.contract.agenda_policy_version),
+        for field, compatible in (
+            ("architecture_version", self.contract.compatible_architecture_versions),
+            ("context_schema_version", self.contract.compatible_context_schema_versions),
+            ("agenda_policy_version", self.contract.compatible_agenda_policy_versions),
         ):
-            if prompt.get(field) != expected:
+            if prompt.get(field) not in compatible:
                 reasons.append(f"incompatible:{field}")
+        if prompt.get("persona_version") not in self.contract.compatible_persona_versions:
+            reasons.append("incompatible:persona_version")
         if not str(prompt.get("persona_version") or "").strip():
             reasons.append("missing:persona_version")
         if not str(record.get("chosen") or "").strip() or not str(record.get("rejected") or "").strip():
@@ -162,6 +246,7 @@ def quality_report(
     *,
     ratings: Mapping[Identity, str],
     corrections: set[Identity],
+    delivery_outcomes: Mapping[DeliveryIdentity, Mapping[str, Any]] | None = None,
 ) -> tuple[list[Record], dict[str, Any]]:
     eligible: list[Record] = []
     quarantine: list[dict[str, Any]] = []
@@ -173,11 +258,18 @@ def quality_report(
     for record in turns:
         decision = gate.assess_turn(record)
         identity = _strict_identity(record)
-        if not decision.eligible:
+        delivery_identity = _strict_delivery_identity(record)
+        outcome = (
+            delivery_outcomes.get(delivery_identity)
+            if delivery_outcomes is not None and delivery_identity is not None else None
+        )
+        delivery_decision = gate.assess_delivery(outcome)
+        reasons = tuple(sorted(set(decision.reasons + delivery_decision.reasons)))
+        if reasons:
             quarantine.append({
                 "session_ref": _session_ref(record.get("session_id")),
                 "turn_id": record.get("turn_id"),
-                "reasons": list(decision.reasons),
+                "reasons": list(reasons),
             })
             continue
         eligible.append(record)
@@ -214,6 +306,18 @@ def quality_report(
     return eligible, report
 
 
+def index_delivery_outcomes(
+    records: Sequence[Mapping[str, Any]],
+) -> dict[DeliveryIdentity, Mapping[str, Any]]:
+    """Index append-only outcomes; the latest valid identity entry wins deterministically."""
+    indexed: dict[DeliveryIdentity, Mapping[str, Any]] = {}
+    for record in records:
+        identity = _strict_delivery_identity(record)
+        if identity is not None:
+            indexed[identity] = record
+    return indexed
+
+
 def _strict_identity(record: Mapping[str, Any]) -> Identity | None:
     try:
         session_id = str(record["session_id"])
@@ -221,6 +325,18 @@ def _strict_identity(record: Mapping[str, Any]) -> Identity | None:
     except (KeyError, TypeError, ValueError):
         return None
     return (session_id, turn_id) if session_id else None
+
+
+def _strict_delivery_identity(record: Mapping[str, Any]) -> DeliveryIdentity | None:
+    try:
+        session_id = str(record["session_id"])
+        request_id = str(record["request_id"])
+        turn_id = int(record["turn_id"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if not session_id or not request_id:
+        return None
+    return session_id, request_id, turn_id
 
 
 def _session_ref(value: Any) -> str | None:
