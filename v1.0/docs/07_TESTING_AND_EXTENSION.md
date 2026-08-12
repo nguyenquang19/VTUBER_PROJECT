@@ -1,6 +1,6 @@
 # 07 — Testing và extension guide
 
-> **Applies to:** Mai `1.0.0`
+> **Applies to:** Mai `1.0.1` (baseline `1.0.0`)
 >
 > Mọi change được phát hành sau baseline phải tăng product version và có changelog/regression evidence.
 
@@ -40,6 +40,20 @@ Mọi trace item có `incoming_count > 0` cũng phải không chứa delivery `s
 global chat-priority quiet gate. LLM stub chỉ kiểm scheduling/gate, không dùng để chấm độ tự nhiên.
 Khi đổi prompt/validation, chạy thêm mẫu phân tầng bằng llama-server thật và review grounding, lặp câu,
 số câu hỏi cùng latency.
+
+### 1.1. Quy ước đặt tên và tổ chức test
+
+- Tên file test mô tả **component/hành vi**, không mang nhãn phase/milestone (`_m3`…`_m10`, `phase1`,
+  `phase2`, `m8_...`). Nhãn phase/milestone chỉ là lịch sử component, không phải trục version của test và
+  gây hiểu lầm rằng test thuộc một "phase" thay vì một component.
+- Vị trí quyết định loại: `tests/unit/` cho policy/model/state/config thuần; `tests/integration/` cho
+  nhiều service ghép qua fake adapter/LLM/TTS.
+- Một test map tới một owner component; tìm test theo component như `docs/03`, không theo mốc thời gian.
+- **Một runner duy nhất:** dùng `pytest` + marker (`slow`, `llm`) và các lệnh theo vùng ở §10. Không tạo
+  script gom test "theo phase" song song với pytest.
+- Test dùng chung helper thì import từ file test nền có tên ổn định (ví dụ
+  `tests/integration/test_director_loop.py`, `tests/unit/test_llm_turn.py`), không import chéo từ file
+  mang hậu tố tạm thời.
 
 ## 2. Invariant bắt buộc
 

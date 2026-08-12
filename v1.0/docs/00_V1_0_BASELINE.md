@@ -7,6 +7,9 @@
 > **Platform:** Windows 11, Python 3.11+, local-first
 >
 > **Product version source:** `config/system.yaml::app.version`
+>
+> **Current product version:** `1.0.1` — patch chuẩn hóa tài liệu và đổi tên test (bỏ hậu tố
+> phase/milestone) trên baseline `1.0.0`; runtime/contract không đổi.
 
 Tài liệu này là điểm vào bắt buộc cho AI hoặc người bảo trì mới. Nó mô tả hệ thống đang tồn tại ở
 release `1.0.0`, không phải roadmap. Các nhãn như Mood v2, schema v3, M8 hoặc M10 là version/mốc nội bộ

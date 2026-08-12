@@ -11,7 +11,7 @@ def _read(name: str) -> dict:
     return json.loads((ROOT / "docs" / "baselines" / name).read_text(encoding="utf-8"))
 
 
-def test_m8_baseline_is_versioned_without_faking_live_or_human_results() -> None:
+def test_baseline_is_versioned_without_faking_live_or_human_results() -> None:
     baseline = _read("m8_evaluation_baseline.json")
     assert baseline["contract_id"] == "mai-agent-v1"
     assert baseline["scenario_suite"]["scenario_count"] == 12

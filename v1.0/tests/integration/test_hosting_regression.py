@@ -11,7 +11,7 @@ FIXTURE = ROOT / "tests" / "fixtures" / "hosting_session_sanitized.json"
 BASELINE = ROOT / "docs" / "baselines" / "m5_hosting_eval.json"
 
 
-def test_sanitized_hosting_fixture_meets_m5_review_contract() -> None:
+def test_sanitized_hosting_fixture_meets_review_contract() -> None:
     fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
     baseline = json.loads(BASELINE.read_text(encoding="utf-8"))
     sheet = build_review_sheet(

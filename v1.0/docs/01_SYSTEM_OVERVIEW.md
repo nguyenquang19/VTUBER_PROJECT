@@ -1,6 +1,6 @@
 # 01 — Tổng quan hệ thống
 
-> **Applies to:** Mai `1.0.0`
+> **Applies to:** Mai `1.0.1` (baseline `1.0.0`)
 >
 > **Release baseline:** `docs/00_V1_0_BASELINE.md`
 

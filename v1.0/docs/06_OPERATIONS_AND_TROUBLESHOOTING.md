@@ -1,6 +1,6 @@
 # 06 — Operations và troubleshooting
 
-> **Applies to:** Mai `1.0.0`
+> **Applies to:** Mai `1.0.1` (baseline `1.0.0`)
 >
 > Lệnh trong tài liệu dùng PowerShell trên Windows 11.
 
@@ -248,7 +248,7 @@ phải được đếm.
 # Targeted live-delivery
 .\venv\Scripts\python.exe -m pytest `
   tests\integration\test_tts_pipeline.py `
-  tests\integration\test_action_transaction_m10.py `
+  tests\integration\test_action_transaction.py `
   tests\unit\test_subtitle_fallback.py -q
 
 # Offline regression

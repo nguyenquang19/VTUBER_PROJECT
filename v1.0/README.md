@@ -1,6 +1,6 @@
 # Mai v1.0.0 — AI VTuber runtime
 
-> **Current product release:** `1.0.0` — frozen baseline ngày 2026-08-12.
+> **Current product release:** `1.0.1` (patch trên frozen baseline `1.0.0`, 2026-08-12).
 >
 > Mọi thay đổi product được chấp nhận sau baseline phải tăng version và cập nhật `CHANGELOG.md`.
 

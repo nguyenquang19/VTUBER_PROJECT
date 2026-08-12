@@ -1,6 +1,6 @@
 # 05 — Configuration và feature toggles
 
-> **Applies to:** Mai `1.0.0`
+> **Applies to:** Mai `1.0.1` (baseline `1.0.0`)
 >
 > Product version: `config/system.yaml::app.version`; component/schema version không phải product version.
 
@@ -195,7 +195,7 @@ resource. Default trong code chỉ là compatibility fallback; giá trị produc
 
 ## 7. Product và data version
 
-- `system.yaml::app.version` là product version duy nhất (`1.0.0` ở baseline).
+- `system.yaml::app.version` là product version duy nhất (`1.0.0` ở baseline, `1.0.1` hiện tại).
 - `evaluation.yaml::data_contract.contract_file` trỏ tới frozen contract.
 - `eval/contracts/mai_agent_v1.yaml` sở hữu turn/delivery/canonical/SFT/DPO compatibility.
 - Các field version lặp lại trong `evaluation.yaml` phải khớp contract và chỉ là runtime compatibility

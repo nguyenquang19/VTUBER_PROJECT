@@ -2,7 +2,8 @@
 
 ## Product baseline
 
-- Current frozen baseline: `1.0.0`; source: `config/system.yaml::app.version`.
+- Current frozen baseline: `1.0.0`; product version hiện tại `1.0.1` (patch). Source:
+  `config/system.yaml::app.version`.
 - Đọc `docs/00_V1_0_BASELINE.md` trước mọi task để phân biệt capability production, optional và
   interface-only.
 - Mood v2, schema v3, M8/M10 và `mai-agent-v1` là nhãn component/contract, không phải product version.
@@ -51,15 +52,22 @@ Conversation continuity và Thread Engine dùng trực tiếp các mục tương
 - Không dùng Bash command trên Windows.
 - Không dùng SIGTERM/SIGKILL; process Windows do runtime sở hữu dùng `proc.terminate()`.
 - Không copy code từ phiên bản deprecated.
+- Không đặt tên file test theo phase/milestone (`_m*`, `phase*`, `m8_...`); đặt theo component/hành vi
+  (xem `docs/07` §1.1). Không thêm test-runner ad-hoc song song với `pytest` + marker.
 
 ## Workflow bắt buộc
+
+**Docs-first (bắt buộc):** trước bất kỳ thay đổi hệ thống nào (code, test, config, cấu trúc file), phải
+chuẩn hóa/cập nhật tài liệu liên quan cho khớp thay đổi định làm rồi mới sửa hệ thống. Không sửa code
+trước rồi vá tài liệu sau.
 
 Trước khi sửa code:
 
 1. Đọc `docs/00_V1_0_BASELINE.md`, `docs/README.md`, sau đó đọc tài liệu module liên quan task.
-2. Liệt kê file sẽ tạo/sửa.
-3. Liệt kê test sẽ viết/chạy.
-4. Xác nhận với user rồi mới code.
+2. Chuẩn hóa/cập nhật tài liệu liên quan trước (docs-first).
+3. Liệt kê file sẽ tạo/sửa.
+4. Liệt kê test sẽ viết/chạy.
+5. Xác nhận với user rồi mới code.
 
 Sau khi code:
 

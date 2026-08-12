@@ -67,7 +67,7 @@ def test_sanitized_regular_viewer_is_grounded_without_fake_lore() -> None:
     assert fixture["running_gag"] not in manager.render_context("synthetic-regular")
 
 
-def test_baseline_records_all_m7_grounding_checks() -> None:
+def test_baseline_records_all_grounding_checks() -> None:
     baseline = json.loads(
         (ROOT / "docs" / "baselines" / "m7_relationship_eval.json").read_text(encoding="utf-8")
     )
