@@ -1,6 +1,6 @@
 # 05 — Configuration và feature toggles
 
-> **Applies to:** Mai `1.0.3` (baseline `1.0.0`)
+> **Applies to:** Mai `1.2.1` (baseline `1.0.0`)
 >
 > Product version: `config/system.yaml::app.version`; component/schema version không phải product version.
 
@@ -42,6 +42,8 @@ Ví dụ: `loader.get("models", "llm_main.port", 8080)`. Reload là atomic; YAML
 | `operations.yaml` | health, restart, shutdown, incident, soak |
 | `conversation.yaml` | open thread, recap, context, extraction và repair bounds |
 | `mood_ab_cases.yaml` | offline blind-review corpus |
+| `animation.yaml` | VTube Studio adapter: host/port/plugin/token, mood→hotkey map |
+| `data_schema_registry.yaml` | fingerprint đã chốt của record wire-schema (drift guard) |
 
 ## 3. Production feature state hiện tại
 
@@ -81,9 +83,14 @@ FeatureManager phải reject dependency thiếu, conflict và vượt VRAM budge
 ### LLM
 
 Tune trong `models.yaml`: context size, max history, num predict, temperature, min-p, repeat/presence
-penalty, cache type và health timeout. Mỗi lần tune sampling cần replay cùng seed/context và đánh giá
-naturalness/repetition; không thay nhiều trục cùng lúc. Baseline `1.0.2` dùng `temperature=0.88` và
-`frequency_penalty=0.15` (nâng từ `0.85`/`0.0`) để giảm lặp câu verbatim khi đáp nhiều chat.
+penalty, cache type và health timeout. Mỗi lần tune sampling cần replay corpus chat thật qua llama.cpp và
+đánh giá naturalness/repetition; không thay nhiều trục cùng lúc. Baseline `1.0.2` dùng `temperature=0.88`
+và `frequency_penalty=0.15` (nâng từ `0.85`/`0.0`) để giảm lặp câu verbatim khi đáp nhiều chat.
+Sampling production hiện tại (`1.2.1`): `temperature=0.75`, `min_p=0.05`, `repeat_penalty=1.1`,
+`presence_penalty=0.3`, `frequency_penalty=0.2`. Chọn từ A/B 6 config (`config/sampling_sweep.yaml`,
+chạy `scripts/sampling_sweep.py`): hạ temp 0.88→0.75 loại token corruption/leak ngoại ngữ mà `distinct_2`
+vẫn tăng (0.649→0.674) và lặp giảm (`exact_repetition` 0.029→0.0073); latency p95 +~21% (trong gate).
+Bỏ hẳn penalty làm lặp mô-típ nhiều hơn nên giữ penalty vừa. Nghe thử bằng `scripts/sample_conversation.py`.
 
 `llm_canned.timeout_primary_s` là timeout cho **toàn bộ lượt generation**, không phải riêng TTFT. Giá
 trị production phải đủ cho `num_predict / decode_tps_min` cộng prefill margin; cấu hình hiện tại dùng
@@ -204,7 +211,7 @@ resource. Default trong code chỉ là compatibility fallback; giá trị produc
 
 ## 7. Product và data version
 
-- `system.yaml::app.version` là product version duy nhất (`1.0.0` ở baseline, `1.0.3` hiện tại).
+- `system.yaml::app.version` là product version duy nhất (`1.0.0` ở baseline, `1.1.0` hiện tại).
 - `evaluation.yaml::data_contract.contract_file` trỏ tới frozen contract.
 - `eval/contracts/mai_agent_v1.yaml` sở hữu turn/delivery/canonical/SFT/DPO compatibility.
 - Các field version lặp lại trong `evaluation.yaml` phải khớp contract và chỉ là runtime compatibility

@@ -1,0 +1,66 @@
+# sampling_sweep.yaml — các cấu hình sampling để A/B trên replay corpus.
+#
+# Chạy: python scripts/sampling_sweep.py <corpus.json> [--out logs/evaluation/sweep]
+# Mỗi config chạy full corpus qua llama.cpp thật rồi so:
+#   distinct_2 ↑ (đa dạng, đỡ nhạt) · exact_repetition ↓ · assistant_register ↓
+#   avg_words (nhắm ~8-18 cho khẩu ngữ) · turn_latency_p95 (đừng tệ đi)
+# + đọc operator_review_sample từng config bằng mắt (số không thay được tai người).
+#
+# null = không gửi param đó (dùng default server). Chỉ liệt kê key muốn đổi;
+# key không nêu giữ nguyên models.yaml.
+
+configs:
+  # 0. Baseline hiện tại — mốc so sánh.
+  baseline:
+    temperature: 0.88
+    min_p: 0.05
+    repeat_penalty: 1.08
+    presence_penalty: 0.3
+    frequency_penalty: 0.15
+    top_p: null
+    top_k: null
+
+  # 1. High-temp + min_p (recipe hiện đại cho cá tính): nóng hơn cho sống động,
+  #    min_p giữ mạch lạc thay top_p. Kỳ vọng distinct_2 ↑.
+  hot_minp:
+    temperature: 1.0
+    min_p: 0.08
+    repeat_penalty: 1.05
+    presence_penalty: 0.2
+    frequency_penalty: 0.1
+    top_p: null
+    top_k: null
+
+  # 2. Mát hơn — kiểm tra baseline có đang "wild" quá không (nếu hay lạc/vấp).
+  cool_stable:
+    temperature: 0.75
+    min_p: 0.05
+    repeat_penalty: 1.1
+    presence_penalty: 0.3
+    frequency_penalty: 0.2
+
+  # 3. Chống lặp mạnh — nếu cái tell là lặp cụm/mô-típ.
+  anti_repeat:
+    temperature: 0.9
+    min_p: 0.05
+    repeat_penalty: 1.15
+    repeat_last_n: 384
+    presence_penalty: 0.4
+    frequency_penalty: 0.3
+
+  # 4. Penalty NHẸ — nghi ngờ penalty đang ép model dùng từ gượng/cứng.
+  light_penalty:
+    temperature: 0.9
+    min_p: 0.06
+    repeat_penalty: 1.03
+    presence_penalty: 0.05
+    frequency_penalty: 0.0
+
+  # 5. top_p cổ điển — mốc đối chứng với nhánh min_p.
+  classic_topp:
+    temperature: 0.9
+    top_p: 0.92
+    min_p: null
+    repeat_penalty: 1.08
+    presence_penalty: 0.2
+    frequency_penalty: 0.15

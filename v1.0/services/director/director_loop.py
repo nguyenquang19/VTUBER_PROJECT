@@ -22,7 +22,7 @@ import uuid
 from dataclasses import replace
 from typing import Any, Awaitable, Callable
 
-from interfaces.animation import MoodState
+from interfaces.animation import AnimationCommand, MoodState
 from interfaces.decision_record import DecisionCandidateSummary
 from interfaces.self_talk import SelfTalkContext, SelfTalkStage
 from orchestrator.logger import get_logger
@@ -70,6 +70,7 @@ class DirectorLoop:
         decision_records: Any = None,
         self_talk_planner: Any = None,
         thread_manager: Any = None,
+        animation: Any = None,
     ) -> None:
         self._director = director
         self._pool = pool
@@ -95,6 +96,7 @@ class DirectorLoop:
         self._decision_records = decision_records
         self._self_talk_planner = self_talk_planner
         self._thread_manager = thread_manager
+        self._animation = animation
 
         self._task: asyncio.Task | None = None
         self._running = False
@@ -737,6 +739,16 @@ class DirectorLoop:
             req_id, action, refs, goal_id=goal_id, text=parsed.text,
             thread_id=thread_id, conversation_move=conversation_move,
         )
+        # Side-effect sau DELIVERED: đẩy expression theo mood trội (fail-safe).
+        if self._animation is not None:
+            try:
+                await self._animation.express(
+                    AnimationCommand(
+                        command_type="express", mood=self._current_mood(),
+                    ),
+                )
+            except Exception as e:  # pragma: no cover - defensive
+                self._log.warning("animation_express_failed", error=str(e))
         return True
 
     async def _run_turn_deferred(self, **kwargs: Any) -> Any:

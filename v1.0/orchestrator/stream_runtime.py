@@ -664,6 +664,12 @@ async def build_stream_runtime(
     from orchestrator.runtime_config_validation import validate_runtime_config
 
     validate_runtime_config(loader)
+
+    # 1.1.0: fail-fast nếu record wire-schema lệch fingerprint đã chốt (drift guard).
+    from services.data.record_schema import assert_no_schema_drift
+    _registry = loader.get("data_schema_registry", "fingerprints", {}) or {}
+    assert_no_schema_drift(_registry)
+
     metrics = MetricsCollector()
     # B0: setup structlog + JSONL sinks (turns.jsonl để baseline eval)
     turn_logger = setup_from_config(loader, metrics=metrics)
@@ -1222,6 +1228,19 @@ async def build_stream_runtime(
         relationship_manager=relationship_manager,
     )
 
+    # Animation adapter (VTube Studio) — gate qua feature `animation_smooth`.
+    from services.animation.vts_service import VTSAnimationService
+    try:
+        animation_status = await feature_manager.get_status("animation_smooth")
+        animation_enabled = animation_status in (
+            FeatureStatus.ENABLED, FeatureStatus.DEGRADED,
+        )
+    except KeyError:
+        get_logger("stream_runtime").warning("animation_smooth_feature_missing")
+        animation_enabled = False
+    animation = VTSAnimationService.from_loader(loader, enabled=animation_enabled)
+    await animation.start()
+
     # TASK 4: director tick TÁCH khỏi autonomy (autonomy 5s làm chat chờ lâu).
     director_tick = float(loader.get("director", "director.tick_seconds", 1.5))
     director_loop = DirectorLoop(
@@ -1240,6 +1259,7 @@ async def build_stream_runtime(
         decision_records=decision_records,
         self_talk_planner=self_talk_planner,
         thread_manager=open_thread_manager,
+        animation=animation,
     )
 
     async def _enable_self_talk_planner() -> None:
@@ -1256,6 +1276,24 @@ async def build_stream_runtime(
         enable=_enable_self_talk_planner,
         disable=_disable_self_talk_planner,
         health=_self_talk_planner_health,
+    )
+
+    async def _enable_animation() -> None:
+        animation.set_enabled(True)
+        if not animation._transport.connected:
+            await animation.start()
+
+    async def _disable_animation() -> None:
+        animation.set_enabled(False)
+
+    async def _animation_health() -> bool:
+        return (await animation.health_check()).is_ok
+
+    feature_manager.attach_handlers(
+        "animation_smooth",
+        enable=_enable_animation,
+        disable=_disable_animation,
+        health=_animation_health,
     )
 
     async def _enable_action_transactions() -> None:
@@ -1631,6 +1669,7 @@ async def build_stream_runtime(
         )
         for name, callback in rt.shutdown_steps():
             shutdown_coordinator.register_step(name, callback)
+        shutdown_coordinator.register_step("animation", animation.stop)
         rt.set_shutdown_coordinator(shutdown_coordinator)
     # DirectorLoop dùng runtime ctx của rt (silence/chat_count/memory) cho self_talk material
     director_loop.set_runtime_context_provider(rt.runtime_context)

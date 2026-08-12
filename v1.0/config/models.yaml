@@ -20,14 +20,18 @@ llm_main:
   num_predict: 500                # 300 → 500 (2026-08-06): Mai nói dài hơn,
                                   # tránh cắt cụt. Câu vẫn có thể ngắn nếu ngữ cảnh
                                   # cần, num_predict là trần chứ không phải ép.
-  temperature: 0.88              # default sampling temp (prompt_manager 1.C)
+  temperature: 0.75              # 1.2.1: 0.88→0.75 (sweep cool_stable). Temp cao gây token
+                                  # corruption/leak ngoại ngữ ("kalau", "[giờ hiện tại]"); mát hơn
+                                  # → sạch giọng mà distinct_2 vẫn tăng. Rollback=0.88.
   # Sampling register — đòn mạnh chống lặp từ + câu đều đều máy móc (de-AI giọng).
   # null = không gửi (dùng default llama-server). Tune theo transcript.
   min_p: 0.05                    # cắt đuôi xác suất thấp — mạch lạc hơn top_p ở temp cao
-  repeat_penalty: 1.08           # phạt lặp token (1.0=tắt; 1.05-1.15 hợp lý; cao quá → gượng)
+  repeat_penalty: 1.1            # 1.2.1: 1.08→1.1 (sweep cool_stable). Rollback=1.08.
+                                  # (1.0=tắt; 1.05-1.15 hợp lý; cao quá → gượng/corrupt token)
   repeat_last_n: 256             # cửa sổ xét lặp
   presence_penalty: 0.3          # phạt token ĐÃ xuất hiện → đẩy đa dạng từ vựng
-  frequency_penalty: 0.15         # phạt theo TẦN SUẤT (0=tắt; bật nếu vẫn lặp cụm)
+  frequency_penalty: 0.2         # 1.2.1: 0.15→0.2 (sweep cool_stable). Rollback=0.15.
+                                  # phạt theo TẦN SUẤT; bỏ hẳn (light_penalty) → Mai lặp mô-típ nhiều hơn.
   batch_size: 512
   # Cold load đo trên máy hiện tại thường 27-31s. Giữ dư địa cho lần load lại sau
   # khi process cũ vừa nhả VRAM; 30s gây false-negative ngay sát deadline.
@@ -45,6 +49,9 @@ llm_main:
                                 # Mai nhớ 10 cặp turn ≈ 5-8 phút hội thoại — đủ cho MVP.
                                 # Bật lên lại nếu thấy Mai quên chuyện vừa nói.
   history_max_chars: 1200       # hard budget chống prompt vượt n_ctx=4096 trong phiên dài
+  inject_mood_directive: true   # 1.2.0: false = bỏ mood directive ở prompt (model tự đọc mood từ
+                                # context). CHỈ đặt false SAU khi model fine-tuned validate trên holdout
+                                # (train/inference phải cùng phía); base model hiện tại để true.
   # Ambient talk (7.9.4, 2.C): prompt để Mai tự mở lời khi im lặng lâu.
   # Placeholder {silence} (phút) + {mood} thay lúc build.
   ambient_prompt_path: ".\\config\\prompts\\ambient_instruction.txt"

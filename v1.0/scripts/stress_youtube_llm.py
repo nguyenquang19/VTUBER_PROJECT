@@ -272,6 +272,9 @@ def build_quality_report(
     repetition_ratio = (
         duplicate_outputs / len(delivered_texts) if delivered_texts else 1.0
     )
+    # distinct-N: đo đa dạng từ vựng (chống nhạt/lặp cụm — mạnh hơn exact_repetition).
+    # distinct thấp = nói đi nói lại vài cụm = "sặc AI". Cao = phong phú.
+    diversity = _distinct_ngrams(delivered_texts)
     reasons = dict((replay.get("director") or {}).get("reason_counts") or {})
     cadence = dict((replay.get("director") or {}).get("self_talk_cadence") or {})
     threads = dict(replay.get("conversation_threads") or {})
@@ -342,6 +345,9 @@ def build_quality_report(
         "ratios": {
             "fallback": round(fallback_ratio, 4),
             "exact_repetition": round(repetition_ratio, 4),
+            "distinct_1": diversity["distinct_1"],
+            "distinct_2": diversity["distinct_2"],
+            "avg_words": diversity["avg_words"],
         },
         "latency": {
             "turn_ms": _distribution(latencies),
@@ -398,6 +404,32 @@ def _normalize(text: str) -> str:
     return " ".join(re.findall(r"\w+", text.casefold(), flags=re.UNICODE))
 
 
+def _distinct_ngrams(texts: Sequence[str]) -> dict[str, float]:
+    """distinct-1/2 = unique n-gram / tổng n-gram (gộp toàn corpus output).
+
+    Cao = từ vựng phong phú; thấp = lặp cụm, nhạt. avg_words = độ dài trung bình.
+    """
+    uni_total = uni_seen = bi_total = 0
+    bi_seen: set[tuple[str, str]] = set()
+    uni_set: set[str] = set()
+    word_counts: list[int] = []
+    for text in texts:
+        toks = re.findall(r"\w+", str(text).casefold(), flags=re.UNICODE)
+        word_counts.append(len(toks))
+        for w in toks:
+            uni_total += 1
+            if w not in uni_set:
+                uni_set.add(w); uni_seen += 1
+        for a, b in zip(toks, toks[1:]):
+            bi_total += 1
+            bi_seen.add((a, b))
+    return {
+        "distinct_1": round(uni_seen / uni_total, 4) if uni_total else 0.0,
+        "distinct_2": round(len(bi_seen) / bi_total, 4) if bi_total else 0.0,
+        "avg_words": round(sum(word_counts) / len(word_counts), 1) if word_counts else 0.0,
+    }
+
+
 def _append_number(target: list[float], value: Any) -> None:
     try:
         number = float(value)
@@ -432,6 +464,8 @@ def _write_json(path: Path, value: Any) -> None:
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input", type=Path, nargs="?")
+    parser.add_argument("--config-dir", type=str, default=None,
+                        help="thư mục config thay thế (sweep sampling patch models.yaml ở đây)")
     parser.add_argument("--output", type=Path)
     parser.add_argument("--checkpoint", type=Path)
     parser.add_argument("--burst-window-ms", type=int)
@@ -444,7 +478,8 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 
 async def _run(args: argparse.Namespace) -> int:
-    loader = ConfigLoader(REPO_ROOT / "config")
+    config_dir = Path(args.config_dir) if getattr(args, "config_dir", None) else REPO_ROOT / "config"
+    loader = ConfigLoader(config_dir)
     loader.load_all()
     policy = dict(loader.get(
         "evaluation", "evaluation.youtube_llm_stress", {},

@@ -46,6 +46,8 @@ CONFIG_FILES: dict[str, str] = {
     "mood_style": "mood_style.yaml",                   # mood → chỉ dẫn giọng
     "affect_v2": "affect_v2.yaml",                     # M10.6 turn/session affect
     "mood_ab_cases": "mood_ab_cases.yaml",             # M10.6 balanced blind replay
+    "animation": "animation.yaml",                     # VTube Studio animation adapter
+    "data_schema_registry": "data_schema_registry.yaml",  # record wire-schema fingerprints
 }
 
 ReloadCallback = Callable[[str, dict[str, Any]], None]

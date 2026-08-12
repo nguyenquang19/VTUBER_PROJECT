@@ -160,17 +160,29 @@ class JsonlWriter:
 
 
 class TurnLogger:
-    """Append generation attempts and their delivery outcomes to separate journals."""
+    """Append generation attempts and their delivery outcomes to separate journals.
+
+    Từ 1.1.0: validate mỗi record theo wire-schema model (services/data/record_schema)
+    TRƯỚC khi ghi. Record không khớp đi vào quarantine journal + metric, KHÔNG lọt vào
+    journal train. Trust boundary nằm ở write-time.
+    """
 
     def __init__(
-        self, writer: JsonlWriter, delivery_writer: JsonlWriter | None = None,
+        self,
+        writer: JsonlWriter,
+        delivery_writer: JsonlWriter | None = None,
+        quarantine_writer: JsonlWriter | None = None,
     ) -> None:
         self._writer = writer
         self._delivery_writer = delivery_writer
+        self._quarantine_writer = quarantine_writer
+        self._quarantined = 0
 
     def log_turn(self, turn: dict[str, Any]) -> None:
         record = dict(turn)
         record.setdefault("timestamp", datetime.now(timezone.utc).isoformat())
+        if not self._validate_or_quarantine(record, "turn"):
+            return
         self._writer.write(record)
 
     def log_delivery(self, outcome: dict[str, Any]) -> None:
@@ -179,7 +191,40 @@ class TurnLogger:
             return
         record = dict(outcome)
         record.setdefault("timestamp", datetime.now(timezone.utc).isoformat())
+        if not self._validate_or_quarantine(record, "delivery"):
+            return
         self._delivery_writer.write(record)
+
+    def _validate_or_quarantine(self, record: dict[str, Any], kind: str) -> bool:
+        """True nếu record hợp lệ. Sai → ghi quarantine (best-effort) và trả False."""
+        from services.data.record_schema import (
+            SchemaValidationError,
+            validate_delivery,
+            validate_turn,
+        )
+        try:
+            (validate_turn if kind == "turn" else validate_delivery)(record)
+            return True
+        except SchemaValidationError as e:
+            self._quarantined += 1
+            if self._quarantine_writer is not None:
+                try:
+                    self._quarantine_writer.write({
+                        "record_type": "quarantine",
+                        "kind": kind,
+                        "reason": e.reason,
+                        "turn_id": record.get("turn_id"),
+                        "request_id": record.get("request_id"),
+                        "session_id": record.get("session_id"),
+                        "schema_version": record.get("schema_version"),
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    })
+                except Exception:
+                    pass
+            get_logger("turn_logger").warning(
+                "record_quarantined", kind=kind, reason=e.reason,
+            )
+            return False
 
     def get_metrics(self) -> dict[str, Any]:
         return {
@@ -188,6 +233,7 @@ class TurnLogger:
                 self._delivery_writer.get_metrics()
                 if self._delivery_writer is not None else None
             ),
+            "turn_quarantined_total": self._quarantined,
         }
 
     def flush(self) -> bool:
@@ -195,7 +241,10 @@ class TurnLogger:
         outcomes_ok = (
             self._delivery_writer.flush() if self._delivery_writer is not None else True
         )
-        return attempts_ok and outcomes_ok
+        quarantine_ok = (
+            self._quarantine_writer.flush() if self._quarantine_writer is not None else True
+        )
+        return attempts_ok and outcomes_ok and quarantine_ok
 
 
 _turn_logger: TurnLogger | None = None
@@ -298,7 +347,19 @@ def setup_logging(
             if metrics is not None and hasattr(metrics, "record_logging_sink_error") else None
         ),
     )
-    _turn_logger = TurnLogger(turns_writer, delivery_writer)
+    quarantine_writer = JsonlWriter(
+        log_dir / "quarantine.jsonl",
+        max_size_mb=max_size_mb,
+        keep_files=keep_files,
+        rotation_enabled=rotation_enabled,
+        source="quarantine",
+        degraded_buffer_records=degraded_buffer_records,
+        error_callback=(
+            metrics.record_logging_sink_error
+            if metrics is not None and hasattr(metrics, "record_logging_sink_error") else None
+        ),
+    )
+    _turn_logger = TurnLogger(turns_writer, delivery_writer, quarantine_writer)
     _configured = True
     return _turn_logger
 

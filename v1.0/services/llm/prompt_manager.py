@@ -35,9 +35,11 @@ class PromptManager:
         self_talk_history_char_cap: int = 600,
         history_max_chars: int = 0,
         mood_style: Any = None,   # MoodStyleTable | None — mood → chỉ dẫn giọng
+        inject_mood_directive: bool = True,   # 1.2.0: false = model tự đọc mood từ context
     ) -> None:
         if max_history_turns < 0:
             raise ValueError("max_history_turns không được âm")
+        self._inject_mood_directive = bool(inject_mood_directive)
         self._cache = cache
         self._max_history_turns = max_history_turns
         self._history_max_chars = max(0, int(history_max_chars))
@@ -62,6 +64,8 @@ class PromptManager:
             history_max_chars=int(
                 loader.get("models", "llm_main.history_max_chars", 0)),
             mood_style=_load_mood_style(loader),
+            inject_mood_directive=bool(
+                loader.get("models", "llm_main.inject_mood_directive", True)),
         )
 
     @staticmethod
@@ -154,10 +158,19 @@ class PromptManager:
         lần") — đặt ở SYSTEM (không phải user turn) để user turn là CHAT THẬT →
         Mai đáp tự nhiên, không sinh giọng meta.
         """
-        context = _format_mood_context(
-            current_mood, event_category, tone_flags, cause, self._mood_style,
-            stage_direction, affect_directive,
-        )
+        # 1.2.0: khi tắt directive, bỏ mood-style/cause-lean/affect (để model tự đọc
+        # mood từ context). GIỮ stage_direction (chỉ thị Director) và tone_flags
+        # (safety: gentle/deflect) — mấy cái đó không phải "chỉ giọng".
+        if self._inject_mood_directive:
+            context = _format_mood_context(
+                current_mood, event_category, tone_flags, cause, self._mood_style,
+                stage_direction, affect_directive,
+            )
+        else:
+            context = _format_mood_context(
+                current_mood, event_category, tone_flags, None, None,
+                stage_direction, None,
+            )
         messages = [
             self._cache.as_message(),
             ChatMessage(role="system", content=context),

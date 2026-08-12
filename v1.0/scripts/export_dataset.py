@@ -97,18 +97,76 @@ def _identity(record: Record, legacy_source: str) -> RecordIdentity | None:
     return session_id, turn_id
 
 
+SFT_SCHEMA_VERSION = 2
+
+
+def _turns_by_session(all_turns: list[Record]) -> dict[str, list[Record]]:
+    """Group turns theo session, sort theo turn_id (để dựng history)."""
+    by_session: dict[str, list[Record]] = {}
+    for t in all_turns:
+        identity = _identity(t, "turns")
+        if identity is None:
+            continue
+        by_session.setdefault(identity[0], []).append(t)
+    for rows in by_session.values():
+        rows.sort(key=lambda r: int(r.get("turn_id", 0)))
+    return by_session
+
+
+def _reconstruct_history(
+    session_rows: list[Record],
+    before_turn_id: int,
+    delivered_ids: set[RecordIdentity],
+    window: int,
+    scrub: DatasetScrubber,
+) -> list[dict]:
+    """Dựng lịch sử hội thoại từ các lượt ĐÃ DELIVERED trước lượt hiện tại.
+
+    Chỉ lấy lượt đã phát ra loa (delivered=true) → đúng cuộc trò chuyện thật.
+    KHÔNG chèn context_block/directive: mood để model tự đọc từ mạch hội thoại.
+    """
+    prior = [
+        r for r in session_rows
+        if int(r.get("turn_id", 0)) < before_turn_id
+        and (r.get("session_id"), int(r.get("turn_id", 0))) in delivered_ids
+    ]
+    prior = prior[-window:] if window > 0 else prior
+    msgs: list[dict] = []
+    for h in prior:
+        cause = h.get("mood_cause") or {}
+        alias = cause.get("alias") if isinstance(cause, dict) else None
+        user = h.get("user_text")
+        if user:
+            msgs.append({"role": "user", "content": scrub.text(user, alias)})
+        elif h.get("kind") == "ambient":
+            msgs.append({"role": "user", "content": "(Mai tự lên tiếng)"})
+        mai = (h.get("mai_text") or "").strip()
+        if mai:
+            msgs.append({"role": "assistant", "content": scrub.text(mai, alias)})
+    return msgs
+
+
 def build_sft(
-    turns: list[Record],
+    eligible_turns: list[Record],
+    all_turns: list[Record],
+    delivered_ids: set[RecordIdentity],
     ratings_by_identity: dict[RecordIdentity, str],
     corrections_by_identity: dict[RecordIdentity, str | None],
     persona_mode: str,
     persona_text: str,
+    history_window: int = 8,
     scrubber: DatasetScrubber | None = None,
 ) -> list[Record]:
-    """1 SFT example / turn hợp lệ (messages format)."""
+    """SFT multi-turn (schema v2): dựng cả mạch hội thoại, BỎ directive.
+
+    messages = [persona] + hội thoại delivered trước đó (sliding window) +
+               user hiện tại + assistant target. Model học mood/nhịp từ context,
+               không từ directive scaffolding.
+    """
     scrub = scrubber or DatasetScrubber()
+    by_session = _turns_by_session(all_turns)
     out = []
-    for t in turns:
+    for t in eligible_turns:
         identity = _identity(t, "turns")
         if identity is None:
             continue
@@ -122,7 +180,6 @@ def build_sft(
         fv = t.get("filter_verdict") or {}
         if fv.get("passed") is False and not fv.get("regen"):
             continue                              # câu bị chặn chưa regen → bỏ
-        # correction → target = câu sửa (ưu tiên cao nhất)
         target = corrections_by_identity.get(identity) or t.get("mai_text")
         target = (target or "").strip()
         if not target:
@@ -132,16 +189,19 @@ def build_sft(
         alias = cause.get("alias") if isinstance(cause, dict) else None
         messages = [{"role": "system",
                      "content": _persona_content(t.get("persona_version"), persona_mode, persona_text)}]
-        ctx = t.get("context_block")
-        if ctx:
-            messages.append({"role": "system", "content": scrub.text(ctx, alias)})
+        history = _reconstruct_history(
+            by_session.get(identity[0], []), identity[1], delivered_ids,
+            history_window, scrub,
+        )
+        messages.extend(history)
+        # KHÔNG chèn context_block (directive) — đây là điểm khác v1.
         user = t.get("user_text")
         if user:
             messages.append({"role": "user", "content": scrub.text(user, alias)})
         elif t.get("kind") == "ambient":
             messages.append({"role": "user", "content": "(Mai tự lên tiếng)"})
         messages.append({"role": "assistant", "content": scrub.text(target, alias)})
-        out.append({"schema_version": 1,
+        out.append({"schema_version": SFT_SCHEMA_VERSION,
                     "timestamp": _record_timestamp(t),
                     "source": f"sft:{t.get('kind') or 'turn'}",
                     "session_id": identity[0],
@@ -149,26 +209,67 @@ def build_sft(
                     "meta": {"session_id": identity[0], "turn_id": identity[1],
                              "kind": t.get("kind"), "rating": rating,
                              "corrected": identity in corrections_by_identity,
+                             "history_turns": len(history),
                              **_contract_meta(t)}})
     return out
+
+
+DPO_SCHEMA_VERSION = 2
+
+
+def _dpo_prompt_messages(
+    by_session: dict[str, list[Record]],
+    identity: RecordIdentity | None,
+    user_text: Any,
+    persona_mode: str,
+    persona_text: str,
+    persona_version: Any,
+    delivered_ids: set[RecordIdentity],
+    history_window: int,
+    scrub: DatasetScrubber,
+    alias: str | None,
+) -> list[dict]:
+    """Prompt DPO = [persona] + history multi-turn + user. Cùng context cho cả
+    chosen lẫn rejected (preference chỉ có nghĩa trong đúng hội thoại này)."""
+    messages = [{"role": "system",
+                 "content": _persona_content(persona_version, persona_mode, persona_text)}]
+    if identity is not None:
+        messages.extend(_reconstruct_history(
+            by_session.get(identity[0], []), identity[1], delivered_ids,
+            history_window, scrub,
+        ))
+    if user_text:
+        messages.append({"role": "user", "content": scrub.text(user_text, alias)})
+    return messages
 
 
 def build_dpo(
     pref_pairs: list[Record],
     corrections: list[Record],
     turns_by_identity: dict[RecordIdentity, Record],
+    all_turns: list[Record],
+    delivered_ids: set[RecordIdentity],
+    persona_mode: str,
+    persona_text: str,
+    history_window: int = 8,
     scrubber: DatasetScrubber | None = None,
 ) -> list[Record]:
-    """DPO từ pref_pairs (regen) + corrections (gốc→sửa)."""
+    """DPO (schema v2) từ pref_pairs (regen) + corrections (gốc→sửa).
+
+    Prompt mang full context multi-turn (bỏ directive). Cặp luôn cùng-context.
+    """
     scrub = scrubber or DatasetScrubber()
+    by_session = _turns_by_session(all_turns)
     out = []
     for p in pref_pairs:
         identity = _identity(p, "pref_pairs")
         pr = p.get("prompt_ref") or {}
-        out.append({"schema_version": 1, "timestamp": _record_timestamp(p),
+        out.append({"schema_version": DPO_SCHEMA_VERSION, "timestamp": _record_timestamp(p),
                     "session_id": identity[0] if identity else None,
-                    "prompt": _dpo_prompt(
-                        pr.get("context_block"), pr.get("user_text"), scrub, None,
+                    "prompt": _dpo_prompt_messages(
+                        by_session, identity, pr.get("user_text"), persona_mode,
+                        persona_text, pr.get("persona_version"), delivered_ids,
+                        history_window, scrub, None,
                     ),
                     "chosen": scrub.text(p.get("chosen", "")),
                     "rejected": scrub.text(p.get("rejected", "")),
@@ -183,10 +284,12 @@ def build_dpo(
         t = turns_by_identity.get(identity, {}) if identity is not None else {}
         cause = t.get("mood_cause") or {}
         alias = cause.get("alias") if isinstance(cause, dict) else None
-        out.append({"schema_version": 1, "timestamp": _record_timestamp(c),
+        out.append({"schema_version": DPO_SCHEMA_VERSION, "timestamp": _record_timestamp(c),
                     "session_id": identity[0] if identity else None,
-                    "prompt": _dpo_prompt(
-                        t.get("context_block"), t.get("user_text"), scrub, alias,
+                    "prompt": _dpo_prompt_messages(
+                        by_session, identity, t.get("user_text"), persona_mode,
+                        persona_text, t.get("persona_version"), delivered_ids,
+                        history_window, scrub, alias,
                     ),
                     "chosen": scrub.text(corr, alias),
                     "rejected": scrub.text(orig, alias),
@@ -211,20 +314,6 @@ def _contract_meta(record: Record) -> Record:
     }
 
 
-def _dpo_prompt(
-    context_block: Any,
-    user_text: Any,
-    scrubber: DatasetScrubber,
-    known_identifier: str | None,
-) -> str:
-    parts = []
-    if context_block:
-        parts.append(scrubber.text(context_block, known_identifier))
-    if user_text:
-        parts.append(scrubber.text(user_text, known_identifier))
-    return "\n".join(parts)
-
-
 def _record_timestamp(record: Record) -> str:
     value = record.get("timestamp") or record.get("ts")
     if isinstance(value, str) and value:
@@ -245,6 +334,10 @@ def main() -> None:
     ap.add_argument("--persona", choices=["ref", "full"], default="ref")
     ap.add_argument("--persona-file", default="config/prompts/persona_system.txt")
     ap.add_argument("--contract", default="eval/contracts/mai_agent_v1.yaml")
+    ap.add_argument("--history-window", type=int, default=8,
+                    help="số lượt hội thoại tối đa dựng làm context multi-turn")
+    ap.add_argument("--judge-min-score", type=float, default=0.0,
+                    help=">0 để bật LLM-judge lọc SFT theo điểm ngữ nghĩa tối thiểu")
     ap.add_argument("--dry-run", action="store_true",
                     help="validate/scrub/count only; do not create dataset files")
     args = ap.parse_args()
@@ -303,12 +396,27 @@ def main() -> None:
         record for record in pref_pairs if gate.assess_preference(record).eligible
     ]
 
+    delivered_ids: set[RecordIdentity] = {
+        (str(o.get("session_id")), int(o.get("turn_id")))
+        for o in delivery_outcomes
+        if o.get("delivered") is True and o.get("turn_id") is not None
+    }
+    window = int(getattr(args, "history_window", 8))
+
     scrubber = DatasetScrubber()
     sft = build_sft(
-        canonical_turns, ratings_by_identity, corrections_by_identity, args.persona, persona_text,
-        scrubber,
+        eligible_turns, turns, delivered_ids, ratings_by_identity, corrections_by_identity,
+        args.persona, persona_text, window, scrubber,
     )
-    dpo = build_dpo(eligible_pref_pairs, eligible_corrections, turns_by_identity, scrubber)
+    dpo = build_dpo(
+        eligible_pref_pairs, eligible_corrections, turns_by_identity, turns, delivered_ids,
+        args.persona, persona_text, window, scrubber,
+    )
+    if getattr(args, "judge_min_score", 0) > 0:
+        from services.evaluation.quality_judge import filter_sft_by_judge
+        sft, judged = filter_sft_by_judge(sft, min_score=args.judge_min_score)
+        report["judge_kept"] = len(sft)
+        report["judge_dropped"] = judged
     sft_splits = gate.partition(sft)
     dpo_splits = gate.partition(dpo)
 

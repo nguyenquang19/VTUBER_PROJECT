@@ -8,8 +8,10 @@
 >
 > **Product version source:** `config/system.yaml::app.version`
 >
-> **Current product version:** `1.0.3` — thêm `tts.pitch_semitones` (pitch-shift audio output, mặc định
-> tắt) trên baseline `1.0.0`; runtime/interface/contract không đổi. Lịch sử `1.0.1`→`1.0.3` xem `CHANGELOG.md`.
+> **Current product version:** `1.2.0` — SFT multi-turn không directive (`sft_schema` 2), DPO full-context
+> (`dpo_schema` 2), LLM-judge lọc ngữ nghĩa, và cờ `inject_mood_directive` cho inference (mặc định giữ
+> nguyên, gated cho post-fine-tune). `1.1.0` thêm VTS animation adapter + dataset trust hardening. Lịch sử
+> `1.0.1`→`1.2.0` xem `CHANGELOG.md`.
 
 Tài liệu này là điểm vào bắt buộc cho AI hoặc người bảo trì mới. Nó mô tả hệ thống đang tồn tại ở
 release `1.0.0`, không phải roadmap. Các nhãn như Mood v2, schema v3, M8 hoặc M10 là version/mốc nội bộ
@@ -54,7 +56,7 @@ delivery boundary để tự commit history, memory, goal, thread hoặc chat re
 | Evaluation/replay/stress | offline/live tooling | `services/evaluation/`, `scripts/` |
 | Training data export | offline tooling | `scripts/export_dataset.py` |
 | STT/voice input | interface only, disabled | `interfaces/stt.py` |
-| Real avatar animation output | chưa có adapter production | placeholder/interface |
+| Real avatar animation output | adapter production (VTube Studio), từ `1.1.0` | `services/animation/` |
 | Real game/environment action | chưa nối executor production | context/interface only |
 | Fine-tuned model cutover | chưa thực hiện | llama.cpp production model hiện tại |
 
@@ -73,7 +75,8 @@ Disabled/optional toggle ở baseline:
 `memory_semantic`, `memory_hierarchical`, `qc_persona`, `agent_context`, `goal_proposals`,
 `thread_extraction`, `speculative_decoding`, `turn_taking_predictor`.
 
-`animation_smooth=true` chỉ là feature state; nó không chứng minh có avatar adapter thật.
+Từ `1.1.0`, `animation_smooth=true` gate `VTSAnimationService` thật (`services/animation/`); nếu VTube
+Studio không mở/không nối được thì service chạy `degraded` fail-safe, không giết turn.
 
 ## 3. Repository và entrypoint map
 
@@ -129,8 +132,9 @@ Entrypoint chính:
 | Data contract document | schema `2` | `eval/contracts/mai_agent_v1.yaml` |
 | Generation attempt | turn schema `3` | contract + `services/llm/llm_turn.py` |
 | Delivery outcome | schema `1` | contract + `services/llm/llm_turn.py` |
-| Canonical turn | schema `1` | contract + canonical adapter |
-| SFT / DPO | schema `1` / `1` | data contract |
+| Canonical turn | schema `1` | contract + canonical adapter (projection `CanonicalTurnV1`) |
+| Record wire-schema fingerprint | registry (từ `1.1.0`) | `config/data_schema_registry.yaml` + `services/data/record_schema.py` |
+| SFT / DPO | schema `2` / `2` (multi-turn, no-directive, từ `1.2.0`) | data contract |
 | Context | `mai-context-v1` | data contract |
 | Agenda | `mai-agenda-v1` | data contract |
 | Evaluation scenarios | `mai-agent-v1` | `eval/scenarios/mai_agent_v1.yaml` |

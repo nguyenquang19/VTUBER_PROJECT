@@ -180,18 +180,41 @@ class DatasetQualityGate:
         return QualityDecision(not reasons, tuple(sorted(set(reasons))))
 
     def canonicalize_turn(self, record: Mapping[str, Any]) -> Record:
-        """Create a stable canonical copy while retaining source-schema provenance."""
+        """Project raw record lên CanonicalTurnV1 field-set CỐ ĐỊNH.
+
+        Không copy dict: field engine mới không rò vào canonical trừ khi thêm tường
+        minh vào model. Giữ provenance source schema + adapter id.
+        """
         source_schema = record.get("schema_version")
         adapter_id = _CANONICAL_TURN_ADAPTERS.get(source_schema)
         if adapter_id is None:
             raise ValueError(f"no canonical adapter for turn schema {source_schema!r}")
-        canonical = dict(record)
-        canonical["source_schema_version"] = source_schema
-        canonical["canonical_adapter_id"] = adapter_id
-        canonical["schema_version"] = self.contract.canonical_schema_version
-        canonical["data_contract_id"] = self.contract.contract_id
-        canonical["record_type"] = "canonical_turn"
-        return canonical
+        from services.data.record_schema import CanonicalTurnV1
+
+        projected = CanonicalTurnV1(
+            schema_version=self.contract.canonical_schema_version,
+            data_contract_id=self.contract.contract_id,
+            source_schema_version=int(source_schema),
+            canonical_adapter_id=adapter_id,
+            session_id=record.get("session_id"),
+            turn_id=int(record["turn_id"]),
+            request_id=str(record.get("request_id") or ""),
+            kind=record.get("kind"),
+            user_text=record.get("user_text"),
+            mai_text=record.get("mai_text"),
+            event_category=record.get("event_category"),
+            mood_dominant=record.get("mood_dominant"),
+            mood_intensity=record.get("mood_intensity"),
+            persona_version=record.get("persona_version"),
+            architecture_version=record.get("architecture_version"),
+            context_schema_version=record.get("context_schema_version"),
+            agenda_policy_version=record.get("agenda_policy_version"),
+            level_used=record.get("level_used"),
+            parse_ok=record.get("parse_ok"),
+            filter_verdict=record.get("filter_verdict"),
+            context_block=record.get("context_block"),
+        )
+        return projected.model_dump()
 
     def assess_preference(self, record: Mapping[str, Any]) -> QualityDecision:
         reasons: list[str] = []

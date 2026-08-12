@@ -1,6 +1,6 @@
 # 03 — Component reference
 
-> **Applies to:** Mai `1.0.3` (baseline `1.0.0`)
+> **Applies to:** Mai `1.1.0` (baseline `1.0.0`)
 >
 > Dùng tài liệu này để tìm owner; không đặt behavior mới vào file tiện tay gần nhất.
 
@@ -263,7 +263,8 @@ shadow call vào live path. Scripts tương ứng nằm trong `scripts/`.
 
 | Component | Trách nhiệm | Boundary quan trọng |
 |---|---|---|
-| `services/evaluation/data_quality.py` | contract, quality gate, delivery join, canonical adapter, session split | không mutate/relabel raw record |
+| `services/evaluation/data_quality.py` | contract, quality gate, delivery join, canonical projection, session split | không mutate/relabel raw record |
+| `services/data/record_schema.py` | wire-format model (turn/delivery/canonical) + fingerprint + registry | source of truth định dạng journal; `extra="forbid"` |
 | `eval/contracts/mai_agent_v1.yaml` | compatibility matrix và schema version | source of truth data contract |
 | `scripts/export_dataset.py` | raw → canonical/SFT/DPO immutable bundle | chỉ nhận explicit `delivered=true` |
 | `scripts/backup_data.py` | backup multi-source + SHA-256 manifest | copy-only, không xóa source |
@@ -273,8 +274,25 @@ shadow call vào live path. Scripts tương ứng nằm trong `scripts/`.
 | `scripts/check_finetune_readiness.py` | kiểm tra đủ data/review gate | không tự cutover model |
 
 `orchestrator/logger.py::TurnLogger` ghi generation attempt và delivery outcome ra hai journal riêng.
-`LLMTurnRunner.finalize_delivery()` là writer của authoritative outcome trên Director path; exporter join
-bằng `session_id + request_id + turn_id`.
+Từ `1.1.0`, nó validate mỗi record theo model trong `services/data/record_schema.py` trước khi ghi;
+record không khớp đi vào `logs/quarantine.jsonl` (metric `turn_quarantined_total`), không lọt vào journal
+train. `LLMTurnRunner.finalize_delivery()` là writer của authoritative outcome trên Director path;
+exporter join bằng `session_id + request_id + turn_id`. Khi mood/engine bug làm đổi shape record, đọc
+quarantine journal trước để thấy field lệch.
+
+## 12. Animation subsystem (VTube Studio)
+
+`services/animation/` là adapter avatar production từ `1.1.0`, gate qua feature `animation_smooth`.
+
+| Component | Trách nhiệm | Boundary quan trọng |
+|---|---|---|
+| `services/animation/vts_transport.py` | websocket VTS: connect, auth token-persist, load/trigger hotkey | config-injected; không business logic |
+| `services/animation/vts_service.py` | `AnimationService`: `MoodState.dominant()` → hotkey sau `DELIVERED` | fail-safe, không giết turn; `sync_with_audio` no-op |
+| `config/animation.yaml` | host/port/plugin/token, `mood_hotkeys`, `retrigger_on_same_mood` | đăng ký trong `CONFIG_FILES` |
+
+`director_loop.py` gọi `express()` sau khi transaction đạt `DELIVERED` — side-effect đúng invariant
+"sau delivered". VTS không kết nối → service `degraded`, turn vẫn chạy bình thường. Lip-sync không đi qua
+API (VTS lấy từ audio input), nên `sync_with_audio` là no-op có chủ đích. Feature runtime: `animation_smooth`.
 
 ## 11. Conversation Thread Engine
 

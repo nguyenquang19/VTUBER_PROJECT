@@ -1,8 +1,12 @@
 # 04 — Data contracts và storage
 
-> **Applies to:** Mai `1.0.3` (baseline `1.0.0`)
+> **Applies to:** Mai `1.2.0` (baseline `1.0.0`)
 >
 > **Frozen data matrix:** architecture `mai-agent-v1`, turn `3`, delivery `1`, canonical `1`.
+>
+> **Từ `1.1.0`:** wire-format của journal có model tường minh (`services/data/record_schema.py`) và
+> fingerprint registry (`config/data_schema_registry.yaml`); validate tại write-time, không khớp thì
+> quarantine. Field của turn/delivery/canonical không đổi so với baseline.
 
 ## 1. Contract chính
 
@@ -53,8 +57,9 @@ transaction/delivery outcome. Record phục vụ operator; không phải raw rea
 | Path | Format | Writer | Nội dung | Restore/retention |
 |---|---|---|---|---|
 | `logs/events.jsonl` | JSONL | structlog `JsonlWriter` | event, error, transition | rotate; backup thủ công |
-| `logs/turns.jsonl` | JSONL | `TurnLogger` | generation attempts schema v3 | append-only segment; rotates |
-| `logs/delivery_outcomes.jsonl` | JSONL | `TurnLogger` | delivered true/false keyed by turn | append-only segment; rotates |
+| `logs/turns.jsonl` | JSONL | `TurnLogger` | generation attempts schema v3 (validate write-time) | append-only segment; rotates |
+| `logs/delivery_outcomes.jsonl` | JSONL | `TurnLogger` | delivered true/false keyed by turn (validate write-time) | append-only segment; rotates |
+| `logs/quarantine.jsonl` | JSONL | `TurnLogger` | record không khớp schema + lý do; KHÔNG dùng train | append-only; debug drift |
 | `logs/pref_pairs.jsonl` | JSONL | LLMTurnRunner | chosen/rejected DPO pairs | data quality gate |
 | `logs/ratings.jsonl` | JSONL | dashboard | human rating | export dataset |
 | `logs/corrections.jsonl` | JSONL | dashboard | operator correction | export dataset |
@@ -88,6 +93,26 @@ Outcome được append riêng với `record_type=delivery_outcome`, schema v1, 
 `delivered` boolean. Không dựa vào attempt đơn lẻ để train. Khi đổi schema, tăng version, thêm canonical
 adapter, update fixture/compatibility test; tuyệt đối không relabel raw record thành version mới.
 
+### 3.1. Write-time validation và quarantine (từ `1.1.0`)
+
+Wire-format của mỗi record được định nghĩa bằng model tường minh trong `services/data/record_schema.py`
+(`TurnRecordV3`, `DeliveryOutcomeV1`), `extra="forbid"` — engine phải map VÀO model, không dump dict tự
+do. `TurnLogger.log_turn`/`log_delivery` validate record theo model TRƯỚC khi ghi:
+
+- khớp → ghi vào journal train như thường;
+- không khớp (thiếu field bắt buộc, sai kiểu, hoặc có field lạ do engine drift) → ghi vào
+  `logs/quarantine.jsonl` kèm lý do + metric `turn_quarantined_total`, KHÔNG lọt vào `turns.jsonl`.
+
+Nhờ vậy trust boundary nằm ở write-time: mọi record trong journal train đều chứng minh được khớp schema
+đã khai báo. Sửa engine làm đổi shape record sẽ bị bắt ngay (quarantine tăng), không âm thầm làm bẩn
+corpus.
+
+Fingerprint: `schema_fingerprint()` hash field-set + kiểu của model; giá trị chốt nằm ở
+`config/data_schema_registry.yaml`. Startup fail-fast nếu model lệch fingerprint đã chốt (đổi model mà
+quên bump version). Fingerprint được đóng vào manifest dataset để ràng dataset với đúng schema sinh ra nó.
+Khi cần đổi schema: thêm `TurnRecord<V+1>` + fingerprint mới + adapter canonical mới; version cũ vẫn
+canonicalize qua adapter cũ.
+
 ## 4. Ba lớp lưu trữ bền vững
 
 | Lớp | Có được sửa? | Mục đích |
@@ -119,6 +144,30 @@ data/datasets/<dataset_id>/
 Manifest giữ dataset ID, timestamp UTC, contract/schema/adapter, compatible persona, checksum/size nguồn
 và count. Dataset directory đã publish là immutable; build lại tạo ID mới. Raw segment có thể bị xóa bởi
 rotation sau giới hạn `max_size_mb × (keep_files + active file)`, nên backup là lớp lưu dài hạn thật.
+
+### 4.2. SFT/DPO format v2 — multi-turn, no-directive (từ `1.2.0`)
+
+SFT (`sft_schema` 2) không còn là cặp lẻ 1 lượt. Mỗi example là **cả mạch hội thoại**: `build_sft`
+group theo `session_id`, sort `turn_id`, dựng history từ các lượt **đã delivered** trong sliding window
+(`--history-window`, mặc định 8), rồi:
+
+```
+messages = [persona] + (user/assistant các lượt delivered trước) + user hiện tại + assistant target
+```
+
+**KHÔNG chèn `context_block`** (mood/cause/stage directive). Mục tiêu: model học mood/nhịp từ chính mạch
+hội thoại, không phụ thuộc directive scaffolding → giọng tự nhiên hơn, không dính format prompt hiện tại.
+
+DPO (`dpo_schema` 2): prompt mang **cùng context multi-turn** (bỏ directive); cặp `chosen/rejected` luôn
+từ **cùng một lượt** (regen hoặc correction) — preference chỉ có nghĩa trong đúng hội thoại đó.
+
+LLM-judge (`services/evaluation/quality_judge.py`, bật bằng `--judge-min-score`): chấm mỗi SFT candidate
+CÙNG context theo rubric (đúng chất persona, mạch lạc, không nhạt, không bịa); dưới ngưỡng thì loại. Đây
+là tầng chống rác **ngữ nghĩa** (gate cấu trúc không bắt được). Judge lỗi → giữ example (fail-safe).
+
+Inference: cờ `models.yaml::llm_main.inject_mood_directive` (mặc định `true`). Đặt `false` để bỏ luôn mood
+directive ở live — **chỉ bật sau khi model fine-tuned đã đọc được mood từ context** (đo trên holdout), nếu
+không base model hiện tại sẽ nói nhạt. Train và inference phải cùng phía (cùng bỏ directive).
 
 ## 5. SQLite
 

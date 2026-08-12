@@ -1,6 +1,6 @@
 # 07 — Testing và extension guide
 
-> **Applies to:** Mai `1.0.3` (baseline `1.0.0`)
+> **Applies to:** Mai `1.1.0` (baseline `1.0.0`)
 >
 > Mọi change được phát hành sau baseline phải tăng product version và có changelog/regression evidence.
 
