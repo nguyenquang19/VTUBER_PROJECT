@@ -3,6 +3,24 @@
 Mọi thay đổi product sau baseline dùng Semantic Versioning. Product version nằm tại
 `config/system.yaml::app.version`; schema/component version là trục độc lập.
 
+## [1.0.3] — 2026-08-12
+
+### Added
+- `tts.pitch_semitones` (`config/models.yaml`): pitch-shift audio đầu ra TTS theo semitone, áp trong
+  `AudioPlayer` trước khi phát. Mặc định `0.0` = no-op (không đổi hành vi baseline, không tốn CPU);
+  dương = giọng cao/trẻ hơn, clamp `[-12, 12]`. Giữ nguyên độ dài (chỉ đổi cao độ) qua
+  `librosa.effects.pitch_shift`. Metric mới `audio_pitch_semitones`.
+- Code: `services/tts/pitch.py`; wiring trong `services/tts/audio_player.py`, `scripts/cli.py`,
+  `orchestrator/stream_runtime.py`. Test trong `tests/unit/test_audio_player.py`.
+- Docs: `docs/05_CONFIGURATION.md`, `docs/03_COMPONENT_REFERENCE.md`.
+
+### Fixed
+- Cập nhật 2 test mã hóa mốc `dead_air_seconds` cũ (20s) cho khớp giá trị production `28s` đã đổi ở
+  `1.0.2` (`tests/unit/test_director.py`, `tests/integration/test_youtube_replay_simulation.py`) —
+  regression lọt qua ở `1.0.2` do chỉ chạy guard-subset, nay full offline regression xanh trở lại.
+
+Không đổi interface, CLI, storage hay data contract. Rollback: đặt `pitch_semitones: 0.0` hoặc revert commit.
+
 ## [1.0.2] — 2026-08-12
 
 ### Changed

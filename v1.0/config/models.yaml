@@ -103,6 +103,8 @@ tts:
   device: cuda
   backend: pytorch               # pytorch = GPU (có streaming); onnx = CPU int8
   sample_rate: 48000             # VieNeu v3 Turbo output 48kHz (viXTTS trước là 24kHz)
+  pitch_semitones: 0.0           # (1.0.3) đẩy cao độ output ±semitone: 0=tắt/no-op,
+                                 # dương=giọng cao/trẻ hơn, khuyến nghị +2..+4, clamp [-12,12]
   vram_mb: 400                   # đo được ~0.37GB peak (nhẹ hơn viXTTS 1.79GB 4.8x)
   params:
     style: tu_nhien              # "tu_nhien" | "doc_truyen"

@@ -18,6 +18,7 @@ import numpy as np
 
 from interfaces.tts import AudioChunk
 from orchestrator.logger import get_logger
+from services.tts.pitch import clamp_semitones, pitch_shift_samples
 
 
 class AudioBackend(Protocol):
@@ -83,8 +84,10 @@ class AudioPlayer:
         sample_rate: int = 24000,
         backend: AudioBackend | None = None,
         queue_maxsize: int = 128,
+        pitch_semitones: float = 0.0,
     ) -> None:
         self.sample_rate = sample_rate
+        self.pitch_semitones = clamp_semitones(pitch_semitones)
         self._backend: AudioBackend = backend or SounddeviceBackend()
         self._queue: asyncio.Queue[AudioChunk] = asyncio.Queue(maxsize=queue_maxsize)
         self._worker: asyncio.Task[None] | None = None
@@ -150,6 +153,7 @@ class AudioPlayer:
             "audio_chunks_dropped": self.chunks_dropped,
             "audio_queue_size": self._queue.qsize(),
             "audio_is_playing": self.is_playing,
+            "audio_pitch_semitones": self.pitch_semitones,
         }
 
     # ---------- worker ----------
@@ -176,10 +180,16 @@ class AudioPlayer:
             samples = np.frombuffer(chunk.audio_bytes, dtype=np.float32)
             self._current_request_id = chunk.request_id
             try:
-                await asyncio.to_thread(self._backend.play_blocking, samples, self.sample_rate)
+                await asyncio.to_thread(self._render_and_play, samples)
                 self.chunks_played += 1
             except Exception as e:
                 self._log.warning("audio_play_failed", error=str(e))
+
+    def _render_and_play(self, samples: np.ndarray) -> None:
+        """Áp pitch-shift (nếu bật) rồi phát — chạy trong to_thread, không block loop."""
+        if self.pitch_semitones != 0.0:
+            samples = pitch_shift_samples(samples, self.sample_rate, self.pitch_semitones)
+        self._backend.play_blocking(samples, self.sample_rate)
 
 
 class _StopSentinel:

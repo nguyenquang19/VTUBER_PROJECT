@@ -580,7 +580,10 @@ async def _build_tts_runtime_stack(
     subtitle_factory = subtitle_factory or (
         lambda value: SubtitleFallbackService.from_loader(value)
     )
-    player_factory = player_factory or (lambda sample_rate: AudioPlayer(sample_rate=sample_rate))
+    _pitch_semitones = float(loader.get("models", "tts.pitch_semitones", 0.0) or 0.0)
+    player_factory = player_factory or (
+        lambda sample_rate: AudioPlayer(sample_rate=sample_rate, pitch_semitones=_pitch_semitones)
+    )
     startup_timeout_s = float(loader.get("models", "tts.startup_timeout_s", 30.0))
     health_timeout_s = float(loader.get("models", "tts.health_timeout_s", 5.0))
     fallback_enabled = bool(loader.get("models", "tts_fallback.enabled", True))

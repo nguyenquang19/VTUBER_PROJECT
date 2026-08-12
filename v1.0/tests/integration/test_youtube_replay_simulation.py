@@ -62,7 +62,8 @@ async def test_replay_simulator_batches_chat_and_uses_real_director(tmp_path: Pa
 
 async def test_replay_simulator_runs_thought_engine_for_dead_air(tmp_path: Path) -> None:
     source = tmp_path / "quiet.live_chat.json"
-    source.write_text(_chat("late", "Mai ơi", 25_000) + "\n", encoding="utf-8")
+    # Im lặng đủ dài để vượt dead_air_seconds=28 (config production 1.0.2) rồi mới có chat.
+    source.write_text(_chat("late", "Mai ơi", 40_000) + "\n", encoding="utf-8")
     loader = ConfigLoader(REPO_ROOT / "config")
     loader.load_all()
 

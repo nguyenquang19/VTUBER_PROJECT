@@ -1,6 +1,6 @@
 # 05 — Configuration và feature toggles
 
-> **Applies to:** Mai `1.0.2` (baseline `1.0.0`)
+> **Applies to:** Mai `1.0.3` (baseline `1.0.0`)
 >
 > Product version: `config/system.yaml::app.version`; component/schema version không phải product version.
 
@@ -112,6 +112,12 @@ Tune voice/reference/backend/sampling/timeout trong `models.yaml`, pacing trong 
 `tts_fallback.require_delivery` phải giữ true ở production; nếu false, transaction có thể coi no-op
 subtitle là success.
 
+`tts.pitch_semitones` (thêm ở `1.0.3`) đẩy cao độ audio đầu ra theo semitone, áp trong `AudioPlayer`
+trước khi phát: `0.0` = tắt/no-op (không tốn CPU, không đổi hành vi baseline), dương = giọng cao/trẻ
+hơn, âm = trầm hơn; clamp `[-12, 12]`, khuyến nghị `+2…+4` để trẻ mà chưa méo. Đây là hậu xử lý pitch
+(giữ nguyên độ dài, chỉ đổi cao độ) — chất giọng gốc vẫn do `tts.reference_audio` quyết định; đổi hẳn
+giọng thì thay file reference thay vì đẩy pitch nhiều. Pitch-shift theo chunk có thể thêm chút latency.
+
 `tts.startup_timeout_s` giới hạn toàn bộ load model + enroll voice; `tts.health_timeout_s` giới hạn
 health/start-stop phụ trợ. Primary vượt gate sẽ chuyển sang subtitle-only nếu file sink healthy, không
 được tiếp tục với callback delivery rỗng.
@@ -198,7 +204,7 @@ resource. Default trong code chỉ là compatibility fallback; giá trị produc
 
 ## 7. Product và data version
 
-- `system.yaml::app.version` là product version duy nhất (`1.0.0` ở baseline, `1.0.2` hiện tại).
+- `system.yaml::app.version` là product version duy nhất (`1.0.0` ở baseline, `1.0.3` hiện tại).
 - `evaluation.yaml::data_contract.contract_file` trỏ tới frozen contract.
 - `eval/contracts/mai_agent_v1.yaml` sở hữu turn/delivery/canonical/SFT/DPO compatibility.
 - Các field version lặp lại trong `evaluation.yaml` phải khớp contract và chỉ là runtime compatibility

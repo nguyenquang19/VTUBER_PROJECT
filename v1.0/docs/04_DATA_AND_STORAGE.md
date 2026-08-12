@@ -1,6 +1,6 @@
 # 04 — Data contracts và storage
 
-> **Applies to:** Mai `1.0.2` (baseline `1.0.0`)
+> **Applies to:** Mai `1.0.3` (baseline `1.0.0`)
 >
 > **Frozen data matrix:** architecture `mai-agent-v1`, turn `3`, delivery `1`, canonical `1`.
 

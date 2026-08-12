@@ -346,8 +346,8 @@ class TestFromLoader:
         d = Director.from_loader(pool, pulse, loader)
         d.start(now=0.0)
         assert d.current_segment().name == "opening"
-        # dead-air → self_talk
-        dec = d.decide(now=25.0)
+        # dead-air → self_talk (dead_air_seconds=28 ở config production 1.0.2)
+        dec = d.decide(now=30.0)
         assert dec.action == DirectorAction.SELF_TALK
 
     def test_superchat_acked_in_every_segment(self) -> None:

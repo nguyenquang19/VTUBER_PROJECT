@@ -8,8 +8,8 @@
 >
 > **Product version source:** `config/system.yaml::app.version`
 >
-> **Current product version:** `1.0.2` — patch tinh chỉnh nhịp hội thoại (director gate + sampling) trên
-> baseline `1.0.0`; runtime/interface/contract không đổi. Lịch sử `1.0.1`/`1.0.2` xem `CHANGELOG.md`.
+> **Current product version:** `1.0.3` — thêm `tts.pitch_semitones` (pitch-shift audio output, mặc định
+> tắt) trên baseline `1.0.0`; runtime/interface/contract không đổi. Lịch sử `1.0.1`→`1.0.3` xem `CHANGELOG.md`.
 
 Tài liệu này là điểm vào bắt buộc cho AI hoặc người bảo trì mới. Nó mô tả hệ thống đang tồn tại ở
 release `1.0.0`, không phải roadmap. Các nhãn như Mood v2, schema v3, M8 hoặc M10 là version/mốc nội bộ

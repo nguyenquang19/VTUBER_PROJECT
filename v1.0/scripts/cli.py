@@ -360,7 +360,10 @@ async def main() -> None:
             print(f"❌ VieNeu-TTS load thất bại: {e}. Chạy tiếp KHÔNG TTS.")
             tts_svc = None
         else:
-            audio_player = AudioPlayer(sample_rate=tts_svc.sample_rate)
+            audio_player = AudioPlayer(
+                sample_rate=tts_svc.sample_rate,
+                pitch_semitones=float(loader.get("models", "tts.pitch_semitones", 0.0) or 0.0),
+            )
             await audio_player.start()
             subtitle = SubtitleFallbackService(
                 on_subtitle=lambda rid, txt: print(f"   [SUBTITLE] {txt}")

@@ -157,3 +157,92 @@ class TestFinalChunk:
             assert p.is_playing is False
         finally:
             await p.stop()
+
+
+class CapturingBackend:
+    """Ghi lại chính mảng samples đã phát (để kiểm pitch-shift áp đúng)."""
+
+    def __init__(self) -> None:
+        self.samples: list[np.ndarray] = []
+
+    def play_blocking(self, samples, sample_rate):
+        self.samples.append(np.asarray(samples, dtype=np.float32).copy())
+
+    def stop(self):
+        pass
+
+
+def _sine(freq: float, sr: int, n: int) -> np.ndarray:
+    t = np.arange(n) / sr
+    return np.sin(2 * np.pi * freq * t).astype(np.float32)
+
+
+def _dominant_hz(sig: np.ndarray, sr: int) -> float:
+    spectrum = np.abs(np.fft.rfft(sig))
+    return float(np.fft.rfftfreq(sig.size, 1 / sr)[int(np.argmax(spectrum))])
+
+
+class TestPitchShift:
+    def test_clamp_bounds(self) -> None:
+        from services.tts.pitch import clamp_semitones
+        assert clamp_semitones(99) == 12.0
+        assert clamp_semitones(-99) == -12.0
+        assert clamp_semitones(3.5) == 3.5
+
+    def test_zero_is_noop_identity(self) -> None:
+        from services.tts.pitch import pitch_shift_samples
+        x = _sine(220.0, 22050, 4096)
+        out = pitch_shift_samples(x, 22050, 0.0)
+        assert out is x  # fast path: trả nguyên object, không tốn CPU
+
+    def test_pitch_up_one_octave_doubles_frequency(self) -> None:
+        from services.tts.pitch import pitch_shift_samples
+        sr, f0 = 22050, 220.0
+        x = _sine(f0, sr, 22050)  # 1s
+        up = pitch_shift_samples(x, sr, 12.0)  # +1 octave
+        assert up.shape == x.shape  # giữ nguyên độ dài
+        assert abs(_dominant_hz(up, sr) - 2 * f0) < 20.0  # ~440Hz
+
+    def test_player_metric_reports_and_clamps(self) -> None:
+        p = AudioPlayer(sample_rate=48000, pitch_semitones=50.0, backend=FakeBackend())
+        assert p.get_metrics()["audio_pitch_semitones"] == 12.0  # clamped
+        p2 = AudioPlayer(sample_rate=48000, pitch_semitones=3.0, backend=FakeBackend())
+        assert p2.get_metrics()["audio_pitch_semitones"] == 3.0
+
+    async def test_player_applies_pitch_when_nonzero(self) -> None:
+        sr = 24000
+        raw = _sine(200.0, sr, 4096)
+        ch = AudioChunk(request_id="r1", chunk_index=0, audio_bytes=raw.tobytes(),
+                        is_final=False, duration_ms=int(1000 * raw.size / sr))
+        be = CapturingBackend()
+        p = AudioPlayer(sample_rate=sr, backend=be, pitch_semitones=5.0)
+        await p.start()
+        try:
+            await p.enqueue(ch)
+            deadline = asyncio.get_event_loop().time() + 2.0
+            while not be.samples and asyncio.get_event_loop().time() < deadline:
+                await asyncio.sleep(0.01)
+            assert be.samples, "chunk chưa được phát"
+            played = be.samples[0]
+            assert played.shape == raw.shape          # độ dài giữ nguyên
+            assert not np.allclose(played, raw)       # cao độ đã đổi
+        finally:
+            await p.stop()
+
+    async def test_player_zero_pitch_passes_through(self) -> None:
+        sr = 24000
+        raw = _sine(200.0, sr, 4096)
+        ch = AudioChunk(request_id="r1", chunk_index=0, audio_bytes=raw.tobytes(),
+                        is_final=False, duration_ms=int(1000 * raw.size / sr))
+        be = CapturingBackend()
+        p = AudioPlayer(sample_rate=sr, backend=be, pitch_semitones=0.0)
+        await p.start()
+        try:
+            await p.enqueue(ch)
+            deadline = asyncio.get_event_loop().time() + 2.0
+            while not be.samples and asyncio.get_event_loop().time() < deadline:
+                await asyncio.sleep(0.01)
+            assert be.samples, "chunk chưa được phát"
+            assert np.array_equal(be.samples[0], raw)  # no-op: y hệt input
+        finally:
+            await p.stop()

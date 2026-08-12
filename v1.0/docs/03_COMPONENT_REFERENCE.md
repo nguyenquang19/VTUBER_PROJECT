@@ -1,6 +1,6 @@
 # 03 — Component reference
 
-> **Applies to:** Mai `1.0.2` (baseline `1.0.0`)
+> **Applies to:** Mai `1.0.3` (baseline `1.0.0`)
 >
 > Dùng tài liệu này để tìm owner; không đặt behavior mới vào file tiện tay gần nhất.
 
@@ -213,7 +213,7 @@ every following tick. Candidate filter hits and delivered-output violations are 
 |---|---|---|---|
 | `sentence_splitter.py` | Vietnamese text | ordered sentences | sửa splitter phải test viết tắt/dấu câu |
 | `vieneu_service.py` | `TTSRequest` | `AudioChunk` stream | enroll reference trực tiếp vào RAM một lần khi start |
-| `audio_player.py` | chunks | sound device | queue bounded, cancel, no-overlap |
+| `audio_player.py` | chunks | sound device | queue bounded, cancel, no-overlap; optional `tts.pitch_semitones` pitch-shift trước khi phát |
 | `subtitle_fallback.py` | sentence request | empty final chunk + file/event sink | file atomic, require real sink |
 | `tts_pipeline.py` | full response text | `TTSDeliveryResult` | lock synth, fallback per sentence, hỗ trợ subtitle-only |
 | `natural_timing.py` | action/context/latency | timing plan | config-driven, không che LLM latency |
