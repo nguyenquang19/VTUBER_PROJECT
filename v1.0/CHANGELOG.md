@@ -3,6 +3,19 @@
 Mọi thay đổi product sau baseline dùng Semantic Versioning. Product version nằm tại
 `config/system.yaml::app.version`; schema/component version là trục độc lập.
 
+## [1.0.2] — 2026-08-12
+
+### Changed
+- Tinh chỉnh nhịp hội thoại sau đánh giá replay (`2nMxpqpGtMI`, 554 chat thật, llama.cpp Gemma 12B):
+  - `config/director.yaml`: `dead_air_seconds` 20→28, `min_actionable_score` 15.0→12.0 (nhường & mở turn
+    cho chat viewer → chat share of speech 39.6%→~47%).
+  - `config/models.yaml`: `temperature` 0.85→0.88, `frequency_penalty` 0.0→0.15 (giảm lặp câu verbatim
+    1.83%→0.5% khi đáp nhiều chat).
+- Cập nhật `docs/05_CONFIGURATION.md` với các giá trị tune mới.
+
+Không đổi runtime, interface, CLI, storage hay data contract; chỉ threshold/sampling. Rollback: revert
+commit này. Bằng chứng đánh giá: `logs/evaluation/conversation_eval_2026-08-12.md`.
+
 ## [1.0.1] — 2026-08-12
 
 ### Changed

@@ -6,13 +6,13 @@
 
 director:
   tick_seconds: 1.5               # nhịp Director hỏi decide() — TÁCH khỏi autonomy (5s)
-  dead_air_seconds: 20            # im tối thiểu trước khi self-talk được cân nhắc
+  dead_air_seconds: 28            # im tối thiểu trước khi self-talk được cân nhắc (20→28: nhường chat)
   self_talk_cooldown_seconds: 45  # khoảng nghỉ toàn cục giữa 2 self-talk đã delivery
   max_consecutive_read_chat: 3    # đáp chat liên tiếp quá N → ép xen chủ động
   max_refs_per_turn: 3            # read_chat gộp tối đa 3 tin (chống "máy đọc chat")
   backlog_summary_threshold: 12   # pool > N tin + điểm top thấp → 1 câu tổng, không đáp lẻ
   summary_score_ceiling: 15.0     # top score dưới ngưỡng này (khi backlog cao) → summary
-  min_actionable_score: 15.0      # dưới ngưỡng: giữ để cluster/decay nhưng không mở turn riêng
+  min_actionable_score: 12.0      # dưới ngưỡng: giữ để cluster/decay nhưng không mở turn riêng (15→12: trả nhiều chat hơn)
 
   transactions:
     max_recent: 256               # bounded idempotency/trace cache

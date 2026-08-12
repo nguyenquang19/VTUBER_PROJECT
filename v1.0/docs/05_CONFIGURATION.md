@@ -1,6 +1,6 @@
 # 05 — Configuration và feature toggles
 
-> **Applies to:** Mai `1.0.1` (baseline `1.0.0`)
+> **Applies to:** Mai `1.0.2` (baseline `1.0.0`)
 >
 > Product version: `config/system.yaml::app.version`; component/schema version không phải product version.
 
@@ -82,7 +82,8 @@ FeatureManager phải reject dependency thiếu, conflict và vượt VRAM budge
 
 Tune trong `models.yaml`: context size, max history, num predict, temperature, min-p, repeat/presence
 penalty, cache type và health timeout. Mỗi lần tune sampling cần replay cùng seed/context và đánh giá
-naturalness/repetition; không thay nhiều trục cùng lúc.
+naturalness/repetition; không thay nhiều trục cùng lúc. Baseline `1.0.2` dùng `temperature=0.88` và
+`frequency_penalty=0.15` (nâng từ `0.85`/`0.0`) để giảm lặp câu verbatim khi đáp nhiều chat.
 
 `llm_canned.timeout_primary_s` là timeout cho **toàn bộ lượt generation**, không phải riêng TTFT. Giá
 trị production phải đủ cho `num_predict / decode_tps_min` cộng prefill margin; cấu hình hiện tại dùng
@@ -125,10 +126,12 @@ Tune tick/cooldown/transaction cache/decision bounds trong `director.yaml`; sali
 
 `director.dead_air_seconds` là thời gian im tối thiểu trước khi cân nhắc tự nói;
 `director.self_talk_cooldown_seconds` là khoảng cách tối thiểu giữa hai self-talk đã giao thành công.
-Production dùng lần lượt `20s` và `45s`. Không hạ cooldown xuống gần `tick_seconds`, vì trạng thái chat
+Production dùng lần lượt `28s` và `45s` (dead_air 20→28 ở `1.0.2` sau đánh giá replay để nhường chat).
+Không hạ cooldown xuống gần `tick_seconds`, vì trạng thái chat
 `COLD` tồn tại qua nhiều tick và sẽ làm giọng host dồn dập.
 
-`director.min_actionable_score` là ngưỡng mở một turn chat riêng; production khởi điểm `15`. Với base
+`director.min_actionable_score` là ngưỡng mở một turn chat riêng; production dùng `12` (hạ từ `15` ở `1.0.2`
+để đáp nhiều chat viewer hơn). Với base
 `chat=10`, một chat thường đơn lẻ sẽ chờ/decay, còn khoảng ba tin near-duplicate có cluster bonus đủ
 vượt gate. Question/mention dùng `salience.kind_detection` trong `chat_salience.yaml`; pattern mới phải
 có replay transcript và test false-positive. Rollback tức thời bằng feature `director_chat_gate=false`.
@@ -195,7 +198,7 @@ resource. Default trong code chỉ là compatibility fallback; giá trị produc
 
 ## 7. Product và data version
 
-- `system.yaml::app.version` là product version duy nhất (`1.0.0` ở baseline, `1.0.1` hiện tại).
+- `system.yaml::app.version` là product version duy nhất (`1.0.0` ở baseline, `1.0.2` hiện tại).
 - `evaluation.yaml::data_contract.contract_file` trỏ tới frozen contract.
 - `eval/contracts/mai_agent_v1.yaml` sở hữu turn/delivery/canonical/SFT/DPO compatibility.
 - Các field version lặp lại trong `evaluation.yaml` phải khớp contract và chỉ là runtime compatibility

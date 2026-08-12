@@ -1,6 +1,6 @@
 # 02 — Pipeline dữ liệu end-to-end
 
-> **Applies to:** Mai `1.0.1` (baseline `1.0.0`)
+> **Applies to:** Mai `1.0.2` (baseline `1.0.0`)
 >
 > **Invariant chính:** generation không đồng nghĩa delivery; delivery không đồng nghĩa commit cho tới
 > khi transaction hoàn tất.
