@@ -1,6 +1,6 @@
 # 07 — Testing và extension guide
 
-> **Applies to:** Mai `1.4.2` (baseline `1.0.0`)
+> **Applies to:** Mai `1.4.3` (baseline `1.0.0`)
 >
 > Mọi change được phát hành sau baseline phải tăng product version và có changelog/regression evidence.
 
@@ -185,6 +185,10 @@ test pass và `failures=0`. Test của evidence builder phải bao phủ JSON ma
 marker/sanitized sai, stale version,
 thiếu nhóm, preflight có check trùng tên và cờ `ready` không khớp blocking checks. Không ghi đè artifact
 M8/M10 đã đóng băng để hợp thức hóa release mới.
+
+Freshness regression phải dùng clock injected/deterministic và bao phủ timestamp hợp lệ, quá hạn, tương
+lai vượt clock skew, thiếu timezone và sai định dạng. Atomic-write regression phải chứng minh replace lỗi
+không làm thay đổi destination cũ. CLI regression phải kiểm tra `--preflight` failed/invalid không exit `0`.
 
 Refactor composition/action nội bộ phải giữ import tương thích cho entrypoint đang dùng, đồng thời có
 boundary test xác nhận `stream_runtime.py` vẫn là composition root và `DirectorLoop` vẫn sở hữu

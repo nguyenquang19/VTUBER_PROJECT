@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +43,33 @@ def _read_untrusted_json(path: Path) -> dict[str, Any]:
     return value
 
 
+def _write_json_atomic(path: Path, value: dict[str, Any]) -> None:
+    rendered = json.dumps(value, ensure_ascii=False, indent=2) + "\n"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    try:
+        temporary.write_text(rendered, encoding="utf-8")
+        temporary.replace(path)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
+def _parse_utc_timestamp(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    text = value.strip()
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None or parsed.utcoffset() != timedelta(0):
+        return None
+    return parsed.astimezone(timezone.utc)
+
+
 def _load_untrusted_json(
     path: Path,
     *,
@@ -53,7 +81,14 @@ def _load_untrusted_json(
         return None, [f"{label} could not be loaded: {type(exc).__name__}"]
 
 
-def _validate_preflight(report: dict[str, Any], expected_version: str) -> list[str]:
+def _validate_preflight(
+    report: dict[str, Any],
+    expected_version: str,
+    *,
+    now_utc: datetime,
+    max_age_s: float,
+    max_future_skew_s: float,
+) -> list[str]:
     errors: list[str] = []
     if report.get("schema_version") != 1:
         errors.append("preflight schema_version must be 1")
@@ -63,6 +98,13 @@ def _validate_preflight(report: dict[str, Any], expected_version: str) -> list[s
         errors.append("preflight must declare sanitized=true")
     if report.get("product_version") != expected_version:
         errors.append("preflight product_version does not match the current release")
+    generated_at = _parse_utc_timestamp(report.get("generated_at_utc"))
+    if generated_at is None:
+        errors.append("preflight generated_at_utc must be a timezone-aware UTC timestamp")
+    elif generated_at > now_utc + timedelta(seconds=max_future_skew_s):
+        errors.append("preflight generated_at_utc exceeds allowed future clock skew")
+    elif now_utc - generated_at > timedelta(seconds=max_age_s):
+        errors.append("preflight report is stale")
     if report.get("platform") not in {"youtube", "discord"}:
         errors.append("preflight platform must be youtube or discord")
     if type(report.get("ready")) is not bool:
@@ -151,11 +193,22 @@ def build_release_evidence(
     *,
     preflight_report: Path | None = None,
     verification_report: Path | None = None,
+    now_utc: datetime | None = None,
 ) -> dict[str, Any]:
     root = repo_root.resolve()
     loader = ConfigLoader(root / "config")
     loader.load_all()
     product_version = str(loader.get("system", "app.version", ""))
+    current_time = now_utc or datetime.now(timezone.utc)
+    if current_time.tzinfo is None or current_time.utcoffset() is None:
+        raise ValueError("now_utc must be timezone-aware")
+    current_time = current_time.astimezone(timezone.utc)
+    max_age_s = float(loader.get("operations", "live_preflight.max_age_s", 300.0))
+    max_future_skew_s = float(loader.get(
+        "operations", "live_preflight.max_future_skew_s", 30.0,
+    ))
+    if max_age_s <= 0 or max_future_skew_s < 0:
+        raise ValueError("live preflight freshness configuration is invalid")
     baseline = root / "docs" / "baselines"
 
     text_acceptance = _read_json(baseline / "m10_text_acceptance.json")
@@ -217,7 +270,13 @@ def build_release_evidence(
             preflight_report, label="preflight",
         )
         if loaded_preflight is not None:
-            platform_errors.extend(_validate_preflight(loaded_preflight, product_version))
+            platform_errors.extend(_validate_preflight(
+                loaded_preflight,
+                product_version,
+                now_utc=current_time,
+                max_age_s=max_age_s,
+                max_future_skew_s=max_future_skew_s,
+            ))
         platform_valid = loaded_preflight is not None and not platform_errors
         if platform_valid and loaded_preflight is not None:
             platform_preflight = loaded_preflight
@@ -238,6 +297,7 @@ def build_release_evidence(
         "schema_version": 1,
         "marker": "mai_release_evidence",
         "product_version": product_version,
+        "generated_at_utc": current_time.isoformat(),
         "historical_capability_baseline": "M10.8",
         "sanitized": True,
         "raw_transcript_included": False,
@@ -276,12 +336,17 @@ def main() -> int:
     output = Path(args.output) if args.output else _versioned_path(
         REPO_ROOT / "docs" / "baselines", "release_evidence", report["product_version"],
     )
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(
-        json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8",
-    )
+    _write_json_atomic(output, report)
     print(json.dumps(report, ensure_ascii=False, indent=2))
-    return 0 if report["software_ready"] else 1
+    return _release_exit_code(report, preflight_requested=args.preflight is not None)
+
+
+def _release_exit_code(report: dict[str, Any], *, preflight_requested: bool) -> int:
+    if not report.get("software_ready"):
+        return 1
+    if preflight_requested and report.get("platform_ready") is not True:
+        return 1
+    return 0
 
 
 if __name__ == "__main__":

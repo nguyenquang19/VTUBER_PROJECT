@@ -9,6 +9,7 @@ import sys
 import urllib.error
 import urllib.request
 from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -29,6 +30,17 @@ class PreflightCheck:
 def _resolve_path(value: str, repo_root: Path) -> Path:
     path = Path(value)
     return path if path.is_absolute() else repo_root / path
+
+
+def _write_json_atomic(path: Path, rendered: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    try:
+        temporary.write_text(rendered, encoding="utf-8")
+        temporary.replace(path)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
 
 
 def _health_check(host: str, port: int, timeout_s: float) -> PreflightCheck:
@@ -52,6 +64,7 @@ def run_preflight(
     environ: Mapping[str, str] | None = None,
     os_name: str | None = None,
     python_version: Sequence[int] | None = None,
+    now_utc: datetime | None = None,
 ) -> dict[str, Any]:
     """Return a sanitized readiness report; credential values are never included."""
     env = environ if environ is not None else os.environ
@@ -147,11 +160,15 @@ def run_preflight(
         ))
 
     ready = all(check.passed for check in checks if check.blocking)
+    generated_at = now_utc or datetime.now(timezone.utc)
+    if generated_at.tzinfo is None or generated_at.utcoffset() is None:
+        raise ValueError("now_utc must be timezone-aware")
     return {
         "schema_version": 1,
         "marker": "mai_live_preflight",
         "sanitized": True,
         "product_version": str(loader.get("system", "app.version", "")),
+        "generated_at_utc": generated_at.astimezone(timezone.utc).isoformat(),
         "ready": ready,
         "platform": normalized_platform,
         "checks": [asdict(check) for check in checks],
@@ -180,8 +197,7 @@ def main() -> int:
     rendered = json.dumps(report, ensure_ascii=False, indent=2) + "\n"
     if args.output:
         output = Path(args.output)
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(rendered, encoding="utf-8")
+        _write_json_atomic(output, rendered)
     print(rendered, end="")
     return 0 if report["ready"] else 1
 

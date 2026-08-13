@@ -1,6 +1,6 @@
 # 05 — Configuration và feature toggles
 
-> **Applies to:** Mai `1.4.2` (baseline `1.0.0`)
+> **Applies to:** Mai `1.4.3` (baseline `1.0.0`)
 >
 > Product version: `config/system.yaml::app.version`; component/schema version không phải product version.
 
@@ -206,6 +206,10 @@ Content `flags` count delivered speech only; `candidate_flags` separately retain
 
 Restart attempts/window/backoff/circuit trong `operations.yaml`. Tăng retry không giải quyết crash
 deterministic; xem incident root cause trước.
+
+`operations.live_preflight.max_age_s` giới hạn tuổi báo cáo được phép đưa vào release evidence;
+`max_future_skew_s` chỉ dung sai lệch đồng hồ nhỏ. Cả hai phải dương/không âm tương ứng và không được
+hardcode trong validator. Preflight ngoài cửa sổ này bị chặn dù mọi check bên trong đều pass.
 
 ## 6. Quy trình đổi config an toàn
 

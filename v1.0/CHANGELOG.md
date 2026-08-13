@@ -3,6 +3,23 @@
 Mọi thay đổi product sau baseline dùng Semantic Versioning. Product version nằm tại
 `config/system.yaml::app.version`; schema/component version là trục độc lập.
 
+## [1.4.3] — 2026-08-14
+
+Khóa freshness và durability của live-readiness artifact để báo cáo platform cũ hoặc file ghi dở không
+thể được dùng như bằng chứng sẵn sàng hiện tại.
+
+### Fixed
+
+- Preflight thêm `generated_at_utc`; release builder kiểm tra max age và future clock skew từ
+  `operations.yaml`, fail closed với timestamp sai định dạng/thiếu timezone/quá hạn.
+- Khi truyền `--preflight`, release-evidence CLI chỉ exit `0` nếu software và platform đều ready; trạng
+  thái blocked/invalid không còn trả success cho automation.
+- Preflight và release evidence ghi qua temporary file cùng thư mục rồi atomic replace, giữ destination
+  cũ nguyên vẹn nếu replace thất bại.
+
+Rollback: revert patch freshness/atomic writer và trở về contract `1.4.2`; không có migration hay thay đổi
+generation/delivery behavior.
+
 ## [1.4.2] — 2026-08-14
 
 Siết release-readiness evidence để trạng thái sẵn sàng chỉ dựa trên báo cáo có contract hợp lệ và đúng

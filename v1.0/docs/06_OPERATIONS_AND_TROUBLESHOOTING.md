@@ -1,6 +1,6 @@
 # 06 — Operations và troubleshooting
 
-> **Applies to:** Mai `1.4.2` (baseline `1.0.0`)
+> **Applies to:** Mai `1.4.3` (baseline `1.0.0`)
 >
 > Lệnh trong tài liệu dùng PowerShell trên Windows 11.
 
@@ -28,10 +28,11 @@ dùng để cô lập lỗi. Preflight report nằm ở `logs/operations/live_pr
 Runtime tự start llama-server khi `live_operations` và `manage_llama_process` bật. Health LLM vẫn là
 blocking gate sau startup; preflight thành công không thay thế runtime health.
 
-Preflight schema 1 từ `1.4.2` bắt buộc có `marker=mai_live_preflight`, `sanitized=true`,
-`product_version`, platform và danh sách check có tên duy nhất. `ready` phải đúng bằng phép AND của mọi
+Preflight schema 1 bắt buộc có `marker=mai_live_preflight`, `sanitized=true`, `product_version`,
+`generated_at_utc`, platform và danh sách check có tên duy nhất. `ready` phải đúng bằng phép AND của mọi
 blocking check; release builder reject báo cáo thiếu field, stale version, malformed hoặc bị sửa cờ
-`ready`. Automated verification dùng artifact riêng của release hiện tại; artifact M10 chỉ là lịch sử,
+`ready`. Timestamp phải là UTC có timezone, không cũ hơn `operations.live_preflight.max_age_s` và không
+đi trước đồng hồ quá `max_future_skew_s`. Automated verification dùng artifact riêng của release hiện tại; artifact M10 chỉ là lịch sử,
 không được dùng để khẳng định regression của code hiện tại.
 
 Sau khi chạy đủ các nhóm test và ghi `release_verification_<version>.json`, tạo evidence bằng:
@@ -42,6 +43,9 @@ Sau khi chạy đủ các nhóm test và ghi `release_verification_<version>.jso
 
 Output mặc định là `docs/baselines/release_evidence_<version>.json`. Có thể truyền `--preflight` để gắn
 báo cáo platform thật; không có preflight thì status phải là `software_ready_platform_preflight_pending`.
+Khi đã truyền `--preflight`, command chỉ exit `0` nếu cả software và platform đều ready; report invalid,
+failed hoặc stale phải exit khác `0`. Preflight/evidence đều được atomic replace để reader không thấy file
+dở dang nếu process lỗi giữa lúc ghi.
 
 Không chạy `python -m orchestrator.main`: đây là command bootstrap lịch sử và hiện thoát mã `2` kèm
 hướng dẫn. Nó không mở dashboard riêng, không bind port và không đại diện health/metrics của live stack.

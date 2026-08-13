@@ -8,8 +8,9 @@
 >
 > **Product version source:** `config/system.yaml::app.version`
 >
-> **Current product version:** `1.4.2` — release evidence phải dùng preflight có contract chặt và
-> automated verification đúng product version. `1.4.1` khóa bootstrap entrypoint cũ để production chỉ
+> **Current product version:** `1.4.3` — preflight có thời điểm UTC, freshness gate cấu hình được và
+> artifact single-file được ghi atomic. `1.4.2` yêu cầu release evidence dùng preflight có contract chặt
+> và automated verification đúng product version. `1.4.1` khóa bootstrap entrypoint cũ để production chỉ
 > chạy qua `scripts/start_live.ps1` và `StreamRuntime`. `1.4.0` thêm grounded character-lore material có
 > transaction cho self-talk khi chat vắng. `1.3.1` refactor nội bộ runtime/Director thành module chuyên trách,
 > không đổi public contract hay behavior. `1.3.0` thêm lore chi tiết nhân vật (`config/prompts/mai_lore.txt`) nối
@@ -17,7 +18,7 @@
 > `1.2.0` — SFT multi-turn không directive (`sft_schema` 2), DPO full-context
 > (`dpo_schema` 2), LLM-judge lọc ngữ nghĩa, và cờ `inject_mood_directive` cho inference (mặc định giữ
 > nguyên, gated cho post-fine-tune). `1.1.0` thêm VTS animation adapter + dataset trust hardening. Lịch sử
-> `1.0.1`→`1.4.2` xem `CHANGELOG.md`.
+> `1.0.1`→`1.4.3` xem `CHANGELOG.md`.
 
 Tài liệu này là điểm vào bắt buộc cho AI hoặc người bảo trì mới. Nó mô tả hệ thống đang tồn tại ở
 release `1.0.0`, không phải roadmap. Các nhãn như Mood v2, schema v3, M8 hoặc M10 là version/mốc nội bộ

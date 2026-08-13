@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
 import yaml
 
 from orchestrator.config_loader import ConfigLoader
-from scripts.live_preflight import run_preflight
+from scripts.live_preflight import _write_json_atomic, run_preflight
+
+
+NOW = datetime(2026, 8, 14, 8, 0, tzinfo=timezone.utc)
 
 
 def _loader(tmp_path: Path) -> ConfigLoader:
@@ -32,7 +37,7 @@ def _loader(tmp_path: Path) -> ConfigLoader:
         "chat_sources.yaml": {"discord": {
             "token_env_var": "DISCORD_BOT_TOKEN", "channel_ids": [123],
         }},
-        "system.yaml": {"app": {"version": "1.4.2"}},
+        "system.yaml": {"app": {"version": "1.4.3"}},
     }
     for name, content in files.items():
         (config_dir / name).write_text(yaml.safe_dump(content), encoding="utf-8")
@@ -48,12 +53,13 @@ def test_youtube_preflight_ready_without_running_server(tmp_path: Path) -> None:
     report = run_preflight(
         _loader(tmp_path), platform_name="youtube", video_id="video123",
         check_server_health=False, repo_root=tmp_path,
-        os_name="Windows", python_version=(3, 11, 9),
+        os_name="Windows", python_version=(3, 11, 9), now_utc=NOW,
     )
     assert report["ready"] is True
     assert report["marker"] == "mai_live_preflight"
     assert report["sanitized"] is True
-    assert report["product_version"] == "1.4.2"
+    assert report["product_version"] == "1.4.3"
+    assert report["generated_at_utc"] == "2026-08-14T08:00:00+00:00"
     assert all("token" not in item["detail"].lower() or "variable" in item["detail"].lower()
                for item in report["checks"])
 
@@ -63,13 +69,14 @@ def test_discord_preflight_requires_token_but_never_exposes_it(tmp_path: Path) -
     missing = run_preflight(
         loader, platform_name="discord", check_server_health=False,
         repo_root=tmp_path, environ={}, os_name="Windows", python_version=(3, 11, 0),
+        now_utc=NOW,
     )
     assert missing["ready"] is False
     secret = "super-secret-token"
     ready = run_preflight(
         loader, platform_name="discord", check_server_health=False,
         repo_root=tmp_path, environ={"DISCORD_BOT_TOKEN": secret},
-        os_name="Windows", python_version=(3, 11, 0),
+        os_name="Windows", python_version=(3, 11, 0), now_utc=NOW,
     )
     assert ready["ready"] is True
     assert secret not in str(ready)
@@ -80,7 +87,25 @@ def test_preflight_fails_when_transaction_contract_is_disabled(tmp_path: Path) -
     loader._data["features"]["features"]["action_transactions"]["enabled"] = False
     report = run_preflight(
         loader, platform_name="youtube", video_id="x", check_server_health=False,
-        repo_root=tmp_path, os_name="Windows", python_version=(3, 11, 0),
+        repo_root=tmp_path, os_name="Windows", python_version=(3, 11, 0), now_utc=NOW,
     )
     assert report["ready"] is False
     assert next(item for item in report["checks"] if item["name"] == "transactions")["passed"] is False
+
+
+def test_preflight_atomic_write_preserves_existing_destination_on_replace_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    destination = tmp_path / "preflight.json"
+    destination.write_text("old-valid-report", encoding="utf-8")
+
+    def fail_replace(self: Path, target: Path) -> Path:
+        raise OSError("replace failed")
+
+    monkeypatch.setattr(Path, "replace", fail_replace)
+    with pytest.raises(OSError, match="replace failed"):
+        _write_json_atomic(destination, '{"ready": true}\n')
+
+    assert destination.read_text(encoding="utf-8") == "old-valid-report"
+    assert not destination.with_suffix(".json.tmp").exists()

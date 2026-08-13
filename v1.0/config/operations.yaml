@@ -12,6 +12,10 @@ health_supervisor:
   backoff_max_s: 30.0
   manage_llama_process: true
 
+live_preflight:
+  max_age_s: 300.0
+  max_future_skew_s: 30.0
+
 shutdown:
   timeout_s: 15.0
   snapshot_file: "logs/operations/last_runtime_snapshot.json"
