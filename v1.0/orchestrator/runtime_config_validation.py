@@ -34,6 +34,9 @@ class RuntimeCriticalConfig(BaseModel):
     self_talk_question_starters: tuple[str, ...] = Field(min_length=1)
     self_talk_question_particles: tuple[str, ...] = Field(min_length=1)
     self_talk_max_previous_text_chars: int = Field(gt=0)
+    self_talk_lore_sections: tuple[str, ...] = Field(min_length=1)
+    self_talk_lore_max_anchor_chars: int = Field(gt=0)
+    self_talk_lore_no_repeat_last_n: int = Field(ge=0)
     transaction_max_recent: int = Field(gt=0)
     decision_record_max_recent: int = Field(gt=0)
     decision_record_max_evidence_refs: int = Field(gt=0)
@@ -118,6 +121,15 @@ def validate_runtime_config(loader: Any) -> RuntimeCriticalConfig:
             ) or ()),
             self_talk_max_previous_text_chars=loader.get(
                 "self_talk", "self_talk.max_previous_text_chars", 280,
+            ),
+            self_talk_lore_sections=tuple(loader.get(
+                "self_talk", "self_talk.lore_material.section_allowlist", ("Thích",),
+            ) or ()),
+            self_talk_lore_max_anchor_chars=loader.get(
+                "self_talk", "self_talk.lore_material.max_anchor_chars", 280,
+            ),
+            self_talk_lore_no_repeat_last_n=loader.get(
+                "self_talk", "self_talk.lore_material.no_repeat_last_n", 6,
             ),
             transaction_max_recent=loader.get(
                 "director", "director.transactions.max_recent", 256,

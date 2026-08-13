@@ -1,6 +1,6 @@
 # 03 — Component reference
 
-> **Applies to:** Mai `1.3.1` (baseline `1.0.0`)
+> **Applies to:** Mai `1.4.0` (baseline `1.0.0`)
 >
 > Dùng tài liệu này để tìm owner; không đặt behavior mới vào file tiện tay gần nhất.
 
@@ -167,6 +167,14 @@ và coverage chống chép lại stage trước; Director chỉ regenerate một
 ambient nếu chat đến trong generation. Mọi chat mở global quiet gate; chat suspend arc `open/develop`
 thay vì xóa, nhưng resolve arc đang `wait`. `prepare/release/commit` bảo đảm chặng chỉ tiến khi delivery
 trả `delivered=true`.
+
+### `services/autonomy/lore_material.py`
+
+Đọc bullet từ các section được allowlist trong cùng `llm_main.lore_prompt_path`, chuẩn hóa và cap anchor
+trước khi cấp cho Thought Engine. Provider chỉ có một reservation pending, chống lặp bằng cửa sổ bounded
+và chỉ advance cursor khi lượt lore đã delivery. Missing/empty/malformed lore là no-material fail-safe,
+không được biến prose ngoài allowlist thành fact. Feature runtime: `self_talk_lore`; metrics reserve,
+commit, release và unavailable được gộp vào snapshot của self-talk planner.
 
 Mood đi qua `MoodStyleTable` để đổi thái độ, nhịp và độ dài. Mood không tạo thought cause, không chọn
 lại lịch sử, không thêm người/game/sự kiện và không làm thay đổi hard priority. Feature runtime:

@@ -6,6 +6,7 @@ from pathlib import Path
 from interfaces.animation import MoodState
 from interfaces.self_talk import SelfTalkContext, ThoughtCause
 from orchestrator.config_loader import ConfigLoader
+from services.autonomy.lore_material import LoreMaterialProvider
 from services.autonomy.self_talk_planner import SelfTalkPlanner
 
 
@@ -87,3 +88,25 @@ def test_mood_changes_expression_directive_not_cause_or_evidence() -> None:
     assert "buon=7" in calm_plan.prompt_text
     assert "vui=8" in bright_plan.prompt_text
     assert "CẤM bịa" in calm_plan.prompt_text
+
+
+def test_repository_lore_self_talk_is_grounded_and_delivery_transactional() -> None:
+    loader = ConfigLoader(REPO_ROOT / "config")
+    loader.load_all()
+    lore = LoreMaterialProvider.from_loader(loader)
+    planner = SelfTalkPlanner.from_loader(loader, lore_material=lore)
+    context = SelfTalkContext(silence_seconds=120.0)
+
+    first = planner.prepare(mood=MoodState(), now=120.0, context=context)
+    assert first is not None
+    assert first.cause is ThoughtCause.GROUNDED
+    assert first.evidence_refs[0].startswith("lore:")
+    assert "Lore đã xác thực về Mai" in first.prompt_text
+
+    planner.release(first.plan_id)
+    retry = planner.prepare(mood=MoodState(), now=121.0, context=context)
+    assert retry is not None and retry.evidence_refs == first.evidence_refs
+    assert planner.commit(retry.plan_id, "Tớ có cả một đội quân thú bông đấy.", 121.0)
+    metrics = planner.get_metrics()
+    assert metrics["self_talk_lore_releases_total"] == 1
+    assert metrics["self_talk_lore_commits_total"] == 1

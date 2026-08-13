@@ -8,13 +8,14 @@
 >
 > **Product version source:** `config/system.yaml::app.version`
 >
-> **Current product version:** `1.3.1` — refactor nội bộ runtime/Director thành module chuyên trách,
+> **Current product version:** `1.4.0` — thêm grounded character-lore material có transaction cho
+> self-talk khi chat vắng. `1.3.1` refactor nội bộ runtime/Director thành module chuyên trách,
 > không đổi public contract hay behavior. `1.3.0` thêm lore chi tiết nhân vật (`config/prompts/mai_lore.txt`) nối
 > vào persona prefix để Mai có cá tính + đời sống, hợp trẻ em. `1.2.1` — tune sampling `llm_main` (temp 0.88→0.75).
 > `1.2.0` — SFT multi-turn không directive (`sft_schema` 2), DPO full-context
 > (`dpo_schema` 2), LLM-judge lọc ngữ nghĩa, và cờ `inject_mood_directive` cho inference (mặc định giữ
 > nguyên, gated cho post-fine-tune). `1.1.0` thêm VTS animation adapter + dataset trust hardening. Lịch sử
-> `1.0.1`→`1.3.1` xem `CHANGELOG.md`.
+> `1.0.1`→`1.4.0` xem `CHANGELOG.md`.
 
 Tài liệu này là điểm vào bắt buộc cho AI hoặc người bảo trì mới. Nó mô tả hệ thống đang tồn tại ở
 release `1.0.0`, không phải roadmap. Các nhãn như Mood v2, schema v3, M8 hoặc M10 là version/mốc nội bộ
@@ -69,7 +70,7 @@ Enabled toggle ở baseline:
 `director_chat_gate`, `conversation_continuity`, `mood_behavior_policy`, `mood_v2_shadow`,
 `mood_v2_prompt`, `action_transactions`, `decision_records`, `operator_dashboard_v2`,
 `proactive_hosting`, `self_talk_planner`, `behavior_library`, `natural_timing`,
-`relationship_memory`, `evaluation_harness`, `evaluation_acceptance`, `live_operations`,
+`self_talk_lore`, `relationship_memory`, `evaluation_harness`, `evaluation_acceptance`, `live_operations`,
 `kv_cache_q8`, `ambient_talk`.
 
 Disabled/optional toggle ở baseline:

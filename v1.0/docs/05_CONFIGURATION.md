@@ -1,6 +1,6 @@
 # 05 — Configuration và feature toggles
 
-> **Applies to:** Mai `1.3.1` (baseline `1.0.0`)
+> **Applies to:** Mai `1.4.0` (baseline `1.0.0`)
 >
 > Product version: `config/system.yaml::app.version`; component/schema version không phải product version.
 
@@ -168,13 +168,19 @@ mỏ neo đã có, không chứa topic/seed nội dung. `unavailable_retry_secon
 khi không còn thought mới mà không giả cập nhật last-spoken. Cause
 phải có evidence từ grounded context, environment, recent context hoặc silence runtime. Stage limits
 quy định số câu và việc được phép hỏi; invite chỉ được có đúng một câu hỏi. Rollback tức thời bằng
-feature `self_talk_planner=false`; khi đó
-runtime trở về Autonomy ambient legacy.
+Để rollback toàn bộ Thought Engine, tắt `self_talk_lore` trước rồi mới tắt
+`self_talk_planner`; khi đó runtime trở về Autonomy ambient legacy. FeatureManager cố ý chặn tắt
+planner khi dependent lore vẫn bật.
 
 `cause_directions.recent_context` and `cognitive_moves` must not invite guesses about another person's
 knowledge, intent or actions. The production move set is limited to facts in the anchor, missing-data
 acknowledgement and Mai's own opinion.
 `recent_context_min_tokens` rejects emoji-only or too-short material before it becomes a thought anchor.
+
+`self_talk.lore_material` (từ `1.4.0`) cấu hình `section_allowlist`, `max_anchor_chars` và
+`no_repeat_last_n`. Provider đọc đúng file `llm_main.lore_prompt_path`; YAML chỉ chọn section và bound,
+không sao chép fact lore. Feature `self_talk_lore=false` tắt riêng nguồn material này và giữ nguyên
+silence fallback. Candidate lore chỉ rotate sau delivery thành công; failure không consume material.
 
 `filters.yaml.filter.identity_guard` owns foreign-person names, direct knowledge-question patterns,
 uncertainty phrases and first-person takeover patterns. It applies strict unknown-fact checks to direct

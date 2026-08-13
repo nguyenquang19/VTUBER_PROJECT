@@ -21,6 +21,7 @@ from services.director.director_loop import DirectorLoop, _self_talk_correction_
 from services.director.salience import SaliencePool
 from services.autonomy.self_talk_planner import SelfTalkPlanner
 from services.autonomy.material_provider import RuntimeContext
+from services.autonomy.lore_material import LoreMaterial, LoreMaterialProvider
 from services.agent.goal_manager import GoalLimits, GoalManager
 from services.agent.goal_types import Goal, GoalKind, GoalSource, GoalStatus
 from services.agent.types import AgentStateSnapshot
@@ -274,8 +275,14 @@ class TestDirectorLoop:
         assert snapshot.recent_terminal[-1].suspend_reason == "parent_thread_missing"
 
     async def test_self_talk_planner_advances_only_when_delivery_succeeds(self) -> None:
+        lore_material = LoreMaterialProvider((LoreMaterial(
+            material_id="plushies",
+            section="Thích",
+            anchor="Lore đã xác thực về Mai: Mai sưu tầm thú bông.",
+        ),))
         planner = SelfTalkPlanner(
             cognitive_moves=("nhận ra một chi tiết nhỏ trong mỏ neo",),
+            lore_material=lore_material,
             wait_for_chat_seconds=60.0,
             min_silence_seconds=20.0,
             max_previous_text_chars=80,
@@ -285,7 +292,7 @@ class TestDirectorLoop:
         loop.set_runtime_context_provider(
             lambda: RuntimeContext(
                 silence_seconds=30.0,
-                working_memory_recent=["chat đang bàn về trà"],
+                working_memory_recent=[],
             ),
         )
 
@@ -307,6 +314,7 @@ class TestDirectorLoop:
         assert planner.snapshot()["stage"] == "open"
         assert planner.snapshot()["pending_plan_id"] is None
         assert runner.committed == []
+        assert lore_material.get_metrics()["self_talk_lore_releases_total"] == 1
 
         async def delivered(request_id: str, _text: str) -> TTSDeliveryResult:
             return TTSDeliveryResult(
@@ -322,6 +330,7 @@ class TestDirectorLoop:
         assert await loop._exec_self_talk(_Decision(), 21.0) is True
         assert planner.snapshot()["stage"] == "develop"
         assert len(runner.committed) == 1
+        assert lore_material.get_metrics()["self_talk_lore_commits_total"] == 1
 
     async def test_self_talk_shape_regenerates_once_before_delivery(self) -> None:
         planner = SelfTalkPlanner(

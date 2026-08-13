@@ -1030,6 +1030,7 @@ async def build_stream_runtime(
         autonomy = AutonomyEngine.from_loader(loader)
 
     # Self-talk content planner is separate from Director timing/priority.
+    from services.autonomy.lore_material import LoreMaterialProvider
     from services.autonomy.self_talk_planner import SelfTalkPlanner
     from services.emotion.mood_style import MoodStyleTable
     try:
@@ -1040,10 +1041,28 @@ async def build_stream_runtime(
     except KeyError:
         get_logger("stream_runtime").warning("self_talk_planner_feature_missing")
         self_talk_enabled = False
+    try:
+        self_talk_lore_status = await feature_manager.get_status("self_talk_lore")
+        self_talk_lore_enabled = self_talk_lore_status in (
+            FeatureStatus.ENABLED, FeatureStatus.DEGRADED,
+        )
+    except KeyError:
+        get_logger("stream_runtime").warning("self_talk_lore_feature_missing")
+        self_talk_lore_enabled = False
+    lore_material = LoreMaterialProvider.from_loader(
+        loader, enabled=self_talk_lore_enabled,
+    )
     self_talk_planner = SelfTalkPlanner.from_loader(
         loader,
         mood_style=MoodStyleTable.from_loader(loader),
+        lore_material=lore_material,
         enabled=self_talk_enabled,
+    )
+    attach_boolean_feature(
+        feature_manager,
+        "self_talk_lore",
+        set_enabled=self_talk_planner.set_lore_enabled,
+        is_enabled=lambda: self_talk_planner.lore_enabled,
     )
 
     # ─── C0.4: Director stack — cầm nhịp thay FIFO ───

@@ -1,6 +1,6 @@
 # 06 — Operations và troubleshooting
 
-> **Applies to:** Mai `1.3.1` (baseline `1.0.0`)
+> **Applies to:** Mai `1.4.0` (baseline `1.0.0`)
 >
 > Lệnh trong tài liệu dùng PowerShell trên Windows 11.
 

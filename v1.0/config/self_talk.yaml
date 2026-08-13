@@ -16,6 +16,16 @@ self_talk:
   silence_allow_question: true
   grounded_categories: [follow_up_topic, environment_reaction, roast_chat]
 
+  # Grounded lore dùng chung llm_main.lore_prompt_path; không lặp fact trong YAML.
+  lore_material:
+    section_allowlist:
+      - "Thích"
+      - "Khăng khăng đáng yêu (mấy trò cãi cho vui, không thành gắt thật)"
+      - "Đời sống / trò lặp lại (cái để tự kể khi chat vắng)"
+      - "Tật"
+    max_anchor_chars: 280
+    no_repeat_last_n: 6
+
   cause_directions:
     silence: "Sự thật duy nhất là khoảng im lặng. Chỉ nói về chính nhịp im lặng hoặc cảm giác hiện tại của Mai; CẤM mô tả phòng, màn hình, cảnh vật, âm thanh hay sự kiện chưa có trong mỏ neo. Đây là một câu one-shot, không mở chủ đề dài."
     recent_context: "Chỉ bám vào câu chat trong mỏ neo; nếu câu mơ hồ thì thừa nhận chưa rõ. Không tự điền phần người xem chưa nói và tuyệt đối không khẳng định ai đó biết, nghĩ, muốn, không quan tâm hoặc đã làm gì khi mỏ neo không ghi rõ."

@@ -19,6 +19,7 @@ from interfaces.self_talk import (
     SelfTalkValidation,
     ThoughtCause,
 )
+from services.autonomy.lore_material import LoreMaterialProvider
 from services.tts.sentence_splitter import split_vn
 
 
@@ -50,6 +51,7 @@ class SelfTalkPlanner(SelfTalkPlanningService):
         *,
         cognitive_moves: tuple[str, ...],
         mood_style: Any = None,
+        lore_material: LoreMaterialProvider | None = None,
         enabled: bool = True,
         wait_for_chat_seconds: float = 75.0,
         resume_after_chat_seconds: float = 12.0,
@@ -96,6 +98,7 @@ class SelfTalkPlanner(SelfTalkPlanningService):
             raise ValueError("silence_intention không được rỗng")
         self._moves = moves
         self._mood_style = mood_style
+        self._lore_material = lore_material
         self._enabled = bool(enabled)
         self._running = False
         self._wait_for_chat_s = float(wait_for_chat_seconds)
@@ -156,12 +159,18 @@ class SelfTalkPlanner(SelfTalkPlanningService):
 
     @classmethod
     def from_loader(
-        cls, loader: Any, *, mood_style: Any = None, enabled: bool = True,
+        cls,
+        loader: Any,
+        *,
+        mood_style: Any = None,
+        lore_material: LoreMaterialProvider | None = None,
+        enabled: bool = True,
     ) -> "SelfTalkPlanner":
         raw = loader.get("self_talk", "self_talk", {}) or {}
         return cls(
             cognitive_moves=tuple(raw.get("cognitive_moves", []) or ()),
             mood_style=mood_style,
+            lore_material=lore_material,
             enabled=enabled,
             wait_for_chat_seconds=float(raw.get("wait_for_chat_seconds", 75.0)),
             resume_after_chat_seconds=float(raw.get("resume_after_chat_seconds", 12.0)),
@@ -193,6 +202,7 @@ class SelfTalkPlanner(SelfTalkPlanningService):
 
     async def stop(self) -> None:
         self._running = False
+        self._release_lore(self._pending_thought)
         self._pending = None
         self._pending_thought = None
 
@@ -258,6 +268,7 @@ class SelfTalkPlanner(SelfTalkPlanningService):
                 self._metrics["no_material_total"] += 1
                 return None
             if thought.cause is not ThoughtCause.SILENCE and self._is_repeated(thought):
+                self._release_lore(thought)
                 self._metrics["repeat_suppressed_total"] += 1
                 return None
             if thought.cause is ThoughtCause.SILENCE:
@@ -281,6 +292,14 @@ class SelfTalkPlanner(SelfTalkPlanningService):
                 return plan
             self._arc = _Arc(thought=thought)
             self._metrics["arcs_started_total"] += 1
+
+        if (
+            self._arc.stage is SelfTalkStage.OPEN
+            and not self._ensure_lore_reservation(self._arc.thought)
+        ):
+            self._arc = None
+            self._metrics["no_material_total"] += 1
+            return None
 
         plan = SelfTalkPlan(
             plan_id=self._new_id(),
@@ -345,10 +364,19 @@ class SelfTalkPlanner(SelfTalkPlanningService):
         return SelfTalkValidation(valid=not reasons, reasons=tuple(reasons))
 
     def can_deliver(self, plan_id: str) -> bool:
-        return (
+        allowed = (
             self._pending is not None
             and self._pending.plan_id == plan_id
             and self._interrupted_plan_id != plan_id
+        )
+        if not allowed or self._pending_thought is None:
+            return allowed
+        lore_id = self._lore_id(self._pending_thought)
+        if lore_id is None or self._pending.stage is not SelfTalkStage.OPEN:
+            return True
+        return bool(
+            self._lore_material is not None
+            and self._lore_material.has_reservation(lore_id)
         )
 
     def readiness(self, now: float) -> SelfTalkReadiness:
@@ -394,6 +422,7 @@ class SelfTalkPlanner(SelfTalkPlanningService):
             )),
             "committed_at": float(now),
         })
+        self._commit_lore(thought)
         if plan.cause is ThoughtCause.SILENCE:
             self._silence_consumed = True
         if plan.one_shot:
@@ -412,6 +441,7 @@ class SelfTalkPlanner(SelfTalkPlanningService):
 
     def release(self, plan_id: str) -> None:
         if self._pending is not None and self._pending.plan_id == plan_id:
+            self._release_lore(self._pending_thought)
             self._pending = None
             self._pending_thought = None
             self._interrupted_plan_id = None
@@ -437,6 +467,7 @@ class SelfTalkPlanner(SelfTalkPlanningService):
     def set_enabled(self, enabled: bool) -> None:
         self._enabled = bool(enabled)
         if not self._enabled:
+            self._release_lore(self._pending_thought)
             self._pending = None
             self._pending_thought = None
             self._arc = None
@@ -447,6 +478,27 @@ class SelfTalkPlanner(SelfTalkPlanningService):
     @property
     def enabled(self) -> bool:
         return self._enabled
+
+    def set_lore_enabled(self, enabled: bool) -> None:
+        if self._lore_material is None:
+            return
+        if not enabled:
+            pending_is_lore = self._lore_id(self._pending_thought) is not None
+            arc_is_lore = bool(
+                self._arc is not None and self._lore_id(self._arc.thought) is not None
+            )
+            self._release_lore(self._pending_thought)
+            if pending_is_lore:
+                self._pending = None
+                self._pending_thought = None
+                self._interrupted_plan_id = None
+            if arc_is_lore:
+                self._arc = None
+        self._lore_material.set_enabled(enabled)
+
+    @property
+    def lore_enabled(self) -> bool:
+        return bool(self._lore_material is not None and self._lore_material.enabled)
 
     @property
     def unavailable_retry_seconds(self) -> float:
@@ -468,12 +520,15 @@ class SelfTalkPlanner(SelfTalkPlanningService):
         }
 
     def get_metrics(self) -> dict[str, Any]:
-        return {
+        values = {
             **{f"self_talk_planner_{key}": value for key, value in self._metrics.items()},
             "self_talk_planner_enabled": self._enabled,
             "self_talk_planner_active": self._arc is not None,
             "self_talk_planner_stage": self._arc.stage.value if self._arc else "idle",
         }
+        if self._lore_material is not None:
+            values.update(self._lore_material.get_metrics())
+        return values
 
     def _complete_arc(self) -> None:
         if self._arc is not None:
@@ -551,6 +606,12 @@ class SelfTalkPlanner(SelfTalkPlanningService):
                 ctx.recent_context[-1], self._max_previous_chars,
             )
             evidence = ("runtime:recent_context",)
+        elif ctx.silence_seconds >= self._min_silence_s and self._lore_material is not None and (
+            lore := self._lore_material.reserve()
+        ) is not None:
+            cause = ThoughtCause.GROUNDED
+            anchor = _bounded(lore.anchor, self._max_previous_chars)
+            evidence = (lore.evidence_ref,)
         elif ctx.recent_context:
             self._metrics["recent_context_rejected_total"] += 1
             if ctx.silence_seconds < self._min_silence_s or self._silence_consumed:
@@ -592,6 +653,37 @@ class SelfTalkPlanner(SelfTalkPlanningService):
         move = self._moves[self._move_cursor % len(self._moves)]
         self._move_cursor += 1
         return move
+
+    @staticmethod
+    def _lore_id(thought: Thought | None) -> str | None:
+        if thought is None:
+            return None
+        ref = next(
+            (item for item in thought.evidence_refs if item.startswith("lore:")),
+            None,
+        )
+        return ref.removeprefix("lore:") if ref is not None else None
+
+    def _commit_lore(self, thought: Thought | None) -> None:
+        lore_id = self._lore_id(thought)
+        if lore_id is not None and self._lore_material is not None:
+            self._lore_material.commit(lore_id)
+
+    def _ensure_lore_reservation(self, thought: Thought) -> bool:
+        lore_id = self._lore_id(thought)
+        if lore_id is None:
+            return True
+        if self._lore_material is None:
+            return False
+        if self._lore_material.has_reservation(lore_id):
+            return True
+        material = self._lore_material.reserve()
+        return material is not None and material.material_id == lore_id
+
+    def _release_lore(self, thought: Thought | None) -> None:
+        lore_id = self._lore_id(thought)
+        if lore_id is not None and self._lore_material is not None:
+            self._lore_material.release(lore_id)
 
     def _has_recent_material(self, value: str) -> bool:
         without_emojis = re.sub(r":[^:\s]+:", " ", str(value))

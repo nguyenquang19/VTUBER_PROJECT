@@ -8,6 +8,7 @@ from interfaces.animation import MoodState
 from interfaces.self_talk import SelfTalkContext, SelfTalkStage, ThoughtCause
 from orchestrator.config_loader import ConfigLoader
 from orchestrator.features import FeatureManager, FeatureStatus
+from services.autonomy.lore_material import LoreMaterial, LoreMaterialProvider
 from services.autonomy.self_talk_planner import SelfTalkPlanner
 
 
@@ -71,6 +72,49 @@ def test_requires_a_real_cause_and_does_not_use_a_topic_pool() -> None:
     assert "Sự thật duy nhất là khoảng im lặng" not in plan.prompt_text
     assert "topic" not in planner.snapshot()
     assert "active_topic_id" not in planner.snapshot()
+
+
+def test_lore_is_grounded_before_silence_and_commits_with_delivery() -> None:
+    provider = LoreMaterialProvider((LoreMaterial(
+        material_id="plushies",
+        section="Thích",
+        anchor="Lore đã xác thực về Mai: Mai sưu tầm thú bông.",
+    ),))
+    planner = _planner(lore_material=provider)
+
+    plan = planner.prepare(
+        mood=MoodState(), now=30.0, context=_silence(),
+    )
+
+    assert plan is not None
+    assert plan.cause is ThoughtCause.GROUNDED
+    assert plan.evidence_refs == ("lore:plushies",)
+    assert "sưu tầm thú bông" in plan.prompt_text
+    assert provider.has_reservation("plushies")
+
+    planner.release(plan.plan_id)
+    assert not provider.has_reservation("plushies")
+    retry = planner.prepare(mood=MoodState(), now=31.0, context=_silence())
+    assert retry is not None and retry.evidence_refs == plan.evidence_refs
+    assert planner.commit(retry.plan_id, "Tớ có cả một đội quân thú bông đấy.", 31.0)
+    assert provider.get_metrics()["self_talk_lore_commits_total"] == 1
+
+
+def test_lore_toggle_cancels_pending_lore_but_keeps_silence_fallback() -> None:
+    provider = LoreMaterialProvider((LoreMaterial(
+        material_id="sweets",
+        section="Thích",
+        anchor="Lore đã xác thực về Mai: Mai thích đồ ngọt.",
+    ),))
+    planner = _planner(lore_material=provider)
+    lore_plan = planner.prepare(mood=MoodState(), now=30.0, context=_silence())
+    assert lore_plan is not None
+
+    planner.set_lore_enabled(False)
+
+    assert planner.can_deliver(lore_plan.plan_id) is False
+    fallback = planner.prepare(mood=MoodState(), now=31.0, context=_silence())
+    assert fallback is not None and fallback.cause is ThoughtCause.SILENCE
 
 
 def test_arc_advances_only_after_delivery_and_keeps_same_thought() -> None:
@@ -328,6 +372,8 @@ async def test_feature_toggle_controls_planner() -> None:
         planner.set_enabled(False)
 
     manager.attach_handlers("self_talk_planner", enable=enable, disable=disable)
+    lore_result = await manager.disable("self_talk_lore", user="test")
+    assert lore_result.ok and lore_result.status is FeatureStatus.DISABLED
     result = await manager.disable("self_talk_planner", user="test")
     assert result.ok and result.status is FeatureStatus.DISABLED
     assert planner.enabled is False

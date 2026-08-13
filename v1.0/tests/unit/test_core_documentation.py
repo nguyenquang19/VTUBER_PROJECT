@@ -10,7 +10,7 @@ from orchestrator.config_loader import CONFIG_FILES
 
 
 ROOT = Path(__file__).resolve().parents[2]
-PRODUCT_VERSION = "1.3.1"
+PRODUCT_VERSION = "1.4.0"
 CORE_DOCS = (
     "00_V1_0_BASELINE.md",
     "01_SYSTEM_OVERVIEW.md",
@@ -34,6 +34,7 @@ CRITICAL_PATHS = (
     "interfaces/evaluation.py",
     "services/director/director_loop.py",
     "services/autonomy/self_talk_planner.py",
+    "services/autonomy/lore_material.py",
     "services/llm/llm_turn.py",
     "services/tts/tts_pipeline.py",
     "services/evaluation/data_quality.py",

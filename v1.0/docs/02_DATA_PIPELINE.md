@@ -1,6 +1,6 @@
 # 02 — Pipeline dữ liệu end-to-end
 
-> **Applies to:** Mai `1.3.1` (baseline `1.0.0`)
+> **Applies to:** Mai `1.4.0` (baseline `1.0.0`)
 >
 > **Invariant chính:** generation không đồng nghĩa delivery; delivery không đồng nghĩa commit cho tới
 > khi transaction hoàn tất.
@@ -195,6 +195,11 @@ trong cùng tick vừa nhận chat. Chat đến trong lúc generation còn đán
 chặn trước TTS; arc đang mở chỉ tạm suspend rồi có thể nối lại, còn chat đến sau `invite` hoàn tất wait.
 Cause `silence` là one-shot duy nhất trong một quiet episode và chỉ được nói về chính khoảng im lặng;
 chat mới reset episode. Mood chỉ tạo style directive, không được tạo cause, premise hay dữ kiện mới.
+
+Từ `1.4.0`, khi không có grounded/recent/environment material, Thought Engine có thể reserve một bullet
+đã duyệt từ character lore làm cause `grounded` trước silence fallback. Lore candidate chỉ được advance
+sau delivery thành công; generation/filter/delivery fail phải release candidate để retry. Source vẫn là
+`config/prompts/mai_lore.txt`, giới hạn section/độ dài/no-repeat nằm trong `self_talk.yaml`.
 
 Nếu release, pending history/memory không được finalize và work nguồn không bị xóa giả.
 

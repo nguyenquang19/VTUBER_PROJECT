@@ -1,6 +1,6 @@
 # 07 — Testing và extension guide
 
-> **Applies to:** Mai `1.3.1` (baseline `1.0.0`)
+> **Applies to:** Mai `1.4.0` (baseline `1.0.0`)
 >
 > Mọi change được phát hành sau baseline phải tăng product version và có changelog/regression evidence.
 
@@ -182,6 +182,10 @@ Sau targeted test, chạy offline regression. Nếu đổi llama command/client/
 Refactor composition/action nội bộ phải giữ import tương thích cho entrypoint đang dùng, đồng thời có
 boundary test xác nhận `stream_runtime.py` vẫn là composition root và `DirectorLoop` vẫn sở hữu
 transaction/commit. Helper module không được gọi business commit trực tiếp.
+
+Lore self-talk regression phải chứng minh parser chỉ nhận bullet thuộc allowlist, anchor bị cap, vòng
+no-repeat bounded, toggle OFF/missing file fallback an toàn và reservation chỉ advance sau
+`delivered=true`. Không dùng raw prose ngoài section đã duyệt làm material.
 
 ## 11. Review checklist
 

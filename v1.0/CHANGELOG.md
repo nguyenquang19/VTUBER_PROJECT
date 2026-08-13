@@ -3,6 +3,28 @@
 Mọi thay đổi product sau baseline dùng Semantic Versioning. Product version nằm tại
 `config/system.yaml::app.version`; schema/component version là trục độc lập.
 
+## [1.4.0] — 2026-08-13
+
+Đưa character lore đã duyệt vào grounded material của Thought Engine để Mai có thể tự kể về mình khi
+chat vắng. Minor release vì self-talk có thêm nguồn nội dung production; public contract và storage
+schema giữ tương thích.
+
+### Added
+
+- `services/autonomy/lore_material.py` đọc bullet từ section allowlist của chính
+  `config/prompts/mai_lore.txt`, cap anchor và xoay vòng có cửa sổ chống lặp bounded.
+- Feature `self_talk_lore` phụ thuộc `self_talk_planner`; có metric reserve/commit/release/unavailable.
+- Cấu hình `self_talk.lore_material` sở hữu section allowlist và bounds, không nhân đôi fact lore.
+
+### Delivery semantics
+
+- Lore material chỉ advance sau output được giao thành công; generation/filter/delivery failure release
+  reservation và không consume candidate.
+- Toggle OFF hoặc lore thiếu/rỗng/không có bullet hợp lệ quay về silence self-talk hiện tại.
+- Director vẫn quyết định thời điểm nói; lore không được nâng priority hoặc tạo viewer/operator event.
+
+Rollback: tắt `features.self_talk_lore`; không có migration hay data-schema change.
+
 ## [1.3.1] — 2026-08-13
 
 Refactor nội bộ composition runtime và Director execution để giảm coupling, không đổi public contract,

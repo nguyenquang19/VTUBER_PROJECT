@@ -33,6 +33,9 @@ def test_repository_runtime_config_is_valid() -> None:
     assert validated.self_talk_stage_repeat_min_tokens == 4
     assert validated.self_talk_silence_allow_question is True
     assert validated.self_talk_question_particles == ("nhỉ", "hả", "ư")
+    assert validated.self_talk_lore_max_anchor_chars == 280
+    assert validated.self_talk_lore_no_repeat_last_n == 6
+    assert "Thích" in validated.self_talk_lore_sections
 
 
 @pytest.mark.parametrize(
@@ -55,6 +58,14 @@ def test_repository_runtime_config_is_valid() -> None:
         (
             "self_talk", "self_talk.stage_repeat_threshold", 1.1,
             "self_talk_stage_repeat_threshold",
+        ),
+        (
+            "self_talk", "self_talk.lore_material.max_anchor_chars", 0,
+            "self_talk_lore_max_anchor_chars",
+        ),
+        (
+            "self_talk", "self_talk.lore_material.no_repeat_last_n", -1,
+            "self_talk_lore_no_repeat_last_n",
         ),
         ("system", "dashboard.port", 70000, "dashboard_port"),
         ("system", "dashboard.gpu_metrics.timeout_s", 0, "gpu_metrics_timeout_s"),

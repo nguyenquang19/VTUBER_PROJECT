@@ -215,6 +215,14 @@ features:
     depends_on: []
     conflicts_with: []
 
+  self_talk_lore:
+    enabled: true               # grounded, delivery-aware character lore during quiet chat
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: agent
+    depends_on: [self_talk_planner]
+    conflicts_with: []
+
   behavior_library:
     enabled: true               # M5 structured host behaviors with safety overrides
     vram_cost_mb: 0
