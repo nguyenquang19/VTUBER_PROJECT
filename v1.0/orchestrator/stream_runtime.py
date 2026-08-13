@@ -381,8 +381,16 @@ class StreamRuntime:
         """Chạy 1 ambient turn — share turn_lock với ChatRouter (không đè chat turn)."""
         req_id = f"ambient_{uuid.uuid4().hex[:8]}"
         async with self._router.turn_lock:
+            deferred = hasattr(self._runner, "finalize_delivery")
             try:
-                parsed = await self._runner.run_ambient_turn(req_id, decision.prompt_text)
+                if deferred:
+                    parsed = await self._runner.run_ambient_turn(
+                        req_id, decision.prompt_text, defer_delivery_commit=True,
+                    )
+                else:
+                    parsed = await self._runner.run_ambient_turn(
+                        req_id, decision.prompt_text,
+                    )
             except Exception as e:
                 self._log.warning("ambient_turn_failed", error=str(e))
                 return
@@ -390,27 +398,61 @@ class StreamRuntime:
             # Canned fallback giữ ok=False cho data-quality nhưng text vẫn phải
             # được deliver trong legacy autonomy path.
             if not parsed.text:
+                if deferred:
+                    self._runner.finalize_delivery(req_id, False)
                 return
 
             # Post-check dedup: regen 1 lần nếu quá giống ambient gần đây
             if self._autonomy.check_dedup(parsed.text):
                 self._log.info("ambient_dedup_hit_regen", category=decision.category)
+                regen_req_id = req_id + "_r"
                 try:
-                    parsed = await self._runner.run_ambient_turn(req_id + "_r", decision.prompt_text)
+                    if deferred:
+                        regenerated = await self._runner.run_ambient_turn(
+                            regen_req_id,
+                            decision.prompt_text,
+                            defer_delivery_commit=True,
+                        )
+                    else:
+                        regenerated = await self._runner.run_ambient_turn(
+                            regen_req_id, decision.prompt_text,
+                        )
+                    if regenerated.text:
+                        if deferred:
+                            self._runner.finalize_delivery(req_id, False)
+                        req_id = regen_req_id
+                        parsed = regenerated
+                    elif deferred:
+                        self._runner.finalize_delivery(regen_req_id, False)
                 except Exception:
                     pass  # fail-open N7, dùng bản đầu
 
-            # Confirm spoke: reset urge + record opener + dedup
-            self._autonomy.on_self_spoke(parsed.text)
-            # A6: ghi self-talk vào history → chat đáp lại sẽ khớp continuity
-            self._runner.commit_self_talk(parsed.text)
+            if self._speak is None:
+                if deferred:
+                    self._runner.finalize_delivery(req_id, False)
+                self._log.warning("ambient_delivery_sink_missing", request_id=req_id)
+                return
+            try:
+                delivery = await self._speak(req_id, parsed.text)
+            except Exception as e:
+                if deferred:
+                    self._runner.finalize_delivery(req_id, False)
+                self._log.warning("ambient_speak_failed", error=str(e))
+                return
+            delivered = getattr(delivery, "delivered", False) is True
+            if deferred:
+                self._runner.finalize_delivery(req_id, delivered)
+            if not delivered:
+                self._log.warning(
+                    "ambient_delivery_not_reached",
+                    request_id=req_id,
+                    mode=str(getattr(delivery, "mode", "unknown")),
+                )
+                return
 
-            # TTS phát audio (nếu wire)
-            if self._speak is not None and parsed.text:
-                try:
-                    await self._speak(req_id, parsed.text)
-                except Exception as e:
-                    self._log.warning("ambient_speak_failed", error=str(e))
+            # Continuity/autonomy state changes only after a typed delivery success.
+            self._autonomy.on_self_spoke(parsed.text)
+            self._runner.commit_self_talk(parsed.text)
 
     # ─────────────────────── Context builders ───────────────────────
 

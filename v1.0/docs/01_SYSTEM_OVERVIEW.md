@@ -1,6 +1,6 @@
 # 01 — Tổng quan hệ thống
 
-> **Applies to:** Mai `1.1.0` (baseline `1.0.0`)
+> **Applies to:** Mai `1.3.0` (baseline `1.0.0`)
 >
 > **Release baseline:** `docs/00_V1_0_BASELINE.md`
 
@@ -24,6 +24,7 @@ commit side effect và phục vụ dashboard.
 - Mood legacy + TurnAffect/SessionMood v2, hợp nhất thành một `ResponsePlan` Hybrid.
 - Rule filter, regeneration và canned fallback.
 - VieNeu-TTS streaming, audio queue không overlap và subtitle file fallback.
+- VTube Studio animation adapter, trigger expression theo mood sau delivery thành công.
 - Working memory; semantic memory tùy chọn; relationship memory trong SQLite.
 - Transaction delivery-aware và decision record.
 - Dashboard operator v2, dashboard legacy, health/recovery/emergency/shutdown.
@@ -32,7 +33,6 @@ commit side effect và phục vụ dashboard.
 Chưa phải input/output production chính:
 
 - STT/voice input có interface nhưng `input_voice` đang tắt.
-- Animation adapter thực chưa nằm trong live pipeline mặc dù interface/feature placeholder tồn tại.
 - Environment/game action thật chưa được nối vào side-effect executor.
 - Fine-tuned model candidate không thay model production hiện tại.
 

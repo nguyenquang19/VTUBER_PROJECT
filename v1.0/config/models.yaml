@@ -45,6 +45,9 @@ llm_main:
   # Persona prefix (system message) — giữ byte-ổn định để llama-server KV-cache
   # reuse (cache_prompt:true). Dựng từ config/prompts/persona_system.txt Phần A+B+C. Xem prompt_cache 1.C.
   persona_prompt_path: ".\\config\\prompts\\persona_system.txt"
+  # 1.3.0: lore chi tiết nhân vật, nối sau persona thành cùng prefix byte-stable.
+  # Bỏ trống/xóa file = chỉ dùng persona (không lỗi).
+  lore_prompt_path: ".\\config\\prompts\\mai_lore.txt"
   max_history_turns: 10         # 12→10 (2026-07-31): giảm prefill LLM khi GPU chia với TTS.
                                 # Mai nhớ 10 cặp turn ≈ 5-8 phút hội thoại — đủ cho MVP.
                                 # Bật lên lại nếu thấy Mai quên chuyện vừa nói.

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
+from typing import Any, Awaitable, Callable
 
 from interfaces.base import HealthStatus
 from interfaces.tts import TTSDeliveryMode, TTSDeliveryResult
@@ -25,9 +26,21 @@ class _Router:
 class _Runner:
     def __init__(self) -> None:
         self.committed: list[str] = []
+        self.finalized: list[tuple[str, bool]] = []
 
-    async def run_ambient_turn(self, request_id: str, prompt_text: str):
+    async def run_ambient_turn(
+        self,
+        request_id: str,
+        prompt_text: str,
+        *,
+        defer_delivery_commit: bool = False,
+    ) -> SimpleNamespace:
+        assert defer_delivery_commit is True
         return SimpleNamespace(text="Câu dự phòng", ok=False)
+
+    def finalize_delivery(self, request_id: str, success: bool) -> bool:
+        self.finalized.append((request_id, success))
+        return True
 
     def commit_self_talk(self, text: str) -> None:
         self.committed.append(text)
@@ -44,9 +57,26 @@ class _Autonomy:
         self.spoken.append(text)
 
 
-async def test_legacy_ambient_delivers_nonempty_canned_fallback() -> None:
+def _legacy_runtime(
+    speak: Callable[[str, str], Awaitable[Any]] | None,
+) -> tuple[StreamRuntime, _Runner, _Autonomy]:
     runner = _Runner()
     autonomy = _Autonomy()
+    runtime = StreamRuntime(
+        loader=object(),
+        llm_svc=object(),
+        runner=runner,
+        emotion=object(),
+        chat_router=_Router(),
+        autonomy=autonomy,
+        metrics=object(),
+        speak=speak,
+        cfg=StreamRuntimeConfig(enable_autonomy=True),
+    )
+    return runtime, runner, autonomy
+
+
+async def test_legacy_ambient_delivers_nonempty_canned_fallback() -> None:
     deliveries: list[tuple[str, str]] = []
 
     async def speak(request_id: str, text: str) -> TTSDeliveryResult:
@@ -60,17 +90,7 @@ async def test_legacy_ambient_delivers_nonempty_canned_fallback() -> None:
             subtitle_sentences=1,
         )
 
-    runtime = StreamRuntime(
-        loader=object(),
-        llm_svc=object(),
-        runner=runner,
-        emotion=object(),
-        chat_router=_Router(),
-        autonomy=autonomy,
-        metrics=object(),
-        speak=speak,
-        cfg=StreamRuntimeConfig(enable_autonomy=True),
-    )
+    runtime, runner, autonomy = _legacy_runtime(speak)
     decision = SimpleNamespace(category="fallback", prompt_text="prompt")
 
     await runtime._execute_ambient(decision)
@@ -79,6 +99,62 @@ async def test_legacy_ambient_delivers_nonempty_canned_fallback() -> None:
     assert deliveries[0][1] == "Câu dự phòng"
     assert runner.committed == ["Câu dự phòng"]
     assert autonomy.spoken == ["Câu dự phòng"]
+    assert [success for _, success in runner.finalized] == [True]
+
+
+async def test_legacy_ambient_missing_sink_releases_without_commit() -> None:
+    runtime, runner, autonomy = _legacy_runtime(None)
+
+    await runtime._execute_ambient(SimpleNamespace(category="fallback", prompt_text="prompt"))
+
+    assert runner.committed == []
+    assert autonomy.spoken == []
+    assert [success for _, success in runner.finalized] == [False]
+
+
+async def test_legacy_ambient_untyped_delivery_releases_without_commit() -> None:
+    async def speak(request_id: str, text: str) -> None:
+        return None
+
+    runtime, runner, autonomy = _legacy_runtime(speak)
+
+    await runtime._execute_ambient(SimpleNamespace(category="fallback", prompt_text="prompt"))
+
+    assert runner.committed == []
+    assert autonomy.spoken == []
+    assert [success for _, success in runner.finalized] == [False]
+
+
+async def test_legacy_ambient_failed_delivery_releases_without_commit() -> None:
+    async def speak(request_id: str, text: str) -> TTSDeliveryResult:
+        return TTSDeliveryResult(
+            request_id=request_id,
+            delivered=False,
+            mode=TTSDeliveryMode.NONE,
+            sentences_total=1,
+            sentences_delivered=0,
+        )
+
+    runtime, runner, autonomy = _legacy_runtime(speak)
+
+    await runtime._execute_ambient(SimpleNamespace(category="fallback", prompt_text="prompt"))
+
+    assert runner.committed == []
+    assert autonomy.spoken == []
+    assert [success for _, success in runner.finalized] == [False]
+
+
+async def test_legacy_ambient_delivery_exception_releases_without_commit() -> None:
+    async def speak(request_id: str, text: str) -> TTSDeliveryResult:
+        raise RuntimeError("delivery failed")
+
+    runtime, runner, autonomy = _legacy_runtime(speak)
+
+    await runtime._execute_ambient(SimpleNamespace(category="fallback", prompt_text="prompt"))
+
+    assert runner.committed == []
+    assert autonomy.spoken == []
+    assert [success for _, success in runner.finalized] == [False]
 
 
 class _TTSLoader:

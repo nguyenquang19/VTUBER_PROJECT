@@ -1,6 +1,6 @@
 # 02 — Pipeline dữ liệu end-to-end
 
-> **Applies to:** Mai `1.1.0` (baseline `1.0.0`)
+> **Applies to:** Mai `1.3.0` (baseline `1.0.0`)
 >
 > **Invariant chính:** generation không đồng nghĩa delivery; delivery không đồng nghĩa commit cho tới
 > khi transaction hoàn tất.
@@ -197,6 +197,10 @@ Cause `silence` là one-shot duy nhất trong một quiet episode và chỉ đư
 chat mới reset episode. Mood chỉ tạo style directive, không được tạo cause, premise hay dữ kiện mới.
 
 Nếu release, pending history/memory không được finalize và work nguồn không bị xóa giả.
+
+Quy tắc này áp dụng cả cho legacy autonomy fallback: chỉ sau khi callback delivery trả
+`delivered=true` mới được gọi `on_self_spoke()` và `commit_self_talk()`. Callback thiếu, trả `None`,
+raise exception hoặc trả `delivered=false` đều không được thay đổi continuity/autonomy state.
 
 ## 9. Output của toàn hệ thống
 

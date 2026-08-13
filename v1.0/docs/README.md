@@ -1,6 +1,6 @@
-# Tài liệu kỹ thuật Mai v1.0.0
+# Tài liệu kỹ thuật Mai
 
-> **Applies to:** Mai `1.0.0`
+> **Applies to:** Mai `1.3.0` (baseline `1.0.0`)
 >
 > **Baseline:** frozen ngày 2026-08-12
 >

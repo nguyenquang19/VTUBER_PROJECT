@@ -1,6 +1,6 @@
 # 05 — Configuration và feature toggles
 
-> **Applies to:** Mai `1.2.1` (baseline `1.0.0`)
+> **Applies to:** Mai `1.3.0` (baseline `1.0.0`)
 >
 > Product version: `config/system.yaml::app.version`; component/schema version không phải product version.
 
@@ -91,6 +91,11 @@ Sampling production hiện tại (`1.2.1`): `temperature=0.75`, `min_p=0.05`, `r
 chạy `scripts/sampling_sweep.py`): hạ temp 0.88→0.75 loại token corruption/leak ngoại ngữ mà `distinct_2`
 vẫn tăng (0.649→0.674) và lặp giảm (`exact_repetition` 0.029→0.0073); latency p95 +~21% (trong gate).
 Bỏ hẳn penalty làm lặp mô-típ nhiều hơn nên giữ penalty vừa. Nghe thử bằng `scripts/sample_conversation.py`.
+
+`llm_main.persona_prompt_path` + `llm_main.lore_prompt_path` (thêm ở `1.3.0`): `PromptCache.from_loader`
+nối persona + lore (`config/prompts/mai_lore.txt`) thành cùng system prefix. Cả hai tĩnh nên prefix vẫn
+byte-stable → KV cache reuse. Lore là chi tiết nhân vật (sở thích/bướng/sợ/đời sống/canon) → thành fact
+Mai được phép nói về mình. Bỏ trống `lore_prompt_path` = chỉ dùng persona, không lỗi.
 
 `llm_canned.timeout_primary_s` là timeout cho **toàn bộ lượt generation**, không phải riêng TTFT. Giá
 trị production phải đủ cho `num_predict / decode_tps_min` cộng prefill margin; cấu hình hiện tại dùng

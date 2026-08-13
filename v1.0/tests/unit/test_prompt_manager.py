@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from interfaces.llm import ChatMessage
+from orchestrator.config_loader import ConfigLoader
 from services.llm.prompt_cache import PromptCache, PromptCacheError
 from services.llm.prompt_manager import PromptManager
 
@@ -64,6 +65,71 @@ class TestPromptCache:
         assert "Định dạng trả lời BẮT BUỘC" not in c.text
         # A5: persona có rào chống bịa
         assert "KHÔNG BỊA" in c.text
+
+    def test_from_loader_combines_persona_and_lore(self, tmp_path: Path) -> None:
+        persona = tmp_path / "persona.txt"
+        lore = tmp_path / "lore.txt"
+        persona.write_text("persona ổn định", encoding="utf-8")
+        lore.write_text("lore của Mai", encoding="utf-8")
+
+        class Loader:
+            def get(self, name: str, key: str, default=None):
+                values = {
+                    ("models", "llm_main.persona_prompt_path"): str(persona),
+                    ("models", "llm_main.lore_prompt_path"): str(lore),
+                }
+                return values.get((name, key), default)
+
+        combined = PromptCache.from_loader(Loader())
+        persona_only = PromptCache("persona ổn định")
+        assert combined.text == "persona ổn định\n\nlore của Mai"
+        assert combined.version != persona_only.version
+
+    def test_from_loader_missing_or_empty_lore_falls_back_to_persona(
+        self, tmp_path: Path,
+    ) -> None:
+        persona = tmp_path / "persona.txt"
+        persona.write_text("persona ổn định", encoding="utf-8")
+
+        class Loader:
+            def __init__(self, lore_path: Path) -> None:
+                self.lore_path = lore_path
+
+            def get(self, name: str, key: str, default=None):
+                if (name, key) == ("models", "llm_main.persona_prompt_path"):
+                    return str(persona)
+                if (name, key) == ("models", "llm_main.lore_prompt_path"):
+                    return str(self.lore_path)
+                return default
+
+        missing = PromptCache.from_loader(Loader(tmp_path / "missing.txt"))
+        empty_path = tmp_path / "empty.txt"
+        empty_path.write_text("  \n", encoding="utf-8")
+        empty = PromptCache.from_loader(Loader(empty_path))
+        assert missing.text == "persona ổn định"
+        assert empty.text == "persona ổn định"
+
+    def test_from_loader_missing_persona_fails_fast(self, tmp_path: Path) -> None:
+        class Loader:
+            def get(self, name: str, key: str, default=None):
+                if (name, key) == ("models", "llm_main.persona_prompt_path"):
+                    return str(tmp_path / "missing.txt")
+                return default
+
+        with pytest.raises(PromptCacheError, match="không thấy persona prompt"):
+            PromptCache.from_loader(Loader())
+
+    def test_real_loader_paths_do_not_depend_on_process_cwd(
+        self, tmp_path: Path, monkeypatch,
+    ) -> None:
+        loader = ConfigLoader(REPO_ROOT / "config")
+        loader.load_all()
+        monkeypatch.chdir(tmp_path)
+
+        combined = PromptCache.from_loader(loader)
+
+        assert "KHÔNG BỊA" in combined.text
+        assert "đội quân" in combined.text
 
 
 class TestBuildMessages:

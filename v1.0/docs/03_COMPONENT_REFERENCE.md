@@ -1,6 +1,6 @@
 # 03 — Component reference
 
-> **Applies to:** Mai `1.1.0` (baseline `1.0.0`)
+> **Applies to:** Mai `1.3.0` (baseline `1.0.0`)
 >
 > Dùng tài liệu này để tìm owner; không đặt behavior mới vào file tiện tay gần nhất.
 
@@ -187,7 +187,10 @@ token count, decode throughput và cancel request.
 ### `services/llm/prompt_manager.py`
 
 Load persona system prompt, giữ history bounded, ghép mood/agent/memory/relationship/action context.
-Persona prefix cần byte-stable để tận dụng cache. Không commit history ở đây trước delivery.
+Persona prefix cần byte-stable để tận dụng cache. Không commit history ở đây trước delivery. Từ `1.3.0`,
+`PromptCache.from_loader` nối persona + lore (`llm_main.lore_prompt_path`) thành cùng prefix; cả hai tĩnh
+nên prefix vẫn byte-stable. Cờ `llm_main.inject_mood_directive` (mặc định true) bật/tắt mood directive
+trong `[Context]` block.
 
 ### `services/llm/llm_turn.py`
 

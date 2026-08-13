@@ -3,6 +3,46 @@
 Mọi thay đổi product sau baseline dùng Semantic Versioning. Product version nằm tại
 `config/system.yaml::app.version`; schema/component version là trục độc lập.
 
+## [1.3.0] — 2026-08-13
+
+Thêm lore chi tiết nhân vật cho Mai (dễ thương, hợp trẻ em) để giọng ra "người có cá tính + đời sống",
+không phải template. Minor: thêm capability, tương thích ngược (không có file lore = hành vi cũ).
+
+### Added — character lore
+
+- `config/prompts/mai_lore.txt`: chi tiết nhân vật — sở thích (sưu tầm thú bông, hảo ngọt), bướng yêu
+  (bánh quy phải chấm sữa, kem sô-cô-la vô địch), sợ/ghét (gián, bị tắt), đời sống/gag (ám ảnh mốc
+  follow, main character bị "ông" dìm), tật, cách cư xử theo vai, canon. Định hướng cute-ngang, trêu lành.
+- `config/models.yaml::llm_main.lore_prompt_path`: đường dẫn lore. `PromptCache.from_loader`
+  (`services/llm/prompt_cache.py`) nối persona + lore thành cùng system prefix; cả hai tĩnh nên prefix
+  vẫn byte-stable → KV cache reuse giữ nguyên. Thiếu file lore → chỉ dùng persona, không lỗi.
+- Lore thành "fact được phép nói về chính mình" (khớp luật chống-bịa của persona): Mai được kể về thú
+  bông/đồ ngọt/gag của mình, không phải bịa người khác.
+
+### Ranh giới
+
+- Quan hệ CỤ THỂ đang lớn dần (regular, bạn) KHÔNG vào lore — thuộc relationship memory. Lore chỉ giữ
+  thái độ theo vai (ông/regular-chung/chat mới) và canon cố định.
+
+### Chưa làm (follow-up)
+
+- Đẩy lore vào grounded material cho `self_talk_planner` (để Mai tự lôi lore ra nói khi chat vắng). Bản
+  1.3.0 mới nối lore vào prompt trả lời thường; phần self-talk idle để bản sau.
+
+### Docs
+
+- `docs/00_V1_0_BASELINE.md`, `docs/03_COMPONENT_REFERENCE.md`, `docs/05_CONFIGURATION.md`.
+
+### Fixed — release stabilization
+
+- Đồng bộ product version `1.3.0` giữa config, README, AGENTS, core docs và documentation guard.
+- Đồng bộ runtime data-contract view với SFT/DPO schema `2` đã phát hành ở `1.2.0`.
+- Legacy autonomy chỉ finalize history/continuity sau khi delivery trả `delivered=true`; callback thiếu,
+  lỗi hoặc không delivered đều release pending outcome và không commit self-talk.
+- Bổ sung regression cho persona+lore prefix, delivery failure, strict turn journal và dataset schema v2.
+
+Rollback: xóa/để trống `lore_prompt_path` → về persona cũ.
+
 ## [1.2.1] — 2026-08-13
 
 Tune sampling `llm_main` để Mai bớt "sặc AI", giọng tự nhiên hơn. Patch, tương thích ngược: chỉ đổi

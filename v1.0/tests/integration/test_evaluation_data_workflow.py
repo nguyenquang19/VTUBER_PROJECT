@@ -50,10 +50,13 @@ def test_contract_gate_correction_override_and_session_split_work_together() -> 
     }
     scrubber = DatasetScrubber()
     sft = build_sft(
-        selected, {identity: "bad"}, {identity: correction["corrected"]},
-        "ref", "", scrubber,
+        selected, [turn], {identity}, {identity: "bad"},
+        {identity: correction["corrected"]}, "ref", "", scrubber=scrubber,
     )
-    dpo = build_dpo([], [correction], {identity: turn}, scrubber)
+    dpo = build_dpo(
+        [], [correction], {identity: turn}, [turn], {identity},
+        "ref", "", scrubber=scrubber,
+    )
 
     assert report["eligible_turns"] == 1
     assert sft[0]["messages"][-1]["content"] == "grounded correction"

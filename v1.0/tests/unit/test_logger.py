@@ -17,6 +17,17 @@ from orchestrator.logger import (
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
+def _turn_record(turn_id: int, **overrides):
+    record = {
+        "schema_version": 3,
+        "turn_id": turn_id,
+        "request_id": f"request-{turn_id}",
+        "kind": "chat_reply",
+    }
+    record.update(overrides)
+    return record
+
+
 class TestJsonlWriter:
     def test_write_appends_one_line_per_record(self, tmp_path: Path) -> None:
         path = tmp_path / "events.jsonl"
@@ -146,7 +157,7 @@ class TestTurnLogger:
     def test_log_turn_adds_timestamp(self, tmp_path: Path) -> None:
         path = tmp_path / "turns.jsonl"
         tl = TurnLogger(JsonlWriter(path))
-        tl.log_turn({"turn_id": 1, "prompt": "hi"})
+        tl.log_turn(_turn_record(1, user_text="hi"))
         record = json.loads(path.read_text(encoding="utf-8").strip())
         assert record["turn_id"] == 1
         assert "timestamp" in record
@@ -154,7 +165,7 @@ class TestTurnLogger:
     def test_log_turn_preserves_given_timestamp(self, tmp_path: Path) -> None:
         path = tmp_path / "turns.jsonl"
         tl = TurnLogger(JsonlWriter(path))
-        tl.log_turn({"turn_id": 2, "timestamp": "2026-07-30T00:00:00Z"})
+        tl.log_turn(_turn_record(2, timestamp="2026-07-30T00:00:00Z"))
         record = json.loads(path.read_text(encoding="utf-8").strip())
         assert record["timestamp"] == "2026-07-30T00:00:00+00:00"
 
@@ -170,22 +181,17 @@ class TestTurnLogger:
         """Schema ARCHITECTURE 9.3 — nested dict/list phải giữ nguyên."""
         path = tmp_path / "turns.jsonl"
         tl = TurnLogger(JsonlWriter(path))
-        turn = {
-            "turn_id": 12345,
-            "trigger": {"type": "chat_mention", "priority": 80, "queue_wait_ms": 250},
-            "state_transitions": [
-                {"from": "IDLE", "to": "THINKING", "at": "10:30:15.123"},
-                {"from": "THINKING", "to": "SPEAKING", "at": "10:30:15.560"},
-            ],
-            "latency": {"ttfa_ms": 720, "total_ms": 1735},
-            "features_active": ["filter_rule", "tts_streaming"],
-        }
+        turn = _turn_record(
+            12345,
+            mood_state={"vui": 7, "buon": 0},
+            mood_cause={"event_id": "chat-1", "alias": "viewer"},
+            filter_verdict={"passed": True, "categories": []},
+        )
         tl.log_turn(turn)
         record = json.loads(path.read_text(encoding="utf-8").strip())
-        assert record["trigger"]["priority"] == 80
-        assert len(record["state_transitions"]) == 2
-        assert record["latency"]["ttfa_ms"] == 720
-        assert record["features_active"] == ["filter_rule", "tts_streaming"]
+        assert record["mood_state"]["vui"] == 7
+        assert record["mood_cause"]["event_id"] == "chat-1"
+        assert record["filter_verdict"]["passed"] is True
 
 
 class TestSetupLogging:
@@ -218,7 +224,7 @@ class TestSetupLogging:
 
     def test_returns_working_turn_logger(self, tmp_path: Path) -> None:
         turn_logger = setup_logging(log_dir=tmp_path, console_enabled=False)
-        turn_logger.log_turn({"turn_id": 7})
+        turn_logger.log_turn(_turn_record(7))
         record = json.loads((tmp_path / "turns.jsonl").read_text(encoding="utf-8").strip())
         assert record["turn_id"] == 7
 
