@@ -1,8 +1,8 @@
-# Project: Mai 1.4.0 - AI VTuber
+# Project: Mai 1.4.1 - AI VTuber
 
 ## Product baseline
 
-- Current frozen baseline: `1.0.0`; product version hiện tại `1.4.0` (minor). Source:
+- Current frozen baseline: `1.0.0`; product version hiện tại `1.4.1` (patch). Source:
   `config/system.yaml::app.version`.
 - Đọc `docs/00_V1_0_BASELINE.md` trước mọi task để phân biệt capability production, optional và
   interface-only.

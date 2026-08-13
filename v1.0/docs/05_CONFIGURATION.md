@@ -1,6 +1,6 @@
 # 05 — Configuration và feature toggles
 
-> **Applies to:** Mai `1.4.0` (baseline `1.0.0`)
+> **Applies to:** Mai `1.4.1` (baseline `1.0.0`)
 >
 > Product version: `config/system.yaml::app.version`; component/schema version không phải product version.
 

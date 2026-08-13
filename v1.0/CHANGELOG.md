@@ -3,6 +3,23 @@
 Mọi thay đổi product sau baseline dùng Semantic Versioning. Product version nằm tại
 `config/system.yaml::app.version`; schema/component version là trục độc lập.
 
+## [1.4.1] — 2026-08-14
+
+Hợp nhất production entrypoint: bootstrap command lịch sử không còn có thể mở một dashboard-only
+pseudo-runtime song song với live stack.
+
+### Fixed
+
+- `python -m orchestrator.main` fail-fast với exit code `2` và chỉ dẫn tới
+  `scripts/start_live.ps1`; không bind port, chạy migration hoặc khởi động service.
+- `scripts/start_live.ps1` và hai platform script tiếp tục là đường production duy nhất, compose
+  `orchestrator.stream_runtime.StreamRuntime` có đủ LLM/TTS/Director/operations boundary.
+- Giữ các state-machine/trigger module và `/legacy` dashboard cho test/rollback; không diễn giải chúng
+  thành composition root production.
+
+Rollback: revert patch này nếu cần bootstrap dashboard-only lịch sử; không có migration/config-data
+change ngoài product version.
+
 ## [1.4.0] — 2026-08-13
 
 Đưa character lore đã duyệt vào grounded material của Thought Engine để Mai có thể tự kể về mình khi

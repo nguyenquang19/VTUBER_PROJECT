@@ -1,6 +1,6 @@
 # 08 — Security, privacy và recovery
 
-> **Applies to:** Mai `1.4.0` (baseline `1.0.0`)
+> **Applies to:** Mai `1.4.1` (baseline `1.0.0`)
 >
 > Recovery phải giữ provenance/version; không restore dữ liệu cũ như thể nó thuộc schema mới.
 

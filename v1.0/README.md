@@ -1,6 +1,6 @@
-# Mai 1.4.0 — AI VTuber runtime
+# Mai 1.4.1 — AI VTuber runtime
 
-> **Current product release:** `1.4.0` (minor trên frozen baseline `1.0.0`, 2026-08-13).
+> **Current product release:** `1.4.1` (patch trên frozen baseline `1.0.0`, 2026-08-14).
 >
 > Mọi thay đổi product được chấp nhận sau baseline phải tăng version và cập nhật `CHANGELOG.md`.
 
@@ -27,6 +27,10 @@ $env:DISCORD_BOT_TOKEN = "YOUR_TOKEN"
 Launcher mặc định bật TTS và dashboard. Thêm `-Memory` để bật semantic memory. Dashboard ở
 `http://127.0.0.1:7860`; dashboard cũ luôn còn tại `/legacy`. OBS có thể đọc subtitle fallback từ
 `logs\live\subtitle.txt`.
+
+`python -m orchestrator.main` là entrypoint bootstrap cũ và từ `1.4.1` chỉ fail-fast với hướng dẫn;
+không dùng lệnh đó để chạy live. Production chỉ đi qua launcher PowerShell ở trên hoặc hai platform
+entrypoint mà launcher gọi.
 
 ## Bắt đầu đọc tài liệu
 

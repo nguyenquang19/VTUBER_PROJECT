@@ -1,6 +1,6 @@
 # 03 — Component reference
 
-> **Applies to:** Mai `1.4.0` (baseline `1.0.0`)
+> **Applies to:** Mai `1.4.1` (baseline `1.0.0`)
 >
 > Dùng tài liệu này để tìm owner; không đặt behavior mới vào file tiện tay gần nhất.
 
@@ -18,6 +18,9 @@ Từ `1.3.1`, các helper composition thuần nội bộ được tách theo own
 - `orchestrator/runtime_operations.py`: dashboard, recovery, emergency và shutdown wiring.
 
 Các module này không phải composition root mới và không được tự đổi thứ tự lifecycle.
+
+`orchestrator/main.py` chỉ là compatibility shim fail-fast cho command cũ. Nó không được import hoặc
+compose dashboard, state machine, trigger manager hay service production.
 
 Input: `ConfigLoader`, danh sách `InputService`, `StreamRuntimeConfig`.
 

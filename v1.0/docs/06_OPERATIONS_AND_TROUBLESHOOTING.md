@@ -1,6 +1,6 @@
 # 06 — Operations và troubleshooting
 
-> **Applies to:** Mai `1.4.0` (baseline `1.0.0`)
+> **Applies to:** Mai `1.4.1` (baseline `1.0.0`)
 >
 > Lệnh trong tài liệu dùng PowerShell trên Windows 11.
 
@@ -27,6 +27,9 @@ dùng để cô lập lỗi. Preflight report nằm ở `logs/operations/live_pr
 
 Runtime tự start llama-server khi `live_operations` và `manage_llama_process` bật. Health LLM vẫn là
 blocking gate sau startup; preflight thành công không thay thế runtime health.
+
+Không chạy `python -m orchestrator.main`: đây là command bootstrap lịch sử và hiện thoát mã `2` kèm
+hướng dẫn. Nó không mở dashboard riêng, không bind port và không đại diện health/metrics của live stack.
 
 ## 2. Endpoint và output vận hành
 

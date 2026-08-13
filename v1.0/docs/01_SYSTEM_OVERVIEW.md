@@ -1,6 +1,6 @@
 # 01 — Tổng quan hệ thống
 
-> **Applies to:** Mai `1.4.0` (baseline `1.0.0`)
+> **Applies to:** Mai `1.4.1` (baseline `1.0.0`)
 >
 > **Release baseline:** `docs/00_V1_0_BASELINE.md`
 
@@ -81,6 +81,9 @@ TTS, feature bindings và operations wiring cho `orchestrator/runtime_tts.py`,
 `stream_runtime.py` sở hữu. Business decision thuộc `Director`; generation thuộc `LLMTurnRunner`; delivery
 thuộc `TTSPipeline`; commit thuộc `DirectorLoop` + transaction manager. Dashboard chỉ đọc snapshot
 và gửi operator command qua control plane, không tự suy luận hay tự sửa state nguồn.
+
+`orchestrator/main.py` không phải composition root thứ hai. Từ `1.4.1`, module này chỉ fail-fast và
+trỏ về launcher chuẩn để không thể vô tình mở dashboard-only pseudo-runtime thiếu LLM/TTS/Director.
 
 Quy tắc ownership:
 

@@ -21,8 +21,8 @@ Chạy:
     # auto (mỗi arg 1 lượt):
     .\\venv\\Scripts\\python.exe scripts\\cli.py --tts "chào Mai"
 
-LƯU Ý: dashboard phải chạy CÙNG process với chat/TTS thì mới thấy metrics —
-metrics là trong-process (chạy `orchestrator.main` riêng sẽ KHÔNG thấy).
+LƯU Ý: dashboard phải chạy CÙNG process với chat/TTS thì mới thấy metrics.
+`orchestrator.main` là compatibility shim và không khởi động runtime.
 """
 from __future__ import annotations
 
