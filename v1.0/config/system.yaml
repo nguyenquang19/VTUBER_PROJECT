@@ -2,7 +2,7 @@
 
 app:
   name: mai
-  version: "1.4.1"
+  version: "1.4.2"
 
 dashboard:
   host: "127.0.0.1"

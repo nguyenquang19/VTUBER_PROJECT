@@ -1,6 +1,6 @@
 # 08 — Security, privacy và recovery
 
-> **Applies to:** Mai `1.4.1` (baseline `1.0.0`)
+> **Applies to:** Mai `1.4.2` (baseline `1.0.0`)
 >
 > Recovery phải giữ provenance/version; không restore dữ liệu cũ như thể nó thuộc schema mới.
 
@@ -43,6 +43,8 @@ làm identity mapping không còn nối được, vì vậy backup salt phải t
 - Relationship memory có TTL/max item và pseudonymous profile.
 - Dashboard snapshot bounded.
 - Evaluation/release evidence sanitized và không chứa raw transcript.
+- Release builder coi preflight/verification JSON là input không tin cậy: validate marker, kiểu dữ liệu,
+  version và invariant nội tại; malformed/tampered/stale report phải fail closed.
 - Dataset chỉ nhận turn có delivery outcome xác thực; pending/failed attempt ở raw journal nhưng bị
   quarantine khỏi train artifact.
 - Xóa corpus lỗi thời phải backup trước, verify SHA-256, liệt kê exact target và không đụng DB/salt.

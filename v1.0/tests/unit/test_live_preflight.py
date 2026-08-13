@@ -32,6 +32,7 @@ def _loader(tmp_path: Path) -> ConfigLoader:
         "chat_sources.yaml": {"discord": {
             "token_env_var": "DISCORD_BOT_TOKEN", "channel_ids": [123],
         }},
+        "system.yaml": {"app": {"version": "1.4.2"}},
     }
     for name, content in files.items():
         (config_dir / name).write_text(yaml.safe_dump(content), encoding="utf-8")
@@ -50,6 +51,9 @@ def test_youtube_preflight_ready_without_running_server(tmp_path: Path) -> None:
         os_name="Windows", python_version=(3, 11, 9),
     )
     assert report["ready"] is True
+    assert report["marker"] == "mai_live_preflight"
+    assert report["sanitized"] is True
+    assert report["product_version"] == "1.4.2"
     assert all("token" not in item["detail"].lower() or "variable" in item["detail"].lower()
                for item in report["checks"])
 

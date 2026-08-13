@@ -149,6 +149,9 @@ def run_preflight(
     ready = all(check.passed for check in checks if check.blocking)
     return {
         "schema_version": 1,
+        "marker": "mai_live_preflight",
+        "sanitized": True,
+        "product_version": str(loader.get("system", "app.version", "")),
         "ready": ready,
         "platform": normalized_platform,
         "checks": [asdict(check) for check in checks],

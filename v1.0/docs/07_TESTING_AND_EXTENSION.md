@@ -1,6 +1,6 @@
 # 07 — Testing và extension guide
 
-> **Applies to:** Mai `1.4.1` (baseline `1.0.0`)
+> **Applies to:** Mai `1.4.2` (baseline `1.0.0`)
 >
 > Mọi change được phát hành sau baseline phải tăng product version và có changelog/regression evidence.
 
@@ -178,6 +178,13 @@ cùng input/context/seed và human sample nếu đổi wording/style. Luôn gi�
 
 Sau targeted test, chạy offline regression. Nếu đổi llama command/client/parser, chạy marker `llm`. Nếu
 đổi queue/bounds/lifecycle, chạy marker `slow` hoặc soak tương ứng.
+
+Release evidence chỉ được báo `software_ready=true` khi có automated verification sanitized của đúng
+`system.app.version`, gồm đủ nhóm `targeted`, `offline`, `llm`, `slow`, `smoke`, mỗi nhóm có ít nhất một
+test pass và `failures=0`. Test của evidence builder phải bao phủ JSON malformed/key trùng,
+marker/sanitized sai, stale version,
+thiếu nhóm, preflight có check trùng tên và cờ `ready` không khớp blocking checks. Không ghi đè artifact
+M8/M10 đã đóng băng để hợp thức hóa release mới.
 
 Refactor composition/action nội bộ phải giữ import tương thích cho entrypoint đang dùng, đồng thời có
 boundary test xác nhận `stream_runtime.py` vẫn là composition root và `DirectorLoop` vẫn sở hữu

@@ -1,6 +1,6 @@
 # 04 — Data contracts và storage
 
-> **Applies to:** Mai `1.4.1` (baseline `1.0.0`)
+> **Applies to:** Mai `1.4.2` (baseline `1.0.0`)
 >
 > **Frozen data matrix:** architecture `mai-agent-v1`, turn `3`, delivery `1`, canonical `1`.
 >
@@ -74,6 +74,12 @@ transaction/delivery outcome. Record phục vụ operator; không phải raw rea
 | `backups/data/dataset_artifacts/backup_*` | files + manifest | backup script | dataset bundles + SHA-256 | restore vào `data/datasets` |
 | `backups/mai.db.pre_migration_*` | SQLite copy | MigrationRunner | DB trước migration | manual DB recovery |
 | `docs/baselines/*.json` | JSON | eval/release scripts | sanitized machine evidence | versioned evidence |
+
+Release evidence mới không được sửa artifact milestone đã đóng băng. Mỗi release dùng hai input có
+contract riêng: `release_verification_<version>.json` ghi kết quả test tự động của đúng product version;
+`live_preflight.json` ghi kiểm tra platform/runtime tại máy vận hành. Cả hai phải có marker, schema,
+`sanitized=true` và `product_version` khớp `config/system.yaml`; thiếu, malformed, stale hoặc tự mâu thuẫn
+đều được coi là gate fail, không được suy diễn từ truthy field.
 
 ## 3. Turn log schema thực dụng
 

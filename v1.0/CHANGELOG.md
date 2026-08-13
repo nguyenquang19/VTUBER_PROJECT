@@ -3,6 +3,24 @@
 Mọi thay đổi product sau baseline dùng Semantic Versioning. Product version nằm tại
 `config/system.yaml::app.version`; schema/component version là trục độc lập.
 
+## [1.4.2] — 2026-08-14
+
+Siết release-readiness evidence để trạng thái sẵn sàng chỉ dựa trên báo cáo có contract hợp lệ và đúng
+product version hiện tại; các artifact milestone M10 tiếp tục là lịch sử đóng băng.
+
+### Fixed
+
+- Preflight report khai báo marker, sanitized flag và product version; release builder kiểm tra đầy đủ
+  schema, kiểu dữ liệu, tên check duy nhất và tính nhất quán của `ready` với blocking checks.
+- Automated verification được tách thành artifact theo release, bắt buộc đủ targeted/offline/llm/slow/
+  smoke và không có failure trước khi `software_ready=true`.
+- JSON malformed, tampered, thiếu contract hoặc stale version fail closed với lỗi validation sanitized;
+  không còn tin trực tiếp vào truthy `ready` hay regression result từ artifact M10 cũ.
+- Output mặc định là evidence theo product version, không ghi đè `m10_release_evidence.json`.
+
+Rollback: revert patch validator và dùng quy trình evidence `1.4.1`; không có migration hay thay đổi
+runtime generation/delivery contract.
+
 ## [1.4.1] — 2026-08-14
 
 Hợp nhất production entrypoint: bootstrap command lịch sử không còn có thể mở một dashboard-only

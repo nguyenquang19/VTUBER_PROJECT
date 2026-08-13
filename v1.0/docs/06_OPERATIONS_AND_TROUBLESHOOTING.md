@@ -1,6 +1,6 @@
 # 06 — Operations và troubleshooting
 
-> **Applies to:** Mai `1.4.1` (baseline `1.0.0`)
+> **Applies to:** Mai `1.4.2` (baseline `1.0.0`)
 >
 > Lệnh trong tài liệu dùng PowerShell trên Windows 11.
 
@@ -27,6 +27,21 @@ dùng để cô lập lỗi. Preflight report nằm ở `logs/operations/live_pr
 
 Runtime tự start llama-server khi `live_operations` và `manage_llama_process` bật. Health LLM vẫn là
 blocking gate sau startup; preflight thành công không thay thế runtime health.
+
+Preflight schema 1 từ `1.4.2` bắt buộc có `marker=mai_live_preflight`, `sanitized=true`,
+`product_version`, platform và danh sách check có tên duy nhất. `ready` phải đúng bằng phép AND của mọi
+blocking check; release builder reject báo cáo thiếu field, stale version, malformed hoặc bị sửa cờ
+`ready`. Automated verification dùng artifact riêng của release hiện tại; artifact M10 chỉ là lịch sử,
+không được dùng để khẳng định regression của code hiện tại.
+
+Sau khi chạy đủ các nhóm test và ghi `release_verification_<version>.json`, tạo evidence bằng:
+
+```powershell
+.\venv\Scripts\python.exe scripts\build_release_evidence.py
+```
+
+Output mặc định là `docs/baselines/release_evidence_<version>.json`. Có thể truyền `--preflight` để gắn
+báo cáo platform thật; không có preflight thì status phải là `software_ready_platform_preflight_pending`.
 
 Không chạy `python -m orchestrator.main`: đây là command bootstrap lịch sử và hiện thoát mã `2` kèm
 hướng dẫn. Nó không mở dashboard riêng, không bind port và không đại diện health/metrics của live stack.

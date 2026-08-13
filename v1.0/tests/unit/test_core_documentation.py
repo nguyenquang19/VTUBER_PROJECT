@@ -10,7 +10,7 @@ from orchestrator.config_loader import CONFIG_FILES
 
 
 ROOT = Path(__file__).resolve().parents[2]
-PRODUCT_VERSION = "1.4.1"
+PRODUCT_VERSION = "1.4.2"
 CORE_DOCS = (
     "00_V1_0_BASELINE.md",
     "01_SYSTEM_OVERVIEW.md",
