@@ -22,7 +22,7 @@ import uuid
 from dataclasses import replace
 from typing import Any, Awaitable, Callable
 
-from interfaces.animation import AnimationCommand, MoodState
+from interfaces.animation import MoodState
 from interfaces.decision_record import DecisionCandidateSummary
 from interfaces.self_talk import SelfTalkContext, SelfTalkStage
 from orchestrator.logger import get_logger
@@ -31,6 +31,17 @@ from services.director.chat_pulse import PulseState
 from services.director.director import Director, DirectorAction, ReadMode
 from services.director.action_context import ActionContextBuilder
 from services.director.action_types import DirectorChatRef, DirectorInput
+from services.director.delivery_boundary import DirectorDeliveryBoundary
+from services.director.action_prompts import (
+    history_text_for as _history_text_for,
+    join_directives as _join_directives,
+    proactive_thread_directive as _proactive_thread_directive,
+    read_user_text as _read_user_text,
+    room_reaction_prompt as _room_reaction_prompt,
+    self_talk_correction_prompt as _self_talk_correction_prompt,
+    stage_direction_for as _stage_direction_for,
+    timestamp as _timestamp,
+)
 from services.agent.goal_types import GoalSnapshot
 from services.agent.types import AgentStateSnapshot
 from services.agent.types import (
@@ -691,89 +702,41 @@ class DirectorLoop:
         thread_id: str | None = None,
         conversation_move: str | None = None,
     ) -> bool:
-        # `ok` đo chất lượng parse/model cho dataset. Canned fallback cố ý có
-        # ok=False nhưng vẫn là nội dung deliverable; boundary phát chỉ cần text.
-        if not getattr(parsed, "text", ""):
-            self._finalize_runner_delivery(req_id, False)
-            return False
-        verdict = getattr(self._runner, "last_filter_verdict", None)
-        if verdict is not None and getattr(verdict, "passed", True) is not True:
-            self._finalize_runner_delivery(req_id, False)
-            self._quarantine_filter_rejection(
-                refs=refs, thread_id=thread_id, goal_id=goal_id,
-            )
-            self._log.warning(
-                "director_filter_rejected",
-                request_id=req_id,
-                action=str(getattr(verdict, "suggested_action", "unknown")),
-                categories=[
-                    str(getattr(category, "value", category))
-                    for category in getattr(verdict, "categories_hit", ())
-                ],
-            )
-            return False
-        if transaction_id is not None:
-            self._transactions.mark_generated(transaction_id)
-            self._transactions.mark_delivering(transaction_id)
-        if self._speak is None:
-            self._finalize_runner_delivery(req_id, False)
-            self._log.warning("director_delivery_sink_missing", request_id=req_id)
-            return False
-        try:
-            delivery = await self._speak(req_id, parsed.text)
-        except Exception as e:
-            self._finalize_runner_delivery(req_id, False)
-            self._log.warning("director_speak_failed", error=str(e))
-            return False
-        if getattr(delivery, "delivered", False) is not True:
-            self._finalize_runner_delivery(req_id, False)
-            self._log.warning(
-                "director_delivery_not_reached",
-                mode=str(getattr(delivery, "mode", "unknown")),
-            )
-            return False
-        if transaction_id is not None:
-            self._transactions.mark_delivered(transaction_id)
-        self._finalize_runner_delivery(req_id, True)
-        self._record_speech_completed(
-            req_id, action, refs, goal_id=goal_id, text=parsed.text,
-            thread_id=thread_id, conversation_move=conversation_move,
+        return await self._delivery_boundary().deliver(
+            req_id,
+            parsed,
+            action,
+            refs,
+            goal_id=goal_id,
+            transaction_id=transaction_id,
+            thread_id=thread_id,
+            conversation_move=conversation_move,
         )
-        # Side-effect sau DELIVERED: đẩy expression theo mood trội (fail-safe).
-        if self._animation is not None:
-            try:
-                await self._animation.express(
-                    AnimationCommand(
-                        command_type="express", mood=self._current_mood(),
-                    ),
-                )
-            except Exception as e:  # pragma: no cover - defensive
-                self._log.warning("animation_express_failed", error=str(e))
-        return True
 
     async def _run_turn_deferred(self, **kwargs: Any) -> Any:
-        if hasattr(self._runner, "finalize_delivery"):
-            kwargs["defer_delivery_commit"] = True
-        return await self._runner.run_turn(**kwargs)
+        return await self._delivery_boundary().run_turn_deferred(**kwargs)
 
     async def _run_ambient_deferred(self, request_id: str, prompt: str) -> Any:
-        if hasattr(self._runner, "finalize_delivery"):
-            return await self._runner.run_ambient_turn(
-                request_id, prompt, defer_delivery_commit=True,
-            )
-        return await self._runner.run_ambient_turn(request_id, prompt)
+        return await self._delivery_boundary().run_ambient_deferred(request_id, prompt)
 
     async def _run_directed_deferred(self, request_id: str, context: str) -> Any:
-        if hasattr(self._runner, "finalize_delivery"):
-            return await self._runner.run_directed_turn(
-                request_id, context, defer_delivery_commit=True,
-            )
-        return await self._runner.run_directed_turn(request_id, context)
+        return await self._delivery_boundary().run_directed_deferred(request_id, context)
 
     def _finalize_runner_delivery(self, request_id: str, success: bool) -> None:
-        finalize = getattr(self._runner, "finalize_delivery", None)
-        if callable(finalize):
-            finalize(request_id, success)
+        self._delivery_boundary().finalize_runner_delivery(request_id, success)
+
+    def _delivery_boundary(self) -> DirectorDeliveryBoundary:
+        """Bind the helper to current attributes, including test-time replacements."""
+        return DirectorDeliveryBoundary(
+            runner=self._runner,
+            speak=self._speak,
+            transactions=self._transactions,
+            animation=self._animation,
+            mood_provider=self._current_mood,
+            speech_completed=self._record_speech_completed,
+            filter_rejected=self._quarantine_filter_rejection,
+            logger=self._log,
+        )
 
     def _quarantine_filter_rejection(
         self, *, refs: list[Any], thread_id: str | None, goal_id: str | None,
@@ -1066,124 +1029,3 @@ class DirectorLoop:
             ),
             **planner_metrics,
         }
-
-
-def _read_user_text(dec) -> str:
-    """USER turn = CHAT THẬT (SINGLE/CLUSTER/ACK). Không nhét chỉ thị vào đây."""
-    refs = dec.refs
-    if not refs:
-        return ""
-    if dec.read_mode == ReadMode.CLUSTER and len(refs) >= 1:
-        return " / ".join(r.text for r in refs[:3])   # mấy tin cùng chủ đề, text thật
-    return refs[0].text   # SINGLE / ACK: text chat thật
-
-
-def _proactive_thread_directive(thread: Any) -> str | None:
-    if thread is None:
-        return None
-    move = thread.next_move.value if thread.next_move is not None else "deepen"
-    lines = [
-        "[Grounded conversation thread]",
-        f"Thread ID: {thread.thread_id}",
-        f"Topic: {thread.topic}",
-        f"Next public move: {move}",
-        "Do not repeat an already-said point and do not invent viewer input.",
-    ]
-    if thread.claims:
-        lines.append("Already said: " + " | ".join(item.text for item in thread.claims[-2:]))
-    if thread.viewer_contributions:
-        lines.append(
-            "Viewer evidence: "
-            + " | ".join(item.text for item in thread.viewer_contributions[-2:])
-        )
-    return "\n".join(lines)
-
-
-def _self_talk_correction_prompt(
-    original_prompt: str,
-    rejected_text: str,
-    *,
-    max_sentences: int,
-    allow_question: bool,
-    require_question: bool,
-    reasons: tuple[str, ...],
-) -> str:
-    question_rule = (
-        "Phải có đúng một câu hỏi ở cuối."
-        if require_question else
-        "Không được dùng câu hỏi." if not allow_question else
-        "Chỉ hỏi nếu câu hỏi bám trực tiếp vào mạch."
-    )
-    excerpt = " ".join(str(rejected_text).split())[:320]
-    repeat_rule = (
-        "Không chép lại hoặc diễn đạt lại bản trước/câu trước; chỉ viết phần ý mới.\n"
-        if "stage_repeat" in reasons else ""
-    )
-    semantic_rule = (
-        "Câu hỏi được nhận diện theo nghĩa, kể cả khi đổi dấu '?' thành dấu '.'. "
-        "Kết thúc bằng một nhận xét khẳng định; không dùng đuôi hỏi như "
-        "nhỉ, hả, à, không, chưa, sao, gì hoặc nào.\n"
-        if "question_not_allowed" in reasons else ""
-    )
-    invite_count_rule = (
-        "Xóa các câu hỏi thừa; bản sửa chỉ được giữ đúng một câu hỏi ở cuối.\n"
-        if "invitation_question_count" in reasons else ""
-    )
-    return (
-        f"{original_prompt}\n"
-        "[SỬA HÌNH DÁNG OUTPUT — chỉ thử lại một lần]\n"
-        f"Bản trước không đạt: {', '.join(reasons)}.\n"
-        f"Viết lại tối đa {max_sentences} câu. {question_rule}\n"
-        f"{repeat_rule}{semantic_rule}{invite_count_rule}"
-        "Giữ nguyên mỏ neo và ý định; rút gọn, không giải thích việc sửa.\n"
-        f"Bản cần sửa: {excerpt}"
-    )
-def _timestamp(value: float):
-    from datetime import datetime, timezone
-    return datetime.fromtimestamp(value, tz=timezone.utc)
-
-
-def _stage_direction_for(dec) -> str | None:
-    """Chỉ thị "cách xử" lượt này → đặt ở SYSTEM (không phải user turn)."""
-    refs = dec.refs
-    if dec.read_mode == ReadMode.ACK and refs:
-        r = refs[0]
-        who = r.viewer_name or r.viewer_id or "một người"
-        return f"{who} vừa SUPERCHAT (ủng hộ tiền) — ack ngay, cảm ơn tự nhiên đúng giọng Mai."
-    if dec.read_mode == ReadMode.CLUSTER:
-        return "Mấy người đang hỏi/nói cùng chủ đề — đáp GỘP 1 lần, đừng lặp lại từng câu."
-    return None   # SINGLE: không cần chỉ thị
-
-
-def _join_directives(*values: str | None) -> str:
-    return "\n".join(value for value in values if value)
-
-
-def _room_reaction_prompt(dec) -> str:
-    """SUMMARY/VIBE: chỉ thị react không khí chat (đường ambient, không user turn)."""
-    if dec.read_mode == ReadMode.VIBE:
-        return (
-            "[Context — Mai react KHÔNG KHÍ chat, KHÔNG trả lời ai cụ thể]\n"
-            "Chat đang bùng, cả đám spam cùng kiểu. React theo VIBE bằng 1 câu ngắn "
-            "đúng giọng Mai, KHÔNG đáp lẻ từng người. Chỉ viết thoại."
-        )
-    return (
-        "[Context — Mai react KHÔNG KHÍ chat, KHÔNG trả lời ai cụ thể]\n"
-        "Chat trôi nhanh, nhiều tin lặt vặt đọc không kịp. Nói 1 câu tổng kiểu "
-        "'chat trôi nhanh quá' đúng giọng Mai, KHÔNG đáp lẻ từng tin. Chỉ viết thoại."
-    )
-
-
-def _history_text_for(dec) -> tuple[str | None, bool]:
-    """TASK 5: (history_user_text, commit_history) — text chat GỐC cho history/memory.
-
-    SINGLE/ACK → text chat thật. CLUSTER → câu gọn ghép refs. SUMMARY/VIBE →
-    (None, False): không có tin cụ thể, KHÔNG commit history/memory."""
-    refs = dec.refs
-    if dec.read_mode in (ReadMode.SUMMARY, ReadMode.VIBE) or not refs:
-        return None, False
-    if dec.read_mode == ReadMode.CLUSTER:
-        joined = " / ".join(r.text for r in refs[:3])
-        return f"(mấy người cùng hỏi) {joined}", True
-    # SINGLE / ACK → text chat gốc
-    return refs[0].text, True

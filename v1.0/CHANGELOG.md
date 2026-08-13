@@ -3,6 +3,21 @@
 Mọi thay đổi product sau baseline dùng Semantic Versioning. Product version nằm tại
 `config/system.yaml::app.version`; schema/component version là trục độc lập.
 
+## [1.3.1] — 2026-08-13
+
+Refactor nội bộ composition runtime và Director execution để giảm coupling, không đổi public contract,
+config, output, transaction hoặc delivery semantics.
+
+### Changed
+
+- Tách TTS startup gate, feature bindings và operations wiring khỏi `stream_runtime.py` thành module
+  chuyên trách; `stream_runtime.py` vẫn là composition root và giữ lifecycle order.
+- Tách pure action prompt rendering và deferred typed-delivery mechanics khỏi `director_loop.py`;
+  `DirectorLoop` vẫn là scheduler/transaction owner và chỉ commit sau delivery thành công.
+- Giữ compatibility import cho các helper đang được test/tool nội bộ sử dụng.
+
+Rollback: revert patch này; không có migration/config/data change.
+
 ## [1.3.0] — 2026-08-13
 
 Thêm lore chi tiết nhân vật cho Mai (dễ thương, hợp trẻ em) để giọng ra "người có cá tính + đời sống",

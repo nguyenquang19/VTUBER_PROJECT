@@ -35,6 +35,22 @@ from orchestrator.fallback_manager import FallbackManager
 from orchestrator.features import FeatureManager, FeatureStatus
 from orchestrator.logger import bind_log_session, get_logger, setup_from_config
 from orchestrator.metrics_collector import MetricsCollector
+from orchestrator.runtime_tts import (
+    TTSRuntimeStack as _TTSRuntimeStack,
+    build_tts_runtime_stack as _build_tts_runtime_stack,
+)
+from orchestrator.runtime_feature_bindings import (
+    attach_boolean_feature,
+    attach_set_enabled_feature,
+)
+from orchestrator.runtime_operations import (
+    build_control_plane,
+    build_emergency_controller,
+    build_health_supervisor,
+    build_incident_log,
+    configure_shutdown_coordinator,
+    start_dashboard,
+)
 from services.autonomy.material_provider import RuntimeContext
 from services.input.chat_router import ChatRouter
 from services.llm.canned_response import CannedResponder
@@ -61,17 +77,6 @@ class StreamRuntimeConfig:
     enable_autonomy: bool = True
     enable_dashboard: bool = False
     on_token: Callable[[str], None] | None = None
-
-
-@dataclass
-class _TTSRuntimeStack:
-    """Delivery stack after startup gates; primary may be degraded to subtitle-only."""
-
-    primary: Any
-    subtitle: Any
-    player: Any
-    pipeline: Any
-    degraded_reason: str | None = None
 
 
 class StreamRuntime:
@@ -604,98 +609,6 @@ class StreamRuntime:
 # ─────────────────────── Factory ───────────────────────
 
 
-async def _build_tts_runtime_stack(
-    loader: Any,
-    metrics: MetricsCollector,
-    *,
-    primary_factory: Callable[[Any], Any] | None = None,
-    subtitle_factory: Callable[[Any], Any] | None = None,
-    player_factory: Callable[[int], Any] | None = None,
-) -> _TTSRuntimeStack:
-    """Start TTS behind bounded health gates and retain a real subtitle sink."""
-    from services.tts.audio_player import AudioPlayer
-    from services.tts.subtitle_fallback import SubtitleFallbackService
-    from services.tts.tts_pipeline import TTSPipeline
-    from services.tts.vieneu_service import VieNeuTtsService
-
-    primary_factory = primary_factory or (lambda value: VieNeuTtsService.from_loader(value))
-    subtitle_factory = subtitle_factory or (
-        lambda value: SubtitleFallbackService.from_loader(value)
-    )
-    _pitch_semitones = float(loader.get("models", "tts.pitch_semitones", 0.0) or 0.0)
-    player_factory = player_factory or (
-        lambda sample_rate: AudioPlayer(sample_rate=sample_rate, pitch_semitones=_pitch_semitones)
-    )
-    startup_timeout_s = float(loader.get("models", "tts.startup_timeout_s", 30.0))
-    health_timeout_s = float(loader.get("models", "tts.health_timeout_s", 5.0))
-    fallback_enabled = bool(loader.get("models", "tts_fallback.enabled", True))
-    log = get_logger("stream_runtime")
-
-    subtitle = None
-    subtitle_error: str | None = None
-    if fallback_enabled:
-        candidate = subtitle_factory(loader)
-        try:
-            await asyncio.wait_for(candidate.start(), timeout=health_timeout_s)
-            health = await asyncio.wait_for(
-                candidate.health_check(), timeout=health_timeout_s,
-            )
-            if not health.is_ok:
-                raise RuntimeError(health.message or "subtitle health gate failed")
-            subtitle = candidate
-        except Exception as exc:
-            subtitle_error = f"{type(exc).__name__}: {exc}"
-            log.warning("subtitle_startup_gate_failed", error=subtitle_error)
-
-    primary = primary_factory(loader)
-    player = None
-    degraded_reason: str | None = None
-    try:
-        await asyncio.wait_for(primary.start(), timeout=startup_timeout_s)
-        health = await asyncio.wait_for(primary.health_check(), timeout=health_timeout_s)
-        if not health.is_ok:
-            raise RuntimeError(health.message or "TTS health gate failed")
-        player = player_factory(int(getattr(primary, "sample_rate", 48000)))
-        await asyncio.wait_for(player.start(), timeout=health_timeout_s)
-    except Exception as exc:
-        reason = "startup_timeout" if isinstance(exc, asyncio.TimeoutError) else type(exc).__name__
-        degraded_reason = f"{reason}: {exc}".rstrip()
-        log.warning(
-            "tts_primary_unavailable_subtitle_only",
-            error=degraded_reason,
-            subtitle_available=subtitle is not None,
-        )
-        if player is not None:
-            with contextlib.suppress(Exception):
-                await asyncio.wait_for(player.stop(), timeout=health_timeout_s)
-        with contextlib.suppress(Exception):
-            await asyncio.wait_for(primary.stop(), timeout=health_timeout_s)
-        primary = None
-        player = None
-
-    if primary is None and subtitle is None:
-        detail = degraded_reason or "TTS primary unavailable"
-        if subtitle_error:
-            detail += f"; subtitle={subtitle_error}"
-        raise RuntimeError(f"không có TTS/subtitle delivery sink: {detail}")
-
-    pipeline = TTSPipeline.from_loader(
-        loader,
-        primary=primary,
-        subtitle=subtitle,
-        player=player,
-        fallback=FallbackManager(),
-        metrics=metrics,
-    )
-    return _TTSRuntimeStack(
-        primary=primary,
-        subtitle=subtitle,
-        player=player,
-        pipeline=pipeline,
-        degraded_reason=degraded_reason,
-    )
-
-
 async def build_stream_runtime(
     *,
     loader,
@@ -786,20 +699,8 @@ async def build_stream_runtime(
         ),
     )
 
-    async def _enable_relationship_memory() -> None:
-        relationship_manager.set_enabled(True)
-
-    async def _disable_relationship_memory() -> None:
-        relationship_manager.set_enabled(False)
-
-    async def _relationship_memory_health() -> bool:
-        return relationship_manager.enabled
-
-    feature_manager.attach_handlers(
-        "relationship_memory",
-        enable=_enable_relationship_memory,
-        disable=_disable_relationship_memory,
-        health=_relationship_memory_health,
+    attach_set_enabled_feature(
+        feature_manager, "relationship_memory", relationship_manager,
     )
 
     # ─── LLM stack ───
@@ -857,33 +758,10 @@ async def build_stream_runtime(
 
     agent_state.add_event_listener(_observe_thread_extraction)
 
-    async def _enable_thread_extraction() -> None:
-        thread_extractor.set_enabled(True)
-
-    async def _disable_thread_extraction() -> None:
-        thread_extractor.set_enabled(False)
-
-    async def _thread_extraction_health() -> bool:
-        return thread_extractor.enabled
-
-    feature_manager.attach_handlers(
-        "thread_extraction", enable=_enable_thread_extraction,
-        disable=_disable_thread_extraction, health=_thread_extraction_health,
+    attach_set_enabled_feature(
+        feature_manager, "thread_extraction", thread_extractor,
     )
-
-    async def _enable_goal_proposals() -> None:
-        goal_proposal.set_enabled(True)
-
-    async def _disable_goal_proposals() -> None:
-        goal_proposal.set_enabled(False)
-
-    async def _goal_proposals_health() -> bool:
-        return goal_proposal.enabled
-
-    feature_manager.attach_handlers(
-        "goal_proposals", enable=_enable_goal_proposals,
-        disable=_disable_goal_proposals, health=_goal_proposals_health,
-    )
+    attach_set_enabled_feature(feature_manager, "goal_proposals", goal_proposal)
 
     pm = PromptManager.from_loader(loader)
     canned = CannedResponder.from_loader(loader)
@@ -1304,20 +1182,8 @@ async def build_stream_runtime(
         animation=animation,
     )
 
-    async def _enable_self_talk_planner() -> None:
-        self_talk_planner.set_enabled(True)
-
-    async def _disable_self_talk_planner() -> None:
-        self_talk_planner.set_enabled(False)
-
-    async def _self_talk_planner_health() -> bool:
-        return self_talk_planner.enabled
-
-    feature_manager.attach_handlers(
-        "self_talk_planner",
-        enable=_enable_self_talk_planner,
-        disable=_disable_self_talk_planner,
-        health=_self_talk_planner_health,
+    attach_set_enabled_feature(
+        feature_manager, "self_talk_planner", self_talk_planner,
     )
 
     async def _enable_animation() -> None:
@@ -1338,343 +1204,94 @@ async def build_stream_runtime(
         health=_animation_health,
     )
 
-    async def _enable_action_transactions() -> None:
-        action_transactions.set_enabled(True)
-
-    async def _disable_action_transactions() -> None:
-        action_transactions.set_enabled(False)
-
-    async def _action_transactions_health() -> bool:
-        return action_transactions.enabled
-
-    feature_manager.attach_handlers(
-        "action_transactions",
-        enable=_enable_action_transactions,
-        disable=_disable_action_transactions,
-        health=_action_transactions_health,
+    attach_set_enabled_feature(
+        feature_manager, "action_transactions", action_transactions,
     )
-
-    async def _enable_decision_records() -> None:
-        decision_records.set_enabled(True)
-
-    async def _disable_decision_records() -> None:
-        decision_records.set_enabled(False)
-
-    async def _decision_records_health() -> bool:
-        return decision_records.enabled
-
-    feature_manager.attach_handlers(
-        "decision_records",
-        enable=_enable_decision_records,
-        disable=_disable_decision_records,
-        health=_decision_records_health,
-    )
-
-    async def _enable_director_goal_arbiter() -> None:
-        director_loop.set_goal_arbitration_enabled(True)
-
-    async def _disable_director_goal_arbiter() -> None:
-        director_loop.set_goal_arbitration_enabled(False)
-
-    async def _director_goal_arbiter_health() -> bool:
-        return director_loop.goal_arbitration_enabled
-
-    feature_manager.attach_handlers(
+    attach_set_enabled_feature(feature_manager, "decision_records", decision_records)
+    attach_boolean_feature(
+        feature_manager,
         "director_goal_arbiter",
-        enable=_enable_director_goal_arbiter,
-        disable=_disable_director_goal_arbiter,
-        health=_director_goal_arbiter_health,
+        set_enabled=director_loop.set_goal_arbitration_enabled,
+        is_enabled=lambda: director_loop.goal_arbitration_enabled,
+    )
+    attach_set_enabled_feature(
+        feature_manager, "mood_behavior_policy", mood_policy,
     )
 
-    async def _enable_mood_behavior_policy() -> None:
-        mood_policy.set_enabled(True)
-
-    async def _disable_mood_behavior_policy() -> None:
-        mood_policy.set_enabled(False)
-
-    async def _mood_behavior_policy_health() -> bool:
-        return mood_policy.enabled
-
-    feature_manager.attach_handlers(
-        "mood_behavior_policy",
-        enable=_enable_mood_behavior_policy,
-        disable=_disable_mood_behavior_policy,
-        health=_mood_behavior_policy_health,
-    )
-
-    async def _enable_mood_v2_shadow() -> None:
-        emotion.set_affect_shadow_enabled(True)
-
-    async def _disable_mood_v2_shadow() -> None:
-        emotion.set_affect_shadow_enabled(False)
-
-    async def _mood_v2_shadow_health() -> bool:
-        return emotion.affect_shadow_enabled
-
-    feature_manager.attach_handlers(
+    attach_boolean_feature(
+        feature_manager,
         "mood_v2_shadow",
-        enable=_enable_mood_v2_shadow,
-        disable=_disable_mood_v2_shadow,
-        health=_mood_v2_shadow_health,
+        set_enabled=emotion.set_affect_shadow_enabled,
+        is_enabled=lambda: emotion.affect_shadow_enabled,
     )
-
-    async def _enable_mood_v2_prompt() -> None:
-        emotion.set_affect_prompt_enabled(True)
-
-    async def _disable_mood_v2_prompt() -> None:
-        emotion.set_affect_prompt_enabled(False)
-
-    async def _mood_v2_prompt_health() -> bool:
-        return emotion.affect_prompt_enabled
-
-    feature_manager.attach_handlers(
+    attach_boolean_feature(
+        feature_manager,
         "mood_v2_prompt",
-        enable=_enable_mood_v2_prompt,
-        disable=_disable_mood_v2_prompt,
-        health=_mood_v2_prompt_health,
+        set_enabled=emotion.set_affect_prompt_enabled,
+        is_enabled=lambda: emotion.affect_prompt_enabled,
     )
-
-    async def _enable_proactive_hosting() -> None:
-        proactive_policy.set_enabled(True)
-
-    async def _disable_proactive_hosting() -> None:
-        proactive_policy.set_enabled(False)
-
-    async def _proactive_hosting_health() -> bool:
-        return proactive_policy.enabled
-
-    feature_manager.attach_handlers(
-        "proactive_hosting",
-        enable=_enable_proactive_hosting,
-        disable=_disable_proactive_hosting,
-        health=_proactive_hosting_health,
-    )
-
-    async def _enable_behavior_library() -> None:
-        behavior_library.set_enabled(True)
-
-    async def _disable_behavior_library() -> None:
-        behavior_library.set_enabled(False)
-
-    async def _behavior_library_health() -> bool:
-        return behavior_library.enabled
-
-    feature_manager.attach_handlers(
-        "behavior_library",
-        enable=_enable_behavior_library,
-        disable=_disable_behavior_library,
-        health=_behavior_library_health,
-    )
-
-    async def _enable_natural_timing() -> None:
-        natural_timing.set_enabled(True)
-
-    async def _disable_natural_timing() -> None:
-        natural_timing.set_enabled(False)
-
-    async def _natural_timing_health() -> bool:
-        return natural_timing.enabled
-
-    feature_manager.attach_handlers(
-        "natural_timing",
-        enable=_enable_natural_timing,
-        disable=_disable_natural_timing,
-        health=_natural_timing_health,
-    )
+    attach_set_enabled_feature(feature_manager, "proactive_hosting", proactive_policy)
+    attach_set_enabled_feature(feature_manager, "behavior_library", behavior_library)
+    attach_set_enabled_feature(feature_manager, "natural_timing", natural_timing)
 
     # ─── M9 operator control plane ───
-    control_plane = None
-    if operations_enabled:
-        from services.operations.control_plane import RuntimeControlPlane
-
-        async def _pause_agent_actions() -> None:
-            await director_loop.stop()
-
-        async def _resume_agent_actions() -> None:
-            await director_loop.start()
-
-        def _action_queue() -> list[dict[str, Any]]:
-            snapshot = goal_manager.snapshot()
-            queue: list[dict[str, Any]] = []
-            for goal in (
-                *((snapshot.active,) if snapshot.active else ()),
-                *snapshot.candidates,
-                *snapshot.suspended,
-            ):
-                queue.append({
-                    "kind": "goal",
-                    "id": goal.goal_id,
-                    "status": goal.status.value,
-                    "priority": goal.priority,
-                    "reason": goal.reason,
-                })
-            queue.append({
-                "kind": "chat_pool",
-                "pending_count": len(getattr(pool, "_items", {})),
-            })
-            return queue
-
-        control_plane = RuntimeControlPlane(
-            pause_action=_pause_agent_actions,
-            resume_action=_resume_agent_actions,
-            queue_provider=_action_queue,
-            audit_path=loader.get(
-                "operations", "dashboard_standalone.operator_audit_file",
-                "logs/operations/operator_audit.jsonl",
-            ),
-            metrics=metrics,
-        )
-
-    incident_log = None
-    if operations_enabled:
-        from services.operations.incident_log import IncidentLog
-        incident_log = IncidentLog.from_loader(loader, metrics=metrics)
+    control_plane = build_control_plane(
+        enabled=operations_enabled,
+        director_loop=director_loop,
+        goal_manager=goal_manager,
+        pool=pool,
+        loader=loader,
+        metrics=metrics,
+    )
+    incident_log = build_incident_log(
+        enabled=operations_enabled, loader=loader, metrics=metrics,
+    )
 
     # ─── Dashboard (optional) ───
-    dashboard_task = None
-    dashboard_ref: dict[str, Any] | None = None
-    dashboard_server = None
-    if cfg.enable_dashboard:
-        from dashboard.dashboard_server import DashboardServer
-        dashboard_server = DashboardServer(
-            feature_manager=feature_manager, metrics=metrics,
-            filter_svc=filter_svc, regenerator=regenerator,
-            emotion=emotion, runner=runner,
-            agent_state=agent_state,
-            goal_manager=goal_manager,
-            relationship_manager=relationship_manager,
-            decision_records=decision_records,
-            self_talk_planner=self_talk_planner,
-            control_plane=control_plane,
-            incident_log=incident_log,
-            data_dir=loader.get("logging", "jsonl.dir", "logs"),
-            host=loader.get("system", "dashboard.host", "127.0.0.1"),
-            port=int(loader.get("system", "dashboard.port", 7860)),
-            push_interval_s=float(loader.get(
-                "system", "dashboard.push_interval_s", 1.0,
-            )),
-            gpu_metrics_command=str(loader.get(
-                "system", "dashboard.gpu_metrics.command", "nvidia-smi",
-            )),
-            gpu_metrics_timeout_s=float(loader.get(
-                "system", "dashboard.gpu_metrics.timeout_s", 1.0,
-            )),
-            gpu_metrics_refresh_s=float(loader.get(
-                "system", "dashboard.gpu_metrics.refresh_s", 2.0,
-            )),
-        )
-        dashboard_task = asyncio.create_task(dashboard_server.serve(), name="dashboard")
-        dashboard_ref = {"task": dashboard_task, "server": dashboard_server}
+    dashboard_task, dashboard_ref, dashboard_server = start_dashboard(
+        enabled=cfg.enable_dashboard,
+        loader=loader,
+        feature_manager=feature_manager,
+        metrics=metrics,
+        filter_svc=filter_svc,
+        regenerator=regenerator,
+        emotion=emotion,
+        runner=runner,
+        agent_state=agent_state,
+        goal_manager=goal_manager,
+        relationship_manager=relationship_manager,
+        decision_records=decision_records,
+        self_talk_planner=self_talk_planner,
+        control_plane=control_plane,
+        incident_log=incident_log,
+    )
 
-    health_supervisor = None
-    if operations_enabled and bool(loader.get(
-        "operations", "health_supervisor.enabled", True,
-    )):
-        from services.operations.health_supervisor import HealthSupervisor
-
-        def _record_recovery_incident(component: str, action: str, summary: str) -> None:
-            assert incident_log is not None
-            incident_log.record_incident(
-                severity="critical" if action in {"circuit_open", "restart_failed"} else "warning",
-                component=component, summary=summary, action=action,
-            )
-
-        health_supervisor = HealthSupervisor.from_loader(
-            loader, metrics=metrics, incident_sink=_record_recovery_incident,
-        )
-
-        async def _restart_llm() -> None:
-            async with turn_lock:
-                await llm_svc.stop()
-                if llama_process_manager is not None:
-                    await llama_process_manager.restart()
-                await llm_svc.start()
-
-        async def _restart_input() -> None:
-            await router.stop()
-            await router.start()
-
-        health_supervisor.register_target("llm_main", llm_svc.health_check, _restart_llm)
-        health_supervisor.register_target("input_router", router.health_check, _restart_input)
-
-        if tts_svc is not None:
-            async def _restart_tts() -> None:
-                await tts_svc.stop()
-                await tts_svc.start()
-
-            health_supervisor.register_target("tts", tts_svc.health_check, _restart_tts)
-
-        if dashboard_ref is not None:
-            async def _dashboard_health():
-                from interfaces.base import HealthStatus
-                task = dashboard_ref.get("task")
-                if task is None or task.done():
-                    return HealthStatus.unhealthy("dashboard", "serve task stopped")
-                return HealthStatus.healthy("dashboard")
-
-            async def _restart_dashboard() -> None:
-                task = dashboard_ref.get("task")
-                if task is not None and not task.done():
-                    task.cancel()
-                    with contextlib.suppress(asyncio.CancelledError):
-                        await task
-                dashboard_ref["task"] = asyncio.create_task(
-                    dashboard_ref["server"].serve(), name="dashboard",
-                )
-
-            health_supervisor.register_target(
-                "dashboard", _dashboard_health, _restart_dashboard,
-            )
-            dashboard_server.health_supervisor = health_supervisor
-
-    emergency_controller = None
-    if operations_enabled:
-        from services.operations.emergency_control import EmergencyController
-
-        async def _emergency_pause_actions() -> None:
-            if control_plane is not None:
-                await control_plane.pause("emergency stop")
-            else:
-                await director_loop.stop()
-
-        async def _emergency_resume_actions() -> None:
-            if control_plane is not None:
-                await control_plane.resume("emergency resume")
-            else:
-                await director_loop.start()
-
-        async def _cancel_speech_now() -> None:
-            if tts_pipeline is not None:
-                await tts_pipeline.cancel_all()
-            elif audio_player is not None:
-                await audio_player.cancel_all()
-
-        async def _prune_expired_goals() -> None:
-            goal_manager.snapshot()
-
-        emergency_controller = EmergencyController(
-            pause_actions=_emergency_pause_actions,
-            resume_actions=_emergency_resume_actions,
-            cancel_speech=_cancel_speech_now,
-            # M6 is deferred; future environment executor must use this controller's gate.
-            prune_stale_work=_prune_expired_goals,
-            pause_recovery=(
-                health_supervisor.pause_recovery if health_supervisor is not None else None
-            ),
-            resume_recovery=(
-                health_supervisor.resume_recovery if health_supervisor is not None else None
-            ),
-            audit=(
-                control_plane.record_operator_action if control_plane is not None else None
-            ),
-            metrics=metrics,
-            reason_max_chars=int(loader.get(
-                "operations", "emergency_stop.reason_max_chars", 240,
-            )),
-        )
-        emergency_ref["controller"] = emergency_controller
-        if dashboard_server is not None:
-            dashboard_server.emergency_controller = emergency_controller
+    health_supervisor = build_health_supervisor(
+        enabled=operations_enabled,
+        loader=loader,
+        metrics=metrics,
+        incident_log=incident_log,
+        turn_lock=turn_lock,
+        llm_svc=llm_svc,
+        llama_process_manager=llama_process_manager,
+        router=router,
+        tts_svc=tts_svc,
+        dashboard_ref=dashboard_ref,
+        dashboard_server=dashboard_server,
+    )
+    emergency_controller = build_emergency_controller(
+        enabled=operations_enabled,
+        loader=loader,
+        metrics=metrics,
+        control_plane=control_plane,
+        director_loop=director_loop,
+        tts_pipeline=tts_pipeline,
+        audio_player=audio_player,
+        goal_manager=goal_manager,
+        health_supervisor=health_supervisor,
+        emergency_ref=emergency_ref,
+        dashboard_server=dashboard_server,
+    )
 
     rt = StreamRuntime(
         loader=loader, llm_svc=llm_svc, runner=runner, emotion=emotion,
@@ -1699,20 +1316,13 @@ async def build_stream_runtime(
         emergency_controller=emergency_controller,
         incident_log=incident_log,
     )
-    if operations_enabled:
-        from orchestrator.logger import flush_logging
-        from services.operations.shutdown_coordinator import ShutdownCoordinator
-
-        shutdown_coordinator = ShutdownCoordinator.from_loader(
-            loader,
-            snapshot_provider=rt.operations_snapshot,
-            flush_callback=flush_logging,
-            metrics=metrics,
-        )
-        for name, callback in rt.shutdown_steps():
-            shutdown_coordinator.register_step(name, callback)
-        shutdown_coordinator.register_step("animation", animation.stop)
-        rt.set_shutdown_coordinator(shutdown_coordinator)
+    configure_shutdown_coordinator(
+        enabled=operations_enabled,
+        loader=loader,
+        runtime=rt,
+        animation=animation,
+        metrics=metrics,
+    )
     # DirectorLoop dùng runtime ctx của rt (silence/chat_count/memory) cho self_talk material
     director_loop.set_runtime_context_provider(rt.runtime_context)
 

@@ -1,6 +1,6 @@
 # 01 — Tổng quan hệ thống
 
-> **Applies to:** Mai `1.3.0` (baseline `1.0.0`)
+> **Applies to:** Mai `1.3.1` (baseline `1.0.0`)
 >
 > **Release baseline:** `docs/00_V1_0_BASELINE.md`
 
@@ -75,8 +75,10 @@ flowchart LR
 
 ## 4. Ownership và dependency
 
-`StreamRuntime` là composition root duy nhất của live stack. Nó tạo service, nối callback và quản lý
-thứ tự lifecycle. Business decision thuộc `Director`; generation thuộc `LLMTurnRunner`; delivery
+`StreamRuntime` là composition root duy nhất của live stack. Từ `1.3.1`, root này ủy quyền việc dựng
+TTS, feature bindings và operations wiring cho `orchestrator/runtime_tts.py`,
+`runtime_feature_bindings.py` và `runtime_operations.py`; thứ tự compose/lifecycle vẫn do
+`stream_runtime.py` sở hữu. Business decision thuộc `Director`; generation thuộc `LLMTurnRunner`; delivery
 thuộc `TTSPipeline`; commit thuộc `DirectorLoop` + transaction manager. Dashboard chỉ đọc snapshot
 và gửi operator command qua control plane, không tự suy luận hay tự sửa state nguồn.
 

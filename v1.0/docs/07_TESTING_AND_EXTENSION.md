@@ -1,6 +1,6 @@
 # 07 — Testing và extension guide
 
-> **Applies to:** Mai `1.3.0` (baseline `1.0.0`)
+> **Applies to:** Mai `1.3.1` (baseline `1.0.0`)
 >
 > Mọi change được phát hành sau baseline phải tăng product version và có changelog/regression evidence.
 
@@ -178,6 +178,10 @@ cùng input/context/seed và human sample nếu đổi wording/style. Luôn gi�
 
 Sau targeted test, chạy offline regression. Nếu đổi llama command/client/parser, chạy marker `llm`. Nếu
 đổi queue/bounds/lifecycle, chạy marker `slow` hoặc soak tương ứng.
+
+Refactor composition/action nội bộ phải giữ import tương thích cho entrypoint đang dùng, đồng thời có
+boundary test xác nhận `stream_runtime.py` vẫn là composition root và `DirectorLoop` vẫn sở hữu
+transaction/commit. Helper module không được gọi business commit trực tiếp.
 
 ## 11. Review checklist
 

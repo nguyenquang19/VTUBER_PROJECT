@@ -1,6 +1,6 @@
 # 03 — Component reference
 
-> **Applies to:** Mai `1.3.0` (baseline `1.0.0`)
+> **Applies to:** Mai `1.3.1` (baseline `1.0.0`)
 >
 > Dùng tài liệu này để tìm owner; không đặt behavior mới vào file tiện tay gần nhất.
 
@@ -10,6 +10,14 @@
 
 Vai trò: composition root của live system. `build_stream_runtime()` load feature status, dựng service,
 start llama.cpp, wire callback và trả `StreamRuntime`. `StreamRuntime.start()/stop()` quản lifecycle.
+
+Từ `1.3.1`, các helper composition thuần nội bộ được tách theo ownership:
+
+- `orchestrator/runtime_tts.py`: startup/health/degraded gate của TTS stack;
+- `orchestrator/runtime_feature_bindings.py`: đăng ký callback enable/disable/health;
+- `orchestrator/runtime_operations.py`: dashboard, recovery, emergency và shutdown wiring.
+
+Các module này không phải composition root mới và không được tự đổi thứ tự lifecycle.
 
 Input: `ConfigLoader`, danh sách `InputService`, `StreamRuntimeConfig`.
 
@@ -139,9 +147,11 @@ Không có material hoặc delivery thất bại không được cập nhật `l
 
 ### `services/director/director_loop.py`
 
-Driver tick, transaction owner và action executor. Flow chính: evict stale → build input → decide →
-record decision → reserve → generate → deliver → commit/release. Chỉ file này được phép phối hợp
-business side effect sau delivery.
+Driver tick và transaction owner. Flow chính: evict stale → build input → decide → record decision →
+reserve → generate → deliver → commit/release. Từ `1.3.1`, rendering prompt/action thuần nằm ở
+`services/director/action_prompts.py`; deferred runner + typed delivery mechanics nằm ở
+`services/director/delivery_boundary.py`. `DirectorLoop` vẫn là owner duy nhất phối hợp business side
+effect sau delivery; hai helper không tự commit goal/thread/pool.
 
 ### `services/autonomy/self_talk_planner.py`
 
