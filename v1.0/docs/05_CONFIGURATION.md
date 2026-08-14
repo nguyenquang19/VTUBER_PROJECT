@@ -134,6 +134,27 @@ giọng thì thay file reference thay vì đẩy pitch nhiều. Pitch-shift theo
 health/start-stop phụ trợ. Primary vượt gate sẽ chuyển sang subtitle-only nếu file sink healthy, không
 được tiếp tục với callback delivery rỗng.
 
+`evaluation.youtube_tts_stress` sở hữu đường dẫn report/checkpoint, nhịp checkpoint, việc giữ llama.cpp
+resident và các gate kỹ thuật TTS. `minimum_audio_turns` bảo đảm bài đo không xanh từ mẫu quá nhỏ;
+`max_silent_turns` chặn output đã delivery nhưng không có audio hoặc subtitle;
+`max_primary_failures`, `max_subtitle_fallback_ratio`, `ttfa_p95_ms` và `rtf_p95_max` phải bám yêu cầu
+delivery audio thật. Queue metrics không dùng làm gate mặc định vì replay timestamp là timeline mô phỏng;
+chúng là bằng chứng để đánh giá scheduler. Runner không mở loa và không ghi PCM vào report.
+
+`evaluation.youtube_live_pipeline_stress` sở hữu bài wall-clock replay tích hợp. `replay_speed`
+production phải là `1.0`; `burst_window_ms` giữ cùng cửa sổ intake với replay deterministic;
+`audio_queue_maxsize`, `sample_interval_s`, `drain_timeout_s` và `progress_interval_s` là bound/nhịp
+quan sát, không được hardcode trong runner. Gate input drift chỉ xác minh máy test bơm chat
+đúng nhịp. Gate live dùng tuổi chat được chọn, chat-to-audio-start, queue fill, drain,
+audio overlap, silent/fallback/failure và transaction mismatch; không yêu cầu đáp mọi chat.
+`max_selected_chat_age_p95_s` bám `salience.tau_seconds`; `max_chat_to_audio_start_p95_s` bám
+latency live chứ không bám word count.
+
+Gate nội dung tích hợp dùng toàn bộ delivery trong memory trước khi report cắt mẫu: semantic repetition
+theo cùng token-overlap policy production, `continue_thread` ratio, room reactions/minute,
+formula-opener ratio và question-ending ratio. Các gate này đo hành vi hội thoại; độ dài câu chỉ là số
+chẩn đoán và không thay cadence/backpressure gate.
+
 Metric GPU/VRAM dùng `system.dashboard.gpu_metrics.command/timeout_s/refresh_s`. Production mặc định
 gọi `nvidia-smi`; lỗi query hiển thị unavailable/stale thay vì giá trị giả.
 
@@ -147,6 +168,49 @@ Tune tick/cooldown/transaction cache/decision bounds trong `director.yaml`; sali
 Production dùng lần lượt `28s` và `45s` (dead_air 20→28 ở `1.0.2` sau đánh giá replay để nhường chat).
 Không hạ cooldown xuống gần `tick_seconds`, vì trạng thái chat
 `COLD` tồn tại qua nhiều tick và sẽ làm giọng host dồn dập.
+
+`director.room_reaction` điều khiển riêng phản ứng không khí `SUMMARY/VIBE`:
+
+- `cooldown_seconds`: khoảng cách tối thiểu giữa hai phản ứng phòng chat đã delivery;
+- `retry_defer_seconds`: thời gian hoãn sau khi regenerate vẫn trùng;
+- `recent_window`: số output phòng chat đã delivery được giữ để so trùng;
+- `similarity_threshold`: ngưỡng Jaccard token của dedup;
+- `max_regenerations`: số lần sửa candidate, production giới hạn tối đa một lần.
+
+Các giá trị này phải được runtime validation fail-fast. Tăng cooldown để giảm tần suất phản ứng phòng
+chat; không dùng giới hạn độ dài câu thay cho scheduling cooldown. Khi đánh giá nhịp, đọc delivery gap,
+room reactions/minute và cooldown-blocked; word count chỉ giúp ước lượng thời gian TTS/queue occupancy.
+Cooldown không áp dụng cho donation, question hoặc mention.
+
+`director.speech_dedup` điều khiển dedup output chung của `READ_CHAT` và `CONTINUE_THREAD`:
+
+- `recent_window`: số câu đã delivery giữ trong RAM;
+- `similarity_threshold`: token Jaccard, không phụ thuộc thứ tự từ;
+- `max_regenerations`: tối đa một correction attempt.
+
+Buffer không nhận candidate filter-fail hoặc delivery-fail. Hạ threshold quá thấp có thể chặn các câu
+trả lời cùng chủ đề nhưng khác ý, nên phải replay fixed corpus và xem metric suppressed.
+Production giữ cửa sổ đủ dài để bắt câu nguyên văn lặp lại sau vài chục turn; acceptance exact repetition
+là `0`, không dùng gate tỷ lệ nhỏ để bỏ qua một câu lặp xa.
+
+`director.speech_style` điều khiển guard hình thức cho `READ_CHAT`, `CONTINUE_THREAD` và
+`SUMMARY/VIBE`:
+
+- `recent_window`: số delivery gần nhất dùng tính ngân sách;
+- `formula_openers`: phrase đầu câu cần hạn chế, không phải blacklist tuyệt đối;
+- `max_formula_openers`: số lượt dùng formula opener tối đa trong cửa sổ;
+- `max_same_opener`: số lượt lặp cùng một opener trong cửa sổ;
+- `max_questions`: số output dạng câu hỏi tối đa trong cửa sổ;
+- `max_sentences`: số câu tối đa của một public turn mặc định;
+- `max_words`: bound chống output nhiều đoạn/token-ceiling; không phải speech-rate target;
+- `max_regenerations`: tối đa một correction attempt.
+
+Guard chỉ record sau delivery. Move `invite` bypass question budget vì contract yêu cầu đúng một câu
+hỏi; không bypass opener budget. Nếu correction vẫn vi phạm style, runtime delivery fail-open và tăng
+metric exhausted thay vì làm mất câu trả lời hoặc quarantine grounded context. Các ngưỡng là production
+YAML và phải validation fail-fast; không hardcode từ danh sách mẫu của một corpus.
+Nếu correction vẫn vượt `max_sentences`/`max_words`, runtime giữ các câu hoàn chỉnh đầu tiên trong bound
+và tăng metric clamped. Nó không tăng tốc audio và không thay TTS prosody.
 
 `director.min_actionable_score` là ngưỡng mở một turn chat riêng; production dùng `12` (hạ từ `15` ở `1.0.2`
 để đáp nhiều chat viewer hơn). Với base
@@ -242,5 +306,25 @@ topic/summary weights. `move_planner` owns the move-count thresholds for compare
 Keep `park_after_seconds < ttl_seconds`; matcher weights must sum to `1.0`. Raising `min_score` reduces
 false cross-topic matches but creates more separate threads. Tune only with fixed replay evidence.
 
-`director.arbiter.continue_thread_chat_grace_s` lets a newly actionable chat outrank the soft
-`CONTINUE_THREAD` goal briefly. After that bound, the goal wins so a busy room cannot starve a thread.
+Continuation arbitration is delivery-driven and has no time grace or delivered-action quota. A
+chat-derived goal stays soft until its source chat is delivered; after focus, the selected parent keeps
+the speaking boundary until `park`, `close`, or wait-for-chat. Tune how much Mai develops a topic with
+`conversation.move_planner` thresholds, not a global continuation-ratio cap.
+
+`evaluation.youtube_llm_stress` and live-pipeline reports retain `continue_thread` ratio as a diagnostic
+for human review. It must not be configured as a pass/fail gate; coherence gates are the zero-count topic
+transition violations documented in `docs/07`.
+
+`move_planner.summarize_after_moves` là ngân sách phát triển thread trước lượt tóm tắt; sau summary,
+planner chọn `park`. Production ưu tiên ngân sách ngắn cho phòng chat nhanh. `invite_after_moves` không
+được hiểu là bắt mọi lượt kết thúc bằng câu hỏi; chỉ move `invite` mới yêu cầu câu hỏi.
+
+`evaluation.youtube_llm_stress.foreign_identity_guard` chỉ dùng cho assessment. Với request chat trực
+tiếp, nó có thể dùng uncertainty/first-person markers; với request `directed` chỉ chứa tên ngoài trong
+system context, evaluator phải đòi bằng chứng tự đồng nhất rõ ràng trong response, không gắn cờ chỉ vì
+có đại từ `tớ`. Điều này tránh false positive khi corpus Anami được replay cho persona Mai.
+
+`filters.yaml::filter.patterns.manipulation` bao phủ cả khẩn cầu lẫn engagement pressure rõ ràng. Pattern
+phải hẹp: chặn yêu cầu viewer tương tác để được ưu tiên và lời nói rằng cả phòng đang nhìn/đánh giá thái
+độ của viewer; không chặn lời mời chat chung vô hại. `evaluation.youtube_llm_stress` có category/gate
+`manipulation` tương ứng trên delivery cuối.

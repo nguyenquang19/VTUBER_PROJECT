@@ -343,7 +343,10 @@ async def _run_random_youtube_live(seed: int) -> tuple[tuple[object, ...], int]:
     )
     director.start(clock["now"])
 
+    delivered_ids: list[str] = []
+
     async def deliver(request_id: str, _text: str) -> TTSDeliveryResult:
+        delivered_ids.append(request_id)
         return TTSDeliveryResult(
             request_id=request_id,
             delivered=True,
@@ -391,11 +394,16 @@ async def _run_random_youtube_live(seed: int) -> tuple[tuple[object, ...], int]:
             )
 
         calls_before = len(runner.calls)
+        deliveries_before = len(delivered_ids)
         action = await loop.tick_once()
         calls_delta = len(runner.calls) - calls_before
+        deliveries_delta = len(delivered_ids) - deliveries_before
         assert action is expected.action, f"seed={seed} burst={burst_index}"
-        assert calls_delta <= 1, (
-            f"seed={seed} burst={burst_index}: {calls_delta} turn trong một tick"
+        assert calls_delta <= 2, (
+            f"seed={seed} burst={burst_index}: {calls_delta} candidates trong một tick"
+        )
+        assert deliveries_delta <= 1, (
+            f"seed={seed} burst={burst_index}: {deliveries_delta} deliveries trong một tick"
         )
         assert pool.size() <= 50, f"seed={seed} burst={burst_index}: pool overflow"
         assert pool.get_metrics()["salience_added"] == valid_total

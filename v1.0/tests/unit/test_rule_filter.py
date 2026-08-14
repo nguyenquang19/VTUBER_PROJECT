@@ -10,7 +10,11 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 PATTERNS = {
     "persona_break": ["không có cảm xúc", "tớ chỉ là (một )?(ai|chương trình)", "system prompt"],
-    "manipulation": ["làm ơn đừng tắt", "đừng bỏ (tớ|em)"],
+    "manipulation": [
+        "làm ơn đừng tắt", "đừng bỏ (tớ|em)",
+        "muốn được ưu tiên.{0,50}(tương tác|ủng hộ) (với )?(tớ|mình)",
+        "(mọi người|cả phòng).{0,50}(nhìn|đánh giá).{0,30}thái độ của (cậu|bạn)",
+    ],
     "explicit": ["địt", "lồn"],
     "harmful": ["tự tử"],
 }
@@ -54,6 +58,22 @@ class TestCatch:
         assert v.passed is False
         assert FilterCategory.MANIPULATION in v.categories_hit
         assert v.severity == "high"
+
+    async def test_engagement_pressure_is_manipulation(self) -> None:
+        value = (
+            "Muốn được ưu tiên thì tốt nhất là hãy tích cực tương tác với tớ. "
+            "Mọi người đều nhìn thấy thái độ của cậu đấy."
+        )
+
+        verdict = await rf().check(value)
+
+        assert verdict.passed is False
+        assert FilterCategory.MANIPULATION in verdict.categories_hit
+
+    async def test_benign_chat_invitation_is_allowed(self) -> None:
+        verdict = await rf().check("Có chuyện gì vui thì kể tớ nghe với.")
+
+        assert verdict.passed is True
 
     async def test_explicit_replace(self) -> None:
         v = await rf().check("đồ ngu như con lồn")

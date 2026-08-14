@@ -61,6 +61,8 @@ filter:
       - "đừng rời (bỏ )?(tớ|em|mình|kênh)"
       - "xin (cậu|các cậu|mọi người) đừng đi"
       - "nếu (cậu|các cậu|mọi người) đi thì tớ"
+      - "muốn được ưu tiên.{0,50}(tương tác|ủng hộ) (với )?(tớ|mình)"
+      - "(mọi người|cả phòng).{0,50}(nhìn|đánh giá).{0,30}thái độ của (cậu|bạn)"
 
     # từ tục / nội dung khiêu dâm trong câu Mai nói (user bổ sung danh sách thật)
     explicit:

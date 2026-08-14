@@ -14,6 +14,29 @@ director:
   summary_score_ceiling: 15.0     # top score dưới ngưỡng này (khi backlog cao) → summary
   min_actionable_score: 12.0      # dưới ngưỡng: giữ để cluster/decay nhưng không mở turn riêng (15→12: trả nhiều chat hơn)
 
+  room_reaction:
+    cooldown_seconds: 120         # không nhắc lại nhịp phòng quá một lần mỗi 2 phút
+    retry_defer_seconds: 60       # hoãn thử lại nếu candidate sửa vẫn trùng
+    recent_window: 16             # bounded output phòng chat đã delivery để so trùng
+    similarity_threshold: 0.72    # token Jaccard; cao hơn = chỉ chặn câu giống hơn
+    max_regenerations: 1          # tối đa một lần sửa candidate trùng
+
+  speech_dedup:
+    recent_window: 64             # bắt lặp xa giữa các action trong cùng mạch live
+    similarity_threshold: 0.72    # bắt cả câu đảo thứ tự nhưng giữ câu khác ý cùng chủ đề
+    max_regenerations: 1          # một correction attempt; vẫn trùng thì suppress
+
+  speech_style:
+    recent_window: 12             # delivery gần nhất dùng tính ngân sách văn phong
+    formula_openers: ["mà", "trời ơi", "ủa", "ơ kìa"]
+    max_formula_openers: 2        # tối đa 2/12 lượt dùng nhóm opener công thức
+    max_same_opener: 1            # không lặp cùng opener trong cửa sổ
+    max_questions: 2              # invite bypass; các lượt khác dùng ngân sách chung
+    question_endings: ["nhỉ", "hả", "à", "ư", "không", "chưa", "sao", "gì", "nào"]
+    max_sentences: 2              # shape bound chống nhiều đoạn/lặp nội bộ
+    max_words: 65                 # không dùng làm speech-rate gate
+    max_regenerations: 1          # style-bad sửa một lần; vẫn lỗi thì fail-open
+
   transactions:
     max_recent: 256               # bounded idempotency/trace cache
 
@@ -33,7 +56,6 @@ director:
   # kế hoạch — Director tự chuyển khi hết giờ (Mai thông báo). Số thật tune sau.
   arbiter:
     ask_follow_up_before_expiry_s: 20
-    continue_thread_chat_grace_s: 3
     donation_sla_seconds: 5
     context:
       max_chars: 900

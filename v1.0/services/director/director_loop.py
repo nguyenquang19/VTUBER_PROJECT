@@ -27,6 +27,7 @@ from interfaces.decision_record import DecisionCandidateSummary
 from interfaces.self_talk import SelfTalkContext, SelfTalkStage
 from orchestrator.logger import get_logger
 from services.autonomy.material_provider import RuntimeContext
+from services.autonomy.dedup import DedupBuffer
 from services.director.chat_pulse import PulseState
 from services.director.director import Director, DirectorAction, ReadMode
 from services.director.action_context import ActionContextBuilder
@@ -38,6 +39,10 @@ from services.director.action_prompts import (
     proactive_thread_directive as _proactive_thread_directive,
     read_user_text as _read_user_text,
     room_reaction_prompt as _room_reaction_prompt,
+    room_reaction_correction_prompt as _room_reaction_correction_prompt,
+    speech_dedup_correction_prompt as _speech_dedup_correction_prompt,
+    speech_style_constraint_prompt as _speech_style_constraint_prompt,
+    speech_style_correction_prompt as _speech_style_correction_prompt,
     self_talk_correction_prompt as _self_talk_correction_prompt,
     stage_direction_for as _stage_direction_for,
     timestamp as _timestamp,
@@ -50,6 +55,7 @@ from services.agent.types import (
     EventProvenance,
     GroundedEvent,
 )
+from services.director.speech_style import SpeechStyleAssessment, SpeechStyleGuard
 
 SpeakFn = Callable[[str, str], Awaitable[Any]]
 
@@ -82,6 +88,26 @@ class DirectorLoop:
         self_talk_planner: Any = None,
         thread_manager: Any = None,
         animation: Any = None,
+        room_reaction_recent_window: int = 16,
+        room_reaction_similarity_threshold: float = 0.72,
+        room_reaction_max_regenerations: int = 1,
+        room_reaction_retry_defer_seconds: float = 30.0,
+        speech_dedup_recent_window: int = 32,
+        speech_dedup_similarity_threshold: float = 0.72,
+        speech_dedup_max_regenerations: int = 1,
+        speech_style_recent_window: int = 12,
+        speech_style_formula_openers: tuple[str, ...] = (
+            "mà", "trời ơi", "ủa", "ơ kìa",
+        ),
+        speech_style_max_formula_openers: int = 2,
+        speech_style_max_same_opener: int = 1,
+        speech_style_max_questions: int = 2,
+        speech_style_question_endings: tuple[str, ...] = (
+            "nhỉ", "hả", "à", "ư", "không", "chưa", "sao", "gì", "nào",
+        ),
+        speech_style_max_sentences: int = 2,
+        speech_style_max_words: int = 65,
+        speech_style_max_regenerations: int = 1,
     ) -> None:
         self._director = director
         self._pool = pool
@@ -108,6 +134,36 @@ class DirectorLoop:
         self._self_talk_planner = self_talk_planner
         self._thread_manager = thread_manager
         self._animation = animation
+        self._room_reaction_dedup = DedupBuffer(
+            window=room_reaction_recent_window,
+            threshold=room_reaction_similarity_threshold,
+        )
+        self._room_reaction_max_regenerations = max(
+            0, int(room_reaction_max_regenerations),
+        )
+        self._room_reaction_retry_defer_seconds = max(
+            0.0, float(room_reaction_retry_defer_seconds),
+        )
+        self._speech_dedup = DedupBuffer(
+            window=speech_dedup_recent_window,
+            threshold=speech_dedup_similarity_threshold,
+        )
+        self._speech_dedup_max_regenerations = max(
+            0, int(speech_dedup_max_regenerations),
+        )
+        self._speech_style = SpeechStyleGuard(
+            recent_window=speech_style_recent_window,
+            formula_openers=speech_style_formula_openers,
+            max_formula_openers=speech_style_max_formula_openers,
+            max_same_opener=speech_style_max_same_opener,
+            max_questions=speech_style_max_questions,
+            question_endings=speech_style_question_endings,
+            max_sentences=speech_style_max_sentences,
+            max_words=speech_style_max_words,
+        )
+        self._speech_style_max_regenerations = max(
+            0, int(speech_style_max_regenerations),
+        )
 
         self._task: asyncio.Task | None = None
         self._running = False
@@ -119,6 +175,24 @@ class DirectorLoop:
         self._last_pulse_state: PulseState | None = None   # Task7 edge debounce
         self._pulse_mood_pushes = 0
         self._filter_context_quarantined_total = 0
+        self._execute_failed_total = 0
+        self._room_reaction_generated_total = 0
+        self._room_reaction_duplicate_total = 0
+        self._room_reaction_regenerated_total = 0
+        self._room_reaction_suppressed_total = 0
+        self._room_reaction_cooldown_blocked_total = 0
+        self._speech_dedup_generated_total = 0
+        self._speech_dedup_duplicate_total = 0
+        self._speech_dedup_regenerated_total = 0
+        self._speech_dedup_suppressed_total = 0
+        self._speech_dedup_quarantined_total = 0
+        self._speech_style_violation_total = 0
+        self._speech_style_regenerated_total = 0
+        self._speech_style_exhausted_total = 0
+        self._speech_style_clamped_total = 0
+        self._thread_focus_total = 0
+        self._thread_boundary_clear_total = 0
+        self._thread_forced_park_total = 0
 
     # ---------- lifecycle ----------
 
@@ -237,6 +311,7 @@ class DirectorLoop:
                     )
                 self._record_director_action(dec, now)
             except Exception as e:
+                self._execute_failed_total += 1
                 if transaction_id is not None:
                     try:
                         transaction = self._transactions.release(transaction_id, str(e))
@@ -416,8 +491,78 @@ class DirectorLoop:
         behavior = self._behavior_directive(dec)
         if behavior:
             context = f"{context}\n{behavior}"
+        question_budget_exempt = bool(
+            thread is not None
+            and thread.next_move is not None
+            and thread.next_move.value == "invite"
+        )
+        context = _join_directives(
+            context,
+            self._speech_style_directive(
+                question_budget_exempt=question_budget_exempt,
+            ),
+        )
         req_id = f"goal_{uuid.uuid4().hex[:8]}"
         parsed = await self._run_directed_deferred(req_id, context)
+        if dec.action is DirectorAction.CONTINUE_THREAD:
+            self._speech_dedup_generated_total += 1
+            if self._speech_candidate_is_duplicate(parsed):
+                self._speech_dedup_duplicate_total += 1
+                self._finalize_runner_delivery(req_id, False)
+                replaced = False
+                for attempt in range(self._speech_dedup_max_regenerations):
+                    self._speech_dedup_regenerated_total += 1
+                    retry_id = f"{req_id}_r{attempt + 1}"
+                    retry_context = _speech_dedup_correction_prompt(
+                        context,
+                        str(getattr(parsed, "text", "")),
+                        tuple(self._speech_dedup.recent()),
+                    )
+                    parsed = await self._run_directed_deferred(retry_id, retry_context)
+                    self._speech_dedup_generated_total += 1
+                    if not self._speech_candidate_is_duplicate(parsed):
+                        req_id = retry_id
+                        replaced = True
+                        break
+                    self._speech_dedup_duplicate_total += 1
+                    self._finalize_runner_delivery(retry_id, False)
+                if not replaced:
+                    self._speech_dedup_suppressed_total += 1
+                    if thread is not None:
+                        return await self._exec_forced_thread_park(
+                            dec,
+                            now,
+                            thread,
+                            transaction_id=transaction_id,
+                        )
+                    self._quarantine_repetition_context(
+                        refs=[], thread_id=None, goal_id=dec.goal_id,
+                    )
+                    return False
+            req_id, parsed = await self._repair_speech_style(
+                req_id,
+                parsed,
+                context,
+                lambda retry_id, retry_context: self._run_directed_deferred(
+                    retry_id, retry_context,
+                ),
+                question_budget_exempt=question_budget_exempt,
+            )
+            if self._speech_candidate_is_duplicate(parsed):
+                self._speech_dedup_duplicate_total += 1
+                self._speech_dedup_suppressed_total += 1
+                self._finalize_runner_delivery(req_id, False)
+                if thread is not None:
+                    return await self._exec_forced_thread_park(
+                        dec,
+                        now,
+                        thread,
+                        transaction_id=transaction_id,
+                    )
+                self._quarantine_repetition_context(
+                    refs=[], thread_id=None, goal_id=dec.goal_id,
+                )
+                return False
         spoken = await self._maybe_speak(
             req_id, parsed, dec.action, [], goal_id=dec.goal_id,
             transaction_id=transaction_id,
@@ -431,6 +576,50 @@ class DirectorLoop:
             return False
         self._runner.commit_self_talk(parsed.text)
         self._director.mark_spoke(dec.action, now)
+        return True
+
+    async def _exec_forced_thread_park(
+        self,
+        dec: Any,
+        now: float,
+        thread: Any,
+        *,
+        transaction_id: str | None = None,
+    ) -> bool:
+        """Deliver one explicit close when a continuation cannot add a fresh idea."""
+        request_id = f"goal_close_{uuid.uuid4().hex[:8]}"
+        context = (
+            "[Conversation boundary: PARK]\n"
+            f"Topic: {str(getattr(thread, 'topic', '') or '')[:240]}\n"
+            f"Current summary: {str(getattr(thread, 'summary', '') or '')[:320]}\n"
+            "Say one short closing statement that finishes this topic before Mai moves on. "
+            "Do not add a new claim and do not ask a question. Only write Mai's spoken line."
+        )
+        context = _join_directives(context, self._speech_style_directive())
+        parsed = await self._run_directed_deferred(request_id, context)
+        request_id, parsed = await self._repair_speech_style(
+            request_id,
+            parsed,
+            context,
+            lambda retry_id, retry_context: self._run_directed_deferred(
+                retry_id, retry_context,
+            ),
+        )
+        spoken = await self._maybe_speak(
+            request_id,
+            parsed,
+            dec.action,
+            [],
+            goal_id=dec.goal_id,
+            transaction_id=transaction_id,
+            thread_id=thread.thread_id,
+            conversation_move="park",
+        )
+        if not spoken:
+            return False
+        self._runner.commit_self_talk(parsed.text)
+        self._director.mark_spoke(dec.action, now)
+        self._thread_forced_park_total += 1
         return True
 
     async def _exec_read(
@@ -450,6 +639,8 @@ class DirectorLoop:
         user_text = _read_user_text(dec)
         stage = _stage_direction_for(dec)
         stage = _join_directives(stage, self._behavior_directive(dec, user_text))
+        if dec.action is DirectorAction.READ_CHAT:
+            stage = _join_directives(stage, self._speech_style_directive())
         hist_text, commit_hist = _history_text_for(dec)
         parsed, _level = await self._run_turn_deferred(
             request_id=req_id,
@@ -461,12 +652,75 @@ class DirectorLoop:
             commit_history=commit_hist,
             stage_direction=stage,
         )
+        if dec.action is DirectorAction.READ_CHAT:
+            self._speech_dedup_generated_total += 1
+            if self._speech_candidate_is_duplicate(parsed):
+                self._speech_dedup_duplicate_total += 1
+                self._finalize_runner_delivery(req_id, False)
+                replaced = False
+                for attempt in range(self._speech_dedup_max_regenerations):
+                    self._speech_dedup_regenerated_total += 1
+                    retry_id = f"{req_id}_r{attempt + 1}"
+                    retry_stage = _speech_dedup_correction_prompt(
+                        stage or "",
+                        str(getattr(parsed, "text", "")),
+                        tuple(self._speech_dedup.recent()),
+                    )
+                    parsed, _level = await self._run_turn_deferred(
+                        request_id=retry_id,
+                        user_text=user_text,
+                        viewer_id=primary.viewer_id if primary else None,
+                        trigger_type="director_read",
+                        event_category=None,
+                        history_user_text=hist_text,
+                        commit_history=commit_hist,
+                        stage_direction=retry_stage,
+                    )
+                    self._speech_dedup_generated_total += 1
+                    if not self._speech_candidate_is_duplicate(parsed):
+                        req_id = retry_id
+                        replaced = True
+                        break
+                    self._speech_dedup_duplicate_total += 1
+                    self._finalize_runner_delivery(retry_id, False)
+                if not replaced:
+                    self._speech_dedup_suppressed_total += 1
+                    self._quarantine_repetition_context(
+                        refs=refs, thread_id=None, goal_id=dec.goal_id,
+                    )
+                    return False
+            async def rerun_style(retry_id: str, retry_stage: str) -> Any:
+                retry_parsed, _retry_level = await self._run_turn_deferred(
+                    request_id=retry_id,
+                    user_text=user_text,
+                    viewer_id=primary.viewer_id if primary else None,
+                    trigger_type="director_read",
+                    event_category=None,
+                    history_user_text=hist_text,
+                    commit_history=commit_hist,
+                    stage_direction=retry_stage,
+                )
+                return retry_parsed
+
+            req_id, parsed = await self._repair_speech_style(
+                req_id, parsed, stage or "", rerun_style,
+            )
+            if self._speech_candidate_is_duplicate(parsed):
+                self._speech_dedup_duplicate_total += 1
+                self._speech_dedup_suppressed_total += 1
+                self._finalize_runner_delivery(req_id, False)
+                self._quarantine_repetition_context(
+                    refs=refs, thread_id=None, goal_id=dec.goal_id,
+                )
+                return False
         spoken = await self._maybe_speak(
             req_id, parsed, dec.action, refs, goal_id=dec.goal_id,
             transaction_id=transaction_id,
         )
         if not spoken:
             return False
+        if dec.action is DirectorAction.READ_CHAT:
+            self._focus_delivered_chat(refs)
         for r in refs:
             self._pool.remove(r.msg_id)
         self._turns_read += 1
@@ -481,14 +735,61 @@ class DirectorLoop:
         req_id = f"room_{uuid.uuid4().hex[:8]}"
         prompt = _join_directives(
             _room_reaction_prompt(dec), self._behavior_directive(dec),
+            self._speech_style_directive(),
         )
         parsed = await self._run_ambient_deferred(req_id, prompt)
+        self._room_reaction_generated_total += 1
+        if self._room_candidate_is_duplicate(parsed):
+            self._room_reaction_duplicate_total += 1
+            self._finalize_runner_delivery(req_id, False)
+            replaced = False
+            for attempt in range(self._room_reaction_max_regenerations):
+                self._room_reaction_regenerated_total += 1
+                retry_id = f"{req_id}_r{attempt + 1}"
+                retry_prompt = _room_reaction_correction_prompt(
+                    prompt,
+                    str(getattr(parsed, "text", "")),
+                    tuple(self._room_reaction_dedup.recent()),
+                )
+                parsed = await self._run_ambient_deferred(retry_id, retry_prompt)
+                self._room_reaction_generated_total += 1
+                if not self._room_candidate_is_duplicate(parsed):
+                    req_id = retry_id
+                    replaced = True
+                    break
+                self._room_reaction_duplicate_total += 1
+                self._finalize_runner_delivery(retry_id, False)
+            if not replaced:
+                self._room_reaction_suppressed_total += 1
+                self._director.defer_room_reaction(
+                    now + self._room_reaction_retry_defer_seconds,
+                )
+                return False
+        req_id, parsed = await self._repair_speech_style(
+            req_id,
+            parsed,
+            prompt,
+            lambda retry_id, retry_prompt: self._run_ambient_deferred(
+                retry_id, retry_prompt,
+            ),
+        )
+        if self._room_candidate_is_duplicate(parsed):
+            self._room_reaction_duplicate_total += 1
+            self._room_reaction_suppressed_total += 1
+            self._finalize_runner_delivery(req_id, False)
+            self._director.defer_room_reaction(
+                now + self._room_reaction_retry_defer_seconds,
+            )
+            return False
         spoken = await self._maybe_speak(
             req_id, parsed, dec.action, list(dec.refs),
             transaction_id=transaction_id,
         )
         if not spoken:
             return False
+        self._clear_soft_continuations("room_reaction_delivered")
+        self._room_reaction_dedup.record(str(getattr(parsed, "text", "")))
+        self._director.mark_room_reaction(now)
         # SUMMARY dọn backlog điểm thấp (Task 3); VIBE gỡ cụm đã react
         if dec.read_mode == ReadMode.SUMMARY:
             self._pool.purge_below(self._director.summary_ceiling, now)
@@ -637,6 +938,17 @@ class DirectorLoop:
                     )
                 except Exception:
                     pass
+        self._speech_dedup_generated_total += 1
+        if self._speech_candidate_is_duplicate(parsed):
+            self._speech_dedup_duplicate_total += 1
+            self._speech_dedup_suppressed_total += 1
+            self._finalize_runner_delivery(delivery_req_id, False)
+            if plan is not None:
+                self._self_talk_planner.release(plan.plan_id)
+                self._director.defer_self_talk(
+                    now + self._self_talk_planner.unavailable_retry_seconds,
+                )
+            return False
         spoken = await self._maybe_speak(
             delivery_req_id, parsed, dec.action, [], transaction_id=transaction_id,
             thread_id=(
@@ -702,7 +1014,7 @@ class DirectorLoop:
         thread_id: str | None = None,
         conversation_move: str | None = None,
     ) -> bool:
-        return await self._delivery_boundary().deliver(
+        spoken = await self._delivery_boundary().deliver(
             req_id,
             parsed,
             action,
@@ -712,6 +1024,11 @@ class DirectorLoop:
             thread_id=thread_id,
             conversation_move=conversation_move,
         )
+        if spoken:
+            delivered_text = str(getattr(parsed, "text", ""))
+            self._speech_dedup.record(delivered_text)
+            self._speech_style.record(delivered_text)
+        return spoken
 
     async def _run_turn_deferred(self, **kwargs: Any) -> Any:
         return await self._delivery_boundary().run_turn_deferred(**kwargs)
@@ -742,6 +1059,26 @@ class DirectorLoop:
         self, *, refs: list[Any], thread_id: str | None, goal_id: str | None,
     ) -> None:
         """Drop an exhausted unsafe turn so Director cannot retry it forever."""
+        if self._quarantine_context(
+            refs=refs, thread_id=thread_id, goal_id=goal_id,
+            reason="filter_rejected",
+        ):
+            self._filter_context_quarantined_total += 1
+
+    def _quarantine_repetition_context(
+        self, *, refs: list[Any], thread_id: str | None, goal_id: str | None,
+    ) -> None:
+        """Drop an exhausted duplicate context so it cannot retry every tick."""
+        if self._quarantine_context(
+            refs=refs, thread_id=thread_id, goal_id=goal_id,
+            reason="speech_duplicate",
+        ):
+            self._speech_dedup_quarantined_total += 1
+
+    def _quarantine_context(
+        self, *, refs: list[Any], thread_id: str | None, goal_id: str | None,
+        reason: str,
+    ) -> bool:
         for ref in refs:
             msg_id = str(getattr(ref, "msg_id", "") or "")
             if msg_id:
@@ -769,32 +1106,83 @@ class DirectorLoop:
             for rejected_thread_id in resolved_ids:
                 try:
                     changed = bool(self._thread_manager.resolve(
-                        rejected_thread_id, reason="filter_rejected",
+                        rejected_thread_id, reason=reason,
                     )) or changed
                 except Exception as exc:
                     self._log.warning(
-                        "director_filter_thread_resolve_failed",
+                        "director_context_thread_resolve_failed",
                         thread_id=rejected_thread_id,
+                        reason=reason,
                         error=str(exc),
                     )
         if goal_id and self._goal_manager is not None:
             try:
                 changed = bool(self._goal_manager.cancel(
-                    goal_id, reason="filter_rejected",
+                    goal_id, reason=reason,
                 )) or changed
             except Exception as exc:
                 self._log.warning(
-                    "director_filter_goal_cancel_failed", goal_id=goal_id,
+                    "director_context_goal_cancel_failed", goal_id=goal_id,
+                    reason=reason,
                     error=str(exc),
                 )
         if refs or resolved_ids or goal_id:
-            self._filter_context_quarantined_total += 1
             self._log.info(
-                "director_filter_context_quarantined",
+                "director_context_quarantined",
                 thread_ids=sorted(resolved_ids), goal_id=goal_id,
                 refs=[str(getattr(ref, "msg_id", "")) for ref in refs],
-                state_changed=changed,
+                state_changed=changed, reason=reason,
             )
+            return True
+        return False
+
+    def _focus_delivered_chat(self, refs: list[Any]) -> None:
+        """Focus only the thread backed by the targeted chat that was delivered."""
+        if self._goal_manager is None:
+            return
+        raw_ids = {
+            str(getattr(ref, "msg_id", "") or "") for ref in refs
+            if str(getattr(ref, "msg_id", "") or "")
+        }
+        source_ids = {*raw_ids, *(f"agent:chat:{value}" for value in raw_ids)}
+        parent_id = None
+        if self._agent_state is not None and source_ids:
+            try:
+                matches = [
+                    thread for thread in self._agent_state.snapshot().open_threads
+                    if (
+                        thread.origin_event_id in source_ids
+                        or any(
+                            evidence.source_event_id in source_ids
+                            for evidence in thread.evidence
+                        )
+                    )
+                ]
+                if matches:
+                    parent_id = max(
+                        matches, key=lambda item: (item.updated_at, item.thread_id),
+                    ).thread_id
+            except Exception as exc:
+                self._log.warning("director_thread_focus_lookup_failed", error=str(exc))
+        try:
+            changed = int(self._goal_manager.focus_delivered_thread(
+                parent_id,
+                source_event_ids=source_ids,
+            ))
+            if changed:
+                self._thread_focus_total += 1
+        except Exception as exc:
+            self._log.warning("director_thread_focus_failed", error=str(exc))
+
+    def _clear_soft_continuations(self, reason: str) -> None:
+        if self._goal_manager is None:
+            return
+        try:
+            cleared = int(self._goal_manager.clear_continue_threads(reason=reason))
+            if cleared:
+                self._thread_boundary_clear_total += cleared
+        except Exception as exc:
+            self._log.warning("director_thread_boundary_clear_failed", error=str(exc))
 
     @staticmethod
     def _idempotency_key(dec: Any, now: float) -> str:
@@ -893,6 +1281,8 @@ class DirectorLoop:
     def _record_director_metric(self, dec: Any) -> None:
         if dec.reason == "below_actionable_score":
             self._chat_suppressed_total += 1
+        if dec.reason == "room_reaction_cooldown":
+            self._room_reaction_cooldown_blocked_total += 1
         if self._metrics is not None:
             try:
                 self._metrics.record_director_action(dec.action.value, dec.reason)
@@ -1013,6 +1403,103 @@ class DirectorLoop:
                 pass
         return MoodState()
 
+    def _room_candidate_is_duplicate(self, parsed: Any) -> bool:
+        """Check only filter-eligible text; exhausted filter remains the delivery gate."""
+        verdict = getattr(self._runner, "last_filter_verdict", None)
+        if verdict is not None and getattr(verdict, "passed", True) is not True:
+            return False
+        return self._room_reaction_dedup.check(str(getattr(parsed, "text", "")))
+
+    def _speech_candidate_is_duplicate(self, parsed: Any) -> bool:
+        """Check filtered public speech against delivered output only."""
+        verdict = getattr(self._runner, "last_filter_verdict", None)
+        if verdict is not None and getattr(verdict, "passed", True) is not True:
+            return False
+        return self._speech_dedup.check(str(getattr(parsed, "text", "")))
+
+    def _speech_style_directive(
+        self, *, question_budget_exempt: bool = False,
+    ) -> str | None:
+        forbidden, avoid_question = self._speech_style.constraints(
+            question_budget_exempt=question_budget_exempt,
+        )
+        return _speech_style_constraint_prompt(
+            forbidden,
+            avoid_question=avoid_question,
+            max_sentences=self._speech_style.max_sentences,
+            max_words=self._speech_style.max_words,
+        )
+
+    def _speech_style_assessment(
+        self,
+        parsed: Any,
+        *,
+        question_budget_exempt: bool = False,
+    ) -> SpeechStyleAssessment:
+        verdict = getattr(self._runner, "last_filter_verdict", None)
+        if verdict is not None and getattr(verdict, "passed", True) is not True:
+            return SpeechStyleAssessment((), None, False)
+        return self._speech_style.assess(
+            str(getattr(parsed, "text", "")),
+            question_budget_exempt=question_budget_exempt,
+        )
+
+    async def _repair_speech_style(
+        self,
+        request_id: str,
+        parsed: Any,
+        original_context: str,
+        rerun: Callable[[str, str], Awaitable[Any]],
+        *,
+        question_budget_exempt: bool = False,
+    ) -> tuple[str, Any]:
+        """Try one bounded style-only rewrite and fail open when still formulaic."""
+        assessment = self._speech_style_assessment(
+            parsed, question_budget_exempt=question_budget_exempt,
+        )
+        if assessment.valid:
+            return request_id, parsed
+        self._speech_style_violation_total += 1
+        current_id = request_id
+        current = parsed
+        for attempt in range(self._speech_style_max_regenerations):
+            self._finalize_runner_delivery(current_id, False)
+            self._speech_style_regenerated_total += 1
+            retry_id = f"{request_id}_s{attempt + 1}"
+            retry_context = _speech_style_correction_prompt(
+                original_context,
+                str(getattr(current, "text", "")),
+                reasons=assessment.reasons,
+                opener=assessment.opener,
+                max_sentences=self._speech_style.max_sentences,
+                max_words=self._speech_style.max_words,
+            )
+            current = await rerun(retry_id, retry_context)
+            current_id = retry_id
+            assessment = self._speech_style_assessment(
+                current, question_budget_exempt=question_budget_exempt,
+            )
+            if assessment.valid:
+                return current_id, current
+            self._speech_style_violation_total += 1
+        if "sentence_budget" in assessment.reasons or "word_budget" in assessment.reasons:
+            clamped = self._speech_style.clamp_shape(
+                str(getattr(current, "text", "")),
+            )
+            if clamped != str(getattr(current, "text", "")):
+                if hasattr(current, "model_copy"):
+                    current = current.model_copy(update={"text": clamped})
+                else:
+                    current = replace(current, text=clamped)
+                self._speech_style_clamped_total += 1
+                assessment = self._speech_style_assessment(
+                    current, question_budget_exempt=question_budget_exempt,
+                )
+                if assessment.valid:
+                    return current_id, current
+        self._speech_style_exhausted_total += 1
+        return current_id, current
+
     def get_metrics(self) -> dict[str, Any]:
         planner_metrics = (
             self._self_talk_planner.get_metrics()
@@ -1027,5 +1514,56 @@ class DirectorLoop:
             "director_filter_context_quarantined_total": (
                 self._filter_context_quarantined_total
             ),
+            "director_execute_failed_total": self._execute_failed_total,
+            "director_room_reaction_generated_total": (
+                self._room_reaction_generated_total
+            ),
+            "director_room_reaction_duplicate_total": (
+                self._room_reaction_duplicate_total
+            ),
+            "director_room_reaction_regenerated_total": (
+                self._room_reaction_regenerated_total
+            ),
+            "director_room_reaction_suppressed_total": (
+                self._room_reaction_suppressed_total
+            ),
+            "director_room_reaction_cooldown_blocked_total": (
+                self._room_reaction_cooldown_blocked_total
+            ),
+            "director_room_reaction_recent_count": len(
+                self._room_reaction_dedup.recent()
+            ),
+            "director_speech_dedup_generated_total": (
+                self._speech_dedup_generated_total
+            ),
+            "director_speech_dedup_duplicate_total": (
+                self._speech_dedup_duplicate_total
+            ),
+            "director_speech_dedup_regenerated_total": (
+                self._speech_dedup_regenerated_total
+            ),
+            "director_speech_dedup_suppressed_total": (
+                self._speech_dedup_suppressed_total
+            ),
+            "director_speech_dedup_quarantined_total": (
+                self._speech_dedup_quarantined_total
+            ),
+            "director_speech_dedup_recent_count": len(self._speech_dedup.recent()),
+            "director_speech_style_violation_total": (
+                self._speech_style_violation_total
+            ),
+            "director_speech_style_regenerated_total": (
+                self._speech_style_regenerated_total
+            ),
+            "director_speech_style_exhausted_total": (
+                self._speech_style_exhausted_total
+            ),
+            "director_speech_style_clamped_total": (
+                self._speech_style_clamped_total
+            ),
+            "director_thread_focus_total": self._thread_focus_total,
+            "director_thread_boundary_clear_total": self._thread_boundary_clear_total,
+            "director_thread_forced_park_total": self._thread_forced_park_total,
+            "director_speech_style_recent_count": self._speech_style.recent_count(),
             **planner_metrics,
         }

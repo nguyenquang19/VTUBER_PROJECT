@@ -173,6 +173,38 @@ class TestReadModes:
         assert dec.read_mode == ReadMode.SINGLE
         assert dec.refs[0].msg_id == "q"
 
+    def test_room_cooldown_blocks_summary_but_not_question_or_donation(self) -> None:
+        pool = _pool()
+        distinct = [
+            "trời hôm nay đẹp ghê", "ăn phở hay bún đây", "mèo nhà tao dễ thương",
+            "deadline sắp tới rồi", "cà phê sáng ngon quá", "đi ngủ đây bye",
+            "game mới hay không", "nhạc gì đang nghe vậy", "mưa to quá trời",
+            "học bài chán ghê", "code lỗi hoài à", "đói bụng muốn xỉu",
+        ]
+        for i, text in enumerate(distinct):
+            pool.add(f"c{i}", text, now=0.0, kind="chat")
+        d = _director(pool=pool, room_reaction_cooldown_seconds=30.0)
+        d.advance_segment(now=0.0)
+        d.mark_room_reaction(now=1.0)
+
+        blocked = d.decide(now=10.0)
+        assert blocked.action is DirectorAction.WAIT
+        assert blocked.reason == "room_reaction_cooldown"
+
+        pool.add("question", "Mai có khỏe không", now=10.0, kind="question")
+        question = d.decide(now=10.1)
+        assert question.action is DirectorAction.READ_CHAT
+        assert question.read_mode is ReadMode.SINGLE
+        assert question.refs[0].msg_id == "question"
+
+        pool.add(
+            "donation", "quà nè", now=10.2, kind="chat",
+            amount_vnd=100_000, is_super=True,
+        )
+        donation = d.decide(now=10.3)
+        assert donation.action is DirectorAction.ACK_DONATION
+        assert donation.refs[0].msg_id == "donation"
+
 
 class TestProactive:
     def test_dead_air_triggers_self_talk(self) -> None:

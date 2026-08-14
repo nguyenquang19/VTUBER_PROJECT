@@ -107,8 +107,109 @@ def room_reaction_prompt(dec: Any) -> str:
         )
     return (
         "[Context — Mai react KHÔNG KHÍ chat, KHÔNG trả lời ai cụ thể]\n"
-        "Chat trôi nhanh, nhiều tin lặt vặt đọc không kịp. Nói 1 câu tổng kiểu "
-        "'chat trôi nhanh quá' đúng giọng Mai, KHÔNG đáp lẻ từng tin. Chỉ viết thoại."
+        "Chat trôi nhanh, nhiều tin lặt vặt đọc không kịp. Nói 1 câu nhận xét tự nhiên "
+        "về nhịp chung của phòng, dùng cách diễn đạt riêng, KHÔNG đáp lẻ từng tin. "
+        "Chỉ viết thoại."
+    )
+
+
+def room_reaction_correction_prompt(
+    original_prompt: str,
+    rejected_text: str,
+    recent_texts: tuple[str, ...],
+) -> str:
+    """Render one bounded retry prompt for a repeated room reaction."""
+    recent = "\n".join(f"- {text.strip()}" for text in recent_texts if text.strip())
+    recent_block = recent or "- (chưa có)"
+    return (
+        f"{original_prompt}\n"
+        "[SỬA CÂU BỊ LẶP — chỉ thử lại một lần]\n"
+        "Viết một phản ứng mới khác rõ về từ ngữ và góc nhận xét; không diễn đạt lại "
+        "câu bị từ chối và không sao chép các câu gần đây.\n"
+        f"Câu bị từ chối: {rejected_text.strip()}\n"
+        f"Các phản ứng phòng chat đã nói gần đây:\n{recent_block}\n"
+        "Chỉ trả về câu thoại mới."
+    )
+
+
+def speech_dedup_correction_prompt(
+    original_context: str,
+    rejected_text: str,
+    recent_texts: tuple[str, ...],
+) -> str:
+    """Render one bounded correction for a repeated public response."""
+    recent = "\n".join(
+        f"- {' '.join(text.split())[:240]}"
+        for text in recent_texts[-4:] if text.strip()
+    )
+    return (
+        f"{original_context}\n" if original_context else ""
+    ) + (
+        "[SỬA CÂU BỊ LẶP — chỉ thử lại một lần]\n"
+        "Trả lời cùng dữ kiện nhưng chỉ giữ ý chưa nói; không đảo thứ tự hoặc diễn đạt "
+        "lại hai ý cũ. Mặc định 1-2 câu và không hỏi ngược nếu đã đủ ý.\n"
+        f"Câu bị từ chối: {' '.join(rejected_text.split())[:320]}\n"
+        f"Các câu vừa delivery:\n{recent or '- (chưa có)'}\n"
+        "Chỉ trả về câu thoại mới."
+    )
+
+
+def speech_style_constraint_prompt(
+    forbidden_openers: tuple[str, ...],
+    *,
+    avoid_question: bool,
+    max_sentences: int,
+    max_words: int,
+) -> str | None:
+    """Render only constraints currently exhausted by delivered speech."""
+    lines: list[str] = [
+        f"Chỉ nói tối đa {max_sentences} câu và {max_words} từ; không xuống đoạn mới."
+    ]
+    if forbidden_openers:
+        rendered = ", ".join(f'“{value}”' for value in forbidden_openers)
+        lines.append(
+            "Không mở câu trả lời này bằng các cụm đang bị dùng quá nhiều: "
+            + rendered + ". Đi thẳng vào nội dung bằng cách khác."
+        )
+    if avoid_question:
+        lines.append(
+            "Kết thúc bằng một nhận xét khẳng định; lượt này không hỏi ngược chat."
+        )
+    return "[Ràng buộc nhịp văn phong hiện tại]\n" + "\n".join(lines)
+
+
+def speech_style_correction_prompt(
+    original_context: str,
+    rejected_text: str,
+    *,
+    reasons: tuple[str, ...],
+    opener: str | None,
+    max_sentences: int,
+    max_words: int,
+) -> str:
+    """Render one bounded correction for formulaic public speech."""
+    rules: list[str] = []
+    if "formula_opener_budget" in reasons or "same_opener_budget" in reasons:
+        rules.append(
+            f"Bỏ opener “{opener or 'cụm mở đầu cũ'}”; bắt đầu thẳng bằng nội dung chính."
+        )
+    if "question_budget" in reasons:
+        rules.append(
+            "Đổi câu hỏi thành nhận xét khẳng định; không dùng dấu hỏi hoặc đuôi hỏi."
+        )
+    if "sentence_budget" in reasons or "word_budget" in reasons:
+        rules.append(
+            f"Rút còn tối đa {max_sentences} câu và {max_words} từ, không xuống đoạn mới."
+        )
+    rendered_rules = "\n".join(f"- {rule}" for rule in rules)
+    return (
+        f"{original_context}\n" if original_context else ""
+    ) + (
+        "[SỬA VĂN PHONG — chỉ thử lại một lần]\n"
+        "Giữ nguyên dữ kiện và ý trả lời, chỉ thay hình dáng câu.\n"
+        f"{rendered_rules}\n"
+        f"Bản cần sửa: {' '.join(rejected_text.split())[:320]}\n"
+        "Chỉ trả về 1-2 câu thoại mới, không giải thích việc sửa."
     )
 
 

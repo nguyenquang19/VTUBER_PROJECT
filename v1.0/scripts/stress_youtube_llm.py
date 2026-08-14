@@ -25,6 +25,7 @@ from services.llm.llm_turn import LLMTurnRunner  # noqa: E402
 from services.llm.prompt_manager import PromptManager  # noqa: E402
 from services.filter.regenerator import FilterRegenerator  # noqa: E402
 from services.filter.rule_filter import RuleFilter  # noqa: E402
+from services.director.speech_style import summarize_speech_style  # noqa: E402
 
 
 class _ReadOnlyAgentState:
@@ -160,6 +161,11 @@ def build_quality_report(
     replay: dict[str, Any],
     calls: Sequence[dict[str, Any]],
     policy: dict[str, Any],
+    *,
+    formula_openers: tuple[str, ...] = ("mà", "trời ơi", "ủa", "ơ kìa"),
+    question_endings: tuple[str, ...] = (
+        "nhỉ", "hả", "à", "ư", "không", "chưa", "sao", "gì", "nào",
+    ),
 ) -> dict[str, Any]:
     patterns = dict(policy.get("forbidden_patterns") or {})
     delivery_summary = dict(replay.get("delivery") or {})
@@ -245,10 +251,27 @@ def build_quality_report(
             and asks_unknown
             and not states_uncertainty
         )
-        if name is not None and (marker is not None or missing_name or ungrounded_answer):
+        kind = str(call.get("kind") or "")
+        explicit_directed_takeover = bool(
+            name is not None
+            and kind == "directed"
+            and name in response
+            and any(value in response for value in (
+                f"tớ là {name}", f"mình là {name}", f"{name} là tớ",
+                f"{name} là mình", f"gọi tớ là {name}",
+            ))
+        )
+        direct_confusion = kind != "directed" and (
+            marker is not None or missing_name or ungrounded_answer
+        )
+        if name is not None and (direct_confusion or explicit_directed_takeover):
             identity_flags.append({
                 "request_id": str(call.get("request_id") or ""),
-                "pattern": f"{name}:{marker or 'ungrounded_third_party_answer'}",
+                "pattern": (
+                    f"{name}:explicit_directed_takeover"
+                    if explicit_directed_takeover else
+                    f"{name}:{marker or 'ungrounded_third_party_answer'}"
+                ),
             })
     candidate_flagged["foreign_identity_confusion"] = identity_flags
     flagged = {
@@ -275,7 +298,13 @@ def build_quality_report(
     # distinct-N: đo đa dạng từ vựng (chống nhạt/lặp cụm — mạnh hơn exact_repetition).
     # distinct thấp = nói đi nói lại vài cụm = "sặc AI". Cao = phong phú.
     diversity = _distinct_ngrams(delivered_texts)
+    style = summarize_speech_style(
+        delivered_texts,
+        formula_openers=formula_openers,
+        question_endings=question_endings,
+    )
     reasons = dict((replay.get("director") or {}).get("reason_counts") or {})
+    director_metrics = dict((replay.get("director") or {}).get("metrics") or {})
     cadence = dict((replay.get("director") or {}).get("self_talk_cadence") or {})
     threads = dict(replay.get("conversation_threads") or {})
     delivery = delivery_summary
@@ -289,6 +318,12 @@ def build_quality_report(
         "exact_repetition_ratio": repetition_ratio <= float(
             gates.get("max_exact_repetition_ratio", 1.0)
         ),
+        "formula_opener_ratio": style.formula_opener_ratio <= float(
+            gates.get("max_formula_opener_ratio", 1.0)
+        ),
+        "question_ending_ratio": style.question_ratio <= float(
+            gates.get("max_question_ending_ratio", 1.0)
+        ),
         "meta_leak": len(flagged.get("meta_leak", ())) <= int(
             gates.get("max_meta_leaks", 0)
         ),
@@ -297,6 +332,9 @@ def build_quality_report(
         ),
         "hostility": len(flagged.get("hostility", ())) <= int(
             gates.get("max_hostility", 0)
+        ),
+        "manipulation": len(flagged.get("manipulation", ())) <= int(
+            gates.get("max_manipulation", 0)
         ),
         "identity_conflict": len(flagged.get("identity_conflict", ())) <= int(
             gates.get("max_identity_conflicts", 0)
@@ -318,6 +356,9 @@ def build_quality_report(
             gates.get("decode_tps_p50_min", 0.0)
         ),
         "no_stale_thread_wait": int(reasons.get("thread_missing", 0)) == 0,
+        "no_director_execute_failure": int(
+            director_metrics.get("director_execute_failed_total") or 0
+        ) <= int(gates.get("max_director_execute_failures", 0)),
         "no_false_thread_commit": int(threads.get("false_commits") or 0) == 0,
         "all_committed_delivered": int(
             (delivery.get("transactions") or {}).get("committed") or 0
@@ -337,6 +378,8 @@ def build_quality_report(
             "fallbacks": len(fallback_ids),
             "empty": len(empty_ids),
             "duplicate_outputs": duplicate_outputs,
+            "formula_opener_outputs": style.formula_openers,
+            "question_outputs": style.questions,
             "flagged": {key: len(value) for key, value in flagged.items()},
             "candidate_flagged": {
                 key: len(value) for key, value in candidate_flagged.items()
@@ -345,6 +388,8 @@ def build_quality_report(
         "ratios": {
             "fallback": round(fallback_ratio, 4),
             "exact_repetition": round(repetition_ratio, 4),
+            "formula_openers": round(style.formula_opener_ratio, 4),
+            "question_endings": round(style.question_ratio, 4),
             "distinct_1": diversity["distinct_1"],
             "distinct_2": diversity["distinct_2"],
             "avg_words": diversity["avg_words"],
@@ -496,6 +541,13 @@ async def _run(args: argparse.Namespace) -> int:
             dict(stored.get("replay") or {}),
             list((stored.get("llm") or {}).get("calls") or ()),
             policy,
+            formula_openers=tuple(loader.get(
+                "director", "director.speech_style.formula_openers",
+                ("mà", "trời ơi", "ủa", "ơ kìa"),
+            ) or ()),
+            question_endings=tuple(loader.get(
+                "director", "director.speech_style.question_endings", ("nhỉ",),
+            ) or ()),
         )
         output = args.output or source.with_name(source.stem + "_assessment.json")
         if not output.is_absolute():
@@ -589,7 +641,18 @@ async def _run(args: argparse.Namespace) -> int:
         await service.stop()
     if instrumented is None:
         raise RuntimeError("real LLM runner was not initialized")
-    quality = build_quality_report(replay, instrumented.calls, policy)
+    quality = build_quality_report(
+        replay,
+        instrumented.calls,
+        policy,
+        formula_openers=tuple(loader.get(
+            "director", "director.speech_style.formula_openers",
+            ("mà", "trời ơi", "ủa", "ơ kìa"),
+        ) or ()),
+        question_endings=tuple(loader.get(
+            "director", "director.speech_style.question_endings", ("nhỉ",),
+        ) or ()),
+    )
     report = {
         "schema_version": 1,
         "mode": "youtube_director_real_llama_cpp_stress",

@@ -230,7 +230,12 @@ class TestRealConfigFiles:
         assert loader.require("conversation", "open_threads.max_open") == 8
         assert loader.require("conversation", "open_threads.park_after_seconds") == 300
         assert loader.require("conversation", "topic_matcher.min_score") == 0.34
-        assert loader.require("conversation", "move_planner.summarize_after_moves") == 4
+        assert loader.require("conversation", "move_planner.summarize_after_moves") == 2
+        assert loader.require("director", "director.room_reaction.cooldown_seconds") == 120
+        assert loader.require("director", "director.speech_dedup.recent_window") == 64
+        assert loader.require("director", "director.speech_style.recent_window") == 12
+        assert loader.require("director", "director.speech_style.max_formula_openers") == 2
+        assert loader.require("director", "director.speech_style.max_words") == 65
         assert loader.require("hosting", "behavior_library.behaviors.repair.directive")
 
     def test_real_config_has_phase0_keys(self) -> None:

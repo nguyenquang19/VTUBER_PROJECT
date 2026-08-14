@@ -83,6 +83,7 @@ class Director:
         segments: list[Segment],
         dead_air_seconds: float = 20.0,
         self_talk_cooldown_seconds: float = 45.0,
+        room_reaction_cooldown_seconds: float = 30.0,
         max_consecutive_read_chat: int = 3,
         max_refs_per_turn: int = 3,
         backlog_summary_threshold: int = 12,
@@ -90,7 +91,6 @@ class Director:
         min_actionable_score: float = 15.0,
         chat_gate_enabled: bool = False,
         ask_follow_up_before_expiry_s: float = 20.0,
-        continue_thread_chat_grace_s: float = 3.0,
         mood_policy: Any = None,
         proactive_policy: Any = None,
         clock: Any = None,
@@ -102,6 +102,9 @@ class Director:
         self._segments = segments
         self._dead_air = float(dead_air_seconds)
         self._self_talk_cooldown = max(0.0, float(self_talk_cooldown_seconds))
+        self._room_reaction_cooldown = max(
+            0.0, float(room_reaction_cooldown_seconds),
+        )
         self._max_consec = max(1, int(max_consecutive_read_chat))
         self._max_refs = max(1, int(max_refs_per_turn))
         self._backlog_thr = int(backlog_summary_threshold)
@@ -109,9 +112,6 @@ class Director:
         self._min_actionable_score = max(0.0, float(min_actionable_score))
         self._chat_gate_enabled = bool(chat_gate_enabled)
         self._ask_follow_up_before_expiry_s = max(0.0, float(ask_follow_up_before_expiry_s))
-        self._continue_thread_chat_grace_s = max(
-            0.0, float(continue_thread_chat_grace_s),
-        )
         self._mood_policy = mood_policy
         self._proactive_policy = proactive_policy
         self._clock = clock or time.time
@@ -121,6 +121,8 @@ class Director:
         self._last_speak_ts: float | None = None
         self._last_self_talk_ts: float | None = None
         self._self_talk_deferred_until = 0.0
+        self._last_room_reaction_ts: float | None = None
+        self._room_reaction_deferred_until = 0.0
         self._consecutive_read_chat = 0
         self._transitions = 0
 
@@ -150,6 +152,9 @@ class Director:
             self_talk_cooldown_seconds=float(
                 d.get("self_talk_cooldown_seconds", 45.0)
             ),
+            room_reaction_cooldown_seconds=float(
+                (d.get("room_reaction") or {}).get("cooldown_seconds", 30.0)
+            ),
             max_consecutive_read_chat=int(d.get("max_consecutive_read_chat", 3)),
             max_refs_per_turn=int(d.get("max_refs_per_turn", 3)),
             backlog_summary_threshold=int(d.get("backlog_summary_threshold", 12)),
@@ -158,9 +163,6 @@ class Director:
             chat_gate_enabled=chat_gate_enabled,
             ask_follow_up_before_expiry_s=float(
                 d.get("arbiter", {}).get("ask_follow_up_before_expiry_s", 20.0)
-            ),
-            continue_thread_chat_grace_s=float(
-                d.get("arbiter", {}).get("continue_thread_chat_grace_s", 3.0)
             ),
             mood_policy=mood_policy,
             proactive_policy=proactive_policy,
@@ -176,6 +178,8 @@ class Director:
         self._last_speak_ts = now
         self._last_self_talk_ts = None
         self._self_talk_deferred_until = 0.0
+        self._last_room_reaction_ts = None
+        self._room_reaction_deferred_until = 0.0
 
     @property
     def summary_ceiling(self) -> float:
@@ -226,6 +230,25 @@ class Director:
         """New external evidence may make a fresh thought possible immediately."""
         self._self_talk_deferred_until = 0.0
 
+    def mark_room_reaction(self, now: float | None = None) -> None:
+        """Start room cooldown only after a SUMMARY/VIBE reached delivery."""
+        self._last_room_reaction_ts = self._clock() if now is None else float(now)
+        self._room_reaction_deferred_until = 0.0
+
+    def defer_room_reaction(self, until: float) -> None:
+        """Back off a repeated room candidate without faking delivered speech."""
+        self._room_reaction_deferred_until = max(
+            self._room_reaction_deferred_until, float(until),
+        )
+
+    def room_reaction_ready(self, now: float) -> bool:
+        """Return whether scheduling may open another generic room reaction."""
+        cooldown_ready = (
+            self._last_room_reaction_ts is None
+            or float(now) - self._last_room_reaction_ts >= self._room_reaction_cooldown
+        )
+        return cooldown_ready and float(now) >= self._room_reaction_deferred_until
+
     # ---------- decision ----------
 
     def decide(
@@ -258,18 +281,14 @@ class Director:
                 goal_id=_matching_donation_goal_id(director_input.goals.active, donation),
             )
 
-        if (
-            director_input.goals.active is not None
-            and not (
-                director_input.goals.active.kind is GoalKind.CONTINUE_THREAD
-                and top_actionable
-                and (
-                    now - director_input.goals.active.created_at.timestamp()
-                    < self._continue_thread_chat_grace_s
-                )
-            )
-        ):
-            return self._goal_decision(seg, director_input.goals.active, director_input)
+        active_goal = director_input.goals.active
+        continue_source_pending = bool(
+            active_goal is not None
+            and active_goal.kind is GoalKind.CONTINUE_THREAD
+            and active_goal.metadata.get("source_delivered") is False
+        )
+        if active_goal is not None and not continue_source_pending:
+            return self._goal_decision(seg, active_goal, director_input)
 
         # 1. Hết giờ segment → chuyển sau hard priority/goal. Backlog không được
         # giữ một segment vô hạn; chat vẫn còn nguyên trong pool sau transition.
@@ -310,8 +329,13 @@ class Director:
             and top is not None
             and top_actionable
             and not consec_hit
-            and (not self._chat_gate_enabled or top.kind == "chat")
+            and top.kind == "chat"
         ):
+            if not self.room_reaction_ready(now):
+                return DirectorDecision(
+                    action=DirectorAction.WAIT, segment=seg.name,
+                    reason="room_reaction_cooldown",
+                )
             return DirectorDecision(
                 action=DirectorAction.READ_CHAT, segment=seg.name,
                 reason="hype_spam_vibe", refs=director_input.chat_candidates[:self._max_refs],
@@ -532,6 +556,11 @@ class Director:
         pool_size = director_input.pool_size
         top_score = top.score
         if pool_size >= self._backlog_thr and top_score < self._summary_ceiling:
+            if not self.room_reaction_ready(director_input.now):
+                return DirectorDecision(
+                    action=DirectorAction.WAIT, segment=seg.name,
+                    reason="room_reaction_cooldown",
+                )
             return DirectorDecision(
                 action=DirectorAction.READ_CHAT, segment=seg.name,
                 reason="backlog_summary", refs=(), read_mode=ReadMode.SUMMARY,
@@ -576,6 +605,9 @@ class Director:
             "director_self_talk_cooldown_seconds": self._self_talk_cooldown,
             "director_last_self_talk_ts": self._last_self_talk_ts,
             "director_self_talk_deferred_until": self._self_talk_deferred_until,
+            "director_room_reaction_cooldown_seconds": self._room_reaction_cooldown,
+            "director_last_room_reaction_ts": self._last_room_reaction_ts,
+            "director_room_reaction_deferred_until": self._room_reaction_deferred_until,
         }
 
 

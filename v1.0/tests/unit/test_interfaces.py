@@ -84,6 +84,8 @@ class TestServiceContract:
             (GoalManagerService, "complete"),
             (GoalManagerService, "cancel"),
             (GoalManagerService, "snapshot"),
+            (GoalManagerService, "focus_delivered_thread"),
+            (GoalManagerService, "clear_continue_threads"),
             (GoalManagerService, "pin_operator"),
             (GoalManagerService, "operator_complete"),
             (GoalManagerService, "operator_cancel"),

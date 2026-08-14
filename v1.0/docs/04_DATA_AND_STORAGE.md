@@ -236,3 +236,9 @@ Every contribution retains a `source_event_id`; raw model reasoning is never sto
 Threads are in-memory session state. Active threads become parked after `park_after_seconds`, may resume
 when related grounded chat arrives, and expire at TTL. Claims and move progress caused by Mai output are
 post-delivery data: delivery failure leaves them unchanged.
+
+The focused public thread is derived from delivered evidence, not generation or chat intake alone.
+Successful targeted chat delivery may focus one matching parent and cancel stale soft continuation goals;
+successful `speech_completed` may atomically schedule the next move for that same parent. A delivered
+room reaction clears pending soft continuations but does not fabricate a thread contribution. None of
+these state changes occur on generation, filter, TTS, or playback failure.

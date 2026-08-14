@@ -1182,6 +1182,9 @@ async def build_stream_runtime(
 
     # TASK 4: director tick TÁCH khỏi autonomy (autonomy 5s làm chat chờ lâu).
     director_tick = float(loader.get("director", "director.tick_seconds", 1.5))
+    room_reaction = loader.get("director", "director.room_reaction", {}) or {}
+    speech_dedup = loader.get("director", "director.speech_dedup", {}) or {}
+    speech_style = loader.get("director", "director.speech_style", {}) or {}
     director_loop = DirectorLoop(
         director=director, pool=pool, pulse=pulse, runner=runner,
         emotion=emotion, autonomy=autonomy, speak=speak_callback,
@@ -1199,6 +1202,42 @@ async def build_stream_runtime(
         self_talk_planner=self_talk_planner,
         thread_manager=open_thread_manager,
         animation=animation,
+        room_reaction_recent_window=int(room_reaction.get("recent_window", 16)),
+        room_reaction_similarity_threshold=float(
+            room_reaction.get("similarity_threshold", 0.72)
+        ),
+        room_reaction_max_regenerations=int(
+            room_reaction.get("max_regenerations", 1)
+        ),
+        room_reaction_retry_defer_seconds=float(
+            room_reaction.get("retry_defer_seconds", 30.0)
+        ),
+        speech_dedup_recent_window=int(speech_dedup.get("recent_window", 32)),
+        speech_dedup_similarity_threshold=float(
+            speech_dedup.get("similarity_threshold", 0.72)
+        ),
+        speech_dedup_max_regenerations=int(
+            speech_dedup.get("max_regenerations", 1)
+        ),
+        speech_style_recent_window=int(speech_style.get("recent_window", 12)),
+        speech_style_formula_openers=tuple(
+            speech_style.get("formula_openers", ("mà", "trời ơi", "ủa", "ơ kìa"))
+        ),
+        speech_style_max_formula_openers=int(
+            speech_style.get("max_formula_openers", 2)
+        ),
+        speech_style_max_same_opener=int(
+            speech_style.get("max_same_opener", 1)
+        ),
+        speech_style_max_questions=int(speech_style.get("max_questions", 2)),
+        speech_style_question_endings=tuple(
+            speech_style.get("question_endings", ("nhỉ",))
+        ),
+        speech_style_max_sentences=int(speech_style.get("max_sentences", 2)),
+        speech_style_max_words=int(speech_style.get("max_words", 65)),
+        speech_style_max_regenerations=int(
+            speech_style.get("max_regenerations", 1)
+        ),
     )
 
     attach_set_enabled_feature(

@@ -32,7 +32,12 @@ from services.director.action_transaction import ActionTransactionManager  # noq
 from services.director.action_context import ActionContextBuilder  # noqa: E402
 from services.director.chat_pulse import ChatPulse  # noqa: E402
 from services.director.decision_record import DecisionRecordManager  # noqa: E402
-from services.director.director import Director, DirectorAction, Segment  # noqa: E402
+from services.director.director import (  # noqa: E402
+    Director,
+    DirectorAction,
+    ReadMode,
+    Segment,
+)
 from services.director.director_loop import DirectorLoop  # noqa: E402
 from services.director.proactive_policy import ProactiveHostingPolicy  # noqa: E402
 from services.director.salience import SaliencePool  # noqa: E402
@@ -175,6 +180,12 @@ def _director_from_config(
         pulse,
         [segment],
         dead_air_seconds=float(values.get("dead_air_seconds", 20.0)),
+        self_talk_cooldown_seconds=float(
+            values.get("self_talk_cooldown_seconds", 45.0)
+        ),
+        room_reaction_cooldown_seconds=float(
+            (values.get("room_reaction") or {}).get("cooldown_seconds", 30.0)
+        ),
         max_consecutive_read_chat=int(values.get("max_consecutive_read_chat", 3)),
         max_refs_per_turn=int(values.get("max_refs_per_turn", 3)),
         backlog_summary_threshold=int(values.get("backlog_summary_threshold", 12)),
@@ -185,9 +196,6 @@ def _director_from_config(
         )),
         ask_follow_up_before_expiry_s=float(
             (values.get("arbiter") or {}).get("ask_follow_up_before_expiry_s", 20.0)
-        ),
-        continue_thread_chat_grace_s=float(
-            (values.get("arbiter") or {}).get("continue_thread_chat_grace_s", 3.0)
         ),
         proactive_policy=ProactiveHostingPolicy.from_loader(loader, enabled=True),
         clock=clock,
@@ -308,6 +316,55 @@ async def simulate_replay(
         goal_manager=goal_manager,
         thread_manager=thread_manager,
         action_context_builder=ActionContextBuilder.from_loader(loader),
+        room_reaction_recent_window=int(loader.get(
+            "director", "director.room_reaction.recent_window", 16,
+        )),
+        room_reaction_similarity_threshold=float(loader.get(
+            "director", "director.room_reaction.similarity_threshold", 0.72,
+        )),
+        room_reaction_max_regenerations=int(loader.get(
+            "director", "director.room_reaction.max_regenerations", 1,
+        )),
+        room_reaction_retry_defer_seconds=float(loader.get(
+            "director", "director.room_reaction.retry_defer_seconds", 30.0,
+        )),
+        speech_dedup_recent_window=int(loader.get(
+            "director", "director.speech_dedup.recent_window", 32,
+        )),
+        speech_dedup_similarity_threshold=float(loader.get(
+            "director", "director.speech_dedup.similarity_threshold", 0.72,
+        )),
+        speech_dedup_max_regenerations=int(loader.get(
+            "director", "director.speech_dedup.max_regenerations", 1,
+        )),
+        speech_style_recent_window=int(loader.get(
+            "director", "director.speech_style.recent_window", 12,
+        )),
+        speech_style_formula_openers=tuple(loader.get(
+            "director", "director.speech_style.formula_openers",
+            ("mà", "trời ơi", "ủa", "ơ kìa"),
+        ) or ()),
+        speech_style_max_formula_openers=int(loader.get(
+            "director", "director.speech_style.max_formula_openers", 2,
+        )),
+        speech_style_max_same_opener=int(loader.get(
+            "director", "director.speech_style.max_same_opener", 1,
+        )),
+        speech_style_max_questions=int(loader.get(
+            "director", "director.speech_style.max_questions", 2,
+        )),
+        speech_style_question_endings=tuple(loader.get(
+            "director", "director.speech_style.question_endings", ("nhỉ",),
+        ) or ()),
+        speech_style_max_sentences=int(loader.get(
+            "director", "director.speech_style.max_sentences", 2,
+        )),
+        speech_style_max_words=int(loader.get(
+            "director", "director.speech_style.max_words", 65,
+        )),
+        speech_style_max_regenerations=int(loader.get(
+            "director", "director.speech_style.max_regenerations", 1,
+        )),
     )
     recent_context: list[str] = []
     activity = {"last": clock_start, "count": 0}
@@ -346,6 +403,8 @@ async def simulate_replay(
     nonempty_ticks = 0
     selected_event_ids: set[str] = set()
     self_talk_offsets_ms: list[int] = []
+    room_reaction_offsets_ms: list[int] = []
+    delivery_offsets_ms: list[int] = []
     false_thread_commits = 0
 
     try:
@@ -375,6 +434,15 @@ async def simulate_replay(
                 and len(deliveries) > deliveries_before
             ):
                 self_talk_offsets_ms.append((tick_index + 1) * tick_window_ms)
+            if len(deliveries) > deliveries_before:
+                delivery_offsets_ms.extend(
+                    [(tick_index + 1) * tick_window_ms]
+                    * (len(deliveries) - deliveries_before)
+                )
+                if expected.read_mode in (ReadMode.SUMMARY, ReadMode.VIBE):
+                    room_reaction_offsets_ms.append(
+                        (tick_index + 1) * tick_window_ms
+                    )
             reason_counts[expected.reason] += 1
             selected = [
                 {
@@ -433,6 +501,17 @@ async def simulate_replay(
         (current - previous) / 1000.0
         for previous, current in zip(self_talk_offsets_ms, self_talk_offsets_ms[1:])
     ]
+    room_reaction_gaps_s = [
+        (current - previous) / 1000.0
+        for previous, current in zip(
+            room_reaction_offsets_ms, room_reaction_offsets_ms[1:],
+        )
+    ]
+    delivery_gaps_s = [
+        (current - previous) / 1000.0
+        for previous, current in zip(delivery_offsets_ms, delivery_offsets_ms[1:])
+    ]
+    duration_minutes = max(result.duration_ms / 60000.0, 1 / 60.0)
     return {
         "schema_version": 1,
         "mode": "offline_youtube_replay",
@@ -473,6 +552,41 @@ async def simulate_replay(
                     for gap in self_talk_gaps_s
                 ),
             },
+            "room_reaction_cadence": {
+                "count": len(room_reaction_offsets_ms),
+                "reactions_per_minute": round(
+                    len(room_reaction_offsets_ms) / duration_minutes, 3,
+                ),
+                "minimum_gap_s": (
+                    min(room_reaction_gaps_s) if room_reaction_gaps_s else None
+                ),
+                "average_gap_s": (
+                    round(sum(room_reaction_gaps_s) / len(room_reaction_gaps_s), 3)
+                    if room_reaction_gaps_s else None
+                ),
+                "maximum_gap_s": (
+                    max(room_reaction_gaps_s) if room_reaction_gaps_s else None
+                ),
+                "gaps_below_configured_cooldown": sum(
+                    gap < float(loader.get(
+                        "director", "director.room_reaction.cooldown_seconds", 30.0,
+                    ))
+                    for gap in room_reaction_gaps_s
+                ),
+            },
+            "delivery_cadence": {
+                "count": len(delivery_offsets_ms),
+                "deliveries_per_minute": round(
+                    len(delivery_offsets_ms) / duration_minutes, 3,
+                ),
+                "minimum_gap_s": min(delivery_gaps_s) if delivery_gaps_s else None,
+                "average_gap_s": (
+                    round(sum(delivery_gaps_s) / len(delivery_gaps_s), 3)
+                    if delivery_gaps_s else None
+                ),
+                "maximum_gap_s": max(delivery_gaps_s) if delivery_gaps_s else None,
+            },
+            "metrics": loop.get_metrics(),
         },
         "delivery": {
             "generated_responses": len(runner.calls),

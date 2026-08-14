@@ -150,6 +150,19 @@ class TestDedupFunction:
             ["chào cậu ơi [vui:8 buc:0]"],
         )
 
+    def test_leading_bracket_tag_does_not_bypass_dedup(self) -> None:
+        assert is_too_similar(
+            "[MÔ PHỎNG] Chat chạy nhanh ghê.",
+            ["[MÔ PHỎNG] Chat chạy nhanh ghê."],
+        )
+
+    def test_reversing_sentence_order_is_still_duplicate(self) -> None:
+        assert is_too_similar(
+            "Lôi tớ ra trêu cũng vui thật đấy. Béo ở đâu chứ?",
+            ["Béo ở đâu chứ? Lôi tớ ra trêu cũng vui thật đấy."],
+            threshold=0.72,
+        )
+
 
 class TestDedupBuffer:
     def test_check_uses_recent(self) -> None:

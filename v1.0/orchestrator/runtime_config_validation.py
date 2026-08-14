@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, model_validator
 
 from orchestrator.config_loader import ConfigError
 
@@ -19,6 +19,26 @@ class RuntimeCriticalConfig(BaseModel):
     director_tick_seconds: float = Field(gt=0)
     director_dead_air_seconds: float = Field(gt=0)
     director_self_talk_cooldown_seconds: float = Field(gt=0)
+    director_room_reaction_cooldown_seconds: float = Field(gt=0)
+    director_room_reaction_retry_defer_seconds: float = Field(gt=0)
+    director_room_reaction_recent_window: int = Field(gt=0)
+    director_room_reaction_similarity_threshold: float = Field(gt=0, le=1)
+    director_room_reaction_max_regenerations: int = Field(ge=0, le=1)
+    director_speech_dedup_recent_window: int = Field(gt=0)
+    director_speech_dedup_similarity_threshold: float = Field(gt=0, le=1)
+    director_speech_dedup_max_regenerations: int = Field(ge=0, le=1)
+    director_speech_style_recent_window: int = Field(gt=0)
+    director_speech_style_formula_openers: tuple[str, ...] = Field(min_length=1)
+    director_speech_style_max_formula_openers: int = Field(ge=0)
+    director_speech_style_max_same_opener: int = Field(ge=0)
+    director_speech_style_max_questions: int = Field(ge=0)
+    director_speech_style_question_endings: tuple[str, ...] = Field(min_length=1)
+    director_speech_style_max_sentences: int = Field(gt=0)
+    director_speech_style_max_words: int = Field(gt=0)
+    director_speech_style_max_regenerations: int = Field(ge=0, le=1)
+    conversation_summarize_after_moves: int = Field(gt=0)
+    conversation_invite_after_moves: int = Field(gt=0)
+    conversation_compare_after_viewer_contributions: int = Field(gt=0)
     self_talk_wait_for_chat_seconds: float = Field(gt=0)
     self_talk_resume_after_chat_seconds: float = Field(ge=0)
     self_talk_min_silence_seconds: float = Field(gt=0)
@@ -54,6 +74,21 @@ class RuntimeCriticalConfig(BaseModel):
     tts_startup_timeout_s: float = Field(gt=0)
     tts_health_timeout_s: float = Field(gt=0)
 
+    @model_validator(mode="after")
+    def validate_speech_style_budgets(self) -> "RuntimeCriticalConfig":
+        window = self.director_speech_style_recent_window
+        if self.director_speech_style_max_formula_openers > window:
+            raise ValueError("speech style formula budget exceeds recent window")
+        if self.director_speech_style_max_same_opener > window:
+            raise ValueError("speech style same-opener budget exceeds recent window")
+        if self.director_speech_style_max_questions > window:
+            raise ValueError("speech style question budget exceeds recent window")
+        if any(not value.strip() for value in self.director_speech_style_formula_openers):
+            raise ValueError("speech style formula openers must be non-empty")
+        if any(not value.strip() for value in self.director_speech_style_question_endings):
+            raise ValueError("speech style question endings must be non-empty")
+        return self
+
 
 def validate_runtime_config(loader: Any) -> RuntimeCriticalConfig:
     """Validate values whose failure after startup would corrupt operation."""
@@ -76,6 +111,67 @@ def validate_runtime_config(loader: Any) -> RuntimeCriticalConfig:
             ),
             director_self_talk_cooldown_seconds=loader.get(
                 "director", "director.self_talk_cooldown_seconds", 45.0,
+            ),
+            director_room_reaction_cooldown_seconds=loader.get(
+                "director", "director.room_reaction.cooldown_seconds", 30.0,
+            ),
+            director_room_reaction_retry_defer_seconds=loader.get(
+                "director", "director.room_reaction.retry_defer_seconds", 30.0,
+            ),
+            director_room_reaction_recent_window=loader.get(
+                "director", "director.room_reaction.recent_window", 16,
+            ),
+            director_room_reaction_similarity_threshold=loader.get(
+                "director", "director.room_reaction.similarity_threshold", 0.72,
+            ),
+            director_room_reaction_max_regenerations=loader.get(
+                "director", "director.room_reaction.max_regenerations", 1,
+            ),
+            director_speech_dedup_recent_window=loader.get(
+                "director", "director.speech_dedup.recent_window", 32,
+            ),
+            director_speech_dedup_similarity_threshold=loader.get(
+                "director", "director.speech_dedup.similarity_threshold", 0.72,
+            ),
+            director_speech_dedup_max_regenerations=loader.get(
+                "director", "director.speech_dedup.max_regenerations", 1,
+            ),
+            director_speech_style_recent_window=loader.get(
+                "director", "director.speech_style.recent_window", 12,
+            ),
+            director_speech_style_formula_openers=tuple(loader.get(
+                "director", "director.speech_style.formula_openers",
+                ("mà", "trời ơi", "ủa", "ơ kìa"),
+            ) or ()),
+            director_speech_style_max_formula_openers=loader.get(
+                "director", "director.speech_style.max_formula_openers", 2,
+            ),
+            director_speech_style_max_same_opener=loader.get(
+                "director", "director.speech_style.max_same_opener", 1,
+            ),
+            director_speech_style_max_questions=loader.get(
+                "director", "director.speech_style.max_questions", 2,
+            ),
+            director_speech_style_question_endings=tuple(loader.get(
+                "director", "director.speech_style.question_endings", ("nhỉ",),
+            ) or ()),
+            director_speech_style_max_sentences=loader.get(
+                "director", "director.speech_style.max_sentences", 2,
+            ),
+            director_speech_style_max_words=loader.get(
+                "director", "director.speech_style.max_words", 65,
+            ),
+            director_speech_style_max_regenerations=loader.get(
+                "director", "director.speech_style.max_regenerations", 1,
+            ),
+            conversation_summarize_after_moves=loader.get(
+                "conversation", "move_planner.summarize_after_moves", 2,
+            ),
+            conversation_invite_after_moves=loader.get(
+                "conversation", "move_planner.invite_after_moves", 2,
+            ),
+            conversation_compare_after_viewer_contributions=loader.get(
+                "conversation", "move_planner.compare_after_viewer_contributions", 2,
             ),
             self_talk_wait_for_chat_seconds=loader.get(
                 "self_talk", "self_talk.wait_for_chat_seconds", 75.0,

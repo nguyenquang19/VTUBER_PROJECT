@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from services.agent.goal_types import Goal
+from services.agent.types import ConversationMove
 from services.director.action_types import DirectorInput
 from services.director.director import DirectorAction, DirectorDecision
 
@@ -79,6 +80,7 @@ class ActionContextBuilder:
                 f"Thread summary: {self._field(thread.summary)}",
                 f"Thread status: {thread.status.value}",
                 f"Conversation move: {thread.next_move.value if thread.next_move else 'deepen'}",
+                self._move_rule(thread.next_move),
             ])
             if thread.claims:
                 lines.append(
@@ -105,3 +107,17 @@ class ActionContextBuilder:
     def _field(self, value: str) -> str:
         compact = " ".join(str(value).replace("\x00", "").split())
         return compact[: self._limits.field_max_chars]
+
+    @staticmethod
+    def _move_rule(move: ConversationMove | None) -> str:
+        selected = move or ConversationMove.DEEPEN
+        if selected is ConversationMove.INVITE:
+            return "Output rule: 1-2 short sentences; ask exactly one grounded question at the end."
+        if selected is ConversationMove.SUMMARIZE:
+            return "Output rule: one short closing summary; no question and no new claim."
+        if selected is ConversationMove.PARK:
+            return "Output rule: one short closing statement, then stop; no question."
+        return (
+            "Output rule: add one genuinely new point in 1-2 short sentences; "
+            "do not restate prior claims and do not ask a question."
+        )

@@ -74,6 +74,20 @@ class GoalManagerService(Service):
         """Cancel thread-bound goals whose parent thread is no longer open."""
 
     @abstractmethod
+    def focus_delivered_thread(
+        self,
+        parent_thread_id: str | None,
+        *,
+        source_event_ids: set[str] | tuple[str, ...] = (),
+        reason: str = "targeted_chat_delivered",
+    ) -> int:
+        """Focus one delivered chat parent and cancel stale soft continuations."""
+
+    @abstractmethod
+    def clear_continue_threads(self, *, reason: str) -> int:
+        """Cancel pending soft continuations after a delivered public boundary."""
+
+    @abstractmethod
     def pin_operator(
         self, *, reason: str, success_condition: str, parent_thread_id: str | None = None,
     ) -> "Goal | None":

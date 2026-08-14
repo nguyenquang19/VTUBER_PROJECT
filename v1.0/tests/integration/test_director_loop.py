@@ -14,17 +14,24 @@ from types import SimpleNamespace
 import pytest
 
 from interfaces.tts import TTSDeliveryMode, TTSDeliveryResult
+from interfaces.animation import MoodState
 from interfaces.filter import FilterCategory, FilterVerdict
 from services.director.chat_pulse import ChatPulse
-from services.director.director import Director, DirectorAction, Segment
+from services.director.action_types import DirectorInput
+from services.director.director import Director, DirectorAction, ReadMode, Segment
 from services.director.director_loop import DirectorLoop, _self_talk_correction_prompt
 from services.director.salience import SaliencePool
 from services.autonomy.self_talk_planner import SelfTalkPlanner
 from services.autonomy.material_provider import RuntimeContext
 from services.autonomy.lore_material import LoreMaterial, LoreMaterialProvider
 from services.agent.goal_manager import GoalLimits, GoalManager
-from services.agent.goal_types import Goal, GoalKind, GoalSource, GoalStatus
-from services.agent.types import AgentStateSnapshot
+from services.agent.goal_types import (
+    Goal, GoalKind, GoalSnapshot, GoalSource, GoalStatus,
+)
+from services.agent.types import (
+    AgentStateSnapshot, ConversationMove, OpenThread, ThreadEvidence,
+)
+from services.llm.parser import ParsedResponse
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -126,6 +133,26 @@ def _segments():
 
 
 def _make(now=0.0, autonomy=None, agent_state=None, goal_manager=None, **dir_over):
+    room_window = int(dir_over.pop("room_reaction_recent_window", 16))
+    room_threshold = float(dir_over.pop("room_reaction_similarity_threshold", 0.72))
+    room_regenerations = int(dir_over.pop("room_reaction_max_regenerations", 1))
+    room_retry_defer = float(dir_over.pop("room_reaction_retry_defer_seconds", 30.0))
+    speech_window = int(dir_over.pop("speech_dedup_recent_window", 32))
+    speech_threshold = float(dir_over.pop("speech_dedup_similarity_threshold", 0.72))
+    speech_regenerations = int(dir_over.pop("speech_dedup_max_regenerations", 1))
+    style_window = int(dir_over.pop("speech_style_recent_window", 12))
+    style_openers = tuple(dir_over.pop(
+        "speech_style_formula_openers", ("mà", "trời ơi", "ủa", "ơ kìa"),
+    ))
+    style_formula_max = int(dir_over.pop("speech_style_max_formula_openers", 2))
+    style_same_max = int(dir_over.pop("speech_style_max_same_opener", 1))
+    style_question_max = int(dir_over.pop("speech_style_max_questions", 2))
+    style_endings = tuple(dir_over.pop(
+        "speech_style_question_endings", ("nhỉ", "hả", "sao", "nào"),
+    ))
+    style_max_sentences = int(dir_over.pop("speech_style_max_sentences", 2))
+    style_max_words = int(dir_over.pop("speech_style_max_words", 65))
+    style_regenerations = int(dir_over.pop("speech_style_max_regenerations", 1))
     pool = SaliencePool(base_tier={"chat": 10, "question": 25, "mention": 35},
                         tau_seconds=50.0, floor=3.0, cluster_coef=5.0)
     pulse = ChatPulse(window_seconds=60.0, tempo_low_per_min=2.0,
@@ -155,6 +182,22 @@ def _make(now=0.0, autonomy=None, agent_state=None, goal_manager=None, **dir_ove
         clock=lambda: clock["t"],
         agent_state=agent_state,
         goal_manager=goal_manager,
+        room_reaction_recent_window=room_window,
+        room_reaction_similarity_threshold=room_threshold,
+        room_reaction_max_regenerations=room_regenerations,
+        room_reaction_retry_defer_seconds=room_retry_defer,
+        speech_dedup_recent_window=speech_window,
+        speech_dedup_similarity_threshold=speech_threshold,
+        speech_dedup_max_regenerations=speech_regenerations,
+        speech_style_recent_window=style_window,
+        speech_style_formula_openers=style_openers,
+        speech_style_max_formula_openers=style_formula_max,
+        speech_style_max_same_opener=style_same_max,
+        speech_style_max_questions=style_question_max,
+        speech_style_question_endings=style_endings,
+        speech_style_max_sentences=style_max_sentences,
+        speech_style_max_words=style_max_words,
+        speech_style_max_regenerations=style_regenerations,
     )
     director.start(now)
     # move past opening so read_chat/ack allowed (main segment)
@@ -165,6 +208,523 @@ def _make(now=0.0, autonomy=None, agent_state=None, goal_manager=None, **dir_ove
 
 @pytest.mark.asyncio
 class TestDirectorLoop:
+    async def test_targeted_read_focuses_only_its_delivered_thread(self) -> None:
+        now = datetime(2026, 8, 14, tzinfo=timezone.utc)
+        thread = OpenThread(
+            "thread-selected", "topic", "summary", now, now,
+            now + timedelta(minutes=5),
+            evidence=(ThreadEvidence(
+                "agent:chat:selected", "selected question", "test", 1.0,
+            ),),
+            origin_event_id="agent:chat:selected",
+        )
+
+        class _State:
+            @staticmethod
+            def snapshot() -> AgentStateSnapshot:
+                return AgentStateSnapshot(open_threads=(thread,))
+
+        class _Goals:
+            def __init__(self) -> None:
+                self.focused: list[tuple[str | None, set[str]]] = []
+
+            def focus_delivered_thread(
+                self, parent_thread_id: str | None, *, source_event_ids: set[str],
+            ) -> int:
+                self.focused.append((parent_thread_id, source_event_ids))
+                return 1
+
+        goals = _Goals()
+        loop, _, pool, _, _, _ = _make(agent_state=_State(), goal_manager=goals)
+        pool.add("selected", "selected question", now=0.0, kind="question")
+        ref = pool.peek_top(1.0)
+        decision = SimpleNamespace(
+            action=DirectorAction.READ_CHAT,
+            read_mode=ReadMode.SINGLE,
+            refs=(ref,),
+            goal_id=None,
+            proactive_source=None,
+        )
+
+        assert await loop._exec_read(decision, 1.0) is True
+        assert goals.focused == [(
+            "thread-selected", {"selected", "agent:chat:selected"},
+        )]
+        assert loop.get_metrics()["director_thread_focus_total"] == 1
+
+    async def test_room_reaction_clears_soft_continuations_only_after_delivery(self) -> None:
+        class _Goals:
+            def __init__(self) -> None:
+                self.reasons: list[str] = []
+
+            def clear_continue_threads(self, *, reason: str) -> int:
+                self.reasons.append(reason)
+                return 2
+
+        goals = _Goals()
+        loop, _, _, _, _, _ = _make(goal_manager=goals)
+        decision = SimpleNamespace(
+            action=DirectorAction.READ_CHAT,
+            read_mode=ReadMode.VIBE,
+            refs=(),
+            proactive_source=None,
+        )
+
+        assert await loop._exec_room_reaction(decision, 1.0) is True
+        assert goals.reasons == ["room_reaction_delivered"]
+        assert loop.get_metrics()["director_thread_boundary_clear_total"] == 2
+
+        async def failed_delivery(
+            request_id: str, _text: str,
+        ) -> TTSDeliveryResult:
+            return TTSDeliveryResult(
+                request_id=request_id,
+                delivered=False,
+                mode=TTSDeliveryMode.NONE,
+            )
+
+        loop._speak = failed_delivery
+        assert await loop._exec_room_reaction(decision, 2.0) is False
+        assert goals.reasons == ["room_reaction_delivered"]
+
+    async def test_execute_exception_increments_observable_metric(self) -> None:
+        loop, _, pool, pulse, _, clock = _make()
+        pool.add("chat-error", "Mai ơi?", now=0.0, kind="mention")
+        pulse.record(now=0.0, user_id="viewer")
+        clock["t"] = 1.0
+
+        async def fail_execute(*_args: object, **_kwargs: object) -> bool:
+            raise TypeError("bad parsed copy")
+
+        loop._execute = fail_execute  # type: ignore[method-assign]
+
+        assert await loop.tick_once() is DirectorAction.READ_CHAT
+        assert loop.get_metrics()["director_execute_failed_total"] == 1
+
+    async def test_room_duplicate_releases_first_candidate_before_regeneration(self) -> None:
+        loop, director, _, _, runner, _ = _make()
+        outputs = iter(("Chat chạy nhanh ghê.", "Cả phòng đang tăng tốc thấy rõ luôn."))
+        events: list[tuple[str, str, bool | None]] = []
+        deliveries: list[str] = []
+
+        async def generate(request_id: str, prompt: str, defer_delivery_commit=False):
+            events.append(("generate", request_id, None))
+            return FakeParsed(next(outputs))
+
+        def finalize(request_id: str, success: bool) -> None:
+            events.append(("finalize", request_id, success))
+
+        async def deliver(request_id: str, text: str) -> TTSDeliveryResult:
+            deliveries.append(text)
+            return TTSDeliveryResult(
+                request_id=request_id, delivered=True,
+                mode=TTSDeliveryMode.SUBTITLE, sentences_total=1,
+                sentences_delivered=1, subtitle_sentences=1,
+            )
+
+        runner.run_ambient_turn = generate
+        runner.finalize_delivery = finalize
+        loop._speak = deliver
+        loop._room_reaction_dedup.record("Chat chạy nhanh ghê.")
+        decision = SimpleNamespace(
+            action=DirectorAction.READ_CHAT,
+            read_mode=ReadMode.SUMMARY,
+            refs=(),
+            proactive_source=None,
+        )
+
+        assert await loop._exec_room_reaction(decision, 10.0) is True
+        assert events[0][0] == "generate"
+        assert events[1][0] == "finalize" and events[1][2] is False
+        assert events[2][0] == "generate"
+        assert events[-1][0] == "finalize" and events[-1][2] is True
+        assert deliveries == ["Cả phòng đang tăng tốc thấy rõ luôn."]
+        assert director.get_metrics()["director_last_room_reaction_ts"] == 10.0
+        metrics = loop.get_metrics()
+        assert metrics["director_room_reaction_duplicate_total"] == 1
+        assert metrics["director_room_reaction_regenerated_total"] == 1
+
+    async def test_second_room_duplicate_is_suppressed_without_delivery(self) -> None:
+        loop, director, pool, _, runner, _ = _make()
+        finalizations: list[bool] = []
+        deliveries: list[str] = []
+        pool.add("keep", "tin vẫn phải còn", now=0.0, kind="chat")
+
+        async def generate(request_id: str, prompt: str, defer_delivery_commit=False):
+            return FakeParsed("Chat chạy nhanh ghê.")
+
+        def finalize(_request_id: str, success: bool) -> None:
+            finalizations.append(success)
+
+        async def should_not_deliver(request_id: str, text: str):
+            deliveries.append(text)
+            raise AssertionError("duplicate room output must not reach delivery")
+
+        runner.run_ambient_turn = generate
+        runner.finalize_delivery = finalize
+        loop._speak = should_not_deliver
+        loop._room_reaction_dedup.record("Chat chạy nhanh ghê.")
+        decision = SimpleNamespace(
+            action=DirectorAction.READ_CHAT,
+            read_mode=ReadMode.SUMMARY,
+            refs=(),
+            proactive_source=None,
+        )
+
+        assert await loop._exec_room_reaction(decision, 10.0) is False
+        assert finalizations == [False, False]
+        assert deliveries == []
+        assert pool.size() == 1
+        assert director.get_metrics()["director_last_room_reaction_ts"] is None
+        assert director.get_metrics()["director_room_reaction_deferred_until"] == 40.0
+        assert loop.get_metrics()["director_room_reaction_suppressed_total"] == 1
+
+    async def test_failed_room_delivery_does_not_record_recent_output(self) -> None:
+        loop, director, _, _, runner, _ = _make()
+
+        async def failed(request_id: str, text: str) -> TTSDeliveryResult:
+            return TTSDeliveryResult(
+                request_id=request_id, delivered=False, mode=TTSDeliveryMode.NONE,
+            )
+
+        loop._speak = failed
+        decision = SimpleNamespace(
+            action=DirectorAction.READ_CHAT,
+            read_mode=ReadMode.VIBE,
+            refs=(),
+            proactive_source=None,
+        )
+
+        assert await loop._exec_room_reaction(decision, 10.0) is False
+        assert loop.get_metrics()["director_room_reaction_recent_count"] == 0
+        assert loop.get_metrics()["director_speech_dedup_recent_count"] == 0
+        assert loop.get_metrics()["director_speech_style_recent_count"] == 0
+        assert director.get_metrics()["director_last_room_reaction_ts"] is None
+
+    async def test_read_duplicate_with_reversed_sentences_regenerates_before_delivery(
+        self,
+    ) -> None:
+        loop, _, pool, _, runner, _ = _make()
+        first = "Béo ở đâu chứ? Lôi tớ ra trêu cũng vui thật đấy."
+        reversed_order = "Lôi tớ ra trêu cũng vui thật đấy. Béo ở đâu chứ?"
+        outputs = iter((reversed_order, "Tớ nhận vụ trêu này, nhưng đừng bịa cân nặng nha."))
+        finalizations: list[bool] = []
+        deliveries: list[str] = []
+        ref = pool.add("chat-1", "Mai béo", now=1.0, kind="chat")
+        loop._speech_dedup.record(first)
+
+        async def generate(**_kwargs):
+            text = next(outputs)
+            return ParsedResponse(
+                text=text, mood=MoodState(), ok=True, raw=text,
+            ), 0
+
+        def finalize(_request_id: str, success: bool) -> None:
+            finalizations.append(success)
+
+        async def deliver(request_id: str, text: str) -> TTSDeliveryResult:
+            deliveries.append(text)
+            return TTSDeliveryResult(
+                request_id=request_id, delivered=True,
+                mode=TTSDeliveryMode.SUBTITLE, sentences_total=1,
+                sentences_delivered=1, subtitle_sentences=1,
+            )
+
+        runner.run_turn = generate
+        runner.finalize_delivery = finalize
+        loop._speak = deliver
+        decision = SimpleNamespace(
+            action=DirectorAction.READ_CHAT,
+            read_mode=ReadMode.SINGLE,
+            refs=(ref,),
+            goal_id=None,
+        )
+
+        assert await loop._exec_read(decision, 10.0) is True
+        assert finalizations == [False, True]
+        assert deliveries == ["Tớ nhận vụ trêu này, nhưng đừng bịa cân nặng nha."]
+        assert pool.size() == 0
+        metrics = loop.get_metrics()
+        assert metrics["director_speech_dedup_duplicate_total"] == 1
+        assert metrics["director_speech_dedup_regenerated_total"] == 1
+        assert metrics["director_speech_dedup_suppressed_total"] == 0
+
+    async def test_read_formula_opener_regenerates_once_before_delivery(self) -> None:
+        loop, _, pool, _, runner, _ = _make(
+            speech_style_max_formula_openers=0,
+        )
+        outputs = iter(("Mà chuyện này ổn rồi.", "Chuyện này ổn rồi."))
+        finalizations: list[bool] = []
+        deliveries: list[str] = []
+        stages: list[str] = []
+        ref = pool.add("chat-style", "ổn chưa", now=1.0, kind="chat")
+
+        async def generate(**_kwargs):
+            stages.append(str(_kwargs.get("stage_direction") or ""))
+            return FakeParsed(next(outputs)), 0
+
+        def finalize(_request_id: str, success: bool) -> None:
+            finalizations.append(success)
+
+        async def deliver(request_id: str, text: str) -> TTSDeliveryResult:
+            deliveries.append(text)
+            return TTSDeliveryResult(
+                request_id=request_id, delivered=True,
+                mode=TTSDeliveryMode.SUBTITLE, sentences_total=1,
+                sentences_delivered=1, subtitle_sentences=1,
+            )
+
+        runner.run_turn = generate
+        runner.finalize_delivery = finalize
+        loop._speak = deliver
+        decision = SimpleNamespace(
+            action=DirectorAction.READ_CHAT,
+            read_mode=ReadMode.SINGLE,
+            refs=(ref,),
+            goal_id=None,
+        )
+
+        assert await loop._exec_read(decision, 10.0) is True
+        assert finalizations == [False, True]
+        assert deliveries == ["Chuyện này ổn rồi."]
+        assert "SỬA VĂN PHONG" in stages[1]
+        metrics = loop.get_metrics()
+        assert metrics["director_speech_style_violation_total"] == 1
+        assert metrics["director_speech_style_regenerated_total"] == 1
+        assert metrics["director_speech_style_exhausted_total"] == 0
+
+    async def test_exhausted_style_correction_fails_open_without_quarantine(
+        self,
+    ) -> None:
+        loop, _, pool, _, runner, _ = _make(
+            speech_style_max_formula_openers=0,
+        )
+        outputs = iter(("Mà chuyện này ổn rồi.", "Ủa, chuyện này ổn rồi."))
+        finalizations: list[bool] = []
+        deliveries: list[str] = []
+        ref = pool.add("chat-style", "ổn chưa", now=1.0, kind="chat")
+
+        async def generate(**_kwargs):
+            return FakeParsed(next(outputs)), 0
+
+        def finalize(_request_id: str, success: bool) -> None:
+            finalizations.append(success)
+
+        async def deliver(request_id: str, text: str) -> TTSDeliveryResult:
+            deliveries.append(text)
+            return TTSDeliveryResult(
+                request_id=request_id, delivered=True,
+                mode=TTSDeliveryMode.SUBTITLE, sentences_total=1,
+                sentences_delivered=1, subtitle_sentences=1,
+            )
+
+        runner.run_turn = generate
+        runner.finalize_delivery = finalize
+        loop._speak = deliver
+        decision = SimpleNamespace(
+            action=DirectorAction.READ_CHAT,
+            read_mode=ReadMode.SINGLE,
+            refs=(ref,),
+            goal_id=None,
+        )
+
+        assert await loop._exec_read(decision, 10.0) is True
+        assert finalizations == [False, True]
+        assert deliveries == ["Ủa, chuyện này ổn rồi."]
+        assert pool.size() == 0
+        metrics = loop.get_metrics()
+        assert metrics["director_speech_style_violation_total"] == 2
+        assert metrics["director_speech_style_exhausted_total"] == 1
+        assert metrics["director_speech_dedup_quarantined_total"] == 0
+
+    async def test_exhausted_shape_correction_is_clamped_before_delivery(self) -> None:
+        loop, _, pool, _, runner, _ = _make(
+            speech_style_max_sentences=1,
+            speech_style_max_words=8,
+        )
+        outputs = iter((
+            "Một hai ba bốn năm sáu. Bảy tám chín.",
+            "Câu sửa vẫn khá dài. Câu thứ hai thừa.",
+        ))
+        deliveries: list[str] = []
+        ref = pool.add("chat-shape", "kể ngắn thôi", now=1.0, kind="chat")
+
+        async def generate(**_kwargs):
+            text = next(outputs)
+            return ParsedResponse(
+                text=text, mood=MoodState(), ok=True, raw=text,
+            ), 0
+
+        async def deliver(request_id: str, text: str) -> TTSDeliveryResult:
+            deliveries.append(text)
+            return TTSDeliveryResult(
+                request_id=request_id, delivered=True,
+                mode=TTSDeliveryMode.SUBTITLE, sentences_total=1,
+                sentences_delivered=1, subtitle_sentences=1,
+            )
+
+        runner.run_turn = generate
+        loop._speak = deliver
+        decision = SimpleNamespace(
+            action=DirectorAction.READ_CHAT,
+            read_mode=ReadMode.SINGLE,
+            refs=(ref,),
+            goal_id=None,
+        )
+
+        assert await loop._exec_read(decision, 10.0) is True
+        assert deliveries == ["Câu sửa vẫn khá dài."]
+        metrics = loop.get_metrics()
+        assert metrics["director_speech_style_regenerated_total"] == 1
+        assert metrics["director_speech_style_clamped_total"] == 1
+        assert metrics["director_speech_style_exhausted_total"] == 0
+
+    async def test_continue_thread_duplicate_regenerates_with_bounded_context(
+        self,
+    ) -> None:
+        loop, _, _, _, runner, _ = _make()
+        first = "Đế chế thú bông mạnh lắm đấy. Mỗi con có quyền lực riêng."
+        reversed_order = "Mỗi con có quyền lực riêng. Đế chế thú bông mạnh lắm đấy."
+        outputs = iter((reversed_order, "Đội quân này còn thiếu một con chuyên canh bánh quy."))
+        contexts: list[str] = []
+        finalizations: list[bool] = []
+        loop._speech_dedup.record(first)
+        now = datetime.fromtimestamp(10.0, tz=timezone.utc)
+        thread = OpenThread(
+            "thread-1", "đế chế thú bông", "đang bàn về thú bông",
+            now, now, now + timedelta(minutes=5), next_move=ConversationMove.DEEPEN,
+        )
+        goal = Goal(
+            goal_id="goal:continue", kind=GoalKind.CONTINUE_THREAD,
+            status=GoalStatus.ACTIVE, priority=50, reason="continue",
+            source=GoalSource.RULE, created_at=now,
+            expires_at=now + timedelta(minutes=5),
+            success_conditions=("speech_completed",), parent_thread_id=thread.thread_id,
+            metadata={"source_event_id": "chat-1"},
+        )
+        director_input = DirectorInput(
+            now=10.0,
+            agent_state=AgentStateSnapshot(open_threads=(thread,)),
+            goals=GoalSnapshot(active=goal),
+        )
+
+        async def generate(_request_id: str, context: str, **_kwargs):
+            contexts.append(context)
+            return FakeParsed(next(outputs))
+
+        def finalize(_request_id: str, success: bool) -> None:
+            finalizations.append(success)
+
+        runner.run_directed_turn = generate
+        runner.finalize_delivery = finalize
+        decision = SimpleNamespace(
+            action=DirectorAction.CONTINUE_THREAD,
+            goal_id=goal.goal_id,
+        )
+
+        assert await loop._exec_goal_action(decision, 10.0, director_input) is True
+        assert finalizations == [False, True]
+        assert len(contexts) == 2
+        assert "SỬA CÂU BỊ LẶP" in contexts[1]
+        assert runner.committed == ["Đội quân này còn thiếu một con chuyên canh bánh quy."]
+
+    async def test_second_public_duplicate_is_suppressed_without_delivery(self) -> None:
+        loop, _, pool, _, runner, _ = _make()
+        repeated = "Béo ở đâu chứ? Lôi tớ ra trêu cũng vui thật đấy."
+        finalizations: list[bool] = []
+        deliveries: list[str] = []
+        ref = pool.add("chat-1", "Mai béo", now=1.0, kind="chat")
+        loop._speech_dedup.record(repeated)
+
+        async def generate(**_kwargs):
+            return FakeParsed(repeated), 0
+
+        def finalize(_request_id: str, success: bool) -> None:
+            finalizations.append(success)
+
+        async def should_not_deliver(request_id: str, text: str) -> TTSDeliveryResult:
+            deliveries.append(text)
+            raise AssertionError(f"duplicate {request_id} must not reach delivery")
+
+        runner.run_turn = generate
+        runner.finalize_delivery = finalize
+        loop._speak = should_not_deliver
+        decision = SimpleNamespace(
+            action=DirectorAction.READ_CHAT,
+            read_mode=ReadMode.SINGLE,
+            refs=(ref,),
+            goal_id=None,
+        )
+
+        assert await loop._exec_read(decision, 10.0) is False
+        assert finalizations == [False, False]
+        assert deliveries == []
+        assert pool.size() == 0
+        assert loop.get_metrics()["director_speech_dedup_suppressed_total"] == 1
+        assert loop.get_metrics()["director_speech_dedup_quarantined_total"] == 1
+
+    async def test_public_speech_recent_buffer_is_bounded(self) -> None:
+        loop, _, _, _, _, _ = _make(speech_dedup_recent_window=2)
+        for index, text in enumerate(("Một.", "Hai.", "Ba."), start=1):
+            assert await loop._maybe_speak(
+                f"turn-{index}", FakeParsed(text), DirectorAction.READ_CHAT, [],
+            ) is True
+
+        assert loop.get_metrics()["director_speech_dedup_recent_count"] == 2
+        assert loop._speech_dedup.recent() == ["Hai.", "Ba."]
+
+    async def test_duplicate_quarantine_resolves_thread_and_cancels_goal(self) -> None:
+        loop, _, _, _, _, _ = _make()
+
+        class _Threads:
+            def __init__(self) -> None:
+                self.resolved: list[tuple[str, str]] = []
+
+            def resolve(self, thread_id: str, *, reason: str) -> bool:
+                self.resolved.append((thread_id, reason))
+                return True
+
+        class _Goals:
+            def __init__(self) -> None:
+                self.cancelled: list[tuple[str, str]] = []
+
+            def cancel(self, goal_id: str, *, reason: str) -> bool:
+                self.cancelled.append((goal_id, reason))
+                return True
+
+        threads = _Threads()
+        goals = _Goals()
+        loop._thread_manager = threads
+        loop._goal_manager = goals
+
+        loop._quarantine_repetition_context(
+            refs=[], thread_id="thread-1", goal_id="goal-1",
+        )
+
+        assert threads.resolved == [("thread-1", "speech_duplicate")]
+        assert goals.cancelled == [("goal-1", "speech_duplicate")]
+        assert loop.get_metrics()["director_speech_dedup_quarantined_total"] == 1
+
+    async def test_room_recent_buffer_remains_bounded(self) -> None:
+        loop, _, _, _, runner, _ = _make(room_reaction_recent_window=2)
+        outputs = iter(("Một.", "Hai.", "Ba."))
+
+        async def generate(request_id: str, prompt: str):
+            return FakeParsed(next(outputs))
+
+        runner.run_ambient_turn = generate
+        decision = SimpleNamespace(
+            action=DirectorAction.READ_CHAT,
+            read_mode=ReadMode.VIBE,
+            refs=(),
+            proactive_source=None,
+        )
+        for now in (1.0, 2.0, 3.0):
+            assert await loop._exec_room_reaction(decision, now) is True
+
+        assert loop.get_metrics()["director_room_reaction_recent_count"] == 2
+        assert loop._room_reaction_dedup.recent() == ["Hai.", "Ba."]
+
     async def test_filter_reject_never_reaches_delivery_or_commit(self) -> None:
         loop, _, _, _, runner, _ = _make()
         deliveries: list[str] = []
@@ -273,6 +833,59 @@ class TestDirectorLoop:
         snapshot = goal_manager.snapshot()
         assert snapshot.active is None
         assert snapshot.recent_terminal[-1].suspend_reason == "parent_thread_missing"
+
+    async def test_self_talk_duplicate_of_public_delivery_is_suppressed(self) -> None:
+        lore_material = LoreMaterialProvider((LoreMaterial(
+            material_id="plushies",
+            section="Thích",
+            anchor="Lore đã xác thực về Mai: Mai sưu tầm thú bông.",
+        ),))
+        planner = SelfTalkPlanner(
+            cognitive_moves=("nhận ra một chi tiết nhỏ trong mỏ neo",),
+            lore_material=lore_material,
+            wait_for_chat_seconds=60.0,
+            min_silence_seconds=20.0,
+            max_previous_text_chars=80,
+        )
+        loop, _, _, _, runner, _ = _make(autonomy=FakeAutonomy())
+        loop._self_talk_planner = planner
+        loop.set_runtime_context_provider(
+            lambda: RuntimeContext(silence_seconds=30.0, working_memory_recent=[]),
+        )
+        repeated = "Đội quân thú bông của tớ đang đông lên rồi."
+        loop._speech_dedup.record(repeated)
+        deliveries: list[str] = []
+        finalizations: list[bool] = []
+
+        class _Decision:
+            action = DirectorAction.SELF_TALK
+            proactive_source = None
+            proactive_summary = None
+            proactive_category = None
+
+        async def generate(
+            _request_id: str, _prompt: str, **_kwargs: object,
+        ) -> FakeParsed:
+            return FakeParsed(repeated)
+
+        async def should_not_deliver(
+            request_id: str, text: str,
+        ) -> TTSDeliveryResult:
+            deliveries.append(text)
+            raise AssertionError(f"duplicate {request_id} must not reach delivery")
+
+        runner.run_ambient_turn = generate
+        runner.finalize_delivery = lambda _request_id, success: finalizations.append(success)
+        loop._speak = should_not_deliver
+
+        assert await loop._exec_self_talk(_Decision(), 20.0) is False
+        assert deliveries == []
+        assert finalizations == [False]
+        assert planner.snapshot()["pending_plan_id"] is None
+        assert runner.committed == []
+        metrics = loop.get_metrics()
+        assert metrics["director_speech_dedup_suppressed_total"] == 1
+        assert metrics["director_speech_dedup_quarantined_total"] == 0
 
     async def test_self_talk_planner_advances_only_when_delivery_succeeds(self) -> None:
         lore_material = LoreMaterialProvider((LoreMaterial(

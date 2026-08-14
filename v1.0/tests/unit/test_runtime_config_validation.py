@@ -36,6 +36,25 @@ def test_repository_runtime_config_is_valid() -> None:
     assert validated.self_talk_lore_max_anchor_chars == 280
     assert validated.self_talk_lore_no_repeat_last_n == 6
     assert "Thích" in validated.self_talk_lore_sections
+    assert validated.director_room_reaction_cooldown_seconds == 120
+    assert validated.director_room_reaction_retry_defer_seconds == 60
+    assert validated.director_room_reaction_recent_window == 16
+    assert validated.director_room_reaction_similarity_threshold == 0.72
+    assert validated.director_room_reaction_max_regenerations == 1
+    assert validated.director_speech_dedup_recent_window == 64
+    assert validated.director_speech_dedup_similarity_threshold == 0.72
+    assert validated.director_speech_dedup_max_regenerations == 1
+    assert validated.director_speech_style_recent_window == 12
+    assert validated.director_speech_style_formula_openers == (
+        "mà", "trời ơi", "ủa", "ơ kìa",
+    )
+    assert validated.director_speech_style_max_formula_openers == 2
+    assert validated.director_speech_style_max_same_opener == 1
+    assert validated.director_speech_style_max_questions == 2
+    assert validated.director_speech_style_max_sentences == 2
+    assert validated.director_speech_style_max_words == 65
+    assert validated.director_speech_style_max_regenerations == 1
+    assert validated.conversation_summarize_after_moves == 2
 
 
 @pytest.mark.parametrize(
@@ -46,6 +65,58 @@ def test_repository_runtime_config_is_valid() -> None:
         (
             "director", "director.self_talk_cooldown_seconds", 0,
             "director_self_talk_cooldown_seconds",
+        ),
+        (
+            "director", "director.room_reaction.cooldown_seconds", 0,
+            "director_room_reaction_cooldown_seconds",
+        ),
+        (
+            "director", "director.room_reaction.recent_window", 0,
+            "director_room_reaction_recent_window",
+        ),
+        (
+            "director", "director.room_reaction.similarity_threshold", 0,
+            "director_room_reaction_similarity_threshold",
+        ),
+        (
+            "director", "director.room_reaction.max_regenerations", 2,
+            "director_room_reaction_max_regenerations",
+        ),
+        (
+            "director", "director.speech_dedup.recent_window", 0,
+            "director_speech_dedup_recent_window",
+        ),
+        (
+            "director", "director.speech_dedup.similarity_threshold", 1.1,
+            "director_speech_dedup_similarity_threshold",
+        ),
+        (
+            "director", "director.speech_dedup.max_regenerations", 2,
+            "director_speech_dedup_max_regenerations",
+        ),
+        (
+            "director", "director.speech_style.recent_window", 0,
+            "director_speech_style_recent_window",
+        ),
+        (
+            "director", "director.speech_style.formula_openers", (),
+            "director_speech_style_formula_openers",
+        ),
+        (
+            "director", "director.speech_style.max_regenerations", 2,
+            "director_speech_style_max_regenerations",
+        ),
+        (
+            "director", "director.speech_style.max_sentences", 0,
+            "director_speech_style_max_sentences",
+        ),
+        (
+            "director", "director.speech_style.max_words", 0,
+            "director_speech_style_max_words",
+        ),
+        (
+            "conversation", "move_planner.summarize_after_moves", 0,
+            "conversation_summarize_after_moves",
         ),
         (
             "director", "director.decision_records.max_recent", 0,
@@ -78,6 +149,14 @@ def test_invalid_critical_value_names_the_failed_field(
 ) -> None:
     with pytest.raises(ConfigError, match=field):
         validate_runtime_config(OverrideLoader({(name, key): value}))
+
+
+def test_speech_style_budget_cannot_exceed_recent_window() -> None:
+    with pytest.raises(ConfigError, match="formula budget exceeds recent window"):
+        validate_runtime_config(OverrideLoader({
+            ("director", "director.speech_style.recent_window"): 2,
+            ("director", "director.speech_style.max_formula_openers"): 3,
+        }))
 
 
 @pytest.mark.asyncio

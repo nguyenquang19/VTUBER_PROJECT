@@ -148,6 +148,10 @@ Hết thời lượng segment vẫn transition dù pool còn chat, sau khi hard 
 self-talk mới cho tới hết khoảng nghỉ; break sau chuỗi read-chat vẫn được ưu tiên để tránh đọc FIFO vô hạn.
 Không có material hoặc delivery thất bại không được cập nhật `last_spoke`.
 
+`SUMMARY/VIBE` dùng `room_reaction.cooldown_seconds` độc lập với self-talk. Director chỉ chặn nhánh phản
+ứng phòng chat; hard priority, donation, question và mention vẫn được xét bình thường. Cooldown chỉ được
+đánh dấu sau delivery thành công. Metric phải phân biệt `cooldown_blocked` với candidate bị dedup/suppress.
+
 ### `services/director/director_loop.py`
 
 Driver tick và transaction owner. Flow chính: evict stale → build input → decide → record decision →
@@ -155,6 +159,38 @@ reserve → generate → deliver → commit/release. Từ `1.3.1`, rendering pro
 `services/director/action_prompts.py`; deferred runner + typed delivery mechanics nằm ở
 `services/director/delivery_boundary.py`. `DirectorLoop` vẫn là owner duy nhất phối hợp business side
 effect sau delivery; hai helper không tự commit goal/thread/pool.
+
+DirectorLoop sở hữu cửa sổ dedup bounded của output `SUMMARY/VIBE`. Nó finalize candidate đầu là
+delivery failure trước khi regenerate; candidate thứ hai còn trùng thì bị suppress, transaction được
+release và backlog giữ nguyên. Chỉ text đã delivery mới được ghi vào cửa sổ, purge backlog và bắt đầu
+cooldown. `action_prompts.py` tạo correction prompt từ candidate bị từ chối và một số output gần đây đã
+giới hạn bởi config; prompt helper không sở hữu state hoặc side effect.
+
+DirectorLoop còn sở hữu cửa sổ `speech_dedup` chung cho `READ_CHAT` và `CONTINUE_THREAD`. Cửa sổ này
+so token không phụ thuộc thứ tự nên bắt được trường hợp cùng hai ý nhưng đảo câu. Mỗi candidate chỉ được
+regenerate một lần; bản sửa vẫn trùng không tới TTS và không commit. Metric tách generated, duplicate,
+regenerated, suppressed và recent-count để operator phân biệt chất lượng output với lỗi delivery.
+Candidate sửa vẫn trùng đi qua context quarantine: ref bị loại, thread resolve và goal cancel với reason
+`speech_duplicate`. Metric quarantine riêng phải chứng minh không còn retry vô hạn; candidate không được
+ghi history hoặc speech-completed.
+Focused continuation is excluded from that quarantine path and follows the delivered `park` fallback
+defined in the Conversation Thread Engine section below.
+
+`services/director/speech_style.py` là pure bounded policy cho public speech. Nó chuẩn hóa opener theo
+phrase cấu hình, nhận diện câu hỏi tiếng Việt, giữ cửa sổ chỉ từ delivery thành công và trả reason typed
+cho DirectorLoop; nó không gọi LLM, TTS hoặc commit state. DirectorLoop inject constraint trước generation
+và cho đúng một correction attempt khi style vượt ngân sách. Exhausted opener/question correction là
+fail-open có metric; exhausted sentence/word shape được clamp theo câu hoàn chỉnh, khác semantic
+duplicate là suppress + quarantine. Guard áp dụng cho `READ_CHAT`,
+`CONTINUE_THREAD` và `SUMMARY/VIBE`; self-talk tiếp tục dùng stage validation + opener tracker riêng.
+Mọi delivery, gồm self-talk, vẫn record vào global semantic/style history; self-talk trùng global
+semantic history bị suppress trước TTS để tránh lặp chéo action.
+`director_execute_failed_total` tăng tại outer action boundary; stress report phải fail khi counter này
+khác không, kể cả các content/latency gate còn lại xanh.
+
+`ActionContextBuilder` diễn giải conversation move thành ràng buộc public: mặc định một đến hai câu,
+`deepen/clarify/compare/summarize/park` không tự hỏi ngược; riêng `invite` mới yêu cầu đúng một câu hỏi.
+Context vẫn bounded và chỉ dùng fact của thread.
 
 ### `services/autonomy/self_talk_planner.py`
 
@@ -295,6 +331,8 @@ shadow call vào live path. Scripts tương ứng nằm trong `scripts/`.
 | `scripts/restore_data.py` | verify/apply restore | verify-only mặc định, refuse overwrite |
 | `scripts/simulate_youtube_replay.py` | deterministic full chat timeline | stub delivery, không chấm naturalness |
 | `scripts/stress_youtube_llm.py` | replay với llama.cpp/filter thật | delivered flags tách candidate flags |
+| `scripts/stress_youtube_tts.py` | phát lại output đã delivery qua VieNeu thật | đo/huỷ PCM, không mở loa; queue model không giả là audio đã phát |
+| `scripts/stress_youtube_live_pipeline.py` | wall-clock chat → Director → LLM → TTS → playback | input chạy đồng thời; backend im lặng chặn theo PCM |
 | `scripts/check_finetune_readiness.py` | kiểm tra đủ data/review gate | không tự cutover model |
 
 `orchestrator/logger.py::TurnLogger` ghi generation attempt và delivery outcome ra hai journal riêng.
@@ -333,8 +371,28 @@ conversation store:
   move to llama.cpp;
 - `director_loop.py`: publishes spoken progress only after typed delivery success.
 
+Production đặt ngân sách move thấp để một thread được phát triển, tóm tắt rồi park thay vì chiếm phần
+lớn delivery trong phòng chat nhanh. Thay đổi ngưỡng phải được replay cùng tỷ lệ `continue_thread`,
+không đánh giá chỉ bằng số câu hay word count.
+
 `conversation_continuity` is the owning feature toggle. Topic matcher and move planner lifecycle is owned
 by `OpenThreadManager`; their counters are included in thread metrics.
+
+`GoalManager` owns delivery-focused continuity. A chat-derived `CONTINUE_THREAD` goal waits until its
+source chat is actually delivered. `DirectorLoop` then focuses that parent thread, removes stale soft
+continuations for other parents, and `GoalManager` creates one atomic same-parent successor after each
+delivered move until `park`, `close`, or wait-for-chat. This is a coherence rule, not a quota: Mai may
+use several continuation turns when the move planner requires them.
+
+`DirectorLoop` clears pending soft continuations only after a delivered room reaction. Parked threads
+remain bounded session state, but `ProactiveHostingPolicy` ignores them; they resume only from later
+grounded chat matching. Metrics and stress reports may expose continuation share for diagnosis, but
+that share is not an acceptance threshold by itself.
+
+Exhausted semantic duplication on a focused continuation uses one directed `park` generation rather
+than context quarantine. This preserves the public closing sentence: the parent/goal is released only
+when that fallback reaches delivery. `director_thread_forced_park_total` counts successful fallback
+closures; an unsuccessful fallback does not advance thread state.
 
 Before every Director arbitration, `GoalManager.reconcile_threads()` cancels thread-bound goals whose
 parent is no longer present. This housekeeping must run before `snapshot()` so an expired thread cannot
@@ -347,5 +405,32 @@ single-active-thread fallback. This prevents fast-room remarks from hijacking an
 `scripts/stress_youtube_llm.py` reuses the full replay/Director path but replaces the offline stub with
 the production llama.cpp turn runner and rule filter. It records every generation, final delivery,
 fallback, TTFT/decode rate, thread outcome and a bounded operator-review sample.
+The full-delivery trace reports topic-boundary violations separately: continuation before its source
+chat was delivered, continuation on a different parent before the current parent parked, room reaction
+before `park`, and automatic old-thread continuation after room reaction. Every such count is a hard
+zero gate; `continue_thread` ratio remains descriptive.
+
 Quality gates inspect only outputs that crossed the delivery boundary; rejected candidates remain in
 `candidate_flags` for safety observability and filter tuning.
+
+`scripts/stress_youtube_tts.py` nhận report của `stress_youtube_llm.py`, giữ đúng thứ tự/timestamp các
+output đã delivery rồi chạy text qua `VieNeuTtsService -> TTSPipeline` thật. Measurement player chỉ thu
+metadata chunk và huỷ PCM nên không mở thiết bị âm thanh. Report tách metric synth (startup, TTFA, RTF,
+audio duration, silent turn, failure/fallback) khỏi playback queue model (start delay, backlog, final drain).
+Output đã delivery nhưng sentence splitter không tạo câu/audio phải bị tính là silent turn, không
+được ẩn sau gate số mẫu tối thiểu. Khi cấu
+hình giữ llama.cpp resident, runner chỉ giữ model trong VRAM; nó không sinh lại nội dung và không sửa
+report nguồn. Checkpoint chỉ chứa record đã synth thành công/thất bại và phải resume theo request ID.
+
+`scripts/stress_youtube_live_pipeline.py` sở hữu bài stress wall-clock end-to-end cho corpus replay.
+Runner ghép input paced, production `ChatRouter`, `DirectorLoop`, llama.cpp, filter, `TTSPipeline` và
+`AudioPlayer`. Playback backend im lặng chỉ chặn theo số sample PCM và phát event start/end;
+không import hay mở `sounddevice`. Runner quan sát queue/pool và ghi report atomic, không sửa
+production state, database hoặc corpus nguồn.
+Report tính quality aggregate trên toàn bộ output trước khi cắt sample audit, gồm semantic duplicate,
+room-reaction cadence, tỷ lệ `continue_thread`, formula-opener ratio và question-ending ratio; sample
+giới hạn không được dùng thay cho aggregate. Foreign-identity evaluator phải phân biệt direct user turn
+với system-only directed continuation: một tên ngoài chỉ xuất hiện trong thread context không đủ để kết
+luận Mai tự nhận danh tính đó. Human review phát hiện engagement pressure phải được thêm vào
+`filters.yaml::manipulation` và gate LLM; không coi technical style pass là đủ nếu câu yêu cầu viewer
+tương tác để được ưu tiên hoặc nói cả phòng đang đánh giá thái độ của họ.

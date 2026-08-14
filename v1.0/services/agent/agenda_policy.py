@@ -196,7 +196,7 @@ class AgendaPolicy:
             reason="continue a grounded open thread",
             success="thread is addressed by speech_completed or operator",
             parent_thread_id=thread_id,
-            metadata={"summary": summary},
+            metadata={"summary": summary, "source_delivered": False},
             mood=mood, tone_flags=tone_flags,
         )
 

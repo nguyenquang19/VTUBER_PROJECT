@@ -11,13 +11,15 @@ from collections import deque
 
 
 _WORD_RE = re.compile(r"\w+", re.UNICODE)
+_TRAILING_BLOCK_RE = re.compile(r"\s*\[[^\[\]\r\n]*\]\s*$", re.UNICODE)
 
 
 def _tokenize(text: str) -> set[str]:
     if not text:
         return set()
-    # Bỏ mood block cuối câu để chỉ dedup theo phần Mai nói
-    head = text.split("[", 1)[0].lower()
+    # Bỏ mood block cuối câu để chỉ dedup theo phần Mai nói. Không split ở
+    # dấu "[" đầu tiên vì prefix như "[MÔ PHỎNG]" vẫn là phần text cần so.
+    head = _TRAILING_BLOCK_RE.sub("", text).lower()
     return set(_WORD_RE.findall(head))
 
 

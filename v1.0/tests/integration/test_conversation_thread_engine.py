@@ -8,13 +8,17 @@ from interfaces.tts import TTSDeliveryMode, TTSDeliveryResult
 from services.agent.conversation_move_planner import (
     ConversationMoveConfig, ConversationMovePlanner,
 )
+from services.agent.agent_state import AgentState, AgentStateLimits, AgentStateReducer
+from services.agent.agenda_policy import AgendaPolicy, AgendaPolicyConfig
+from services.agent.event_ledger import EventLedger
+from services.agent.goal_manager import GoalLimits, GoalManager
 from services.agent.goal_types import Goal, GoalKind, GoalSnapshot, GoalSource, GoalStatus
 from services.agent.open_thread_manager import OpenThreadLimits, OpenThreadManager
 from services.agent.thread_detector import RuleThreadDetector
 from services.agent.topic_matcher import LexicalTopicMatcher, TopicMatcherConfig
 from services.agent.types import (
-    AgentEventKind, AgentEventSource, AgentStateSnapshot, EventProvenance,
-    GroundedEvent, ThreadEvidence, ThreadKind, ThreadStatus,
+    AgentEventKind, AgentEventSource, AgentStateSnapshot, ConversationMove,
+    EventProvenance, GroundedEvent, ThreadEvidence, ThreadKind, ThreadStatus,
 )
 from services.director.action_types import DirectorInput
 from services.director.director import DirectorAction
@@ -77,6 +81,9 @@ class _Runner:
 
 
 class _Director:
+    def get_metrics(self) -> dict[str, object]:
+        return {}
+
     def mark_spoke(self, _action, _now) -> None:
         pass
 
@@ -165,6 +172,49 @@ async def test_delivered_thread_move_commits_claim_and_progress_once() -> None:
 
 
 @pytest.mark.asyncio
+async def test_exhausted_duplicate_delivers_same_parent_park_instead_of_resolving() -> None:
+    loop, value, manager, state = _loop_and_input()
+    repeated = "Tớ thấy vị rang đậm tạo điểm khác biệt."
+    loop._speech_dedup.record(repeated)
+    loop._speech_dedup_max_regenerations = 0
+
+    async def delivered(request_id: str, _text: str) -> TTSDeliveryResult:
+        return TTSDeliveryResult(
+            request_id=request_id, delivered=True, mode=TTSDeliveryMode.SUBTITLE,
+            sentences_total=1, sentences_delivered=1, subtitle_sentences=1,
+        )
+
+    loop._speak = delivered
+    assert await loop._exec_goal_action(_Decision(), 1.0, value) is True
+    thread = manager.snapshot()[0]
+    assert thread.status is ThreadStatus.PARKED
+    assert thread.last_move is ConversationMove.PARK
+    assert state.events[-1].payload["conversation_move"] == "park"
+    assert loop.get_metrics()["director_thread_forced_park_total"] == 1
+
+
+@pytest.mark.asyncio
+async def test_failed_forced_park_keeps_thread_and_goal_boundary_unchanged() -> None:
+    loop, value, manager, state = _loop_and_input()
+    loop._speech_dedup.record("Tớ thấy vị rang đậm tạo điểm khác biệt.")
+    loop._speech_dedup_max_regenerations = 0
+
+    async def failed(request_id: str, _text: str) -> TTSDeliveryResult:
+        return TTSDeliveryResult(
+            request_id=request_id, delivered=False, mode=TTSDeliveryMode.NONE,
+        )
+
+    loop._speak = failed
+    before = manager.snapshot()[0]
+    assert await loop._exec_goal_action(_Decision(), 1.0, value) is False
+    after = manager.snapshot()[0]
+    assert after.thread_id == before.thread_id
+    assert after.status is ThreadStatus.ACTIVE
+    assert after.move_count == before.move_count
+    assert state.events == []
+
+
+@pytest.mark.asyncio
 async def test_proactive_open_thread_follow_up_uses_same_delivery_commit_boundary() -> None:
     loop, _value, manager, state = _loop_and_input()
     loop._autonomy = _Autonomy()
@@ -190,3 +240,88 @@ async def test_proactive_open_thread_follow_up_uses_same_delivery_commit_boundar
     assert await loop._exec_self_talk(decision, 2.0) is True
     assert manager.snapshot()[0].move_count == 1
     assert len(state.events) == 2  # speech_completed + self_talk_completed
+
+
+def test_delivered_thread_runs_to_park_before_another_goal_can_activate() -> None:
+    matcher = LexicalTopicMatcher(TopicMatcherConfig(min_score=0.3))
+    planner = ConversationMovePlanner(ConversationMoveConfig(
+        summarize_after_moves=2,
+        invite_after_moves=2,
+        compare_after_viewer_contributions=2,
+    ))
+    thread_manager = OpenThreadManager(
+        OpenThreadLimits(),
+        detector=RuleThreadDetector(matcher=matcher),
+        matcher=matcher,
+        move_planner=planner,
+        clock=lambda: NOW,
+    )
+    state = AgentState(
+        AgentStateReducer(AgentStateLimits(64, 3600, 8, 900, 320)),
+        EventLedger(64, 3600, 3600, clock=lambda: NOW),
+        clock=lambda: NOW,
+        thread_manager=thread_manager,
+    )
+    priorities = {
+        GoalKind.ACK_DONATION: 100,
+        GoalKind.WAIT_FOR_CHAT_ANSWER: 60,
+        GoalKind.CONTINUE_THREAD: 40,
+        GoalKind.ANSWER_FOLLOW_UP: 70,
+        GoalKind.OPERATOR_PINNED: 90,
+    }
+    policy = AgendaPolicy(AgendaPolicyConfig(
+        priorities=priorities,
+        ttl_seconds={kind: 300 for kind in GoalKind},
+    ), clock=lambda: NOW)
+    goals = GoalManager(
+        GoalLimits(16, 8, 32, 240),
+        clock=lambda: NOW,
+        agenda_policy=policy,
+        on_active_changed=state.set_active_goal_ref,
+    )
+    state.add_event_listener(goals.handle_event)
+    chat = GroundedEvent(
+        event_id="agent:chat:a",
+        kind=AgentEventKind.CHAT_RECEIVED,
+        source=AgentEventSource.YOUTUBE,
+        timestamp=NOW,
+        confidence=1.0,
+        payload={"text": "Mai nghĩ sao về cà phê rang đậm?"},
+        provenance=EventProvenance("test", source_event_id="a"),
+    )
+    assert state.record(chat)
+    thread_id = state.snapshot().open_threads[0].thread_id
+    assert goals.snapshot().active is not None
+    assert goals.snapshot().active.metadata["source_delivered"] is False
+    assert goals.focus_delivered_thread(
+        thread_id, source_event_ids={"agent:chat:a"},
+    ) == 1
+
+    delivered_moves: list[str] = []
+    for index, expected in enumerate(("deepen", "clarify", "summarize", "park")):
+        active = goals.snapshot().active
+        assert active is not None
+        thread = state.snapshot().open_threads[0]
+        assert thread.thread_id == thread_id
+        assert thread.next_move is not None
+        assert thread.next_move.value == expected
+        delivered_moves.append(expected)
+        assert state.record(GroundedEvent(
+            event_id=f"agent:speech_completed:{index}",
+            kind=AgentEventKind.SPEECH_COMPLETED,
+            source=AgentEventSource.DIRECTOR,
+            timestamp=NOW,
+            confidence=1.0,
+            payload={
+                "action": "continue_thread",
+                "goal_id": active.goal_id,
+                "thread_id": thread_id,
+                "conversation_move": expected,
+                "text": f"delivered {expected}",
+            },
+            provenance=EventProvenance("test", source_event_id=f"goal-{index}"),
+        ))
+
+    assert delivered_moves == ["deepen", "clarify", "summarize", "park"]
+    assert state.snapshot().open_threads[0].status is ThreadStatus.PARKED
+    assert goals.snapshot().active is None

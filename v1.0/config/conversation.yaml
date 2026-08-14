@@ -16,7 +16,7 @@ topic_matcher:
   summary_weight: 0.35
 
 move_planner:
-  summarize_after_moves: 4
+  summarize_after_moves: 2
   invite_after_moves: 2
   compare_after_viewer_contributions: 2
 

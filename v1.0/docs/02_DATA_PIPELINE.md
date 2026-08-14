@@ -91,6 +91,13 @@ Chat gate không xóa input khỏi emotion, pulse hoặc grounded ledger. Candid
 luôn thắng gate. Khi chat hype, `VIBE` chỉ áp dụng cho candidate loại `chat`; question/mention vẫn đi
 đường trả lời trực tiếp.
 
+`SUMMARY` và `VIBE` là phản ứng không khí phòng chat, không phải câu trả lời trực tiếp cho một viewer.
+Hai mode này dùng cooldown riêng sau **delivery thành công** và một cửa sổ bounded chứa các phản ứng
+phòng chat đã giao gần nhất. Candidate giống nội dung gần đây phải release pending delivery trước khi
+regenerate tối đa một lần; nếu candidate mới vẫn trùng thì release, suppress và defer phản ứng phòng
+chat. Candidate bị reject hoặc delivery fail không được ghi vào cửa sổ dedup, không cập nhật cooldown
+và không được purge backlog. Donation, question và mention không bị cooldown phòng chat chặn.
+
 ## 4. Decision pipeline
 
 `DirectorInput` là snapshot bounded gồm chat candidates, goals, threads, mood, pulse, phase, safety và
@@ -105,6 +112,10 @@ proactive material. `Director.decide()` trả `DirectorDecision` với:
 
 Hard rule (safety, donation, operator control) phải thắng mood. Mood chỉ điều chỉnh pacing/style và
 soft behavior. Nếu action là `WAIT`, decision vẫn được ghi nhưng không mở transaction delivery.
+
+Nhịp quyết định được đo bằng khoảng cách thời gian giữa các delivery, số phản ứng phòng chat mỗi phút
+và số lần cooldown chặn generation. Độ dài câu không phải khoảng cách lịch; nó chỉ được dùng như tín
+hiệu phụ khi ước lượng thời gian audio/TTS và nguy cơ queue bị chồng.
 
 ## 5. Transaction và idempotency
 
@@ -170,6 +181,39 @@ delivery typed. Nếu không có sink nào healthy, composition fail-fast. Direc
 
 `speak()` trả về khi chunk đã enqueue, không đợi loa phát hết. AudioPlayer chịu trách nhiệm thứ tự và
 no-overlap. Emergency cancel đánh dấu request, cancel synth và audio queue.
+
+Bài wall-clock replay tích hợp phải giữ input và output ở hai task độc lập: chat tiếp tục
+vào `ChatRouter` trong khi `DirectorLoop` đang chờ llama.cpp, VieNeu hoặc audio queue. Backend
+playback im lặng chặn đúng thời lượng PCM nên queue bounded tạo backpressure như live mà không
+mở loa. Chỉ output thực sự qua delivery boundary mới commit; chat cũ vẫn decay/evict khi
+một turn đang chạy. Report phải tách input schedule drift, selected-chat age,
+generation/delivery, playback start/completion và queue/pool occupancy.
+
+Trước delivery, output `READ_CHAT` và `CONTINUE_THREAD` đã qua filter phải đi qua cửa sổ
+`speech_dedup` bounded. Candidate gần trùng với một câu đã delivery được finalize failure rồi sinh lại
+tối đa một lần với correction prompt chứa lịch sử bounded. Candidate sửa vẫn trùng thì bị suppress;
+transaction release và không commit history/thread/pool. Chỉ câu đã delivery mới được ghi vào cửa sổ,
+vì raw generation không phải bằng chứng Mai đã nói.
+Sau khi correction vẫn trùng, grounded context gây retry phải được quarantine có giới hạn: chat ref bị
+gỡ khỏi pool; thread liên quan được resolve và goal bị cancel với reason `speech_duplicate`. Đây là
+failure cleanup, không phải commit câu bị từ chối, và ngăn cùng context gọi LLM ở mọi tick tiếp theo.
+Focused `CONTINUE_THREAD` is the exception: it uses the delivered `park` fallback in §12 instead of
+resolving the public boundary silently.
+
+Sau semantic dedup, output public `READ_CHAT`, `CONTINUE_THREAD` và `SUMMARY/VIBE` đi qua
+`speech_style` guard bounded. Guard kiểm opener thuộc danh sách công thức đã cấu hình vượt ngân sách cửa
+sổ, câu hỏi vượt ngân sách gần đây và output vượt sentence/word shape bound. Bound độ dài chỉ ngăn một
+turn nhiều đoạn/lặp nội bộ hoặc bị cắt ở token ceiling; nó không được dùng làm phép đo tốc độ nói. Move
+`invite` được phép hỏi theo
+contract conversation; các move khác không được biến dấu câu để lách rule. Candidate vi phạm được sửa
+tối đa một lần bằng prompt nêu đúng opener/câu hỏi cần tránh. Nếu bản sửa vẫn chỉ vi phạm style thì
+fail-open để giữ câu trả lời có nội dung; riêng bản sửa vẫn vượt shape bound được clamp tại ranh giới câu
+hoàn chỉnh trước delivery. Không quarantine chat/thread và không tạo vòng retry. Chỉ câu
+đã delivery mới cập nhật cửa sổ style, tương tự delivery-aware semantic dedup.
+
+Self-talk vẫn dùng stage validator riêng, nhưng trước delivery phải kiểm `speech_dedup` toàn cục. Nếu
+trùng lời vừa nói ở action khác thì self-talk bị release/suppress, không regenerate thêm; một grounded
+thread không được phát y nguyên lần nữa qua hai scheduler khác nhau.
 
 ## 8. Commit output
 
@@ -274,8 +318,29 @@ Topic matching is deterministic and returns no target below the configured thres
 never be attached merely because a thread exists. A public conversation move is selected from bounded
 thread state and injected as a speaking instruction, not as hidden reasoning.
 
+Conversation move là ngân sách hội thoại, không phải yêu cầu kéo một chủ đề vô hạn. `deepen/clarify`
+phải thêm góc nhìn mới; chỉ `invite` mới được mặc định hỏi ngược. Khi đạt
+`move_planner.summarize_after_moves`, lượt kế tiếp tóm tắt ngắn rồi thread chuyển `park`, nhường chat
+mới. Prompt không được đổi thứ tự hai ý đã nói rồi coi đó là tiến triển mới.
+
 Output-generated thread progress follows the delivery boundary. Generated text does not add a claim,
 increment `move_count`, open a question, or change waiting state. Only the post-delivery
 `speech_completed` event with `delivered=true` may apply those changes.
 Waiting-for-chat goals additionally require the delivered event to carry the explicit
 `expects_chat_answer=true` intent; punctuation echoed from a viewer question is not enough.
+
+Targeted chat delivery also owns the public topic boundary. A `CONTINUE_THREAD` goal is not eligible
+until the chat evidence that opened or updated its parent thread has itself crossed delivery. Once that
+thread starts speaking, follow-on moves remain on the same parent until a delivered `park`, `close`, or
+an explicit wait-for-chat boundary. Normal chat reads, `SUMMARY/VIBE` room reactions, and proactive
+topic switches must not interleave between `summarize` and `park`.
+
+After a room reaction is delivered, pending soft continuation goals are cancelled. The next ordinary
+turn is selected from fresh chat or remains `WAIT`; a parked thread can return only when later grounded
+chat explicitly or deterministically matches it. Delivery failure does not focus, advance, park, or
+clear a thread.
+
+If semantic-dedup exhausts correction while a focused continuation is still active, it must not resolve
+that parent silently. DirectorLoop makes one directed short `park` candidate instead. Only successful
+delivery of that closing statement releases the boundary; failed generation/filter/delivery leaves the
+thread and goal unchanged for bounded retry policy.

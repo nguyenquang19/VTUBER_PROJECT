@@ -4,6 +4,16 @@ from datetime import datetime, timedelta, timezone
 
 from services.agent.goal_manager import GoalLimits, GoalManager
 from services.agent.goal_types import Goal, GoalKind, GoalSource, GoalStatus
+from services.agent.types import (
+    AgentEventKind,
+    AgentEventSource,
+    AgentStateSnapshot,
+    ConversationMove,
+    EventProvenance,
+    GroundedEvent,
+    OpenThread,
+    ThreadStatus,
+)
 
 NOW = datetime(2026, 8, 8, 9, 0, tzinfo=timezone.utc)
 
@@ -162,3 +172,102 @@ def test_reconcile_threads_keeps_unbound_and_operator_goals() -> None:
     assert snapshot.active is not None
     assert snapshot.active.goal_id == "operator"
     assert any(goal.goal_id == "unbound" for goal in snapshot.suspended)
+
+
+def test_delivered_chat_focus_cancels_other_thread_and_unlocks_selected() -> None:
+    manager = _manager(Clock(), candidates_max=8)
+    assert manager.submit(_goal(
+        "old", parent_thread_id="thread-old",
+        metadata={"source_event_id": "agent:chat:old", "source_delivered": False},
+    ))
+    assert manager.submit(_goal(
+        "selected", parent_thread_id="thread-selected",
+        metadata={"source_event_id": "agent:chat:selected", "source_delivered": False},
+    ))
+
+    changed = manager.focus_delivered_thread(
+        "thread-selected", source_event_ids={"agent:chat:selected"},
+    )
+
+    snapshot = manager.snapshot()
+    assert changed == 2
+    assert snapshot.active is not None
+    assert snapshot.active.goal_id == "selected"
+    assert snapshot.active.metadata["source_delivered"] is True
+    assert any(
+        goal.goal_id == "old" and goal.status is GoalStatus.CANCELLED
+        for goal in snapshot.recent_terminal
+    )
+
+
+def test_delivered_move_atomically_keeps_same_parent_until_park() -> None:
+    manager = _manager(Clock(), candidates_max=8)
+    assert manager.submit(_goal(
+        "active", parent_thread_id="thread-a",
+        metadata={"source_delivered": True},
+    ))
+    assert manager.submit(_goal("duplicate", parent_thread_id="thread-a"))
+    assert manager.submit(_goal("other", parent_thread_id="thread-b"))
+    thread = OpenThread(
+        "thread-a", "topic A", "summary A", NOW, NOW,
+        NOW + timedelta(minutes=5), status=ThreadStatus.ACTIVE,
+        last_move=ConversationMove.SUMMARIZE,
+        next_move=ConversationMove.PARK,
+    )
+    event = GroundedEvent(
+        event_id="speech-summary",
+        kind=AgentEventKind.SPEECH_COMPLETED,
+        source=AgentEventSource.DIRECTOR,
+        timestamp=NOW,
+        confidence=1.0,
+        payload={
+            "action": "continue_thread",
+            "goal_id": "active",
+            "conversation_move": "summarize",
+        },
+        provenance=EventProvenance("test"),
+    )
+
+    manager.handle_event(event, AgentStateSnapshot(open_threads=(thread,)))
+
+    snapshot = manager.snapshot()
+    assert snapshot.active is not None
+    assert snapshot.active.parent_thread_id == "thread-a"
+    assert snapshot.active.metadata["boundary_successor"] is True
+    assert snapshot.active.metadata["source_delivered"] is True
+    assert any(goal.goal_id == "duplicate" for goal in snapshot.recent_terminal)
+    assert any(goal.goal_id == "other" for goal in snapshot.candidates)
+
+
+def test_delivered_park_releases_boundary_and_room_clear_removes_old_goals() -> None:
+    manager = _manager(Clock(), candidates_max=8)
+    assert manager.submit(_goal(
+        "park", parent_thread_id="thread-a",
+        metadata={"source_delivered": True},
+    ))
+    assert manager.submit(_goal("other", parent_thread_id="thread-b"))
+    parked = OpenThread(
+        "thread-a", "topic A", "closed A", NOW, NOW,
+        NOW + timedelta(minutes=5), status=ThreadStatus.PARKED,
+        last_move=ConversationMove.PARK,
+        next_move=ConversationMove.RESUME,
+    )
+    event = GroundedEvent(
+        event_id="speech-park",
+        kind=AgentEventKind.SPEECH_COMPLETED,
+        source=AgentEventSource.DIRECTOR,
+        timestamp=NOW,
+        confidence=1.0,
+        payload={
+            "action": "continue_thread",
+            "goal_id": "park",
+            "conversation_move": "park",
+        },
+        provenance=EventProvenance("test"),
+    )
+
+    manager.handle_event(event, AgentStateSnapshot(open_threads=(parked,)))
+    assert manager.snapshot().active is not None
+    assert manager.snapshot().active.goal_id == "other"
+    assert manager.clear_continue_threads(reason="room_reaction_delivered") == 1
+    assert manager.snapshot().active is None
