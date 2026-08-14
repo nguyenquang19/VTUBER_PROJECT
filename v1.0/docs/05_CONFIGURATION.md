@@ -158,6 +158,11 @@ chẩn đoán và không thay cadence/backpressure gate.
 Metric GPU/VRAM dùng `system.dashboard.gpu_metrics.command/timeout_s/refresh_s`. Production mặc định
 gọi `nvidia-smi`; lỗi query hiển thị unavailable/stale thay vì giá trị giả.
 
+Dashboard độc lập dùng `operations.yaml::dashboard_standalone`: host/port riêng, live upstream loopback,
+request timeout, refresh interval và các bound history (`max_files`, `max_records`, `default_limit`,
+`max_limit`). Không hardcode cổng fallback hoặc giới hạn query trong browser/server. Source `auto` là mặc
+định; `live` không fallback history, còn `history` không gửi operator command.
+
 ### Director
 
 Tune tick/cooldown/transaction cache/decision bounds trong `director.yaml`; salience riêng trong

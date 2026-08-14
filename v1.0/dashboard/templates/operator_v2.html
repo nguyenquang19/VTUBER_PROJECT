@@ -4,100 +4,151 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Mai Operator Console</title>
-  <link rel="stylesheet" href="/static/operator_v2.css?v=thought-1">
+  <link rel="stylesheet" href="/static/operator_v2.css?v=cockpit-1">
 </head>
 <body>
   <aside class="sidebar" aria-label="Điều hướng chính">
     <div class="brand">
-      <div class="brand-mark" aria-hidden="true">M</div>
-      <div><strong>Mai</strong><span>Live Control</span></div>
+      <div class="brand-mark" aria-hidden="true"><span></span></div>
+      <div><strong>MAI</strong><small>operator console</small></div>
     </div>
     <nav class="operator-nav">
-      <button class="active" data-section="overview"><span>01</span>Tổng quan</button>
-      <button data-section="brain"><span>02</span>Brain</button>
-      <button data-section="conversation"><span>03</span>Hội thoại</button>
+      <button class="active" data-section="overview"><span>01</span>Live</button>
+      <button data-section="brain"><span>02</span>Mood & Brain</button>
+      <button data-section="conversation"><span>03</span>Dữ liệu</button>
       <button data-section="system"><span>04</span>Hệ thống</button>
       <button data-section="evaluation"><span>05</span>Đánh giá</button>
     </nav>
     <div class="sidebar-footer">
-      <a href="/legacy">Mở dashboard cũ</a>
-      <span id="operator-clock">--:--:--</span>
+      <div><i class="status-dot"></i><span id="sidebar-source">Đang khởi tạo</span></div>
+      <a href="/legacy">Dashboard cũ</a>
+      <time id="operator-clock">--:--:--</time>
     </div>
   </aside>
 
   <div class="shell">
     <header class="topbar">
-      <div>
-        <p class="eyebrow">REALTIME OPERATOR</p>
-        <h1 id="page-title">Tổng quan</h1>
+      <div class="page-heading">
+        <p class="eyebrow">MAI / LIVE OPERATIONS</p>
+        <h1 id="page-title">Live cockpit</h1>
+      </div>
+      <div class="source-switch" role="group" aria-label="Nguồn dữ liệu">
+        <button class="active" data-source="auto">Auto</button>
+        <button data-source="live">Live</button>
+        <button data-source="history">Lịch sử</button>
       </div>
       <div class="top-actions">
+        <span id="source-freshness" class="quiet-label">Chưa có mẫu</span>
         <span id="connection-status" class="pill neutral">Đang kết nối</span>
-        <button id="operator-emergency" class="button danger">Emergency stop</button>
+        <button id="operator-pause" class="button compact" disabled>Tạm dừng</button>
+        <button id="operator-resume" class="button compact" disabled>Tiếp tục</button>
+        <button id="operator-emergency" class="button danger compact" disabled>Dừng khẩn cấp</button>
       </div>
     </header>
 
     <main>
       <section id="section-overview" class="view active" aria-labelledby="page-title">
-        <article id="status-hero" class="status-hero neutral">
-          <div>
-            <p class="eyebrow">TRẠNG THÁI CHUNG</p>
-            <h2 id="overview-headline">Đang chờ snapshot…</h2>
-            <p id="overview-action">Dashboard đang kết nối với runtime.</p>
+        <article id="status-hero" class="status-ribbon neutral">
+          <div class="status-copy">
+            <span class="signal" aria-hidden="true"></span>
+            <div><strong id="overview-headline">Đang chờ snapshot…</strong><span id="overview-action">Dashboard đang kết nối.</span></div>
           </div>
-          <button id="overview-recovery" class="button primary" hidden>Mở chi tiết</button>
+          <div class="status-facts">
+            <span>Runtime <b id="overview-runtime">—</b></span>
+            <span>Incident <b id="overview-incidents">—</b></span>
+            <button id="overview-recovery" class="button compact" hidden>Mở chi tiết</button>
+          </div>
         </article>
 
-        <div class="metric-strip">
-          <article><span>Runtime</span><strong id="overview-runtime">—</strong></article>
-          <article><span>Incident mở</span><strong id="overview-incidents">—</strong></article>
-          <article><span>Action hiện tại</span><strong id="overview-current-action">—</strong></article>
-          <article><span>Delivery</span><strong id="overview-delivery">—</strong></article>
-        </div>
-
-        <div class="layout two-one">
-          <article class="panel decision-focus">
-            <div class="panel-heading"><div><p class="eyebrow">BRAIN NOW</p><h2>Quyết định hiện tại</h2></div><span id="decision-outcome" class="pill neutral">—</span></div>
-            <dl class="decision-grid">
-              <div><dt>Action</dt><dd id="decision-action">—</dd></div>
-              <div><dt>Reason</dt><dd id="decision-reason">—</dd></div>
-              <div><dt>Decision ID</dt><dd id="decision-id" class="mono">—</dd></div>
-              <div><dt>Transaction</dt><dd id="decision-transaction" class="mono">—</dd></div>
-            </dl>
-            <div class="evidence"><span>Evidence</span><div id="decision-evidence" class="chip-row"><em>Chưa có evidence.</em></div></div>
-          </article>
-
-          <article class="panel">
-            <div class="panel-heading"><div><p class="eyebrow">AGENDA</p><h2>Goal active</h2></div></div>
-            <div id="overview-goal" class="empty">Chưa có goal active.</div>
-            <div class="inline-form">
-              <input id="operator-goal-reason" maxlength="240" placeholder="Mai cần làm gì?" aria-label="Lý do goal">
-              <input id="operator-goal-success" maxlength="240" placeholder="Điều kiện hoàn thành" aria-label="Điều kiện hoàn thành">
-              <button id="operator-goal-pin" class="button">Pin goal</button>
+        <div id="live-cockpit" class="cockpit-grid">
+          <article class="panel now-panel">
+            <div class="panel-heading">
+              <div><p class="eyebrow">MAI ĐANG LÀM GÌ</p><h2>Luồng hiện tại</h2></div>
+              <div class="badge-row"><span id="overview-current-action" class="pill neutral">—</span><span id="overview-delivery" class="pill neutral">—</span></div>
+            </div>
+            <div class="speech-block">
+              <span>Mai vừa nói</span>
+              <blockquote id="live-speech">Chưa có câu nói trong phiên này.</blockquote>
+            </div>
+            <div class="now-context">
+              <div><span>Phase</span><strong id="live-phase">—</strong></div>
+              <div><span>Topic</span><strong id="live-topic">—</strong></div>
+              <div><span>Lý do action</span><strong id="live-reason">—</strong></div>
             </div>
           </article>
-        </div>
 
-        <div class="layout equal">
-          <article class="panel"><div class="panel-heading"><div><p class="eyebrow">RECOVERY</p><h2>Health cần chú ý</h2></div></div><div id="overview-health" class="stack-list empty">Không có cảnh báo.</div></article>
-          <article class="panel"><div class="panel-heading"><div><p class="eyebrow">INCIDENTS</p><h2>Incident gần đây</h2></div></div><div id="overview-incident-list" class="stack-list empty">Không có incident.</div></article>
+          <article id="mood-core-compact" class="panel mood-core compact-core">
+            <div class="panel-heading">
+              <div><p class="eyebrow">MOOD REALTIME</p><h2>Mood Core</h2></div>
+              <span id="mood-compact-meta" class="quiet-label">Chưa có mẫu</span>
+            </div>
+            <div class="radar-wrap">
+              <svg id="mood-radar-compact" class="mood-radar" viewBox="0 0 300 300" role="img" aria-label="Mood realtime của Mai"></svg>
+              <div class="core-pulse" aria-hidden="true"></div>
+            </div>
+            <div id="mood-compact-values" class="mood-mini-values"></div>
+          </article>
+
+          <article id="live-latency" class="panel telemetry-panel">
+            <div class="panel-heading"><div><p class="eyebrow">PIPELINE</p><h2>Nhịp hệ thống</h2></div></div>
+            <div class="telemetry-list">
+              <div><span>LLM TTFT</span><strong id="live-llm-ttft">—</strong></div>
+              <div><span>TTS TTFA</span><strong id="live-tts-ttfa">—</strong></div>
+              <div><span>Audio queue</span><strong id="live-audio-queue">—</strong></div>
+              <div><span>GPU / VRAM</span><strong id="live-gpu">—</strong></div>
+            </div>
+            <div id="live-health" class="health-summary"><i></i><span>Đang chờ health</span></div>
+          </article>
+
+          <article id="live-thread-lane" class="panel thread-lane">
+            <div class="panel-heading">
+              <div><p class="eyebrow">CONVERSATION LANE</p><h2>Mạch hội thoại</h2></div>
+              <span id="live-thread-count" class="pill neutral">0 thread</span>
+            </div>
+            <div id="overview-threads" class="thread-cards empty">Không có thread mở.</div>
+          </article>
+
+          <article id="live-queue" class="panel queue-panel">
+            <div class="panel-heading"><div><p class="eyebrow">NEXT UP</p><h2>Hàng đợi</h2></div><span id="live-queue-count" class="pill neutral">0</span></div>
+            <div id="overview-actions" class="stack-list empty">Queue trống.</div>
+          </article>
+
+          <article class="panel attention-panel">
+            <div class="panel-heading"><div><p class="eyebrow">ATTENTION</p><h2>Cần chú ý</h2></div></div>
+            <div id="overview-health" class="stack-list empty">Không có cảnh báo.</div>
+            <div id="overview-incident-list" class="stack-list empty">Không có incident.</div>
+          </article>
         </div>
       </section>
 
       <section id="section-brain" class="view">
-        <div class="section-intro"><div><p class="eyebrow">DECISION TRACE</p><h2>Brain</h2></div><p>Action, lý do và evidence lấy trực tiếp từ decision record versioned.</p></div>
-        <div class="layout two-one">
-          <article class="panel"><div class="panel-heading"><h2>Lịch sử quyết định</h2><span id="brain-record-count" class="pill neutral">0</span></div><div id="brain-decisions" class="decision-list empty">Chưa có quyết định.</div></article>
+        <div class="section-intro"><div><p class="eyebrow">STATE / TARGET / INTENTION</p><h2>Mood & Brain</h2></div><p>Mood là trạng thái phong cách; decision record là nguồn của hành động.</p></div>
+        <div class="brain-grid">
+          <article id="mood-core-detail" class="panel mood-core detail-core">
+            <div class="panel-heading"><div><p class="eyebrow">POSITION VS TARGET</p><h2>Mood Core realtime</h2></div><span id="brain-mood-meta" class="pill neutral">Chưa có mẫu</span></div>
+            <div class="detail-mood-layout">
+              <div class="radar-wrap large"><svg id="mood-radar-detail" class="mood-radar" viewBox="0 0 300 300" role="img" aria-label="Chi tiết mood realtime của Mai"></svg><div class="core-pulse" aria-hidden="true"></div></div>
+              <div id="brain-mood" class="mood-axis-list empty">Chưa có mood snapshot.</div>
+            </div>
+          </article>
           <div class="column-stack">
-            <article class="panel mood-panel"><div class="panel-heading"><div><p class="eyebrow">POSITION / TARGET</p><h2>Mood realtime</h2></div><span id="brain-mood-meta" class="pill neutral">chưa có mẫu</span></div><div id="brain-mood" class="mood-columns empty">Chưa có mood snapshot.</div><div class="mood-scale"><span>0</span><span>5</span><span>10</span></div></article>
             <article class="panel thought-panel"><div class="panel-heading"><div><p class="eyebrow">CAUSE → INTENTION</p><h2>Thought Engine</h2></div><span id="thought-stage" class="pill neutral">idle</span></div><dl id="thought-engine" class="decision-grid compact"></dl></article>
             <article class="panel"><div class="panel-heading"><h2>Candidate summary</h2></div><dl id="brain-candidates" class="decision-grid compact"></dl></article>
           </div>
         </div>
+        <article class="panel decision-focus">
+          <div class="panel-heading"><div><p class="eyebrow">DECISION TRACE</p><h2>Quyết định hiện tại</h2></div><span id="decision-outcome" class="pill neutral">—</span></div>
+          <dl class="decision-grid">
+            <div><dt>Action</dt><dd id="decision-action">—</dd></div><div><dt>Reason</dt><dd id="decision-reason">—</dd></div>
+            <div><dt>Decision ID</dt><dd id="decision-id" class="mono">—</dd></div><div><dt>Transaction</dt><dd id="decision-transaction" class="mono">—</dd></div>
+          </dl>
+          <div class="evidence"><span>Evidence</span><div id="decision-evidence" class="chip-row"><em>Chưa có evidence.</em></div></div>
+        </article>
+        <article class="panel"><div class="panel-heading"><h2>Lịch sử quyết định</h2><span id="brain-record-count" class="pill neutral">0</span></div><div id="brain-decisions" class="decision-list empty">Chưa có quyết định.</div></article>
       </section>
 
       <section id="section-conversation" class="view">
-        <div class="section-intro"><div><p class="eyebrow">CONTEXT & CONTINUITY</p><h2>Hội thoại</h2></div><p>Topic, thread và social context có provenance.</p></div>
+        <div class="section-intro"><div><p class="eyebrow">LIVE + JOURNAL</p><h2>Dữ liệu hội thoại</h2></div><p>Xem state hiện tại hoặc lọc journal đã lưu mà không làm thay đổi runtime.</p></div>
         <div class="metric-strip">
           <article><span>Stream phase</span><strong id="conversation-phase">—</strong></article>
           <article><span>Topic</span><strong id="conversation-topic">—</strong></article>
@@ -107,6 +158,19 @@
           <article class="panel"><div class="panel-heading"><h2>Open threads</h2></div><div id="conversation-threads" class="stack-list empty">Không có thread mở.</div></article>
           <article class="panel"><div class="panel-heading"><h2>Action queue</h2></div><div id="conversation-actions" class="stack-list empty">Queue trống.</div></article>
         </div>
+        <article class="panel history-panel">
+          <div class="panel-heading"><div><p class="eyebrow">OFFLINE / ONLINE DATA</p><h2>Lọc lịch sử</h2></div><span id="history-summary" class="pill neutral">Chưa tải</span></div>
+          <form id="history-filters" class="filter-grid">
+            <label>Session<input id="history-session" list="history-session-options" placeholder="Tất cả session"><datalist id="history-session-options"></datalist></label>
+            <label>Từ lúc<input id="history-start" type="datetime-local"></label>
+            <label>Đến lúc<input id="history-end" type="datetime-local"></label>
+            <label>Loại<select id="history-kind"><option value="">Tất cả</option></select></label>
+            <label>Delivery<select id="history-delivered"><option value="">Tất cả</option><option value="true">Đã delivery</option><option value="false">Không delivery</option></select></label>
+            <label>Giới hạn<input id="history-limit" type="number" min="1" value="100"></label>
+            <div class="filter-actions"><button class="button primary" type="submit">Áp dụng</button><button id="history-reset" class="button" type="button">Đặt lại</button></div>
+          </form>
+          <div id="history-records" class="history-records empty">Chọn Lịch sử hoặc áp dụng bộ lọc để đọc journal.</div>
+        </article>
         <div class="layout equal">
           <article class="panel"><div class="panel-heading"><h2>Environment</h2></div><pre id="conversation-environment" class="data-block">Chưa có environment.</pre></article>
           <article class="panel"><div class="panel-heading"><h2>Relationship context</h2></div><div id="conversation-relationships" class="stack-list empty">Chưa có profile.</div></article>
@@ -114,7 +178,7 @@
       </section>
 
       <section id="section-system" class="view">
-        <div class="section-intro"><div><p class="eyebrow">RUNTIME & SERVICES</p><h2>Hệ thống</h2></div><div class="button-row"><button id="operator-pause" class="button">Pause agent</button><button id="operator-resume" class="button">Resume agent</button></div></div>
+        <div class="section-intro"><div><p class="eyebrow">RUNTIME / SERVICES</p><h2>Hệ thống</h2></div><span id="system-source-detail" class="quiet-label">—</span></div>
         <div id="system-metrics" class="metric-strip"></div>
         <div class="layout equal">
           <article class="panel"><div class="panel-heading"><h2>Service health</h2></div><div id="system-health" class="stack-list empty">Chưa có health snapshot.</div></article>
@@ -124,19 +188,26 @@
           <article class="panel"><div class="panel-heading"><h2>LLM / Filter</h2></div><dl id="system-llm" class="decision-grid compact"></dl></article>
           <article class="panel"><div class="panel-heading"><h2>TTS / Audio</h2></div><dl id="system-tts" class="decision-grid compact"></dl></article>
         </div>
+        <article class="panel goal-panel"><div class="panel-heading"><div><p class="eyebrow">AGENDA</p><h2>Goal active</h2></div></div><div id="overview-goal" class="empty">Chưa có goal active.</div><div class="inline-form"><input id="operator-goal-reason" maxlength="240" placeholder="Mai cần làm gì?" aria-label="Lý do goal"><input id="operator-goal-success" maxlength="240" placeholder="Điều kiện hoàn thành" aria-label="Điều kiện hoàn thành"><button id="operator-goal-pin" class="button">Pin goal</button></div></article>
       </section>
 
       <section id="section-evaluation" class="view">
         <div class="section-intro"><div><p class="eyebrow">HUMAN REVIEW</p><h2>Đánh giá</h2></div><button id="evaluation-refresh" class="button">Tải lại</button></div>
-        <article class="panel quick-review">
-          <div><h2>Chấm turn cuối</h2><p>Dùng rating nhanh trong lúc live; correction chi tiết ở danh sách dưới.</p></div>
-          <div class="button-row"><button data-rating="good" class="button success">Good</button><button data-rating="bad" class="button danger-soft">Bad</button><button data-rating="flag" class="button warning">Flag</button></div>
-          <span id="evaluation-status" class="muted"></span>
-        </article>
+        <article class="panel quick-review"><div><h2>Chấm turn cuối</h2><p>Rating nhanh trong lúc live; correction chi tiết ở danh sách dưới.</p></div><div class="button-row"><button data-rating="good" class="button success">Good</button><button data-rating="bad" class="button danger-soft">Bad</button><button data-rating="flag" class="button warning">Flag</button></div><span id="evaluation-status" class="muted"></span></article>
         <div id="evaluation-turns" class="review-grid empty">Chưa tải review queue.</div>
       </section>
     </main>
   </div>
-  <script src="/static/operator_v2.js?v=thought-1"></script>
+
+  <dialog id="emergency-dialog" class="confirm-dialog" aria-labelledby="emergency-title">
+    <form method="dialog">
+      <span class="dialog-icon" aria-hidden="true">!</span>
+      <h2 id="emergency-title">Dừng toàn bộ output của Mai?</h2>
+      <p>Speech và action đang chạy sẽ bị khóa. Chỉ tiếp tục khi operator xác nhận an toàn.</p>
+      <div class="button-row"><button value="cancel" class="button">Hủy</button><button id="emergency-confirm" value="confirm" class="button danger">Xác nhận dừng</button></div>
+    </form>
+  </dialog>
+
+  <script src="/static/operator_v2.js?v=cockpit-1"></script>
 </body>
 </html>

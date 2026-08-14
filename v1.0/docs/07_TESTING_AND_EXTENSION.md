@@ -224,6 +224,15 @@ cùng input/context/seed và human sample nếu đổi wording/style. Luôn gi�
 Sau targeted test, chạy offline regression. Nếu đổi llama command/client/parser, chạy marker `llm`. Nếu
 đổi queue/bounds/lifecycle, chạy marker `slow` hoặc soak tương ứng.
 
+Dashboard UI change phải có contract test cho live cockpit, trạng thái offline/unavailable, control bị khóa,
+navigation chẩn đoán và asset route. Kiểm tra trình duyệt tối thiểu ở desktop 1440×900 và viewport hẹp;
+không chấp nhận lỗi console, horizontal overflow hoặc emergency action kích hoạt bằng một click vô tình.
+
+Dashboard độc lập phải test deterministic ba source mode, live→offline→live, upstream timeout/malformed,
+history join theo composite identity, rotated segment, filter + bound, malformed-line counter và command
+allowlist. Test launcher không được mở browser thật; inject callback/process boundary và xác minh cổng
+standalone không trùng embedded.
+
 Release evidence chỉ được báo `software_ready=true` khi có automated verification sanitized của đúng
 `system.app.version`, gồm đủ nhóm `targeted`, `offline`, `llm`, `slow`, `smoke`, mỗi nhóm có ít nhất một
 test pass và `failures=0`. Test của evidence builder phải bao phủ JSON malformed/key trùng,

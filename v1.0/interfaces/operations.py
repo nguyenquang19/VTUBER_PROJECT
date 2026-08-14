@@ -68,6 +68,33 @@ class OperationsSnapshotService(Service):
         """Read the latest durable operations snapshot asynchronously."""
 
 
+class DashboardDataSourceService(OperationsSnapshotService):
+    """Independent dashboard source for live snapshots, history and safe commands."""
+
+    @abstractmethod
+    async def snapshot_for(self, source_mode: str) -> dict[str, Any]:
+        """Read one snapshot for auto, live or history mode."""
+
+    @abstractmethod
+    async def query_history(
+        self,
+        *,
+        session_id: str | None = None,
+        started_at: str | None = None,
+        ended_at: str | None = None,
+        kind: str | None = None,
+        delivered: bool | None = None,
+        limit: int | None = None,
+    ) -> dict[str, Any]:
+        """Return one bounded read-only projection of turn and delivery journals."""
+
+    @abstractmethod
+    async def forward_command(
+        self, path: str, payload: dict[str, Any],
+    ) -> tuple[int, dict[str, Any]]:
+        """Forward one allowlisted command to the loopback live dashboard."""
+
+
 class EmergencyControlService(Service):
     @abstractmethod
     async def trigger(self, reason: str = "emergency stop") -> bool:

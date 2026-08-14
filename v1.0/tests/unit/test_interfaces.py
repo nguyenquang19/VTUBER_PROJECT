@@ -26,6 +26,7 @@ from interfaces.input import EventSource, InputEvent, InputService
 from interfaces.llm import LLMRequest, LLMService, LLMToken
 from interfaces.memory import MemoryEntry, MemoryService, MemoryTier
 from interfaces.operations import (
+    DashboardDataSourceService,
     EmergencyControlService, HealthSupervisorService, IncidentLogService,
     OperationsSnapshotService, OperatorControlService, SoakMonitorService,
     ShutdownCoordinatorService,
@@ -115,6 +116,9 @@ class TestServiceContract:
             (OperatorControlService, "record_operator_action"),
             (OperatorControlService, "snapshot"),
             (OperationsSnapshotService, "snapshot"),
+            (DashboardDataSourceService, "snapshot_for"),
+            (DashboardDataSourceService, "query_history"),
+            (DashboardDataSourceService, "forward_command"),
             (EmergencyControlService, "trigger"),
             (EmergencyControlService, "resume"),
             (EmergencyControlService, "permits_speech"),
@@ -147,6 +151,7 @@ class TestServiceContract:
             ShutdownCoordinatorService,
             OperatorControlService,
             OperationsSnapshotService,
+            DashboardDataSourceService,
             EmergencyControlService,
             SoakMonitorService,
             IncidentLogService,

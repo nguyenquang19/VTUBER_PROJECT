@@ -35,9 +35,9 @@ def test_operator_dashboard_has_exactly_five_primary_sections() -> None:
     html = TestClient(DashboardServer().app).get("/operator").text
     assert html.count('data-section="') == 5
     for section, label in (
-        ("overview", "Tổng quan"),
-        ("brain", "Brain"),
-        ("conversation", "Hội thoại"),
+        ("overview", "Live"),
+        ("brain", "Mood & Brain"),
+        ("conversation", "Dữ liệu"),
         ("system", "Hệ thống"),
         ("evaluation", "Đánh giá"),
     ):
@@ -54,12 +54,26 @@ def test_operator_assets_are_local_and_served() -> None:
     assert "https://" not in js.text
     assert ".innerHTML" not in js.text
     assert "mood_pos" in js.text
-    assert "mood-column-fill" in js.text
+    assert "radar-current" in js.text
+    assert "requestAnimationFrame" in js.text
     assert "parse_rate_percent" in js.text
     assert "parse_ok_rate_percent" not in js.text
     assert "thread.status" in js.text
     assert "thread.next_move" in js.text
     assert "thread.open_questions" in js.text
+
+
+def test_live_cockpit_history_source_and_emergency_confirmation_contract() -> None:
+    html = TestClient(DashboardServer().app).get("/operator").text
+    for element_id in (
+        "live-cockpit", "live-speech", "live-thread-lane", "live-queue",
+        "live-health", "live-latency", "mood-core-compact", "mood-core-detail",
+        "history-filters", "history-records", "emergency-dialog", "emergency-confirm",
+    ):
+        assert f'id="{element_id}"' in html
+    for source in ("auto", "live", "history"):
+        assert f'data-source="{source}"' in html
+    assert html.index('id="operator-emergency"') < html.index('id="emergency-dialog"')
 
 
 def test_dashboard_views_are_observable() -> None:

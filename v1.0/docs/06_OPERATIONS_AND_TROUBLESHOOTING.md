@@ -56,6 +56,8 @@ hướng dẫn. Nó không mở dashboard riêng, không bind port và không đ
 - Legacy dashboard: `http://127.0.0.1:7860/legacy`.
 - Snapshot: `GET /api/snapshot`.
 - WebSocket: `/ws` theo config.
+- Dashboard độc lập: chạy `scripts\start_dashboard.ps1`; launcher mở browser và giữ server nền ở cổng
+  standalone riêng. Không cần mở llama.cpp, TTS, platform adapter hoặc StreamRuntime.
 - Subtitle OBS: `logs/live/subtitle.txt`.
 - Event/generation/delivery log: `logs/events.jsonl`, `logs/turns.jsonl`,
   `logs/delivery_outcomes.jsonl`.
@@ -70,6 +72,14 @@ hướng dẫn. Nó không mở dashboard riêng, không bind port và không đ
 5. Gửi một message test private/unlisted; đối chiếu decision và delivery mode.
 6. Kiểm tra `mood_v2_prompt`, `action_transactions`, `decision_records`, `live_operations` enabled.
 7. Chạy backup dry-run nếu session có dữ liệu cần giữ.
+
+Ở live cockpit, một lượt test đạt khi cùng một màn hình cho thấy chat/thread đang xử lý, câu Mai đang nói,
+action + delivery state, queue/backpressure, LLM TTFT, TTS TTFA và cảnh báo health. Mở view chẩn đoán chỉ khi
+cần xem decision ID/evidence, mood chi tiết, feature flag hoặc review queue.
+
+Dashboard độc lập mặc định ở `Auto`: runtime trên loopback khả dụng thì hiện dữ liệu realtime và mở control;
+runtime tắt thì tự chuyển sang final snapshot/history và khóa mutation. Chọn `Live` để fail rõ khi upstream
+không có; chọn `Lịch sử` để lọc journal theo session/thời gian/loại turn/delivery mà không ảnh hưởng runtime.
 
 ## 4. Trong live
 
@@ -257,6 +267,12 @@ path; production TTS phải trả model typed.
 - Standalone dashboard chỉ đọc final snapshot, mutation bị khóa là đúng.
 - Mood cột phải đọc `mood.mood_pos` float; `current_mood` integer có thể đứng yên vài tick do rounding.
 - Badge `Snapshot offline` có thể vẫn đi cùng WebSocket healthy; nó không đồng nghĩa runtime live.
+- Nếu live cockpit trống một ô, kiểm tra field nguồn tương ứng trước; UI phải hiện unavailable thay vì suy
+  luận từ field khác.
+- Nếu viewport desktop không thấy đồng thời speech/chat-thread/delivery/queue/latency, kiểm tra CSS breakpoint
+  và browser zoom trước khi nghi snapshot.
+- Nếu dashboard độc lập không tự chuyển Online/Offline, kiểm tra upstream URL/timeout, source badge và metric
+  live-fetch; không đổi cổng embedded thành cổng standalone.
 
 ### 7.13 Log disk lỗi
 

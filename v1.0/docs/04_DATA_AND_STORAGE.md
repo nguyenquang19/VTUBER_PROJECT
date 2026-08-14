@@ -101,6 +101,12 @@ Outcome được append riêng với `record_type=delivery_outcome`, schema v1, 
 `delivered` boolean. Không dựa vào attempt đơn lẻ để train. Khi đổi schema, tăng version, thêm canonical
 adapter, update fixture/compatibility test; tuyệt đối không relabel raw record thành version mới.
 
+Dashboard history là projection chỉ đọc từ `turns.jsonl` + `delivery_outcomes.jsonl`, join bằng
+`session_id + request_id + turn_id`. Bộ lọc được phép gồm session, khoảng thời gian, trigger/kind và delivery
+state. Reader phải đọc active + rotated segment theo thứ tự xác định, giới hạn file/record/result bằng YAML,
+bỏ dòng malformed với counter quan sát được và không bao giờ suy diễn generation attempt thành delivered.
+Projection này chỉ phục vụ operator local; không sửa journal nguồn và không trở thành canonical dataset.
+
 ### 3.1. Write-time validation và quarantine (từ `1.1.0`)
 
 Wire-format của mỗi record được định nghĩa bằng model tường minh trong `services/data/record_schema.py`

@@ -303,6 +303,24 @@ Operator v2 render mood từ `mood_pos` float thành năm cột realtime; `curre
 policy/prompt và không đủ mịn cho animation. Vạch trắng là target, chiều cao cột là position. Snapshot
 đính `sampled_at` và `ticks`; standalone root vẫn mở operator v2 nhưng ghi rõ runtime offline.
 
+Trang mặc định của Operator v2 là **live cockpit**, không phải trang tổng hợp kỹ thuật. Trong một viewport
+desktop, operator phải thấy được: trạng thái runtime/WebSocket, hành động và câu Mai đang nói, chat/thread
+đang được xử lý, delivery state, queue/backpressure, độ trễ LLM/TTS và incident cần can thiệp. ID kỹ thuật,
+evidence đầy đủ, feature flags, mood chi tiết và review queue nằm ở view chẩn đoán phụ. Giao diện chỉ render
+source snapshot; trạng thái thiếu dữ liệu phải hiển thị `—`/unavailable rõ ràng, không tự suy luận hay tạo số.
+
+Các control có side effect giữ nguyên public endpoint. Pause/resume phải phản ánh khả dụng từ snapshot;
+emergency stop phải nổi bật nhưng không được kích hoạt do click nhầm. Operator v2 dùng nhãn tiếng Việt nhất
+quán, phân cấp critical/warning/healthy bằng cả chữ và màu, hỗ trợ keyboard focus và co về layout một cột
+trên viewport hẹp. `/legacy` tiếp tục là rollback UI độc lập.
+
+Dashboard độc lập chạy ở cổng riêng và dùng source mode `auto | live | history`. `auto` ưu tiên snapshot
+live từ dashboard embedded trên loopback; khi upstream không khả dụng thì chuyển sang final snapshot +
+journal local mà không giả runtime online. Source mode, freshness và controls availability phải nằm trong
+snapshot trả cho browser. Command online chỉ được proxy tới allowlist endpoint loopback; history/offline
+luôn read-only. Vì dashboard độc lập giữ cổng riêng, runtime có thể bật hoặc tắt sau đó mà không xung đột
+bind port.
+
 ### Operations services
 
 | File | Trách nhiệm |
@@ -314,6 +332,7 @@ policy/prompt và không đủ mịn cho animation. Vạch trắng là target, c
 | `incident_log.py` | append-only sanitized incident ledger |
 | `post_stream_review.py` | kiểm tra snapshot/audit/incident/soak |
 | `standalone_snapshot.py` | đọc snapshot/log khi runtime offline |
+| `dashboard_data_source.py` | auto-switch live/history, query journal bounded và proxy command allowlist |
 
 ## 10. Evaluation và data tools
 

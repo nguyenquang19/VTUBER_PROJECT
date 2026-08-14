@@ -6,13 +6,15 @@ import asyncio
 import os
 import sys
 from pathlib import Path
+from urllib.error import URLError
+from urllib.request import urlopen
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from dashboard.dashboard_server import DashboardServer  # noqa: E402
 from orchestrator.config_loader import ConfigLoader  # noqa: E402
 from orchestrator.logger import setup_from_config  # noqa: E402
-from services.operations.standalone_snapshot import StandaloneSnapshotProvider  # noqa: E402
+from services.operations.dashboard_data_source import DashboardDataSource  # noqa: E402
 
 
 def _open_browser(url: str) -> None:
@@ -26,6 +28,14 @@ async def _delayed_browser(url: str, delay_s: float) -> None:
     await asyncio.to_thread(_open_browser, url)
 
 
+def _dashboard_available(url: str, timeout_s: float) -> bool:
+    try:
+        with urlopen(f"{url}/api/snapshot", timeout=timeout_s) as response:
+            return int(response.status) == 200
+    except (OSError, URLError, ValueError):
+        return False
+
+
 async def run(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host")
@@ -36,9 +46,13 @@ async def run(argv: list[str] | None = None) -> int:
     loader = ConfigLoader(Path("config"))
     loader.load_all()
     setup_from_config(loader)
-    host = args.host or str(loader.get("system", "dashboard.host", "127.0.0.1"))
-    port = args.port or int(loader.get("system", "dashboard.port", 7860))
-    provider = StandaloneSnapshotProvider.from_loader(loader)
+    host = args.host or str(loader.get(
+        "operations", "dashboard_standalone.host", "127.0.0.1",
+    ))
+    port = args.port or int(loader.get(
+        "operations", "dashboard_standalone.port", 7861,
+    ))
+    provider = DashboardDataSource.from_loader(loader)
     server = DashboardServer(
         snapshot_provider=provider,
         data_dir=loader.get("logging", "jsonl.dir", "logs"),
@@ -52,6 +66,14 @@ async def run(argv: list[str] | None = None) -> int:
     should_open = bool(loader.get(
         "operations", "dashboard_standalone.open_browser", True,
     )) and not args.no_browser
+    request_timeout_s = float(loader.get(
+        "operations", "dashboard_standalone.request_timeout_s", 0.75,
+    ))
+    if await asyncio.to_thread(_dashboard_available, url, request_timeout_s):
+        if should_open:
+            await asyncio.to_thread(_open_browser, url)
+        await provider.stop()
+        return 0
     if should_open:
         browser_task = asyncio.create_task(_delayed_browser(
             url,

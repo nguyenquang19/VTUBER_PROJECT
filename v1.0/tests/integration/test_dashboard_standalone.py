@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from dashboard.dashboard_server import DashboardServer
 from services.operations.standalone_snapshot import StandaloneSnapshotProvider
+from services.operations.dashboard_data_source import DashboardDataSource
 
 
 def test_dashboard_runs_without_runtime_and_disables_mutating_controls(tmp_path: Path) -> None:
@@ -45,3 +46,37 @@ def test_agent_tab_contains_runtime_thread_queue_and_audit_panels() -> None:
         "agent-incidents", "agent-incident-count",
     ):
         assert f'id="{element_id}"' in html
+
+
+def test_independent_dashboard_exposes_source_history_and_proxy(tmp_path: Path, monkeypatch) -> None:
+    snapshot = tmp_path / "snapshot.json"
+    snapshot.write_text("{}", encoding="utf-8")
+    turns = tmp_path / "turns.jsonl"
+    turns.write_text(json.dumps({
+        "session_id": "session-1", "request_id": "request-1", "turn_id": 1,
+        "kind": "chat", "timestamp": "2026-08-13T12:00:00+00:00",
+    }), encoding="utf-8")
+    source = DashboardDataSource(
+        offline_provider=StandaloneSnapshotProvider(
+            snapshot_path=snapshot, audit_path=tmp_path / "audit.jsonl",
+        ),
+        live_base_url="http://127.0.0.1:7860",
+        turns_path=turns,
+        delivery_path=tmp_path / "delivery.jsonl",
+        request_timeout_s=0.1, max_files=2, max_records=20,
+        default_limit=10, max_limit=20,
+    )
+    monkeypatch.setattr(source, "_request_json", lambda method, path, payload: (
+        {"runtime": {"online": True, "controls_available": True}}
+        if method == "GET" else {"ok": True, "proxied": path}
+    ))
+    client = TestClient(DashboardServer(snapshot_provider=source).app)
+
+    live = client.get("/api/snapshot?source=live").json()
+    history = client.get("/api/history/turns?session_id=session-1&limit=5").json()
+    pause = client.post("/api/agent/pause", json={"reason": "operator"})
+
+    assert live["dashboard_source"]["actual"] == "live"
+    assert history["total_matched"] == 1
+    assert pause.status_code == 200
+    assert pause.json() == {"ok": True, "proxied": "/api/agent/pause"}

@@ -176,6 +176,7 @@ class DashboardServer:
         self.port = int(port)
         self._log = get_logger("dashboard")
         self._ws_clients: set[WebSocket] = set()
+        self._ws_source_modes: dict[WebSocket, str] = {}
         self._push_task: asyncio.Task[None] | None = None
         self._uvicorn_server: Any = None
         self.app = self._build_app()
@@ -201,17 +202,21 @@ class DashboardServer:
             with contextlib.suppress(Exception):
                 await client.close(code=1001, reason="runtime shutdown")
         self._ws_clients.clear()
+        self._ws_source_modes.clear()
         await self.stop_push_loop()
         if self._uvicorn_server is not None:
             self._uvicorn_server.should_exit = True
 
     # ---------- snapshot ----------
 
-    async def build_snapshot(self) -> dict[str, Any]:
+    async def build_snapshot(self, source_mode: str = "auto") -> dict[str, Any]:
         snap: dict[str, Any] = {}
         if self.snapshot_provider is not None:
             with contextlib.suppress(Exception):
-                snap.update(await self.snapshot_provider.snapshot())
+                if hasattr(self.snapshot_provider, "snapshot_for"):
+                    snap.update(await self.snapshot_provider.snapshot_for(source_mode))
+                else:
+                    snap.update(await self.snapshot_provider.snapshot())
 
         if self.sm is not None:
             snap["state"] = {
@@ -358,6 +363,11 @@ class DashboardServer:
                 "controls_available": False,
             })
         snap["operator_overview"] = _build_operator_overview(snap)
+        if self.snapshot_provider is not None and hasattr(
+            self.snapshot_provider, "get_metrics",
+        ):
+            with contextlib.suppress(Exception):
+                snap["dashboard_source_metrics"] = self.snapshot_provider.get_metrics()
         return snap
 
     # ---------- app ----------
@@ -411,8 +421,29 @@ class DashboardServer:
             return self._read_template("index.html")
 
         @app.get("/api/snapshot")
-        async def api_snapshot() -> JSONResponse:
-            return JSONResponse(await self.build_snapshot())
+        async def api_snapshot(source: str = "auto") -> JSONResponse:
+            return JSONResponse(await self.build_snapshot(source))
+
+        @app.get("/api/history/turns")
+        async def api_history_turns(
+            session_id: str | None = None,
+            started_at: str | None = None,
+            ended_at: str | None = None,
+            kind: str | None = None,
+            delivered: bool | None = None,
+            limit: int | None = None,
+        ) -> JSONResponse:
+            if self.snapshot_provider is None or not hasattr(
+                self.snapshot_provider, "query_history",
+            ):
+                return JSONResponse(
+                    {"ok": False, "reason": "history_source_unavailable"}, status_code=503,
+                )
+            value = await self.snapshot_provider.query_history(
+                session_id=session_id, started_at=started_at, ended_at=ended_at,
+                kind=kind, delivered=delivered, limit=limit,
+            )
+            return JSONResponse(value)
 
         @app.get("/api/features")
         async def api_features() -> JSONResponse:
@@ -422,7 +453,9 @@ class DashboardServer:
         @app.post("/api/features/{feature_id}/toggle")
         async def api_toggle(feature_id: str) -> JSONResponse:
             if self.features is None:
-                return JSONResponse({"ok": False, "reason": "no feature manager"}, status_code=503)
+                return await self._forward_or_unavailable(
+                    f"/api/features/{feature_id}/toggle", {}, "no feature manager",
+                )
             from orchestrator.features import CoreFeatureError, FeatureStatus
 
             # Core feature không nằm trong registry — chặn trước khi get_status raise
@@ -458,7 +491,9 @@ class DashboardServer:
             elif self.sm is not None:
                 await self.sm.emergency_stop()
             else:
-                return JSONResponse({"ok": False, "reason": "no handler"}, status_code=503)
+                return await self._forward_or_unavailable(
+                    "/api/emergency_stop", {}, "no handler",
+                )
             return JSONResponse({"ok": True, "state": self.sm.state if self.sm else None})
 
         @app.post("/api/resume")
@@ -470,7 +505,9 @@ class DashboardServer:
                     status_code=200 if ok else 409,
                 )
             if self.sm is None:
-                return JSONResponse({"ok": False, "reason": "no state machine"}, status_code=503)
+                return await self._forward_or_unavailable(
+                    "/api/resume", {}, "no state machine",
+                )
             from transitions.core import MachineError
 
             try:
@@ -482,7 +519,9 @@ class DashboardServer:
         @app.post("/api/goals/pin")
         async def api_goal_pin(request: Request) -> JSONResponse:
             if self.goal_manager is None:
-                return JSONResponse({"ok": False, "reason": "no goal manager"}, status_code=503)
+                return await self._forward_or_unavailable(
+                    "/api/goals/pin", await _json(request), "no goal manager",
+                )
             body = await _json(request)
             reason = str(body.get("reason") or "").strip()
             success = str(body.get("success_condition") or "").strip()
@@ -501,7 +540,9 @@ class DashboardServer:
         @app.post("/api/goals/{goal_id}/complete")
         async def api_goal_complete(goal_id: str, request: Request) -> JSONResponse:
             if self.goal_manager is None:
-                return JSONResponse({"ok": False, "reason": "no goal manager"}, status_code=503)
+                return await self._forward_or_unavailable(
+                    f"/api/goals/{goal_id}/complete", await _json(request), "no goal manager",
+                )
             body = await _json(request)
             reason = str(body.get("reason") or "operator complete").strip()
             ok = self.goal_manager.operator_complete(goal_id, reason=reason)
@@ -514,7 +555,9 @@ class DashboardServer:
         @app.post("/api/goals/{goal_id}/cancel")
         async def api_goal_cancel(goal_id: str, request: Request) -> JSONResponse:
             if self.goal_manager is None:
-                return JSONResponse({"ok": False, "reason": "no goal manager"}, status_code=503)
+                return await self._forward_or_unavailable(
+                    f"/api/goals/{goal_id}/cancel", await _json(request), "no goal manager",
+                )
             body = await _json(request)
             reason = str(body.get("reason") or "operator cancel").strip()
             ok = self.goal_manager.operator_cancel(goal_id, reason=reason)
@@ -527,8 +570,8 @@ class DashboardServer:
         @app.post("/api/agent/pause")
         async def api_agent_pause(request: Request) -> JSONResponse:
             if self.control_plane is None:
-                return JSONResponse(
-                    {"ok": False, "reason": "runtime_offline"}, status_code=503,
+                return await self._forward_or_unavailable(
+                    "/api/agent/pause", await _json(request), "runtime_offline",
                 )
             body = await _json(request)
             ok = await self.control_plane.pause(
@@ -539,8 +582,8 @@ class DashboardServer:
         @app.post("/api/agent/resume")
         async def api_agent_resume(request: Request) -> JSONResponse:
             if self.control_plane is None:
-                return JSONResponse(
-                    {"ok": False, "reason": "runtime_offline"}, status_code=503,
+                return await self._forward_or_unavailable(
+                    "/api/agent/resume", await _json(request), "runtime_offline",
                 )
             body = await _json(request)
             ok = await self.control_plane.resume(
@@ -762,8 +805,12 @@ class DashboardServer:
         async def ws(websocket: WebSocket) -> None:
             await websocket.accept()
             self._ws_clients.add(websocket)
+            source_mode = str(websocket.query_params.get("source") or "auto").lower()
+            if source_mode not in {"auto", "live", "history"}:
+                source_mode = "auto"
+            self._ws_source_modes[websocket] = source_mode
             try:
-                await websocket.send_json(await self.build_snapshot())
+                await websocket.send_json(await self.build_snapshot(source_mode))
                 while True:
                     # giữ kết nối; client không cần gửi gì, nhưng đọc để phát hiện disconnect
                     await websocket.receive_text()
@@ -775,6 +822,7 @@ class DashboardServer:
                 pass   # kết nối lỗi bất kỳ → dọn client, không giết server
             finally:
                 self._ws_clients.discard(websocket)
+                self._ws_source_modes.pop(websocket, None)
 
         return app
 
@@ -816,6 +864,16 @@ class DashboardServer:
             with contextlib.suppress(Exception):
                 self.control_plane.record_operator_action(action, target, outcome)
 
+    async def _forward_or_unavailable(
+        self, path: str, payload: dict[str, Any], reason: str,
+    ) -> JSONResponse:
+        if self.snapshot_provider is None or not hasattr(
+            self.snapshot_provider, "forward_command",
+        ):
+            return JSONResponse({"ok": False, "reason": reason}, status_code=503)
+        status, value = await self.snapshot_provider.forward_command(path, payload)
+        return JSONResponse(value, status_code=status)
+
     def _recent_turns(self, n: int) -> list[dict]:
         """Tail turns.jsonl → N turn gần nhất với composite identity."""
         recs = _tail_jsonl(self._data_dir / "turns.jsonl", n)
@@ -837,15 +895,19 @@ class DashboardServer:
             await asyncio.sleep(self.push_interval_s)
             if not self._ws_clients:
                 continue
-            snapshot = await self.build_snapshot()
             dead: list[WebSocket] = []
+            snapshots: dict[str, dict[str, Any]] = {}
             for client in list(self._ws_clients):
                 try:
-                    await client.send_json(snapshot)
+                    source_mode = self._ws_source_modes.get(client, "auto")
+                    if source_mode not in snapshots:
+                        snapshots[source_mode] = await self.build_snapshot(source_mode)
+                    await client.send_json(snapshots[source_mode])
                 except Exception:
                     dead.append(client)
             for d in dead:
                 self._ws_clients.discard(d)
+                self._ws_source_modes.pop(d, None)
 
     def start_push_loop(self) -> None:
         if self._push_task is None:
