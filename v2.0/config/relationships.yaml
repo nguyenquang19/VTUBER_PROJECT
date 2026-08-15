@@ -1,0 +1,26 @@
+# M7 — privacy-safe viewer relationships and grounded narrative.
+relationships:
+  profile_ttl_days: 30
+  seen_event_ttl_days: 30
+  max_profiles_snapshot: 100
+  max_preferences: 5
+  max_boundaries: 5
+  max_text_chars: 240
+  consent_mode: "operator_notice"
+  auto_delete: false
+
+notes:
+  max_per_viewer: 20
+  ttl_days: 30
+
+narrative:
+  max_items: 50
+  ttl_days: 30
+  prompt_max_items: 2
+  prompt_max_chars: 360
+
+running_gags:
+  positive_interactions_required: 3
+  positive_emotion_categories: [chat_compliment, chat_mention_direct, donation_small, donation_large]
+  reference_cooldown_seconds: 1800
+  max_per_viewer: 5

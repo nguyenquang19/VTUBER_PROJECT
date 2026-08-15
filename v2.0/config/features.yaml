@@ -1,0 +1,359 @@
+# features.yaml — feature toggle state, persist ở đây (ARCHITECTURE 4.3, 4.5)
+#
+# Core features (không toggle được) KHÔNG liệt kê ở đây:
+#   input_chat, llm_main, parser_output, context_builder,
+#   memory_working, trigger_manager, state_machine
+#
+# Chỉ toggleable features. `enabled` là state hiện tại (mutate khi user toggle).
+
+features:
+  input_voice:
+    enabled: false              # STT deferred — xem docs/01_SYSTEM_OVERVIEW.md
+    vram_cost_mb: 1024
+    latency_impact_ms: 150
+    category: input
+    depends_on: []
+    conflicts_with: []
+
+  input_emotion_voice:
+    enabled: false
+    vram_cost_mb: 500
+    latency_impact_ms: 50
+    category: input
+    depends_on: ["input_voice"]
+    conflicts_with: []
+
+  filter_rule:
+    enabled: true
+    vram_cost_mb: 0
+    latency_impact_ms: 20
+    category: filter
+    depends_on: []
+    conflicts_with: []
+
+  filter_ai:
+    enabled: false
+    vram_cost_mb: 3072
+    latency_impact_ms: 200
+    category: filter
+    depends_on: []
+    conflicts_with: []
+
+  tts_streaming:
+    enabled: true
+    vram_cost_mb: 0
+    latency_impact_ms: -300
+    category: tts
+    depends_on: []
+    conflicts_with: []
+
+  tts_emotion_aware:
+    enabled: false
+    vram_cost_mb: 0
+    latency_impact_ms: 100
+    category: tts
+    depends_on: []
+    conflicts_with: []
+
+  animation_smooth:
+    enabled: true
+    vram_cost_mb: 200
+    latency_impact_ms: 50
+    category: animation
+    depends_on: []
+    conflicts_with: []
+
+  animation_micro:
+    enabled: false
+    vram_cost_mb: 100
+    latency_impact_ms: 30
+    category: animation
+    depends_on: ["animation_smooth"]
+    conflicts_with: []
+
+  memory_semantic:
+    enabled: false
+    vram_cost_mb: 500
+    latency_impact_ms: 150
+    category: memory
+    depends_on: []
+    conflicts_with: []
+
+  memory_hierarchical:
+    enabled: false
+    vram_cost_mb: 0
+    latency_impact_ms: 100
+    category: memory
+    depends_on: ["memory_semantic"]
+    conflicts_with: []
+
+  qc_persona:
+    enabled: false
+    vram_cost_mb: 3072
+    latency_impact_ms: 0
+    category: qc
+    depends_on: []
+    conflicts_with: []
+
+  data_collector:
+    enabled: true
+    vram_cost_mb: 0
+    latency_impact_ms: 10
+    category: data
+    depends_on: []
+    conflicts_with: []
+
+  agent_context:
+    enabled: false              # M1 rollout: ledger/state chạy, prompt injection mặc định OFF
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: agent
+    depends_on: []
+    conflicts_with: []
+
+  goal_proposals:
+    enabled: false              # M2.5: LLM may propose only; GoalManager remains authority
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: agent
+    depends_on: []
+    conflicts_with: []
+
+  director_goal_arbiter:
+    enabled: true
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: agent
+    depends_on: []
+    conflicts_with: []
+
+  director_chat_gate:
+    enabled: true               # chỉ mở turn cho chat đủ điểm; OFF = hành vi salience cũ
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: agent
+    depends_on: []
+    conflicts_with: []
+
+  thread_extraction:
+    enabled: false              # M4.2 optional post-hoc llama.cpp extraction
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: agent
+    depends_on: []
+    conflicts_with: []
+
+  conversation_continuity:
+    enabled: true               # M4 bounded context + repair, no extra LLM call
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: agent
+    depends_on: []
+    conflicts_with: []
+
+  mood_behavior_policy:
+    enabled: true               # Legacy soft Director pacing only; never changes goal priority
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: agent
+    depends_on: []
+    conflicts_with: []
+
+  mood_v2_shadow:
+    enabled: true               # M10.6 observe beside v1 without changing live delivery
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: agent
+    depends_on: []
+    conflicts_with: []
+
+  mood_v2_prompt:
+    enabled: true               # Operator-approved Hybrid v1 mood + v2 turn policy production cutover
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: agent
+    depends_on: [mood_v2_shadow]
+    conflicts_with: []
+
+  action_transactions:
+    enabled: true               # M10.1 commit action effects only after delivery success
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: agent
+    depends_on: []
+    conflicts_with: []
+
+  decision_records:
+    enabled: true               # M10.3 versioned action/reason/evidence/transaction view
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: agent
+    depends_on: []
+    conflicts_with: []
+
+  operator_dashboard_v2:
+    enabled: true               # Operator-approved M10 full-live cutover; /legacy remains rollback
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: operations
+    depends_on: ["decision_records"]
+    conflicts_with: []
+
+  proactive_hosting:
+    enabled: true               # M5 grounded goal/thread/environment before silence fallback
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: agent
+    depends_on: []
+    conflicts_with: []
+
+  self_talk_planner:
+    enabled: true               # cause-first Thought Engine; no fixed semantic topic pool
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: agent
+    depends_on: []
+    conflicts_with: []
+
+  self_talk_lore:
+    enabled: true               # grounded, delivery-aware character lore during quiet chat
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: agent
+    depends_on: [self_talk_planner]
+    conflicts_with: []
+
+  behavior_library:
+    enabled: true               # M5 structured host behaviors with safety overrides
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: agent
+    depends_on: []
+    conflicts_with: []
+
+  natural_timing:
+    enabled: true               # M5 TTFA-gated pacing; filler never masks chat LLM latency
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: tts
+    depends_on: []
+    conflicts_with: []
+
+  relationship_memory:
+    enabled: true               # M7 pseudonymous profiles + grounded operator-reviewed context
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: agent
+    depends_on: []
+    conflicts_with: []
+
+  evaluation_harness:
+    enabled: true               # M8 versioned scenario/data quality evaluation
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: evaluation
+    depends_on: []
+    conflicts_with: []
+
+  evaluation_acceptance:
+    enabled: true               # M10.5 deterministic text-only failure acceptance
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: evaluation
+    depends_on: [evaluation_harness]
+    conflicts_with: []
+
+  live_operations:
+    enabled: true               # M9 bounded recovery, shutdown and operator control
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: operations
+    depends_on: []
+    conflicts_with: []
+
+  speculative_decoding:
+    enabled: false              # v2.3 bỏ E4B draft model → tạm off, bật lại nếu add E4B
+    vram_cost_mb: 700
+    latency_impact_ms: -400
+    category: llm
+    depends_on: []
+    conflicts_with: []
+
+  kv_cache_q8:
+    enabled: true
+    vram_cost_mb: -750
+    latency_impact_ms: 0
+    category: llm
+    depends_on: []
+    conflicts_with: []
+
+  turn_taking_predictor:
+    enabled: false
+    vram_cost_mb: 200
+    latency_impact_ms: -300
+    category: trigger
+    depends_on: []
+    conflicts_with: []
+
+  ambient_talk:
+    enabled: true
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: trigger
+    depends_on: []
+    conflicts_with: []
+
+  world_model_shadow:
+    enabled: true
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: agent
+    depends_on: []
+    conflicts_with: []
+    name: World Model shadow
+    description: Bounded read-only environment state; never a production decision input.
+  self_model_projection:
+    enabled: true
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: agent
+    depends_on: []
+    conflicts_with: []
+    name: Self Model projection
+    description: Immutable read-only projection of live state; never a decision input.
+  capability_registry:
+    enabled: true
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: agent
+    depends_on: [world_model_shadow, self_model_projection]
+    conflicts_with: []
+    name: Capability registry
+    description: Read-only declarative availability; never executes actions.
+  action_mock_closed_loop:
+    enabled: true
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: agent
+    depends_on: [capability_registry, world_model_shadow]
+    conflicts_with: []
+    name: General action mock loop
+    description: Mock-only execute, verify and world-update loop; never a real external executor.
+  director_v2_shadow:
+    enabled: true
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: agent
+    depends_on: [world_model_shadow, self_model_projection, capability_registry]
+    conflicts_with: []
+    name: Director V2 shadow
+    description: Read-only deterministic proposal and structured log; never changes live Director behavior.
+  director_v2_takeover:
+    enabled: false
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: agent
+    depends_on: [director_v2_shadow]
+    conflicts_with: []
+    name: Director V2 controlled takeover
+    description: Agreement-only conversational gate with immediate legacy fallback; disabled by default.

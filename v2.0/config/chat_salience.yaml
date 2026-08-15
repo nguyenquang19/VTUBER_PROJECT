@@ -1,0 +1,57 @@
+# chat_salience.yaml — C0.1 Salience pool (docs/03_COMPONENT_REFERENCE.md §C0.1)
+#
+# Thay FIFO "đáp mọi tin" bằng POOL có điểm + decay: tin quan trọng (superchat,
+# câu hỏi, mention) nổi lên; tin cũ tự rụng; tin trùng gom cụm. Director nhặt
+# top từ pool khi chọn read_chat.
+#
+# MVP (roadmap): base_tier + amount + exp(-age/τ). rel_bonus (regular/troll) +
+# cluster-bonus mạnh để ở C1. KHÔNG ML ranker, KHÔNG LLM chấm mỗi tin.
+
+salience:
+  # Điểm nền theo loại tin
+  base_tier:
+    chat: 10          # chat thường
+    question: 25      # câu hỏi theo pattern — đáng đáp hơn
+    mention: 35       # gọi thẳng "Mai" — ưu tiên cao nhất trong chat thường
+
+  # Nhận diện loại tin trước khi chấm điểm. Pattern đặt trong YAML để tune bằng
+  # transcript mà không sửa code; mention thắng question thắng chat.
+  kind_detection:
+    mention_patterns:
+      - '\bmai\b(?!\s+(mốt|sau|này|kia)\b)'
+    question_patterns:
+      - '\?'
+      - '\b(ai|gì|sao|tại sao|vì sao|bao giờ|khi nào|ở đâu|thế nào|như nào|bao nhiêu|mấy giờ)\b'
+      - '\b(có nên|có phải|có được|được không|đc không|ổn không|nên không|hay không)\b'
+
+  # Superchat/donation cộng vào base_tier: 40 * log1p(amount_vnd / 1000)
+  #   20k → +122 · 100k → +185 · 500k → +249
+  # CHỦ ĐÍCH: super chat ĐÈ MỌI THỨ (mention 35 / question 25 / chat 10) — người ta
+  # gửi tiền thì ưu tiên tuyệt đối. Ở top ~2-3 phút rồi mới decay xuống ngang chat.
+  # (Muốn super chat chỉ nhỉnh hơn mention: hạ coef xuống ~4.)
+  superchat_coef: 40.0
+  superchat_divisor: 1000.0
+
+  # Decay thời gian: score *= exp(-age_seconds / tau). tau=50s → tin ~cũ rụng dần.
+  tau_seconds: 50.0
+
+  # Cluster: tin near-duplicate (Jaccard token > threshold) gom vào 1 đại diện,
+  # cluster_count += 1. Đại diện được cộng cluster_coef * log1p(count-1).
+  dedup_threshold: 0.6
+  cluster_coef: 5.0
+
+  # Pool: giữ tối đa pool_max tin. Evict khi current_score < floor (staleness +
+  # backpressure tự giải quyết). peek/pop bỏ qua tin dưới floor.
+  pool_max: 50
+  floor: 3.0
+
+# C0.2 ChatPulse — đo độ sôi nổi chat (tempo + diversity) để Director cưỡi sóng.
+# Sôi nổi ≠ chỉ số lượng: tách hype-spam (cả đám "W"/"KEKW") vs bàn luận thật.
+pulse:
+  window_seconds: 60            # cửa sổ rolling tính tempo/diversity
+  tempo_low_per_min: 2.0        # < ngưỡng này = chat nguội (COLD)
+  tempo_high_per_min: 15.0      # >= ngưỡng này = chat sôi
+  diversity_threshold: 0.4      # unique_users/msg < ngưỡng = ít người spam nhiều = HYPE_SPAM
+  cold_silence_seconds: 90.0    # không tin nào trong X giây → Director tự nói/đổi segment
+  baseline_alpha: 0.05          # EMA làm mượt baseline_tempo (cho accel)
+  accel_hot_threshold: 1.5      # tempo/baseline > ngưỡng = "đang bùng"

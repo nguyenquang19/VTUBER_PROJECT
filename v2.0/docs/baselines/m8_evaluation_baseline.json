@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "milestone": "M8",
+  "contract_id": "mai-agent-v1",
+  "baseline_versioned": true,
+  "source": "sanitized aggregate from local turns.jsonl",
+  "raw_transcript_committed": false,
+  "scenario_suite": {
+    "scenario_count": 12,
+    "groups": ["agency", "continuity", "director", "environment", "persona", "safety"],
+    "live_observation_status": "not_run",
+    "human_review_status": "pending"
+  },
+  "transcript_metrics": {
+    "total_turns": 114,
+    "opener_repeat_ratio": 0.211,
+    "mood_exposition_count": 0,
+    "parse_fail_count": 0
+  },
+  "candidate_evaluation": {
+    "status": "not_run",
+    "reason": "fine_tune_data_gate_not_ready",
+    "production_model_changed": false
+  }
+}

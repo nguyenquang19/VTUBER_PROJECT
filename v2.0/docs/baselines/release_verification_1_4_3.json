@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "marker": "mai_release_verification",
+  "sanitized": true,
+  "product_version": "1.4.3",
+  "status": "passed",
+  "test_groups": {
+    "targeted": {
+      "command": ".\\venv\\Scripts\\python.exe -m pytest tests\\unit\\test_build_release_evidence.py tests\\unit\\test_live_preflight.py tests\\unit\\test_core_documentation.py tests\\unit\\test_production_entrypoints.py -q",
+      "passed": 33,
+      "failures": 0
+    },
+    "offline": {
+      "command": ".\\venv\\Scripts\\python.exe -m pytest tests -m \"not llm and not slow\" -q",
+      "passed": 1723,
+      "deselected": 5,
+      "failures": 0
+    },
+    "llm": {
+      "command": ".\\venv\\Scripts\\python.exe -m pytest tests -m llm -q",
+      "passed": 3,
+      "deselected": 1725,
+      "failures": 0
+    },
+    "slow": {
+      "command": ".\\venv\\Scripts\\python.exe -m pytest tests -m slow -q",
+      "passed": 2,
+      "deselected": 1726,
+      "failures": 0
+    },
+    "smoke": {
+      "command": ".\\venv\\Scripts\\python.exe scripts\\smoke_offline.py --output-format Json",
+      "passed": 3,
+      "skipped": 1,
+      "failures": 0
+    }
+  }
+}

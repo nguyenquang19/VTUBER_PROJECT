@@ -1,0 +1,38 @@
+# pacing.yaml — nhịp phản ứng biến thiên + filler (A3, docs/03_COMPONENT_REFERENCE.md §PHASE A)
+#
+# Vấn đề gốc: mọi turn phản hồi ~đều nhau = thứ lộ AI rõ nhất. A3 thêm:
+#  1. Delay trước khi nói: base + noise gauss, scale theo độ dài/độ khó câu.
+#  2. Filler audio (clip thu sẵn "ừm", "à", cười khẽ) chèn TRƯỚC câu — cap chặt.
+
+response_delay:
+  enabled: true
+  base_seconds: 0.25          # nền cho câu ngắn nhất
+  # scale theo độ dài: mỗi ~N ký tự cộng thêm per_char_seconds (tới khi clamp)
+  per_char_seconds: 0.004     # 100 ký tự → +0.4s
+  # câu "khó" (có ? hoặc dài) cộng thêm — proxy độ khó rẻ, không cần model
+  question_bonus_seconds: 0.2
+  sigma_seconds: 0.15         # độ lệch chuẩn noise gauss (0 = không biến thiên)
+  min_seconds: 0.15           # clamp dưới — không phản hồi tức thì
+  max_seconds: 1.4            # clamp trên — không để người xem chờ lâu
+
+filler:
+  enabled: true
+  # Danh sách clip thu sẵn (đường dẫn wav mono). RỖNG = không filler (no-op).
+  # User thu clip rồi điền vào đây. Xoay vòng no-repeat để không lộ pattern.
+  clips: []
+  # ví dụ khi có asset:
+  #   - "assets/filler/um.wav"
+  #   - "assets/filler/a.wav"
+  #   - "assets/filler/cuoi_khe.wav"
+  probability: 0.35           # xác suất chèn filler mỗi lượt (kể cả khi qua cap)
+  frequency_cap_per_min: 4    # tối đa X filler / phút
+  cooldown_seconds: 6.0       # tối thiểu giữa 2 filler
+  no_repeat_last_n: 2         # không lặp clip trong N lần gần nhất
+
+natural_timing:
+  enabled: true
+  min_ttfa_samples: 3         # chưa đủ TTFA thật → không thêm delay/filler
+  sample_window: 20
+  ttfa_ceiling_ms: 1000       # TTS đã chậm → không cộng thêm artificial pacing
+  proactive_filler_only: true
+  proactive_prefixes: [self_, room_, trans_]

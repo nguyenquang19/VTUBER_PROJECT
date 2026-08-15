@@ -1,0 +1,143 @@
+# Phase 4 — declarative availability only; no executor is invoked from this file.
+registry:
+  max_evidence_refs: 4
+  granted_permissions:
+    - conversation.read
+    - conversation.speak
+    - avatar.gesture
+
+capabilities:
+  SPEAK:
+    action_type: SPEAK
+    description: Deliver one conversational speech turn through the existing output path.
+    executor_id: speech_delivery
+    health_target_id: tts
+    verifier_id: speech_delivery
+    risk_level: low
+    required_permissions: [conversation.speak]
+    parameter_schema: {}
+    transaction_policy: delivery_aware
+    conflict_actions: [SPEAK, SELF_TALK, FOLLOW_UP]
+  WAIT:
+    action_type: WAIT
+    description: Hold without external side effects.
+    executor_id: local_wait
+    health_target_id: local_wait
+    verifier_id: local_wait
+    risk_level: low
+    required_permissions: []
+    parameter_schema: {}
+    transaction_policy: none
+    conflict_actions: []
+  READ_CHAT:
+    action_type: READ_CHAT
+    description: Read an already accepted chat item without an external side effect.
+    executor_id: input_reader
+    health_target_id: input_router
+    verifier_id: input_reader
+    risk_level: low
+    required_permissions: [conversation.read]
+    parameter_schema: {}
+    transaction_policy: none
+    conflict_actions: []
+  SELF_TALK:
+    action_type: SELF_TALK
+    description: Produce a self-talk turn through the existing speech path.
+    executor_id: speech_delivery
+    health_target_id: tts
+    verifier_id: speech_delivery
+    risk_level: low
+    required_permissions: [conversation.speak]
+    parameter_schema: {}
+    transaction_policy: delivery_aware
+    conflict_actions: [SPEAK, SELF_TALK, FOLLOW_UP]
+  FOLLOW_UP:
+    action_type: FOLLOW_UP
+    description: Continue an existing conversation through the existing speech path.
+    executor_id: speech_delivery
+    health_target_id: tts
+    verifier_id: speech_delivery
+    risk_level: low
+    required_permissions: [conversation.speak]
+    parameter_schema: {}
+    transaction_policy: delivery_aware
+    conflict_actions: [SPEAK, SELF_TALK, FOLLOW_UP]
+  AVATAR_GESTURE:
+    action_type: AVATAR_GESTURE
+    description: Request one intentional avatar gesture when the adapter is connected.
+    executor_id: avatar_adapter
+    health_target_id: avatar_adapter
+    verifier_id: avatar_state
+    risk_level: low
+    required_permissions: [avatar.gesture]
+    parameter_schema: {}
+    transaction_policy: none
+    self_equals: {avatar_state.connected: true}
+    conflict_actions: []
+  PLAY_MUSIC:
+    action_type: PLAY_MUSIC
+    description: Mock-only media start declaration.
+    executor_id: mock_media
+    health_target_id: mock_external
+    verifier_id: mock_media
+    risk_level: medium
+    required_permissions: [media.control]
+    parameter_schema: {}
+    transaction_policy: verified
+    conflict_actions: [PLAY_MUSIC, STOP_MUSIC]
+    mock_only: true
+  STOP_MUSIC:
+    action_type: STOP_MUSIC
+    description: Mock-only media stop declaration.
+    executor_id: mock_media
+    health_target_id: mock_external
+    verifier_id: mock_media
+    risk_level: medium
+    required_permissions: [media.control]
+    parameter_schema: {}
+    transaction_policy: verified
+    conflict_actions: [PLAY_MUSIC, STOP_MUSIC]
+    mock_only: true
+  SWITCH_SCENE:
+    action_type: SWITCH_SCENE
+    description: Mock-only scene switch declaration.
+    executor_id: mock_scene
+    health_target_id: mock_external
+    verifier_id: mock_scene
+    risk_level: medium
+    required_permissions: [scene.control]
+    parameter_schema: {}
+    transaction_policy: verified
+    conflict_actions: [SWITCH_SCENE]
+    mock_only: true
+  CALL_GUEST:
+    action_type: CALL_GUEST
+    description: Mock-only guest call declaration.
+    executor_id: mock_call
+    health_target_id: mock_external
+    verifier_id: mock_call
+    risk_level: high
+    required_permissions: [call.control]
+    parameter_schema: {guest_id: string}
+    transaction_policy: verified
+    world_equals: {call.guest_connected: false}
+    conflict_actions: [CALL_GUEST, REMOVE_GUEST]
+    mock_only: true
+  REMOVE_GUEST:
+    action_type: REMOVE_GUEST
+    description: Mock-only guest removal declaration.
+    executor_id: mock_call
+    health_target_id: mock_external
+    verifier_id: mock_call
+    risk_level: high
+    required_permissions: [call.control]
+    parameter_schema: {guest_id: string}
+    transaction_policy: verified
+    world_equals: {call.guest_connected: true}
+    conflict_actions: [CALL_GUEST, REMOVE_GUEST]
+    mock_only: true
+
+mock_action:
+  default_outcome: success
+  execution_timeout_s: 1.0
+  max_recent_results: 64

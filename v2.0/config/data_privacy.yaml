@@ -1,0 +1,34 @@
+# M0.4 — privacy, retention and data-integrity policy.
+
+privacy:
+  viewer_hash_salt_file: "data/privacy_salt.bin"
+  mask: "[PII]"
+
+raw_logs:
+  enabled: true
+  consent_mode: "operator_notice"
+  consent_notice: "Operator must disclose local transcript collection to participants where required."
+  retention_days: 30
+  auto_delete: false
+
+backup:
+  destination_dir: "backups/data"
+  sources:
+    - name: "runtime_logs"
+      source_dir: "logs"
+      include_patterns:
+        - "*.jsonl"
+        - "*.jsonl.*"
+    - name: "dataset_artifacts"
+      source_dir: "data/datasets"
+      include_patterns:
+        - "*.jsonl"
+        - "*/manifest.json"
+        - "*/quality_report.json"
+        - "*/*/*.jsonl"
+
+dataset_storage:
+  raw_journal_dir: "logs"
+  artifact_dir: "data/datasets"
+  quarantine_on_missing_delivery: true
+  immutable_bundles: true

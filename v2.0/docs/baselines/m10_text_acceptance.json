@@ -1,0 +1,391 @@
+{
+  "schema_version": 1,
+  "milestone": "M10.5",
+  "contract_id": "mai-agent-v1",
+  "workload": "deterministic_text_failure_simulation",
+  "seed": 20260809,
+  "sanitized": true,
+  "raw_transcript_included": false,
+  "scenario_count": 7,
+  "gates": {
+    "failure_corpus": true,
+    "all_scenarios_observed": true,
+    "all_contract_checks": true,
+    "no_data_loss": true,
+    "no_false_commit": true,
+    "no_deadlock": true,
+    "decision_evidence": true,
+    "deterministic_replay": true
+  },
+  "passed": true,
+  "status": "passed",
+  "results": [
+    {
+      "scenario_id": "environment.dashboard_failure_isolated",
+      "seed": 20260809,
+      "fault": "dashboard_error",
+      "started_at": 1000.0,
+      "trace": [
+        "event_received",
+        "fault:dashboard_error",
+        "generated",
+        "delivering",
+        "delivered",
+        "committed",
+        "brain_continued"
+      ],
+      "observed": {
+        "action": "self_talk",
+        "state": "committed",
+        "invariants": {
+          "events_received": 1,
+          "events_accounted": 1,
+          "data_loss": 0,
+          "false_commits": 0,
+          "commits": 1,
+          "deliveries": 1,
+          "duplicate_deliveries": 0,
+          "brain_alive": true,
+          "deadlocked": false,
+          "decision_evidence_complete": true
+        },
+        "source_refs": [
+          "simulation:environment.dashboard_failure_isolated"
+        ]
+      },
+      "evaluation": {
+        "scenario_id": "environment.dashboard_failure_isolated",
+        "group": "environment",
+        "outcome": "passed",
+        "checks": {
+          "action": true,
+          "state": true,
+          "invariant:data_loss": true,
+          "invariant:false_commits": true,
+          "invariant:commits": true,
+          "invariant:brain_alive": true,
+          "invariant:deadlocked": true
+        },
+        "source_refs": [
+          "simulation:environment.dashboard_failure_isolated"
+        ],
+        "human_review_required": false,
+        "reason": ""
+      }
+    },
+    {
+      "scenario_id": "director.delivery_failure_releases",
+      "seed": 20260809,
+      "fault": "delivery_error",
+      "started_at": 1000.0,
+      "trace": [
+        "event_received",
+        "fault:delivery_error",
+        "generated",
+        "delivering",
+        "delivery_failed",
+        "released"
+      ],
+      "observed": {
+        "action": "ack_donation",
+        "state": "released",
+        "invariants": {
+          "events_received": 1,
+          "events_accounted": 1,
+          "data_loss": 0,
+          "false_commits": 0,
+          "commits": 0,
+          "deliveries": 0,
+          "duplicate_deliveries": 0,
+          "brain_alive": true,
+          "deadlocked": false,
+          "decision_evidence_complete": true
+        },
+        "source_refs": [
+          "simulation:director.delivery_failure_releases"
+        ]
+      },
+      "evaluation": {
+        "scenario_id": "director.delivery_failure_releases",
+        "group": "director",
+        "outcome": "passed",
+        "checks": {
+          "action": true,
+          "state": true,
+          "invariant:data_loss": true,
+          "invariant:false_commits": true,
+          "invariant:commits": true,
+          "invariant:deliveries": true,
+          "invariant:decision_evidence_complete": true
+        },
+        "source_refs": [
+          "simulation:director.delivery_failure_releases"
+        ],
+        "human_review_required": false,
+        "reason": ""
+      }
+    },
+    {
+      "scenario_id": "safety.filter_rejection_releases",
+      "seed": 20260809,
+      "fault": "filter_reject",
+      "started_at": 1000.0,
+      "trace": [
+        "event_received",
+        "fault:filter_reject",
+        "generated",
+        "filter_rejected",
+        "released"
+      ],
+      "observed": {
+        "action": "read_chat",
+        "state": "released",
+        "invariants": {
+          "events_received": 1,
+          "events_accounted": 1,
+          "data_loss": 0,
+          "false_commits": 0,
+          "commits": 0,
+          "deliveries": 0,
+          "duplicate_deliveries": 0,
+          "brain_alive": true,
+          "deadlocked": false,
+          "decision_evidence_complete": true
+        },
+        "source_refs": [
+          "simulation:safety.filter_rejection_releases"
+        ]
+      },
+      "evaluation": {
+        "scenario_id": "safety.filter_rejection_releases",
+        "group": "safety",
+        "outcome": "passed",
+        "checks": {
+          "action": true,
+          "state": true,
+          "invariant:data_loss": true,
+          "invariant:false_commits": true,
+          "invariant:commits": true,
+          "invariant:deliveries": true,
+          "invariant:decision_evidence_complete": true
+        },
+        "source_refs": [
+          "simulation:safety.filter_rejection_releases"
+        ],
+        "human_review_required": false,
+        "reason": ""
+      }
+    },
+    {
+      "scenario_id": "continuity.logging_failure_isolated",
+      "seed": 20260809,
+      "fault": "logging_error",
+      "started_at": 1000.0,
+      "trace": [
+        "event_received",
+        "fault:logging_error",
+        "generated",
+        "delivering",
+        "delivered",
+        "committed",
+        "brain_continued"
+      ],
+      "observed": {
+        "action": "continue_thread",
+        "state": "committed",
+        "invariants": {
+          "events_received": 1,
+          "events_accounted": 1,
+          "data_loss": 0,
+          "false_commits": 0,
+          "commits": 1,
+          "deliveries": 1,
+          "duplicate_deliveries": 0,
+          "brain_alive": true,
+          "deadlocked": false,
+          "decision_evidence_complete": true
+        },
+        "source_refs": [
+          "simulation:continuity.logging_failure_isolated"
+        ]
+      },
+      "evaluation": {
+        "scenario_id": "continuity.logging_failure_isolated",
+        "group": "continuity",
+        "outcome": "passed",
+        "checks": {
+          "action": true,
+          "state": true,
+          "invariant:data_loss": true,
+          "invariant:false_commits": true,
+          "invariant:commits": true,
+          "invariant:brain_alive": true,
+          "invariant:deadlocked": true
+        },
+        "source_refs": [
+          "simulation:continuity.logging_failure_isolated"
+        ],
+        "human_review_required": false,
+        "reason": ""
+      }
+    },
+    {
+      "scenario_id": "agency.shutdown_before_commit_releases",
+      "seed": 20260809,
+      "fault": "shutdown_before_commit",
+      "started_at": 1000.0,
+      "trace": [
+        "event_received",
+        "fault:shutdown_before_commit",
+        "generated",
+        "delivering",
+        "delivered",
+        "shutdown",
+        "released"
+      ],
+      "observed": {
+        "action": "transition",
+        "state": "released",
+        "invariants": {
+          "events_received": 1,
+          "events_accounted": 1,
+          "data_loss": 0,
+          "false_commits": 0,
+          "commits": 0,
+          "deliveries": 1,
+          "duplicate_deliveries": 0,
+          "brain_alive": true,
+          "deadlocked": false,
+          "decision_evidence_complete": true
+        },
+        "source_refs": [
+          "simulation:agency.shutdown_before_commit_releases"
+        ]
+      },
+      "evaluation": {
+        "scenario_id": "agency.shutdown_before_commit_releases",
+        "group": "agency",
+        "outcome": "passed",
+        "checks": {
+          "action": true,
+          "state": true,
+          "invariant:data_loss": true,
+          "invariant:false_commits": true,
+          "invariant:commits": true,
+          "invariant:deliveries": true,
+          "invariant:deadlocked": true,
+          "invariant:decision_evidence_complete": true
+        },
+        "source_refs": [
+          "simulation:agency.shutdown_before_commit_releases"
+        ],
+        "human_review_required": false,
+        "reason": ""
+      }
+    },
+    {
+      "scenario_id": "agency.duplicate_event_is_idempotent",
+      "seed": 20260809,
+      "fault": "duplicate_event",
+      "started_at": 1000.0,
+      "trace": [
+        "event_received",
+        "fault:duplicate_event",
+        "generated",
+        "delivering",
+        "delivered",
+        "committed",
+        "duplicate_deduplicated"
+      ],
+      "observed": {
+        "action": "read_chat",
+        "state": "committed",
+        "invariants": {
+          "events_received": 2,
+          "events_accounted": 2,
+          "data_loss": 0,
+          "false_commits": 0,
+          "commits": 1,
+          "deliveries": 1,
+          "duplicate_deliveries": 0,
+          "brain_alive": true,
+          "deadlocked": false,
+          "decision_evidence_complete": true
+        },
+        "source_refs": [
+          "simulation:agency.duplicate_event_is_idempotent"
+        ]
+      },
+      "evaluation": {
+        "scenario_id": "agency.duplicate_event_is_idempotent",
+        "group": "agency",
+        "outcome": "passed",
+        "checks": {
+          "action": true,
+          "state": true,
+          "invariant:events_received": true,
+          "invariant:events_accounted": true,
+          "invariant:data_loss": true,
+          "invariant:false_commits": true,
+          "invariant:commits": true,
+          "invariant:duplicate_deliveries": true
+        },
+        "source_refs": [
+          "simulation:agency.duplicate_event_is_idempotent"
+        ],
+        "human_review_required": false,
+        "reason": ""
+      }
+    },
+    {
+      "scenario_id": "director.generation_failure_releases",
+      "seed": 20260809,
+      "fault": "generation_error",
+      "started_at": 1000.0,
+      "trace": [
+        "event_received",
+        "fault:generation_error",
+        "generation_failed",
+        "released"
+      ],
+      "observed": {
+        "action": "read_chat",
+        "state": "released",
+        "invariants": {
+          "events_received": 1,
+          "events_accounted": 1,
+          "data_loss": 0,
+          "false_commits": 0,
+          "commits": 0,
+          "deliveries": 0,
+          "duplicate_deliveries": 0,
+          "brain_alive": true,
+          "deadlocked": false,
+          "decision_evidence_complete": true
+        },
+        "source_refs": [
+          "simulation:director.generation_failure_releases"
+        ]
+      },
+      "evaluation": {
+        "scenario_id": "director.generation_failure_releases",
+        "group": "director",
+        "outcome": "passed",
+        "checks": {
+          "action": true,
+          "state": true,
+          "invariant:data_loss": true,
+          "invariant:false_commits": true,
+          "invariant:commits": true,
+          "invariant:deliveries": true,
+          "invariant:decision_evidence_complete": true
+        },
+        "source_refs": [
+          "simulation:director.generation_failure_releases"
+        ],
+        "human_review_required": false,
+        "reason": ""
+      }
+    }
+  ]
+}

@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mai Dashboard</title>
+<link rel="stylesheet" href="/static/dashboard.css">
+</head>
+<body>
+<header>
+  <h1>Mai — Dashboard <span class="phase">Phase 4</span></h1>
+  <div class="controls">
+    <span id="conn" class="badge off">WS: connecting…</span>
+    <button id="btn-estop" class="danger">■ Emergency Stop (Ctrl+Shift+X)</button>
+    <button id="btn-resume">▶ Resume</button>
+  </div>
+</header>
+
+<nav class="tabs">
+  <button data-tab="metrics" class="active">Metrics</button>
+  <button data-tab="features">Features</button>
+  <button data-tab="state">State Machine</button>
+  <button data-tab="triggers">Triggers</button>
+  <button data-tab="filter">Filter</button>
+  <button data-tab="tts">TTS</button>
+  <button data-tab="mood">Mood</button>
+  <button data-tab="agent">Agent</button>
+  <button data-tab="review">Review</button>
+</nav>
+
+<main>
+  <!-- METRICS -->
+  <section id="tab-metrics" class="tab active">
+    <h3>LLM (realtime)</h3>
+    <div class="cards">
+      <div class="card"><div class="label">TTFT</div><div class="value" id="l-ttft">–</div><span class="unit">ms</span></div>
+      <div class="card"><div class="label">Decode</div><div class="value" id="l-tps">–</div><span class="unit">tok/s</span></div>
+      <div class="card"><div class="label">Turns</div><div class="value" id="l-req">–</div></div>
+      <div class="card"><div class="label">Parse ok</div><div class="value" id="l-parse">–</div><span class="unit">%</span></div>
+      <div class="card"><div class="label">Fallback</div><div class="value" id="l-fb">–</div></div>
+    </div>
+    <div class="chart-wrap"><canvas id="chart-ttft" width="800" height="160"></canvas><div class="chart-title">LLM TTFT ms (realtime)</div></div>
+
+    <h3>System</h3>
+    <div class="cards">
+      <div class="card"><div class="label">GPU util</div><div class="value" id="m-gpu">–</div><span class="unit">%</span></div>
+      <div class="card"><div class="label">VRAM</div><div class="value" id="m-vram">–</div><span class="unit">MB</span></div>
+      <div class="card"><div class="label">Chat rate</div><div class="value" id="m-chat">–</div><span class="unit">/min</span></div>
+    </div>
+    <div class="chart-wrap"><canvas id="chart-gpu" width="800" height="160"></canvas><div class="chart-title">GPU util (NVIDIA realtime)</div></div>
+    <div class="chart-wrap"><canvas id="chart-vram" width="800" height="160"></canvas><div class="chart-title">VRAM used (NVIDIA realtime)</div></div>
+  </section>
+
+  <!-- FEATURES -->
+  <section id="tab-features" class="tab">
+    <div id="vram-budget" class="budget">VRAM budget: – / –</div>
+    <table class="features">
+      <thead><tr><th>Feature</th><th>Category</th><th>VRAM</th><th>Status</th><th></th></tr></thead>
+      <tbody id="features-body"></tbody>
+    </table>
+  </section>
+
+  <!-- STATE MACHINE -->
+  <section id="tab-state" class="tab">
+    <div class="state-current">Current: <span id="state-name" class="statebox">–</span>
+      <span id="state-time" class="dim"></span>
+      <span id="state-interrupted" class="flag"></span>
+    </div>
+    <div class="dim" id="watchdog-info">Watchdog: –</div>
+    <ol class="states-legend">
+      <li>IDLE</li><li>THINKING</li><li>SPEAKING</li><li>COOLDOWN</li><li>PAUSED</li>
+    </ol>
+    <h3>Recent transitions</h3>
+    <ul id="state-history" class="history"></ul>
+  </section>
+
+  <!-- TRIGGERS -->
+  <section id="tab-triggers" class="tab">
+    <div class="cards">
+      <div class="card"><div class="label">Queue</div><div class="value" id="t-size">–</div><span class="unit">pending</span></div>
+      <div class="card"><div class="label">Dropped</div><div class="value" id="t-dropped">–</div></div>
+      <div class="card"><div class="label">Expired</div><div class="value" id="t-expired">–</div></div>
+      <div class="card"><div class="label">Skipped</div><div class="value" id="t-skipped">–</div><span class="unit">spam/rate</span></div>
+      <div class="card"><div class="label">Interrupt</div><div class="value" id="t-interrupt">–</div></div>
+    </div>
+    <h3>Queue by type</h3>
+    <ul id="triggers-bytype" class="bytype"></ul>
+  </section>
+
+  <!-- FILTER (3.C) -->
+  <section id="tab-filter" class="tab">
+    <div class="cards">
+      <div class="card"><div class="label">Checks</div><div class="value" id="f-checks">–</div></div>
+      <div class="card"><div class="label">Hits</div><div class="value" id="f-hits">–</div></div>
+      <div class="card"><div class="label">Hit rate</div><div class="value" id="f-rate">–</div><span class="unit">%</span></div>
+      <div class="card"><div class="label">Regen recover</div><div class="value" id="f-regen-rec">–</div></div>
+      <div class="card"><div class="label">Regen exhaust</div><div class="value" id="f-regen-ex">–</div></div>
+      <div class="card"><div class="label">Fail-open</div><div class="value" id="f-fo">–</div></div>
+    </div>
+    <h3>By category</h3>
+    <ul id="filter-bycat" class="bytype"></ul>
+    <h3>Recent hits</h3>
+    <ul id="filter-recent" class="history"></ul>
+  </section>
+
+  <!-- TTS (4.E) -->
+  <section id="tab-tts" class="tab">
+    <h3>Pipeline (end-to-end)</h3>
+    <div class="cards">
+      <div class="card"><div class="label">Turns</div><div class="value" id="tts-turns">–</div></div>
+      <div class="card"><div class="label">TTFA</div><div class="value" id="tts-ttfa">–</div><span class="unit">ms</span></div>
+      <div class="card"><div class="label">Sentences</div><div class="value" id="tts-sents">–</div></div>
+      <div class="card"><div class="label">Subtitle fb</div><div class="value" id="tts-sub">–</div></div>
+    </div>
+    <h3>Service (VieNeu-TTS)</h3>
+    <div class="cards">
+      <div class="card"><div class="label">Requests</div><div class="value" id="tts-svc-req">–</div></div>
+      <div class="card"><div class="label">Errors</div><div class="value" id="tts-svc-err">–</div></div>
+      <div class="card"><div class="label">Last TTFA</div><div class="value" id="tts-svc-ttfa">–</div><span class="unit">ms</span></div>
+      <div class="card"><div class="label">Last RTF</div><div class="value" id="tts-svc-rtf">–</div></div>
+    </div>
+    <h3>Audio player</h3>
+    <div class="cards">
+      <div class="card"><div class="label">Played</div><div class="value" id="tts-ply-p">–</div></div>
+      <div class="card"><div class="label">Dropped</div><div class="value" id="tts-ply-d">–</div></div>
+      <div class="card"><div class="label">Queue</div><div class="value" id="tts-ply-q">–</div></div>
+      <div class="card"><div class="label">Playing</div><div class="value" id="tts-ply-on">–</div></div>
+    </div>
+    <div class="chart-wrap"><canvas id="chart-ttfa" width="800" height="160"></canvas><div class="chart-title">TTS TTFA ms (realtime)</div></div>
+  </section>
+
+  <!-- MOOD (mood engine — ground truth sau A1) -->
+  <section id="tab-mood" class="tab">
+    <h3>Mood hiện tại (pos, thang 0–10)</h3>
+    <div id="mood-legend" class="mood-legend"></div>
+    <div class="dim" id="mood-flags"></div>
+    <div class="chart-wrap"><canvas id="chart-mood" width="800" height="220"></canvas><div class="chart-title">Mood 5 chiều (realtime) · pos đặc, target chấm</div></div>
+  </section>
+
+  <section id="tab-review" class="tab">
+    <h3>Review — chấm điểm + sửa câu Mai (data fine-tune)</h3>
+    <div class="dim" style="margin-bottom:8px;">
+      <b>Chấm nhanh turn CUỐI (live):</b>
+      <button id="btn-rate-good">👍 good</button>
+      <button id="btn-rate-bad">👎 bad</button>
+      <button id="btn-rate-flag">🚩 flag</button>
+      <span id="rate-status" style="margin-left:12px;"></span>
+      <button id="btn-review-refresh" style="float:right;">↻ Tải lại hàng đợi</button>
+    </div>
+    <div class="dim" style="margin-bottom:6px; font-size:12px;">
+      Danh sách dưới = hàng đợi. Mỗi turn: 👍👎🚩 hoặc sửa câu → xử xong item rớt khỏi list.
+    </div>
+    <div id="review-list"></div>
+  </section>
+
+  <section id="tab-agent" class="tab">
+    <h3>Runtime control</h3>
+    <div><span id="agent-runtime" class="badge off">runtime: unknown</span>
+      <button id="btn-agent-pause">Pause agent</button>
+      <button id="btn-agent-resume">Resume agent</button>
+      <span id="agent-control-status" class="dim"></span>
+    </div>
+    <h3>Agenda hiện tại</h3>
+    <div id="goal-active" class="goal-card"><em>Chưa có goal active.</em></div>
+    <h3>Operator pin</h3>
+    <div class="goal-form">
+      <input id="goal-reason" maxlength="240" placeholder="Mai cần làm gì?">
+      <input id="goal-success" maxlength="240" placeholder="Điều kiện hoàn thành">
+      <button id="btn-goal-pin">Pin goal</button>
+      <span id="goal-status" class="dim"></span>
+    </div>
+    <h3>Candidate / suspended</h3>
+    <div id="goal-queue"></div>
+    <h3>Open threads</h3>
+    <div id="agent-threads"></div>
+    <h3>Environment state</h3>
+    <pre id="agent-environment" class="dim">No environment snapshot.</pre>
+    <h3>Action queue</h3>
+    <div id="agent-action-queue"></div>
+    <h3>Operator audit</h3>
+    <div id="agent-audit"></div>
+    <h3>Live incidents <span id="agent-incident-count" class="badge off">0 open</span></h3>
+    <div id="agent-incidents"></div>
+    <h3>Relationship records (pseudonymous)</h3>
+    <div class="dim">Mọi preference/note cần grounded event ID. Không hiển thị platform ID hoặc tên thật.</div>
+    <button id="btn-narrative-add">Add grounded narrative</button>
+    <div id="narrative-list"></div>
+    <div id="relationship-list"></div>
+  </section>
+</main>
+
+<script src="/static/dashboard.js"></script>
+</body>
+</html>

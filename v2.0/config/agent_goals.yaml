@@ -1,0 +1,29 @@
+# GoalManager and rule-based agenda policy (Master Plan M2).
+goal_manager:
+  candidates_max: 16
+  suspended_max: 8
+  terminal_history_max: 32
+  metadata_text_max_chars: 240
+  default_ttl_s: 300
+  donation_ttl_s: 120
+  wait_for_answer_ttl_s: 90
+  continue_thread_ttl_s: 600
+  follow_up_ttl_s: 180
+  operator_pinned_ttl_s: 3600
+
+priorities:
+  ack_donation: 100
+  safety: 100
+  operator_pinned: 90
+  answer_follow_up: 70
+  wait_for_chat_answer: 60
+  continue_thread: 40
+
+proposal:
+  evidence_max_items: 6
+  max_tokens: 180
+  temperature: 0.1
+  max_reason_chars: 160
+  allowed_kinds:
+    - continue_thread
+    - wait_for_chat_answer

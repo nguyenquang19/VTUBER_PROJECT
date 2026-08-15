@@ -1,0 +1,32 @@
+# Grounded working-state limits (Master Plan M1). No LLM calls are used here.
+agent_state:
+  recent_events_max: 64
+  recent_event_ttl_s: 1800
+  open_threads_max: 8
+  open_thread_ttl_s: 900
+  payload_text_max_chars: 320
+  dedup_ttl_s: 1800
+
+context:
+  min_items: 3
+  max_items: 6
+  item_max_chars: 220
+  relevance_window_s: 900
+
+# Phase 2: bounded shadow state only; not a Director or prompt input.
+world_model:
+  allowed_domains: [stream, social, call, media, physical, game]
+  default_ttl_s: 300
+  source_authority:
+    operator: 100
+    environment: 80
+    runtime: 60
+  max_state_entries: 64
+  max_evidence_refs: 8
+  max_payload_items: 32
+  max_payload_chars: 2048
+  dedup_ttl_s: 1800
+  max_dedup_keys: 128
+# Phase 3: only bounds the immutable read-only projection.
+self_model:
+  max_recent_action_ids: 8

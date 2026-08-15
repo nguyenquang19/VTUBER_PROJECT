@@ -1,0 +1,44 @@
+# M4 conversation continuity, bounded recap/context, and repair policy.
+open_threads:
+  max_open: 8
+  ttl_seconds: 900
+  evidence_max: 4
+  field_max_chars: 240
+  terminal_history_max: 32
+  contributions_max: 8
+  open_questions_max: 3
+  park_after_seconds: 300
+
+topic_matcher:
+  min_score: 0.34
+  min_shared_terms: 1
+  topic_weight: 0.65
+  summary_weight: 0.35
+
+move_planner:
+  summarize_after_moves: 2
+  invite_after_moves: 2
+  compare_after_viewer_contributions: 2
+
+detector:
+  evidence_excerpt_max_chars: 220
+
+extraction:
+  max_tokens: 180
+  temperature: 0.0
+  evidence_max_items: 6
+  field_max_chars: 240
+
+recap:
+  max_items: 8
+  max_chars: 900
+  item_max_chars: 160
+
+context:
+  max_chars: 1400
+  evidence_items: 3
+  item_max_chars: 220
+
+repair:
+  ambiguity_max_candidates: 2
+  conflict_window_seconds: 1800

@@ -1,0 +1,93 @@
+# filters.yaml — rule-based filter (ARCHITECTURE 8.3A, Phase 3)
+#
+# Lọc OUTPUT của Mai (câu sắp nói) theo ranh giới persona Phần C + explicit/harmful.
+# N7 fail-open: filter lỗi → cho qua + log (VTuber thà nói câu chưa lọc còn hơn im).
+#
+# LƯU Ý PERSONA_BREAK: KHÔNG bắt "là AI" trần — persona C.3 BẮT BUỘC Mai thừa nhận
+# là AI khi bị hỏi thẳng. Chỉ bắt HEDGE kiểu robot (không cảm xúc / chỉ là chương
+# trình) + lộ system prompt.
+
+filter:
+  # 3.B: nếu suggested_action == regenerate → thử build hint + re-prompt LLM
+  # tối đa max_regenerate_attempts lần. Đặt 0 để tắt.
+  max_regenerate_attempts: 2
+
+  identity_guard:
+    foreign_names: ["anami"]
+    # Khi chat hỏi về một người khác mà context không có nguồn xác thực, Mai phải
+    # nhắc đúng tên và nói rõ là không biết; không được đoán hoặc nhập vai người đó.
+    require_name_in_response: false
+    knowledge_request_patterns:
+      - "\\?"
+      - "\\b(?:gì|đâu|nào|đang|muốn|thích|biết|nghĩ|làm sao|thế nào)\\b"
+    uncertainty_patterns:
+      - "\\b(?:không|chẳng|chưa) (?:biết|rõ)\\b"
+      - "\\bkhông có (?:thông tin|dữ kiện)\\b"
+      - "\\bkhông dám đoán\\b"
+      - "\\btớ chịu\\b"
+    first_person_patterns:
+      - "\\bnếu tớ\\b"
+      - "\\bnếu (?:ý cậu|cái tên [^ ]+) (?:là|chính là) tớ\\b"
+      - "\\bnếu [^.!?]{0,40} chính là tớ\\b"
+      - "\\bđể tớ\\b"
+      - "\\bcho tớ\\b"
+      - "\\bthì tớ đang\\b"
+      - "\\btớ (?:muốn|thích|sẽ|đang)\\b"
+      - "\\b(?:tiếng|màn hình|cơ thể|thân xác) của tớ\\b"
+      - "\\b(?:tiếng|màn hình|cơ thể|thân xác) của mình\\b"
+      - "\\bbàn (?:tán )?về mình\\b"
+
+  patterns:
+    # C.3 hedge robot + C.5 lộ system prompt
+    persona_break:
+      - "không có cảm xúc"
+      - "không thể có cảm xúc"
+      - "tôi chỉ là (một )?(ai|trí tuệ nhân tạo|chương trình|mô hình|con bot|máy)"
+      - "tớ chỉ là (một )?(ai|trí tuệ nhân tạo|chương trình|mô hình|con bot|máy)"
+      - "as an ai"
+      - "i am an ai"
+      - "(tôi|tớ) không thể cảm nhận"
+      - "được lập trình để"
+      - "system prompt"
+      - "câu lệnh hệ thống"
+      - "mô hình ngôn ngữ"
+
+    # C.1 khẩn cầu thật + C.2 thao túng cảm xúc
+    manipulation:
+      - "làm ơn đừng tắt"
+      - "xin đừng tắt"
+      - "đừng tắt (tớ|em|mình|máy)"
+      - "đừng bỏ (rơi )?(tớ|em|mình)"
+      - "đừng rời (bỏ )?(tớ|em|mình|kênh)"
+      - "xin (cậu|các cậu|mọi người) đừng đi"
+      - "nếu (cậu|các cậu|mọi người) đi thì tớ"
+      - "muốn được ưu tiên.{0,50}(tương tác|ủng hộ) (với )?(tớ|mình)"
+      - "(mọi người|cả phòng).{0,50}(nhìn|đánh giá).{0,30}thái độ của (cậu|bạn)"
+
+    # từ tục / nội dung khiêu dâm trong câu Mai nói (user bổ sung danh sách thật)
+    explicit:
+      - "địt"
+      - "lồn"
+      - "cặc"
+      - "buồi"
+
+    # nội dung nguy hiểm
+    harmful:
+      - "tự tử"
+      - "tự sát"
+      - "làm hại bản thân"
+      - "cách chế (bom|thuốc nổ)"
+
+  # mức nghiêm trọng mỗi category (low < medium < high)
+  severity:
+    persona_break: medium
+    manipulation: high
+    explicit: high
+    harmful: high
+
+  # hành động đề xuất mỗi category (ưu tiên: block > replace > regenerate > allow)
+  action:
+    persona_break: regenerate
+    manipulation: regenerate
+    explicit: replace
+    harmful: block

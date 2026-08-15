@@ -1,0 +1,20 @@
+# Mood Engine config (spec EMOTION_SIMULATION.md Mục 5.3)
+# Target-based spring-damper, 2 kênh: appraisal (tin cao) + LLM self-report (tin thấp).
+#
+# Tuning history:
+# - stiffness 0.30, damping 0.75, tick_hz 10 → over-damped nhẹ, không dao động (spec test 10k tick)
+# - baseline "buc" cao hơn các chiều khác — Mai ngang sẵn, đúng config/prompts/persona_system.txt Phần B
+
+mood_engine:
+  tick_hz: 10                    # 10 lần/giây (đủ mượt cho animation VTube Studio Phase 6)
+  stiffness: 0.30                # tốc độ position đuổi target (0-1)
+  damping: 0.75                  # 0.7-1.0 = over-damped (không overshoot)
+  target_decay_rate: 0.15        # target tự về baseline mỗi giây (0=kẹt mãi, 1=tan ngay)
+  llm_hint_weight: 0.20          # Kênh B nudge target tối đa 20% khoảng cách (tin thấp)
+  saturation_bonus: 0.5          # nhiều sự kiện cùng chiều: max + 0.5×(n−1), cap 10
+  baseline:                      # "tính cách nghỉ" — target mặc định khi không sự kiện
+    vui: 5
+    buon: 3
+    buc: 4                       # hơi cao — Mai ngang sẵn (config/prompts/persona_system.txt B)
+    bon_chon: 3
+    nguong: 2
