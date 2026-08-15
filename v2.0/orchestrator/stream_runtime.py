@@ -107,6 +107,7 @@ class StreamRuntime:
         self_model: Any = None,
         capability_registry: Any = None,
         action_mock_loop: Any = None,
+        external_executor_registry: Any = None,
         director_v2_shadow: Any = None,
         director_v2_takeover: Any = None,
         goal_manager: Any = None,
@@ -149,6 +150,7 @@ class StreamRuntime:
         self._self_model = self_model
         self._capability_registry = capability_registry
         self._action_mock_loop = action_mock_loop
+        self._external_executor_registry = external_executor_registry
         self._director_v2_shadow = director_v2_shadow
         self._director_v2_takeover = director_v2_takeover
         self._goal_manager = goal_manager
@@ -183,6 +185,8 @@ class StreamRuntime:
             await self._capability_registry.start()
         if self._action_mock_loop is not None:
             await self._action_mock_loop.start()
+        if self._external_executor_registry is not None:
+            await self._external_executor_registry.start()
         if self._self_model is not None:
             await self._self_model.start()
         if self._world_model is not None:
@@ -331,6 +335,9 @@ class StreamRuntime:
         if self._action_mock_loop is not None:
             with contextlib.suppress(Exception):
                 await self._action_mock_loop.stop()
+        if self._external_executor_registry is not None:
+            with contextlib.suppress(Exception):
+                await self._external_executor_registry.stop()
         if self._capability_registry is not None:
             with contextlib.suppress(Exception):
                 await self._capability_registry.stop()
@@ -398,6 +405,10 @@ class StreamRuntime:
             ),
             "action_mock": (
                 self._action_mock_loop.snapshot() if self._action_mock_loop is not None else None
+            ),
+            "external_executors": (
+                self._external_executor_registry.snapshot()
+                if self._external_executor_registry is not None else None
             ),
             "director_v2_shadow": (
                 self._director_v2_shadow.snapshot() if self._director_v2_shadow is not None else None
@@ -621,6 +632,9 @@ class StreamRuntime:
         if self._action_mock_loop is not None:
             with contextlib.suppress(Exception):
                 m.update(self._action_mock_loop.get_metrics())
+        if self._external_executor_registry is not None:
+            with contextlib.suppress(Exception):
+                m.update(self._external_executor_registry.get_metrics())
         if self._director_v2_shadow is not None:
             with contextlib.suppress(Exception):
                 m.update(self._director_v2_shadow.get_metrics())
@@ -1488,6 +1502,10 @@ async def build_stream_runtime(
     action_mock_loop.register_verifier("mock_call", MockCallVerifier(mock_call_backend))
     attach_set_enabled_feature(feature_manager, "action_mock_closed_loop", action_mock_loop)
 
+    # Phase 9: inert registry only; it owns no external client or callable route.
+    from services.action.external_registry import ExternalExecutorRegistry
+    external_executor_registry = ExternalExecutorRegistry()
+
     # Phase 6: read-only Director V2 shadow. It is deliberately not passed to DirectorLoop.
     from interfaces.director_v2 import DirectorV2Candidate, DirectorV2Context
     from services.director.v2_shadow import DirectorV2Shadow, DirectorV2ShadowConfig
@@ -1659,6 +1677,7 @@ async def build_stream_runtime(
         speak=speak_callback, filler=filler, director_loop=director_loop,
         agent_state=agent_state, world_model=world_model, self_model=self_model,
         capability_registry=capability_registry, action_mock_loop=action_mock_loop,
+        external_executor_registry=external_executor_registry,
         director_v2_shadow=director_v2_shadow,
         director_v2_takeover=director_v2_takeover, cfg=cfg,
         goal_manager=goal_manager,

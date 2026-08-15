@@ -31,8 +31,10 @@ Bộ tài liệu này được tổ chức theo nhiệm vụ bảo trì, không 
 | [13 — General action mock loop](13_GENERAL_ACTION_MOCK_LOOP.md) | Phase 5 typed mock execute/verify/World-update/commit boundary |
 | [14 — Director V2 shadow](14_DIRECTOR_V2_SHADOW.md) | Phase 6 deterministic read-only proposal and structured decision record |
 | [15 — Director V2 controlled takeover](15_DIRECTOR_V2_CONTROLLED_TAKEOVER.md) | Phase 7 agreement-only staged conversational gate with legacy rollback |
-## Thứ tự đọc cho AI/người mới
+| [16 — Speech and avatar action adaptation](16_SPEECH_AVATAR_ACTION_ADAPTATION.md) | Phase 8 adapter boundary for authoritative speech delivery and intentional VTS gestures |
+| [17 — External executor framework](17_EXTERNAL_EXECUTOR_FRAMEWORK.md) | Phase 9 inert typed registry for future external executor routes |
 | [18 — Perception expansion](18_PERCEPTION_EXPANSION.md) | Phase 10 canonical input/structured-observation ingress and world safety boundary |
+## Thứ tự đọc cho AI/người mới
 
 1. `00` để biết hệ thống nào thực sự thuộc v1.0.0 và cái gì chưa production.
 2. `01` + `02` để hiểu kiến trúc, lifecycle và delivery boundary.

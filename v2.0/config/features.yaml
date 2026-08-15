@@ -71,6 +71,26 @@ features:
     depends_on: ["animation_smooth"]
     conflicts_with: []
 
+  speech_action_adapter:
+    enabled: false
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: action
+    depends_on: ["tts_streaming"]
+    conflicts_with: []
+    name: Speech action adapter
+    description: Typed TTS delivery adapter; disabled keeps the legacy delivery path.
+
+  avatar_action_adapter:
+    enabled: false
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: action
+    depends_on: ["animation_smooth"]
+    conflicts_with: []
+    name: Avatar action adapter
+    description: Typed intentional VTS gesture adapter; automatic mood expression is unchanged.
+
   memory_semantic:
     enabled: false
     vram_cost_mb: 500

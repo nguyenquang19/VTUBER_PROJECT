@@ -34,12 +34,18 @@ class AnimationCommand(BaseModel):
     mood: MoodState | None = None
     duration_ms: int = 0
     intensity: float = 0.5
+    gesture_id: str | None = None
 
 
 class AnimationService(Service):
     @abstractmethod
     async def express(self, command: AnimationCommand) -> None:
         """Áp expression/gesture lên model."""
+
+    @abstractmethod
+    @abstractmethod
+    async def trigger_intentional_gesture(self, gesture_id: str) -> bool:
+        """Trigger one allowlisted intentional gesture and return VTS acknowledgement."""
 
     @abstractmethod
     async def sync_with_audio(self, audio_chunk: AudioChunk) -> None:

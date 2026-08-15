@@ -31,11 +31,13 @@ class VTSAnimationService(AnimationService):
         transport: VTSTransport,
         *,
         mood_hotkeys: dict[str, str],
+        intentional_gesture_hotkeys: dict[str, str] | None = None,
         retrigger_on_same_mood: bool = False,
         enabled: bool = True,
     ) -> None:
         self._transport = transport
         self._mood_hotkeys = {str(k): str(v) for k, v in (mood_hotkeys or {}).items()}
+        self._intentional_gesture_hotkeys = {str(k): str(v) for k, v in (intentional_gesture_hotkeys or {}).items()}
         self._retrigger_same = bool(retrigger_on_same_mood)
         self.enabled = bool(enabled)
         self._running = False
@@ -60,6 +62,7 @@ class VTSAnimationService(AnimationService):
         return cls(
             transport,
             mood_hotkeys=cfg.get("mood_hotkeys", {}) or {},
+            intentional_gesture_hotkeys=cfg.get("intentional_gesture_hotkeys", {}) or {},
             retrigger_on_same_mood=bool(cfg.get("retrigger_on_same_mood", False)),
             enabled=enabled,
         )
@@ -142,6 +145,24 @@ class VTSAnimationService(AnimationService):
             self._errors_total += 1
             self._log.warning("animation_trigger_failed", error=str(e))
 
+    async def trigger_intentional_gesture(self, gesture_id: str) -> bool:
+        """Trigger only an operator-allowlisted VTS hotkey; fail safe otherwise."""
+        key = str(gesture_id).strip()
+        hotkey = self._intentional_gesture_hotkeys.get(key)
+        if not self.enabled or not self._running or not self._transport.connected or not hotkey:
+            self._skipped_total += 1
+            return False
+        try:
+            acknowledged = bool(await self._transport.trigger(hotkey))
+        except Exception as exc:
+            self._errors_total += 1
+            self._log.warning("intentional_gesture_trigger_failed", gesture_id=key, error=str(exc))
+            return False
+        if acknowledged:
+            self._triggers_total += 1
+        else:
+            self._skipped_total += 1
+        return acknowledged
     async def sync_with_audio(self, audio_chunk: AudioChunk) -> None:
         """Lip-sync trong VTS lấy từ audio input (Voicemeeter), KHÔNG qua API.
 

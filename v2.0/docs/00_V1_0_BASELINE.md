@@ -74,11 +74,11 @@ Enabled toggle ở baseline:
 `mood_v2_prompt`, `action_transactions`, `decision_records`, `operator_dashboard_v2`,
 `proactive_hosting`, `self_talk_planner`, `behavior_library`, `natural_timing`,
 `self_talk_lore`, `relationship_memory`, `evaluation_harness`, `evaluation_acceptance`, `live_operations`,
-`kv_cache_q8`, `ambient_talk`, `world_model_shadow`, `self_model_projection`, `capability_registry`, `action_mock_closed_loop`, `director_v2_shadow`.
+`kv_cache_q8`, `ambient_talk`, `world_model_shadow`, `perception_expansion`, `self_model_projection`, `capability_registry`, `action_mock_closed_loop`, `director_v2_shadow`.
 
 Disabled/optional toggle ở baseline:
 
-`input_voice`, `input_emotion_voice`, `filter_ai`, `tts_emotion_aware`, `animation_micro`,
+`input_voice`, `input_emotion_voice`, `filter_ai`, `tts_emotion_aware`, `animation_micro`, `speech_action_adapter`, `avatar_action_adapter`,
 `memory_semantic`, `memory_hierarchical`, `qc_persona`, `agent_context`, `goal_proposals`,
 `thread_extraction`, `speculative_decoding`, `turn_taking_predictor`, `director_v2_takeover`.
 

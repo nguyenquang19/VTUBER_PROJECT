@@ -23,3 +23,7 @@ animation:
     buc: "My Animation 3"
     bon_chon: "My Animation 1"
     nguong: "My Animation 2"
+
+  # Intentional actions only. Empty by default: no Director action can trigger VTS
+  # until an operator explicitly allowlists a gesture ID and matching VTS hotkey.
+  intentional_gesture_hotkeys: {}
