@@ -11,7 +11,7 @@ __pycache__/
 logs/
 backups/
 
-# Models (quá lớn, KHÔNG commit — che cả ở v1.0/)
+# Models (quá lớn, KHÔNG commit — che cả trong working tree versioned)
 models/
 *.gguf
 *.onnx
@@ -29,6 +29,9 @@ Desktop.ini
 # IDE
 .vscode/
 .idea/
+
+# Owner-managed major-version archives
+/ver/
 
 # Claude Code internal (worktrees tạm — không track)
 .claude/worktrees/

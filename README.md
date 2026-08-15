@@ -1,77 +1,54 @@
-# Mai — AI VTuber
+# Mai V2 — AI VTuber
 
-Một AI VTuber tiếng Việt **tự điều hành buổi stream**: không chỉ đáp chat mà **chủ động dẫn dắt** — nhặt tin đáng đáp, cưỡi sóng chat, tự nói khi nguội, chuyển "phân cảnh", và có cảm xúc phản ứng theo sự kiện thật (donation, troll, im lặng).
+Mai là AI VTuber tiếng Việt chạy local trên Windows 11. V2 mở rộng runtime host hội thoại hiện có thành
+world-aware autonomous agent bằng một closed loop có perception, world/self state, dynamic capability,
+typed action, executor, verification và commit/rollback.
 
-> Chạy **100% local** trên 1 GPU (RTX 5060 Ti). Không gọi API ngoài.
+## Version layout
 
-## Kiến trúc
-
-```
-Chat (YouTube/Discord) ─► SaliencePool (điểm + decay + cluster)
-                          ChatPulse   (đo độ sôi nổi)
-                              │
-                          Director loop ─► quyết định: read_chat / self_talk /
-                              │             ack_donation / transition
-                              ▼
-   Emotion (appraisal → mood engine) ─► mood_style ─► LLM (llama.cpp) ─► TTS (VieNeu)
+```text
+ver/
+└ v1.0/   frozen source snapshot; owner-managed archive
+v2.0/     current implementation working tree at repository root
 ```
 
-- **Director** biến Mai từ *reactive chatbot* → *host* chủ động (không đáp mọi tin FIFO).
-- **Emotion**: sự kiện → appraisal rule-based → mood engine (spring-damper) → chỉ dẫn giọng bằng chữ (bực nói cộc, vui nói lầy…).
-- **Data pipeline**: mọi turn tự log → sẵn sàng fine-tune (SFT + DPO) khi đủ data.
+`ver/v1.0/` được giữ bất biến. Mọi thay đổi V2 thực hiện trong root `v2.0/`. Coding agent không tự tạo
+version mới trong `ver/`; owner archive vào đó khi nâng major version. Virtual environment, model,
+logs, secrets và runtime data không được nhân bản theo version; tái tạo environment từ lockfile và cấu
+hình resource path riêng.
 
-## Stack
-
-| Thành phần | Công nghệ |
-|---|---|
-| LLM | llama.cpp (llama-server) · Gemma 4 12B Q4_K_M |
-| TTS | VieNeu-TTS v3 (giọng Việt, clone) |
-| Memory | SQLite + sqlite-vec + bge-m3 |
-| Backend | Python 3.11 async · FastAPI dashboard |
-| Nền tảng | Windows 11 |
-
-## Cấu trúc repo
-
-```
-v1.0/                    # codebase chính (versioned)
-  orchestrator/          # Director, emotion, autonomy, state machine
-  services/              # llm · tts · emotion · director · memory · filter · input
-  dashboard/             # FastAPI + WebSocket UI (metrics, mood, Review)
-  scripts/               # cli.py, stream_youtube.py, stream_discord.py, export_dataset.py
-  config/                # *.yaml (config-over-code)
-  tests/                 # ~1000+ unit + integration
-  docs/dev_manual/       # tài liệu kỹ thuật canonical
-```
-
-## Chạy nhanh
-
-```powershell
-# 1. Bật llama-server (cửa sổ riêng, để yên)
-llama-server.exe -m gemma_4_12B_Q4.gguf -c 4096 --port 8080 --flash-attn on --reasoning off
-
-# 2. Cài + chạy
-cd v1.0
-python -m venv venv; .\venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-
-# CLI test (gõ tay)
-python scripts\cli.py --autonomy --tts --dashboard
-
-# Live stream
-python scripts\stream_youtube.py --video VIDEO_ID --tts --dashboard
-```
-
-Dashboard: http://127.0.0.1:7860
+Tên thư mục `v2.0`, blueprint version và product version là ba trục khác nhau. Product version hiện hành
+luôn lấy từ `v2.0/config/system.yaml::app.version`; không đổi thành 2.0.0 chỉ vì tạo working tree.
 
 ## Tài liệu
 
-- `v1.0/docs/dev_manual/` — kiến trúc, modules, vận hành, mở rộng (canonical)
-- `v1.0/STATE.md` — trạng thái phát triển hiện tại
-- `v1.0/docs/ROADMAP_AUTONOMOUS_HOST.md` — lộ trình "reactive → host"
+- [V2 working-tree instructions](v2.0/AGENTS.md)
+- [MAI V2 Master Implementation Blueprint v2.0](v2.0/MAI_V2_MASTER_IMPLEMENTATION_BLUEPRINT_v2.0.md)
+- [Runtime README](v2.0/README.md)
+- [Technical documentation index](v2.0/docs/README.md)
+- [Frozen V1 baseline](ver/v1.0/docs/00_V1_0_BASELINE.md)
 
-## Nguyên tắc
+Blueprint khóa scope và thứ tự migration. Tài liệu runtime chỉ mô tả capability đã triển khai; mỗi task
+chỉ thực hiện một phase, chạy targeted test + impacted V1 regression rồi dừng để review.
 
-Config-over-code · interface-based · fail-safe · test theo phase · không hardcode magic number.
+## Chạy runtime hiện hành
 
----
-*Dự án cá nhân, đang phát triển.*
+```powershell
+Set-Location .\v2.0
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+.\scripts\start_live.ps1 -Platform youtube -VideoId "VIDEO_ID"
+```
+
+Dashboard mặc định: `http://127.0.0.1:7860`.
+
+## Invariants chính
+
+- World Model không chọn action.
+- LLM không định nghĩa available capabilities.
+- Director không gọi external tool trực tiếp.
+- Không assume success trước verification.
+- Không commit world/business state từ lời LLM.
+- Hard safety/permission/transaction rules thắng soft policy.
+- Không thêm logic V3.

@@ -322,6 +322,16 @@ class MetricsCollector:
         )
         self._world_model_events: dict[tuple[str, str], int] = {}
         self._world_model_stale_evictions = 0
+        # --- Perception ingress metrics (Phase 10; no decision side effects) ---
+        self.perception_events_total_c = Counter(
+            "mai_perception_events_total", "Canonical perception ingress outcomes",
+            ["outcome", "source"], registry=self.registry,
+        )
+        self.perception_recent_events_g = Gauge(
+            "mai_perception_recent_events", "Bounded retained canonical perception events",
+            registry=self.registry,
+        )
+        self._perception_events: dict[tuple[str, str], int] = {}
         # --- Self Model projection metrics (Phase 3; read-only) ---
         self.self_model_snapshots_total_c = Counter(
             "mai_self_model_snapshots_total", "Self Model projection outcomes",
@@ -873,6 +883,20 @@ class MetricsCollector:
             },
             "stale_evictions_total": self._world_model_stale_evictions,
         }
+    def record_perception_event(self, outcome: str, source: str) -> None:
+        key = (str(outcome), str(source))
+        self._perception_events[key] = self._perception_events.get(key, 0) + 1
+        self.perception_events_total_c.labels(outcome=key[0], source=key[1]).inc()
+
+    def set_perception_recent_events(self, entries: int) -> None:
+        self.perception_recent_events_g.set(max(0, int(entries)))
+
+    def perception_snapshot(self) -> dict[str, Any]:
+        return {"events": {
+            f"{outcome}:{source}": count
+            for (outcome, source), count in sorted(self._perception_events.items())
+        }}
+
     def record_goal_event(self, outcome: str, reason: str) -> None:
         key = (str(outcome), str(reason))
         self._goal_events[key] = self._goal_events.get(key, 0) + 1

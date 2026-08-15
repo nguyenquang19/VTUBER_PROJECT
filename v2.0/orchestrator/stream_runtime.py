@@ -102,6 +102,7 @@ class StreamRuntime:
         filler: Any = None,   # A3 FillerManager (metrics only; wiring ở speak wrapper)
         director_loop: Any = None,   # C0.4 DirectorLoop — turn driver (thay autonomy loop)
         agent_state: Any = None,
+        perception_ingress: Any = None,
         world_model: Any = None,
         self_model: Any = None,
         capability_registry: Any = None,
@@ -143,6 +144,7 @@ class StreamRuntime:
         self._filler = filler
         self._director_loop = director_loop
         self._agent_state = agent_state
+        self._perception_ingress = perception_ingress
         self._world_model = world_model
         self._self_model = self_model
         self._capability_registry = capability_registry
@@ -185,6 +187,8 @@ class StreamRuntime:
             await self._self_model.start()
         if self._world_model is not None:
             await self._world_model.start()
+        if self._perception_ingress is not None:
+            await self._perception_ingress.start()
         if self._director_v2_shadow is not None:
             await self._director_v2_shadow.start()
         if self._director_v2_takeover is not None:
@@ -336,6 +340,9 @@ class StreamRuntime:
         if self._world_model is not None:
             with contextlib.suppress(Exception):
                 await self._world_model.stop()
+        if self._perception_ingress is not None:
+            with contextlib.suppress(Exception):
+                await self._perception_ingress.stop()
         if self._goal_manager is not None:
             with contextlib.suppress(Exception):
                 await self._goal_manager.stop()
@@ -736,8 +743,9 @@ async def build_stream_runtime(
         loader, event_ledger, thread_manager=open_thread_manager,
         recap_manager=session_recap,
     )
-    # Phase 2: one-way, fail-isolated shadow reducer. It is never passed to a decision path.
-    from services.world.world_model import WorldModelShadow, perception_event_from_grounded_observation
+    # Phase 10: one canonical ingress; it remains outside the Director path.
+    from services.world.world_model import WorldModelShadow
+    from services.perception.ingress import PerceptionIngress
     try:
         world_status = await feature_manager.get_status("world_model_shadow")
         world_enabled = world_status in (FeatureStatus.ENABLED, FeatureStatus.DEGRADED)
@@ -745,14 +753,19 @@ async def build_stream_runtime(
         get_logger("stream_runtime").warning("world_model_shadow_feature_missing")
         world_enabled = False
     world_model = WorldModelShadow.from_loader(loader, metrics=metrics, enabled=world_enabled)
+    try:
+        perception_status = await feature_manager.get_status("perception_expansion")
+        perception_enabled = perception_status in (FeatureStatus.ENABLED, FeatureStatus.DEGRADED)
+    except KeyError:
+        get_logger("stream_runtime").warning("perception_expansion_feature_missing")
+        perception_enabled = False
+    perception_ingress = PerceptionIngress.from_loader(
+        loader, world_model=world_model, metrics=metrics, enabled=perception_enabled,
+    )
 
-    def _observe_world_model(event, _state) -> None:
-        perception = perception_event_from_grounded_observation(event)
-        if perception is not None:
-            world_model.apply_event(perception)
-
-    agent_state.add_event_listener(_observe_world_model)
+    agent_state.add_event_listener(perception_ingress.observe_grounded)
     attach_set_enabled_feature(feature_manager, "world_model_shadow", world_model)
+    attach_set_enabled_feature(feature_manager, "perception_expansion", perception_ingress)
     try:
         mood_policy_status = await feature_manager.get_status("mood_behavior_policy")
         mood_policy_enabled = mood_policy_status in (
@@ -1262,6 +1275,7 @@ async def build_stream_runtime(
         relationship_manager=relationship_manager,
     )
 
+    router.add_activity_listener(perception_ingress.observe_input)
     # Animation adapter (VTube Studio) — gate qua feature `animation_smooth`.
     from services.animation.vts_service import VTSAnimationService
     try:
@@ -1649,6 +1663,7 @@ async def build_stream_runtime(
         director_v2_takeover=director_v2_takeover, cfg=cfg,
         goal_manager=goal_manager,
         goal_proposal=goal_proposal,
+        perception_ingress=perception_ingress,
         thread_extractor=thread_extractor,
         conversation_context=conversation_context,
         repair_policy=repair_policy,

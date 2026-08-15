@@ -1,40 +1,39 @@
-@"
-# Project: Mai - AI VTuber
+# Project: Mai V2 — AI VTuber
 
-## Tài liệu chính
-- ``docs/QUICKSTART.md`` — stack tổng quan, nguyên tắc
-- ``docs/ARCHITECTURE.md`` — spec đầy đủ (đọc section liên quan task hiện tại)
+## Version layout
 
-## Ràng buộc bắt buộc (KHÔNG vi phạm)
-1. **OS:** Windows 11 only. Dùng PowerShell, KHÔNG dùng Bash syntax.
-2. **LLM backend:** llama.cpp (llama-server.exe), KHÔNG dùng Ollama, KHÔNG dùng transformers/vllm.
-3. **Ngôn ngữ:** Python 3.11+, type hints đầy đủ, async/await cho I/O.
-4. **Interface-based (P3):** mọi service implement interface trong ``interfaces/``.
-5. **Feature toggle (P1):** mọi feature mới register vào FeatureManager.
-6. **Observable (P2):** mọi feature có ít nhất 1 metric (Section 5.3).
-7. **Config over code (P5):** không hardcode magic numbers, dùng YAML config.
-8. **Simplicity (P6):** làm bản đơn giản trước, add complexity khi cần thật.
+- `ver/v1.0/` — frozen source snapshot; chỉ dùng baseline, regression, rollback và reference.
+- `v2.0/` — current implementation working tree ở repository root.
+- Product version hiện tại lấy từ `v2.0/config/system.yaml::app.version`; tên thư mục không tự động
+  thay đổi product version.
+- Không sửa trực tiếp `ver/v1.0/`.
 
-## Ranh giới NGHIÊM CẤM
-- KHÔNG tạo code chưa test được.
-- KHÔNG tạo file ngoài scope task đang được giao.
-- KHÔNG tự nhảy sang task tiếp theo nếu chưa được confirm.
-- KHÔNG dùng Bash command (rm, cp, mkdir -p, source, /) — dùng PowerShell.
-- KHÔNG dùng SIGTERM/SIGKILL — Windows dùng ``proc.terminate()`` là hard-kill.
-- KHÔNG copy code từ v1.0/v2.0 vì đã bị deprecate.
+## Tài liệu bắt buộc
 
-## Workflow bắt buộc
-Trước khi code bất kỳ file nào:
-1. Xác nhận đã đọc section ARCHITECTURE.md tương ứng
-2. List file sẽ tạo/sửa
-3. List test sẽ viết
-4. Confirm với user rồi mới code
+Đọc theo thứ tự:
 
-Sau khi code xong:
-1. Chạy pytest cho test tương ứng, show output
-2. STOP và báo user review
-3. KHÔNG tự động sang task tiếp theo
+1. `v2.0/AGENTS.md`.
+2. `v2.0/MAI_V2_MASTER_IMPLEMENTATION_BLUEPRINT_v2.0.md`.
+3. `v2.0/docs/00_V1_0_BASELINE.md` và `v2.0/docs/README.md`.
+4. Tài liệu module, interface, composition root, implementation, YAML và impacted tests của phase.
 
-## Phase hiện tại
-Xem file ``PHASE.md`` ở root để biết đang ở phase nào.
-"@ | Out-File AGENTS.md -Encoding utf8
+Blueprint là source of truth cho scope và thứ tự migration. Code/interfaces/tests/config cùng tài liệu
+runtime là source of truth cho behavior đã triển khai. Không coi feature trong blueprint là production
+trước khi code, test và release gate tương ứng hoàn tất.
+
+## Ràng buộc bắt buộc
+
+1. Windows 11 và PowerShell; không dùng Bash syntax.
+2. LLM backend là llama.cpp (`llama-server.exe`), không dùng Ollama, transformers hoặc vLLM.
+3. Python 3.11+, type hints đầy đủ, async/await cho I/O.
+4. Service crossing subsystem phải implement interface trong `v2.0/interfaces/`.
+5. Feature tùy chọn mới phải đăng ký với `FeatureManager`.
+6. Mọi feature mới phải có metric.
+7. Threshold/TTL/cooldown/weight production nằm trong YAML, không hardcode.
+8. Ưu tiên implementation đơn giản, deterministic và test được.
+
+## Workflow
+
+Trước mỗi phase: đọc → báo files/contracts/tests/risks → docs-first → xác nhận với user → code đúng một
+phase. Sau khi code: targeted tests + impacted V1 regression + replay nếu cần → báo metrics/risks → STOP.
+Không tự chuyển phase, không xóa V1 fallback trước shadow validation và không thêm logic V3.

@@ -27,6 +27,14 @@ world_model:
   max_payload_chars: 2048
   dedup_ttl_s: 1800
   max_dedup_keys: 128
+
+# Phase 10: bounds for the canonical observation ingress; raw text never writes World state.
+perception:
+  max_payload_items: 16
+  max_payload_chars: 1024
+  max_recent_events: 128
+  allowed_input_sources: [chat_twitch, chat_youtube, chat_discord, voice_operator, system_timer, dashboard]
+
 # Phase 3: only bounds the immutable read-only projection.
 self_model:
   max_recent_action_ids: 8

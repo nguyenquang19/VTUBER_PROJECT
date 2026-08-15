@@ -32,6 +32,7 @@ Bộ tài liệu này được tổ chức theo nhiệm vụ bảo trì, không 
 | [14 — Director V2 shadow](14_DIRECTOR_V2_SHADOW.md) | Phase 6 deterministic read-only proposal and structured decision record |
 | [15 — Director V2 controlled takeover](15_DIRECTOR_V2_CONTROLLED_TAKEOVER.md) | Phase 7 agreement-only staged conversational gate with legacy rollback |
 ## Thứ tự đọc cho AI/người mới
+| [18 — Perception expansion](18_PERCEPTION_EXPANSION.md) | Phase 10 canonical input/structured-observation ingress and world safety boundary |
 
 1. `00` để biết hệ thống nào thực sự thuộc v1.0.0 và cái gì chưa production.
 2. `01` + `02` để hiểu kiến trúc, lifecycle và delivery boundary.
