@@ -150,9 +150,12 @@ class AvatarGestureExecutor(_ToggleableActionService, ActionExecutor):
 
     service_id = "avatar_adapter"
 
-    def __init__(self, animation: Any, *, enabled: bool = False, metrics: Any = None) -> None:
+    def __init__(
+        self, animation: Any, *, enabled: bool = False, metrics: Any = None, policy: Any = None,
+    ) -> None:
         super().__init__(enabled=enabled, metrics=metrics)
         self._animation = animation
+        self._policy = policy
 
     async def execute(self, request: ActionRequest) -> ActionResult:
         started_at = _now()
@@ -163,19 +166,49 @@ class AvatarGestureExecutor(_ToggleableActionService, ActionExecutor):
         if not isinstance(gesture_id, str) or not gesture_id.strip():
             self._record("invalid_request")
             return _result(request, started_at=started_at, status=ActionStatus.REJECTED, error_code="gesture_id_missing")
+        evidence_refs = tuple(str(item) for item in request.evidence_refs)
+        if self._policy is not None:
+            try:
+                granted = bool(await self._policy.begin_intentional(
+                    request.action_id, gesture_id, evidence_refs,
+                ))
+            except Exception:
+                granted = False
+            if not granted:
+                self._record("policy_rejected")
+                return _result(
+                    request, started_at=started_at, status=ActionStatus.REJECTED,
+                    error_code="embodiment_policy_rejected",
+                    data={"gesture_id": gesture_id, "evidence_refs": evidence_refs},
+                )
         trigger = getattr(self._animation, "trigger_intentional_gesture", None)
-        if not callable(trigger):
-            self._record("adapter_missing")
-            return _result(request, started_at=started_at, status=ActionStatus.FAILED, error_code="avatar_adapter_missing")
-        acknowledged = bool(await trigger(gesture_id))
-        data = {"gesture_id": gesture_id, "vts_acknowledged": acknowledged}
+        acknowledged = False
+        try:
+            if not callable(trigger):
+                self._record("adapter_missing")
+                return _result(
+                    request, started_at=started_at, status=ActionStatus.FAILED,
+                    error_code="avatar_adapter_missing",
+                    data={"gesture_id": gesture_id, "evidence_refs": evidence_refs},
+                )
+            acknowledged = bool(await trigger(gesture_id))
+        except Exception:
+            self._record("trigger_exception")
+        finally:
+            if self._policy is not None:
+                try:
+                    await self._policy.finish_intentional(request.action_id, acknowledged)
+                except Exception:
+                    pass
+        data = {
+            "gesture_id": gesture_id, "vts_acknowledged": acknowledged,
+            "evidence_refs": evidence_refs,
+        }
         self._record("executed" if acknowledged else "rejected")
         return _result(
-            request,
-            started_at=started_at,
+            request, started_at=started_at,
             status=ActionStatus.SUCCESS if acknowledged else ActionStatus.FAILED,
-            error_code=None if acknowledged else "vts_not_acknowledged",
-            data=data,
+            error_code=None if acknowledged else "vts_not_acknowledged", data=data,
         )
 
 

@@ -78,8 +78,8 @@ Enabled toggle ở baseline:
 
 Disabled/optional toggle ở baseline:
 
-`input_voice`, `input_emotion_voice`, `filter_ai`, `tts_emotion_aware`, `animation_micro`, `speech_action_adapter`, `avatar_action_adapter`,
-`memory_semantic`, `memory_hierarchical`, `qc_persona`, `agent_context`, `goal_proposals`,
+`input_voice`, `input_emotion_voice`, `filter_ai`, `tts_emotion_aware`, `embodiment_policy`, `animation_micro`, `speech_action_adapter`, `avatar_action_adapter`,
+`memory_semantic`, `memory_hierarchical`, `qc_persona`, `agent_context`, `context_selector`, `goal_proposals`,
 `thread_extraction`, `speculative_decoding`, `turn_taking_predictor`, `director_v2_takeover`.
 
 Từ `1.1.0`, `animation_smooth=true` gate `VTSAnimationService` thật (`services/animation/`); nếu VTube

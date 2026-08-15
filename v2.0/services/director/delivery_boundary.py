@@ -29,11 +29,13 @@ class DirectorDeliveryBoundary:
         logger: Any,
         transactions: Any = None,
         animation: Any = None,
+        embodiment_policy: Any = None,
     ) -> None:
         self._runner = runner
         self._speak = speak
         self._transactions = transactions
         self._animation = animation
+        self._embodiment_policy = embodiment_policy
         self._mood_provider = mood_provider
         self._speech_completed = speech_completed
         self._filter_rejected = filter_rejected
@@ -107,12 +109,15 @@ class DirectorDeliveryBoundary:
             thread_id=thread_id,
             conversation_move=conversation_move,
         )
-        if self._animation is not None:
+        if self._embodiment_policy is not None and bool(getattr(self._embodiment_policy, "enabled", False)):
+            try:
+                await self._embodiment_policy.apply_mid(request_id, self._mood_provider())
+            except Exception as exc:  # pragma: no cover - defensive
+                self._log.warning("embodiment_mid_failed", error=str(exc))
+        elif self._animation is not None:
             try:
                 await self._animation.express(
-                    AnimationCommand(
-                        command_type="express", mood=self._mood_provider(),
-                    ),
+                    AnimationCommand(command_type="express", mood=self._mood_provider()),
                 )
             except Exception as exc:  # pragma: no cover - defensive
                 self._log.warning("animation_express_failed", error=str(exc))

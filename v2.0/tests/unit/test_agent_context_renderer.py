@@ -109,6 +109,7 @@ async def test_agent_context_toggle_defaults_off_and_runner_can_switch() -> None
     loader.load_all()
     manager = FeatureManager.from_config(loader)
     assert await manager.get_status("agent_context") is FeatureStatus.DISABLED
+    assert await manager.get_status("context_selector") is FeatureStatus.DISABLED
 
     class State:
         def snapshot(self) -> AgentStateSnapshot:
@@ -130,3 +131,10 @@ async def test_agent_context_toggle_defaults_off_and_runner_can_switch() -> None
     runner.set_agent_context_renderer(Renderer())
     assert runner.agent_context_enabled is True
     assert runner._render_agent_context("query") == "grounded"
+
+    class Selector:
+        async def select(self, snapshot: AgentStateSnapshot, query: str, viewer_id: str | None = None) -> str:
+            return f"selected:{query}:{viewer_id}"
+
+    runner.set_conversation_context_renderer(Selector())
+    assert await runner._select_agent_context("query", viewer_id="viewer-1") == "selected:query:viewer-1"

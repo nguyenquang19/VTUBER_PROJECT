@@ -110,9 +110,10 @@ Khi mood có bug, kiểm tra theo thứ tự: classifier category → processed 
 | `GoalManager` | active/candidate/suspended goal, TTL/status | cho LLM tự commit goal |
 | `AgendaPolicy` | xếp thứ tự goal/thread grounded | để mood đổi hard priority |
 | `OpenThreadManager` | thread đang mở và evidence | tạo fact không provenance |
-| `ConversationContextComposer` | context bounded liên quan query | dump toàn state vào prompt |
+| `ConversationContextComposer` | Context Selector bounded: World fresh, Self, Memory, Capability, thread/goal | dump toàn state, cho memory override World hoặc ghi state |
 | `ConversationRepairPolicy` | nhận biết contradiction/uncertain recall | bịa fact để lấp chỗ trống |
 | `RelationshipManager` | profile/note/narrative/gag pseudonymous | lưu PII/raw ID trực tiếp |
+| `EmbodimentPolicy` | MID post-delivery cosmetic policy và HIGH gesture lease | tạo fact/priority, commit state hoặc chồng intentional action |
 
 Source files nằm trong `services/agent/` và `services/relationship/`. Snapshot types bất biến nằm ở
 `services/agent/types.py`, goal types ở `services/agent/goal_types.py`.

@@ -39,6 +39,13 @@ context:
   evidence_items: 3
   item_max_chars: 220
 
+# Phase 12 bounded selector; active only when context_selector feature is enabled.
+context_selector:
+  max_chars: 1800
+  memory_items: 3
+  world_items: 4
+  capability_items: 3
+
 repair:
   ambiguity_max_candidates: 2
   conflict_window_seconds: 1800

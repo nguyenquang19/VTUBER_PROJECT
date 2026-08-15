@@ -88,6 +88,7 @@ class DirectorLoop:
         self_talk_planner: Any = None,
         thread_manager: Any = None,
         animation: Any = None,
+        embodiment_policy: Any = None,
         room_reaction_recent_window: int = 16,
         room_reaction_similarity_threshold: float = 0.72,
         room_reaction_max_regenerations: int = 1,
@@ -134,6 +135,7 @@ class DirectorLoop:
         self._self_talk_planner = self_talk_planner
         self._thread_manager = thread_manager
         self._animation = animation
+        self._embodiment_policy = embodiment_policy
         self._director_v2_shadow = None
         self._director_v2_takeover = None
         self._room_reaction_dedup = DedupBuffer(
@@ -1080,6 +1082,7 @@ class DirectorLoop:
             speak=self._speak,
             transactions=self._transactions,
             animation=self._animation,
+            embodiment_policy=self._embodiment_policy,
             mood_provider=self._current_mood,
             speech_completed=self._record_speech_completed,
             filter_rejected=self._quarantine_filter_rejection,

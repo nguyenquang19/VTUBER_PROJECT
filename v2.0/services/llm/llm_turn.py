@@ -13,6 +13,7 @@ N8: dùng lại FallbackManager generic, không tự viết vòng retry.
 """
 from __future__ import annotations
 
+import inspect
 import re
 import time
 import uuid
@@ -312,7 +313,7 @@ class LLMTurnRunner:
         """
         self._reset_filter_tracking()
         effective_session_id = session_id or self.session_id
-        grounded_context = self._render_agent_context(user_text, viewer_id=viewer_id)
+        grounded_context = await self._select_agent_context(user_text, viewer_id=viewer_id)
         request = self._build_request_maybe_with_mood(
             request_id, user_text, event_category, stage_direction, grounded_context,
             max_tokens=self._chat_max_tokens,
@@ -682,6 +683,27 @@ class LLMTurnRunner:
         except Exception as exc:
             get_logger("llm_turn").warning("agent_context_render_failed", error=str(exc))
             return None
+
+    async def _select_agent_context(
+        self, query: str, *, viewer_id: str | None = None,
+    ) -> str | None:
+        if self._agent_state is None:
+            return None
+        renderer = self._conversation_context_renderer or self._agent_context_renderer
+        if renderer is None:
+            return None
+        selector = getattr(renderer, "select", None)
+        if not callable(selector):
+            return self._render_agent_context(query, viewer_id=viewer_id)
+        try:
+            try:
+                selected = selector(self._agent_state.snapshot(), query, viewer_id=viewer_id)
+            except TypeError:
+                selected = selector(self._agent_state.snapshot(), query)
+            return await selected if inspect.isawaitable(selected) else selected
+        except Exception as exc:
+            get_logger("llm_turn").warning("agent_context_select_failed", error=str(exc))
+            return self._render_agent_context(query, viewer_id=viewer_id)
 
     def _apply_emotion_feedback(self, parsed: ParsedResponse, engine_mood_pre) -> None:
         """A1: chỉ còn clear_tone_flags. Kênh B (apply_llm_hint) + drift detect ĐÃ BỎ.

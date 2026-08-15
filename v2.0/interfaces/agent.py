@@ -66,6 +66,10 @@ class GoalManagerService(Service):
         """Cancel one goal and activate the next eligible goal."""
 
     @abstractmethod
+    def fail(self, goal_id: str, *, reason: str) -> bool:
+        """Record a deterministic failed action outcome without replanning."""
+
+    @abstractmethod
     def snapshot(self) -> "GoalSnapshot":
         """Return an immutable, pruned goal snapshot."""
 
@@ -206,6 +210,13 @@ class ConversationContextService(Service):
         self, state: "AgentStateSnapshot", query: str = "", viewer_id: str | None = None,
     ) -> str:
         """Render bounded grounded continuity context for one LLM turn."""
+
+class ContextSelectorService(Service):
+    @abstractmethod
+    async def select(
+        self, state: "AgentStateSnapshot", query: str = "", viewer_id: str | None = None,
+    ) -> str:
+        """Select bounded, grounded context for one LLM turn without side effects."""
 
 
 class ConversationRepairService(Service):

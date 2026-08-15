@@ -63,6 +63,16 @@ features:
     depends_on: []
     conflicts_with: []
 
+  embodiment_policy:
+    enabled: false
+    vram_cost_mb: 0
+    latency_impact_ms: 5
+    category: animation
+    depends_on: ["animation_smooth"]
+    conflicts_with: []
+    name: Embodiment Policy
+    description: Delivery-aware MID embodiment and conflict-safe HIGH gesture leases; disabled preserves legacy automatic expression.
+
   animation_micro:
     enabled: false
     vram_cost_mb: 100
@@ -170,6 +180,16 @@ features:
     category: agent
     depends_on: []
     conflicts_with: []
+
+  context_selector:
+    enabled: false
+    vram_cost_mb: 0
+    latency_impact_ms: 10
+    category: agent
+    depends_on: ["conversation_continuity"]
+    conflicts_with: []
+    name: Memory and Context Selector
+    description: Bounded read-only World/Self/Memory/Capability context; disabled preserves continuity rendering.
 
   mood_behavior_policy:
     enabled: true               # Legacy soft Director pacing only; never changes goal priority

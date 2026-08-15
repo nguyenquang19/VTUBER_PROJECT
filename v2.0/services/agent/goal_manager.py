@@ -29,6 +29,7 @@ class GoalLimits:
     metadata_text_max_chars: int
     operator_priority: int = 90
     operator_ttl_s: int = 3600
+    short_intention_max_steps: int = 3
     proposal_allowed_kinds: tuple[GoalKind, ...] = (
         GoalKind.CONTINUE_THREAD, GoalKind.WAIT_FOR_CHAT_ANSWER,
     )
@@ -45,6 +46,7 @@ class GoalLimits:
             metadata_text_max_chars=int(
                 loader.get("agent_goals", prefix + "metadata_text_max_chars", 240)
             ),
+            short_intention_max_steps=int(loader.get("agent_goals", prefix + "short_intention_max_steps", 3)),
             operator_priority=int(
                 loader.get("agent_goals", "priorities.operator_pinned", 90)
             ),
@@ -142,7 +144,8 @@ class GoalManager(GoalManagerService):
     def submit(self, goal: Goal) -> bool:
         now = _utc(self._clock())
         self._prune(now)
-        if goal.status is not GoalStatus.CANDIDATE or goal.expires_at <= now:
+        if (goal.status is not GoalStatus.CANDIDATE or goal.expires_at <= now
+                or len(goal.steps) > self.limits.short_intention_max_steps):
             self._record("rejected", goal.kind.value)
             return False
         if self._find(goal.goal_id) is not None:
@@ -179,6 +182,9 @@ class GoalManager(GoalManagerService):
     def cancel(self, goal_id: str, *, reason: str) -> bool:
         return self._terminal(goal_id, GoalStatus.CANCELLED, reason)
 
+    def fail(self, goal_id: str, *, reason: str) -> bool:
+        """Terminalize a failed short intention; never create a retry or successor."""
+        return self._terminal(goal_id, GoalStatus.FAILED, reason)
     def snapshot(self) -> GoalSnapshot:
         self._prune(_utc(self._clock()))
         return GoalSnapshot(

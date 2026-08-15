@@ -61,7 +61,7 @@ Ví dụ: `loader.get("models", "llm_main.port", 8080)`. Reload là atomic; YAML
 
 `input_voice`, `input_emotion_voice`, `filter_ai`, `tts_emotion_aware`, `animation_micro`,
 `memory_semantic`, `memory_hierarchical`, `qc_persona`, `agent_context`, `goal_proposals`,
-`thread_extraction`, `speculative_decoding`, `turn_taking_predictor`.
+`thread_extraction`, `context_selector`, `speculative_decoding`, `turn_taking_predictor`.
 
 Lưu ý: CLI flag `-Memory`/`--memory` quyết định compose semantic memory live; feature config vẫn phải
 được xem cùng runtime flag. Placeholder enabled không đồng nghĩa có external adapter thật, ví dụ
@@ -75,9 +75,10 @@ animation feature không tự tạo avatar output.
 - `input_emotion_voice` phụ thuộc `input_voice`.
 - `memory_hierarchical` phụ thuộc `memory_semantic`.
 - `animation_micro` phụ thuộc `animation_smooth`.
+- `embodiment_policy` phụ thuộc `animation_smooth`; cooldown/retention ở `animation.yaml::embodiment`, tắt feature thì giữ automatic expression legacy.
 - `action_mock_closed_loop` phụ thuộc `capability_registry` và `world_model_shadow`; `mock_action` chỉ điều chỉnh timeout/cache/outcome của backend offline, không cấp `call.control`.
 - `director_v2_shadow` phụ thuộc World/Self/Capability snapshot; `director_v2_shadow` trong `director.yaml` chỉ điều chỉnh retention/source weight và không được cấp quyền takeover.
-- `director_v2_takeover` mặc định tắt, phụ thuộc shadow; chỉ đổi rollout stage trong `director.yaml` sau replay và phải giữ fallback legacy.
+- `director_v2_takeover` mặc định tắt, phụ thuộc shadow; chỉ đổi rollout stage trong `director.yaml` sau replay và phải giữ fallback legacy.`r`n- `context_selector` mặc định tắt, phụ thuộc `conversation_continuity`; bounds nằm trong `conversation.yaml::context_selector` và tắt thì giữ renderer continuity cũ.
 
 FeatureManager phải reject dependency thiếu, conflict và vượt VRAM budget. Core feature trong
 `system.yaml` không được tắt qua dashboard.

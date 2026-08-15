@@ -34,6 +34,9 @@ Bộ tài liệu này được tổ chức theo nhiệm vụ bảo trì, không 
 | [16 — Speech and avatar action adaptation](16_SPEECH_AVATAR_ACTION_ADAPTATION.md) | Phase 8 adapter boundary for authoritative speech delivery and intentional VTS gestures |
 | [17 — External executor framework](17_EXTERNAL_EXECUTOR_FRAMEWORK.md) | Phase 9 inert typed registry for future external executor routes |
 | [18 — Perception expansion](18_PERCEPTION_EXPANSION.md) | Phase 10 canonical input/structured-observation ingress and world safety boundary |
+| [19 — Goals and short intentions](19_GOALS_AND_SHORT_INTENTIONS.md) | Phase 11 bounded intention lifecycle and deterministic failure |
+| [20 — Memory and Context Selector](20_MEMORY_CONTEXT_SELECTOR.md) | Phase 12 bounded grounded context selection and memory precedence |
+| [21 — Embodiment Policy](21_EMBODIMENT_POLICY.md) | Phase 13 delivery-aware avatar behavior and intentional-action safety |
 ## Thứ tự đọc cho AI/người mới
 
 1. `00` để biết hệ thống nào thực sự thuộc v1.0.0 và cái gì chưa production.

@@ -107,6 +107,7 @@ class StreamRuntime:
         self_model: Any = None,
         capability_registry: Any = None,
         action_mock_loop: Any = None,
+        embodiment_policy: Any = None,
         external_executor_registry: Any = None,
         director_v2_shadow: Any = None,
         director_v2_takeover: Any = None,
@@ -150,6 +151,7 @@ class StreamRuntime:
         self._self_model = self_model
         self._capability_registry = capability_registry
         self._action_mock_loop = action_mock_loop
+        self._embodiment_policy = embodiment_policy
         self._external_executor_registry = external_executor_registry
         self._director_v2_shadow = director_v2_shadow
         self._director_v2_takeover = director_v2_takeover
@@ -187,6 +189,8 @@ class StreamRuntime:
             await self._action_mock_loop.start()
         if self._external_executor_registry is not None:
             await self._external_executor_registry.start()
+        if self._embodiment_policy is not None:
+            await self._embodiment_policy.start()
         if self._self_model is not None:
             await self._self_model.start()
         if self._world_model is not None:
@@ -292,6 +296,7 @@ class StreamRuntime:
 
         for service in (
             self._goal_proposal, self._thread_extractor, self._conversation_context,
+            self._embodiment_policy,
             self._repair_policy, self._behavior_library, self._relationship_manager,
             self._control_plane, self._emergency_controller, self._incident_log,
         ):
@@ -898,13 +903,25 @@ async def build_stream_runtime(
     except KeyError:
         get_logger("stream_runtime").warning("agent_context_feature_missing")
         agent_context_enabled = False
+    try:
+        context_selector_status = await feature_manager.get_status("context_selector")
+        context_selector_enabled = context_selector_status in (
+            FeatureStatus.ENABLED, FeatureStatus.DEGRADED,
+        )
+    except KeyError:
+        get_logger("stream_runtime").warning("context_selector_feature_missing")
+        context_selector_enabled = False
     from services.agent.conversation_context import ConversationContextComposer
     from services.agent.repair_policy import ConversationRepairPolicy
     repair_policy = ConversationRepairPolicy.from_loader(loader, metrics=metrics)
     conversation_context = ConversationContextComposer.from_loader(
         loader, goal_provider=goal_manager.snapshot, metrics=metrics,
-        repair_policy=repair_policy,
-        relationship_context=relationship_manager,
+        repair_policy=repair_policy, relationship_context=relationship_manager,
+        world_snapshot_provider=world_model.snapshot,
+        self_snapshot_provider=lambda: self_model,
+        capability_snapshot_provider=lambda: capability_registry.snapshot(),
+        memory_provider=lambda: memory,
+        selector_enabled=context_selector_enabled,
     )
     try:
         continuity_status = await feature_manager.get_status("conversation_continuity")
@@ -1003,6 +1020,22 @@ async def build_stream_runtime(
         enable=_enable_conversation_continuity,
         disable=_disable_conversation_continuity,
         health=_conversation_continuity_health,
+    )
+
+    async def _enable_context_selector() -> None:
+        conversation_context.set_selector_enabled(True)
+
+    async def _disable_context_selector() -> None:
+        conversation_context.set_selector_enabled(False)
+
+    async def _context_selector_health() -> bool:
+        return conversation_context.selector_enabled and runner.conversation_context_enabled
+
+    feature_manager.attach_handlers(
+        "context_selector",
+        enable=_enable_context_selector,
+        disable=_disable_context_selector,
+        health=_context_selector_health,
     )
 
     async def _enable_agent_context() -> None:
@@ -1302,6 +1335,16 @@ async def build_stream_runtime(
         animation_enabled = False
     animation = VTSAnimationService.from_loader(loader, enabled=animation_enabled)
     await animation.start()
+    from services.animation.embodiment_policy import EmbodimentPolicy
+    try:
+        embodiment_status = await feature_manager.get_status("embodiment_policy")
+        embodiment_enabled = embodiment_status in (FeatureStatus.ENABLED, FeatureStatus.DEGRADED)
+    except KeyError:
+        get_logger("stream_runtime").warning("embodiment_policy_feature_missing")
+        embodiment_enabled = False
+    embodiment_policy = EmbodimentPolicy.from_loader(
+        loader, animation=animation, metrics=metrics, enabled=embodiment_enabled,
+    )
 
     # TASK 4: director tick TÁCH khỏi autonomy (autonomy 5s làm chat chờ lâu).
     director_tick = float(loader.get("director", "director.tick_seconds", 1.5))
@@ -1325,6 +1368,7 @@ async def build_stream_runtime(
         self_talk_planner=self_talk_planner,
         thread_manager=open_thread_manager,
         animation=animation,
+        embodiment_policy=embodiment_policy,
         room_reaction_recent_window=int(room_reaction.get("recent_window", 16)),
         room_reaction_similarity_threshold=float(
             room_reaction.get("similarity_threshold", 0.72)
@@ -1384,6 +1428,22 @@ async def build_stream_runtime(
         enable=_enable_animation,
         disable=_disable_animation,
         health=_animation_health,
+    )
+
+    async def _enable_embodiment_policy() -> None:
+        embodiment_policy.set_enabled(True)
+
+    async def _disable_embodiment_policy() -> None:
+        embodiment_policy.set_enabled(False)
+
+    async def _embodiment_policy_health() -> bool:
+        return (await embodiment_policy.health_check()).is_ok
+
+    feature_manager.attach_handlers(
+        "embodiment_policy",
+        enable=_enable_embodiment_policy,
+        disable=_disable_embodiment_policy,
+        health=_embodiment_policy_health,
     )
 
     attach_set_enabled_feature(
@@ -1677,6 +1737,7 @@ async def build_stream_runtime(
         speak=speak_callback, filler=filler, director_loop=director_loop,
         agent_state=agent_state, world_model=world_model, self_model=self_model,
         capability_registry=capability_registry, action_mock_loop=action_mock_loop,
+        embodiment_policy=embodiment_policy,
         external_executor_registry=external_executor_registry,
         director_v2_shadow=director_v2_shadow,
         director_v2_takeover=director_v2_takeover, cfg=cfg,

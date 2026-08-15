@@ -22,6 +22,7 @@ class GoalStatus(str, Enum):
     SUSPENDED = "suspended"
     COMPLETED = "completed"
     EXPIRED = "expired"
+    FAILED = "failed"
     CANCELLED = "cancelled"
 
 
@@ -42,6 +43,7 @@ class Goal:
     created_at: datetime
     expires_at: datetime
     success_conditions: tuple[str, ...]
+    steps: tuple[str, ...] = ()
     suspend_reason: str | None = None
     parent_thread_id: str | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
@@ -60,6 +62,10 @@ class Goal:
         object.__setattr__(self, "created_at", created)
         object.__setattr__(self, "expires_at", expires)
         object.__setattr__(self, "success_conditions", tuple(self.success_conditions))
+        steps = tuple(str(step).strip() for step in self.steps if str(step).strip()) or (self.reason.strip(),)
+        if len(steps) > 3:
+            raise ValueError("goal supports at most three short-intention steps")
+        object.__setattr__(self, "steps", steps)
         object.__setattr__(self, "metadata", _freeze_mapping(self.metadata))
 
     def with_status(
@@ -78,6 +84,7 @@ class Goal:
             "created_at": self.created_at.isoformat(),
             "expires_at": self.expires_at.isoformat(),
             "success_conditions": list(self.success_conditions),
+            "steps": list(self.steps),
             "suspend_reason": self.suspend_reason,
             "parent_thread_id": self.parent_thread_id,
             "metadata": _thaw(self.metadata),

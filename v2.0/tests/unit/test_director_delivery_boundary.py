@@ -60,6 +60,7 @@ def make_boundary(
     speak: Any,
     transactions: Any = None,
     animation: Any = None,
+    embodiment_policy: Any = None,
     completed: list[tuple[Any, ...]] | None = None,
     rejected: list[dict[str, Any]] | None = None,
 ) -> DirectorDeliveryBoundary:
@@ -70,6 +71,7 @@ def make_boundary(
         speak=speak,
         transactions=transactions,
         animation=animation,
+        embodiment_policy=embodiment_policy,
         mood_provider=lambda: MoodState(vui=4),
         speech_completed=lambda *args, **kwargs: completed_sink.append((args, kwargs)),
         filter_rejected=lambda **kwargs: rejected_sink.append(kwargs),
@@ -162,3 +164,29 @@ async def test_deferred_turn_requests_explicit_delivery_finalization() -> None:
     assert runner.turn_kwargs == {
         "request_id": "req-4", "defer_delivery_commit": True,
     }
+class EmbodimentStub:
+    enabled = True
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, MoodState]] = []
+
+    async def apply_mid(self, delivery_id: str, mood: MoodState) -> bool:
+        self.calls.append((delivery_id, mood))
+        return True
+
+
+@pytest.mark.asyncio
+async def test_delivery_uses_embodiment_policy_only_after_confirmed_delivery() -> None:
+    runner = RunnerStub()
+    animation = AnimationStub()
+    policy = EmbodimentStub()
+
+    async def speak(_request_id: str, _text: str) -> Any:
+        return SimpleNamespace(delivered=True, mode="audio")
+
+    boundary = make_boundary(
+        runner, speak=speak, animation=animation, embodiment_policy=policy,
+    )
+    assert await boundary.deliver("req-embodiment", SimpleNamespace(text="xin chào"), "read_chat", [])
+    assert policy.calls == [("req-embodiment", MoodState(vui=4))]
+    assert animation.commands == []
