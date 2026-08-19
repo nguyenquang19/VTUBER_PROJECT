@@ -13,23 +13,39 @@ class MockCallBackend:
     """Private simulated external call state; verifier reads it independently."""
 
     def __init__(
-        self, *, default_outcome: str,
+        self, *, default_outcome: str, max_connected_guests: int,
         outcome_provider: Callable[[ActionRequest], str] | None = None,
     ) -> None:
+        if default_outcome not in {"success", "failed"}:
+            raise ValueError("default_outcome must be success or failed")
+        if (
+            isinstance(max_connected_guests, bool)
+            or not isinstance(max_connected_guests, int)
+            or max_connected_guests <= 0
+        ):
+            raise ValueError("max_connected_guests must be a positive int")
+        if outcome_provider is not None and not callable(outcome_provider):
+            raise ValueError("outcome_provider must be callable")
         self._outcome_provider = outcome_provider or (lambda _request: default_outcome)
+        self._max_connected_guests = max_connected_guests
         self._connected: set[str] = set()
 
     def connected(self, guest_id: str) -> bool:
-        return str(guest_id).strip() in self._connected
+        return _required_target(guest_id) in self._connected
 
     async def apply(self, request: ActionRequest) -> tuple[bool, str]:
-        outcome = str(self._outcome_provider(request)).strip().lower()
+        outcome = self._outcome_provider(request)
+        if not isinstance(outcome, str) or outcome not in {"success", "failed"}:
+            return False, "invalid_outcome"
         if outcome != "success":
-            return False, outcome or "failed"
-        guest_id = str(request.target or request.arguments.get("guest_id") or "").strip()
-        if not guest_id:
+            return False, outcome
+        try:
+            guest_id = _canonical_guest_id(request)
+        except ValueError:
             return False, "invalid_target"
         if request.action_type == "CALL_GUEST":
+            if guest_id not in self._connected and len(self._connected) >= self._max_connected_guests:
+                return False, "capacity_exceeded"
             self._connected.add(guest_id)
             return True, "success"
         if request.action_type == "REMOVE_GUEST":
@@ -97,8 +113,11 @@ class MockCallVerifier(ActionVerifier):
         return {}
 
     async def verify(self, request: ActionRequest, result: ActionResult) -> VerificationResult:
-        guest_id = str(request.target or request.arguments.get("guest_id") or "").strip()
-        if result.status is not ActionStatus.SUCCESS or not guest_id:
+        try:
+            guest_id = _canonical_guest_id(request)
+        except ValueError:
+            return VerificationResult(False, self.service_id, "invalid_target")
+        if result.status is not ActionStatus.SUCCESS:
             return VerificationResult(False, self.service_id, "executor_failed")
         expected = request.action_type == "CALL_GUEST"
         if request.action_type not in {"CALL_GUEST", "REMOVE_GUEST"}:
@@ -112,3 +131,17 @@ def _utc(value: datetime) -> datetime:
     if value.tzinfo is None or value.utcoffset() is None:
         raise ValueError("mock action clock must be timezone-aware")
     return value.astimezone(timezone.utc)
+
+
+def _required_target(value: object) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("guest_id must be a non-empty string")
+    return value.strip()
+
+
+def _canonical_guest_id(request: ActionRequest) -> str:
+    target = _required_target(request.target)
+    guest_id = _required_target(request.arguments.get("guest_id"))
+    if target != guest_id:
+        raise ValueError("target and guest_id must match")
+    return target

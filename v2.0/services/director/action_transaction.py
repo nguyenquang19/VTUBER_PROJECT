@@ -45,12 +45,14 @@ class ActionTransactionManager(ActionTransactionService):
         metrics: Any = None,
         enabled: bool = True,
     ) -> None:
-        if max_recent <= 0:
-            raise ValueError("action transaction max_recent must be positive")
-        self.max_recent = int(max_recent)
+        if isinstance(max_recent, bool) or not isinstance(max_recent, int) or max_recent <= 0:
+            raise ValueError("action transaction max_recent must be a positive int")
+        if not isinstance(enabled, bool):
+            raise ValueError("action transaction enabled must be a bool")
+        self.max_recent = max_recent
         self._clock = clock or time.time
         self._metrics = metrics
-        self.enabled = bool(enabled)
+        self.enabled = enabled
         self._running = False
         self._items: OrderedDict[str, ActionTransaction] = OrderedDict()
         self._by_key: dict[str, str] = {}
@@ -61,9 +63,7 @@ class ActionTransactionManager(ActionTransactionService):
         cls, loader: Any, *, metrics: Any = None, enabled: bool = True,
     ) -> "ActionTransactionManager":
         return cls(
-            max_recent=int(loader.get(
-                "director", "director.transactions.max_recent", 256,
-            )),
+            max_recent=loader.get("director", "director.transactions.max_recent", 256),
             metrics=metrics,
             enabled=enabled,
         )
@@ -82,17 +82,30 @@ class ActionTransactionManager(ActionTransactionService):
         )
 
     def set_enabled(self, enabled: bool) -> None:
-        self.enabled = bool(enabled)
+        if not isinstance(enabled, bool):
+            raise ValueError("action transaction enabled must be a bool")
+        self.enabled = enabled
+
+    def get(self, transaction_id: str) -> ActionTransaction | None:
+        if not isinstance(transaction_id, str) or not transaction_id.strip():
+            raise ValueError("transaction_id must be a non-empty string")
+        return self._items.get(transaction_id.strip())
+
+    def find_by_idempotency_key(self, idempotency_key: str) -> ActionTransaction | None:
+        key = _required_string(idempotency_key, "idempotency_key")
+        transaction_id = self._by_key.get(key)
+        return self._items.get(transaction_id) if transaction_id is not None else None
 
     def reserve(self, action: str, idempotency_key: str) -> ReservationResult:
-        action_value = str(action).strip()
-        key = str(idempotency_key).strip()
-        if not action_value or not key:
-            raise ValueError("action and idempotency_key are required")
+        action_value = _required_string(action, "action")
+        key = _required_string(idempotency_key, "idempotency_key")
         existing_id = self._by_key.get(key)
         if existing_id is not None:
             existing = self._items.get(existing_id)
             if existing is not None and existing.state is ActionTransactionState.COMMITTED:
+                if existing.action != action_value:
+                    self._record("idempotency_conflict")
+                    raise ValueError("idempotency key is committed for a different action")
                 self._record("duplicate_committed")
                 return ReservationResult(transaction=existing, created=False)
         now = self._clock()
@@ -179,13 +192,21 @@ class ActionTransactionManager(ActionTransactionService):
 
     def _record(self, state: str) -> None:
         self._counts[state] = self._counts.get(state, 0) + 1
-        if self._metrics is not None and hasattr(
-            self._metrics, "record_action_transaction",
-        ):
-            self._metrics.record_action_transaction(state)
+        try:
+            recorder = getattr(self._metrics, "record_action_transaction", None)
+            if callable(recorder):
+                recorder(state)
+        except Exception:
+            pass
 
     def _trim(self) -> None:
         while len(self._items) > self.max_recent:
             transaction_id, item = self._items.popitem(last=False)
             if self._by_key.get(item.idempotency_key) == transaction_id:
                 self._by_key.pop(item.idempotency_key, None)
+
+
+def _required_string(value: Any, field_name: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{field_name} must be a non-empty string")
+    return value.strip()

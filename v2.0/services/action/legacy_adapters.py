@@ -139,7 +139,7 @@ class SpeechDeliveryVerifier(_ToggleableActionService, ActionVerifier):
         self._record("verified" if verified else "unverified")
         return VerificationResult(
             verified=verified,
-            source="tts_delivery" if verified else None,
+            source="tts_delivery",
             reason_code="delivery_verified" if verified else "delivery_not_verified",
             evidence_refs=(str(data.get("request_id", "")),) if verified and data.get("request_id") else (),
         )
@@ -227,7 +227,7 @@ class AvatarGestureVerifier(_ToggleableActionService, ActionVerifier):
         self._record("verified" if verified else "unverified")
         return VerificationResult(
             verified=verified,
-            source="vts_api_ack" if verified else None,
+            source="vts_api_ack",
             reason_code="vts_acknowledged" if verified else "vts_not_acknowledged",
             evidence_refs=(str(result.result_data.get("gesture_id")),) if verified else (),
         )

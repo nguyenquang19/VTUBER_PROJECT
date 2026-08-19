@@ -55,7 +55,9 @@ def test_speech_adapter_rejects_partial_or_missing_delivery() -> None:
     request = _request("SPEAK", text="một. hai.")
     result = asyncio.run(SpeechDeliveryExecutor(partial, enabled=True).execute(request))
     assert result.error_code == "delivery_not_confirmed"
-    assert asyncio.run(SpeechDeliveryVerifier(enabled=True).verify(request, result)).verified is False
+    verification = asyncio.run(SpeechDeliveryVerifier(enabled=True).verify(request, result))
+    assert verification.verified is False
+    assert verification.source == "tts_delivery"
     assert asyncio.run(SpeechDeliveryExecutor(None, enabled=True).execute(request)).error_code == "delivery_callback_missing"
 
 

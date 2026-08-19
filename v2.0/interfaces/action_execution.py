@@ -16,6 +16,23 @@ class VerificationResult:
     reason_code: str
     evidence_refs: tuple[str, ...] = ()
 
+    def __post_init__(self) -> None:
+        if not isinstance(self.verified, bool):
+            raise ValueError("verified must be a bool")
+        if not isinstance(self.source, str) or not self.source.strip():
+            raise ValueError("source must be a non-empty string")
+        if not isinstance(self.reason_code, str) or not self.reason_code.strip():
+            raise ValueError("reason_code must be a non-empty string")
+        if not isinstance(self.evidence_refs, tuple):
+            raise ValueError("evidence_refs must be a tuple")
+        if not all(isinstance(item, str) and item.strip() for item in self.evidence_refs):
+            raise ValueError("evidence_refs must contain non-empty strings")
+        object.__setattr__(self, "source", self.source.strip())
+        object.__setattr__(self, "reason_code", self.reason_code.strip())
+        object.__setattr__(
+            self, "evidence_refs", tuple(item.strip() for item in self.evidence_refs),
+        )
+
 
 class ActionExecutor(Service):
     """Execute one typed request without committing application state."""

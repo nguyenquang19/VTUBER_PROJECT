@@ -66,7 +66,7 @@ Các cột dưới đây độc lập với nhau. “Có mã” không thay th�
 | World Model | Có | Shadow read-only | Unit, negative-path và full offline regression | Không |
 | Self Model | Có | Shadow read-only | Unit, negative-path, impacted và full offline regression | Không |
 | Capability/permission/health registry | Có | Shadow read-only | Unit, negative-path, impacted và full offline regression | Không |
-| Action transaction | Có | Mock/simulation | Unit/integration | Không cho external action |
+| Action transaction | Có | Mock closed loop strict; không nối Director V1 | Unit, negative-path, impacted, replay và full offline regression | Không cho external action |
 | Director V2 takeover | Có | Có nhánh gọi nhưng quyết định legacy vẫn thắng | Unit/integration | Không |
 | Speech action adapter | Có | Chưa compose đầy đủ | Unit | Không |
 | Avatar action adapter | Có | Chưa compose đầy đủ | Unit | Không |
@@ -659,11 +659,16 @@ Mục tiêu: tài liệu, mã và phiên bản nói cùng một điều.
 
 Mục tiêu: trạng thái không bao giờ đi trước kết quả thật.
 
-1. Chuyển cập nhật Thế giới sang sau khi giao dịch được xác nhận.
-2. Bổ sung kiểm thử cho trường hợp bộ thực thi thành công nhưng bước xác nhận cuối thất bại.
-3. Bảo đảm mọi thất bại đều giải phóng giữ chỗ và phát sự kiện kết quả rõ ràng.
+1. Chỉ cập nhật World sau khi kết quả bên ngoài đã verify và transaction đã `committed`.
+2. Nếu executor, verifier hoặc final commit thất bại trước commit, giải phóng transaction còn active,
+   trả kết quả thất bại rõ ràng và giữ World không đổi.
+3. Nếu World projection thất bại sau commit, không được release transaction đã commit hoặc phủ nhận
+   kết quả bên ngoài đã verify; ghi nhận projection inconsistency riêng và không bịa World fact.
+4. Idempotency key chỉ được replay khi fingerprint request trùng khớp; cùng key nhưng request khác phải
+   bị từ chối, không được trả nhầm kết quả cache.
 
-**Điều kiện hoàn tất:** không có đường đi nào ghi nhận hành động thành công trước xác nhận.
+**Điều kiện hoàn tất:** không có đường đi nào ghi nhận World trước commit, không có transaction đã
+commit bị báo released, và mọi terminal result vẫn quan sát được dù metrics/dashboard lỗi.
 
 ### Mức 3 — cho V2 tiếp quản từng hành vi ít rủi ro
 
@@ -1043,6 +1048,71 @@ strict; verifier registration/health được kiểm tra và registration lạ b
 metric failure không đổi availability. Targeted/impacted regression đạt 87 test và full offline
 regression đạt 1946 test. Registry vẫn shadow/read-only, chỉ cung cấp declaration và
 availability; không thực thi action, không nắm Director V1 và không mở external action production.
+
+#### 17.2.5. Closure contract General action mock closed loop Phase 5
+
+Phase 5 chỉ đóng vòng action bằng mock executor/verifier cho `CALL_GUEST` và `REMOVE_GUEST`.
+Nó không compose external executor thật, không trao quyền Director V1 và không nâng capability mock-only
+thành production. Capability Registry tiếp tục là cổng fail-closed trước executor boundary; dashboard
+chỉ đọc snapshot/result và không được phát action.
+
+Thứ tự thành công bắt buộc là: validate request và availability → reserve → `generated` →
+`delivering` → execute → verify → `delivered` → commit transaction → project World event → lưu và
+trả terminal result. World không được thay đổi trước commit. Kết quả `CALL_GUEST(Evil)` chỉ tạo
+World fact `connected=true` sau chuỗi này; lần kiểm tra availability kế tiếp mới được BLOCK
+`CALL_GUEST` và cho phép `REMOVE_GUEST`.
+
+Gate Phase 5 yêu cầu:
+
+- `ActionMockConfig` phải immutable và strict: timeout hữu hạn dương, mọi bound là `int` thật dương,
+  default outcome thuộc tập cho phép; không nhận `bool`, chuỗi số, float số nguyên hoặc stringify object.
+  Threshold, timeout, capacity và outcome production đều lấy từ YAML.
+- `VerificationResult` phải dùng boolean strict, reason/source không rỗng theo trạng thái, evidence là
+  tuple chuỗi hợp lệ và bị giới hạn theo config. Executor/verifier phải trả đúng interface type,
+  đúng `action_id` và status hợp lệ; không dùng truthiness/coercion để biến dữ liệu malformed thành success.
+- Target canonical phải duy nhất. `target` và `arguments.guest_id` nếu cùng xuất hiện phải trùng nhau;
+  thiếu, blank hoặc mâu thuẫn phải bị từ chối trước reserve/backend mutation.
+- Fingerprint idempotency phải bao gồm toàn bộ identity có ảnh hưởng hành vi của request. Cùng key và
+  cùng fingerprint trả đúng terminal result cũ; cùng key nhưng fingerprint khác trả
+  `idempotency_conflict`. Retry sau terminal transaction không được chạy executor lần hai kể cả khi
+  recent-result cache đã eviction.
+- Executor timeout/exception/failure, verifier exception/negative/malformed và final commit failure
+  trước terminal commit đều phải tạo failure result deterministic, release transaction còn active và
+  giữ World không đổi. Cancellation sau reserve phải release transaction còn active rồi re-raise để
+  caller giữ cancellation semantics.
+- Khi lệnh commit ném exception, implementation phải đọc lại authoritative transaction state. Chỉ
+  release nếu state chưa `committed`; tuyệt đối không chuyển hoặc báo transaction đã commit thành
+  released.
+- World projection chỉ chạy sau commit. Nếu projection từ chối hoặc ném exception, giữ transaction
+  `committed` và kết quả bên ngoài `verified=true`, không bịa World fact; terminal result phải chỉ rõ
+  `world_projected=false` cùng error code projection và tăng metric inconsistency riêng.
+- Kết quả terminal phải được lưu trước best-effort metrics/dashboard notification. Metrics, snapshot
+  hoặc dashboard failure không được làm mất result, đổi transaction/World state hay ném lỗi thay cho
+  terminal result đã xác định.
+- Recent results, idempotency ledger, mock backend connected guests, executor/verifier registration,
+  evidence và dashboard snapshot đều phải bounded, deterministic. Registration chỉ chấp nhận adapter
+  ID đã được declaration Phase 4 tham chiếu; duplicate conflict phải bị từ chối.
+- Feature `general_action_mock` tiếp tục do `FeatureManager` sở hữu, có health và metrics bounded.
+  Feature tắt hoặc unavailable phải fail closed trước executor; mọi lỗi Phase 5 phải fail isolated khỏi
+  speech transaction, Director V1 và production prompt.
+
+Gate kiểm thử gồm success `CALL_GUEST`/`REMOVE_GUEST`, availability trước/sau World commit, executor
+failure/timeout/exception/malformed, verifier negative/exception/malformed, final commit exception trước
+và sau state mutation, World rejection/exception sau commit, idempotent replay/collision/cache eviction,
+cancellation, strict config/verification/target, mọi capacity bound, metrics/dashboard failure isolation,
+FeatureManager ownership và negative boundary với speech transaction/Director V1/external executor.
+
+**Trạng thái Phase 5:** đạt closure gate ngày 19/08/2026. World chỉ được project sau authoritative
+transaction commit; commit exception trước mutation release và giữ World không đổi, còn exception sau
+mutation đọc lại state và không release transaction đã commit. World projection failure giữ kết quả
+external đã verify, đánh dấu `world_projected=false` và tăng inconsistency metric riêng. Config,
+verification, target, adapter registration, backend capacity và evidence đều strict/bounded;
+idempotency fingerprint từ chối collision và ledger sống lâu hơn recent-result view. Terminal result
+được lưu trước best-effort metric notification; cancellation release transaction active rồi propagate.
+Targeted strict suite đạt 35 test, impacted regression đạt 124 test, full offline regression đạt 1966
+test. Replay success chạy lặp đều cho `verified=true`, World `connected=true`, transaction `committed`;
+replay failure chạy lặp đều cho `mock_failed`, World giữ `connected=false`, transaction `released`.
+Feature vẫn mock-only, không nối Director V1, speech transaction hoặc external executor production.
 
 ### 17.3. Chuỗi mã để lần theo một lượt
 

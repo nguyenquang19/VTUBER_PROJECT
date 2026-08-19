@@ -368,7 +368,13 @@ class MetricsCollector:
             "mai_action_mock_outcomes_total", "Mock action closed-loop outcomes",
             ["outcome"], registry=self.registry,
         )
+        self.action_mock_world_projection_inconsistencies_total_c = Counter(
+            "mai_action_mock_world_projection_inconsistencies_total",
+            "Committed mock actions whose World projection failed",
+            registry=self.registry,
+        )
         self._action_mock_outcomes: dict[str, int] = {}
+        self._action_mock_world_projection_inconsistencies = 0
         self.director_v2_shadow_total_c = Counter(
             "mai_director_v2_shadow_total", "Director V2 shadow proposal outcomes",
             ["outcome"], registry=self.registry,
@@ -814,7 +820,16 @@ class MetricsCollector:
         self.action_mock_outcomes_total_c.labels(outcome=key).inc()
 
     def action_mock_snapshot(self) -> dict[str, Any]:
-        return {"outcomes": dict(sorted(self._action_mock_outcomes.items()))}
+        return {
+            "outcomes": dict(sorted(self._action_mock_outcomes.items())),
+            "world_projection_inconsistencies": (
+                self._action_mock_world_projection_inconsistencies
+            ),
+        }
+
+    def record_action_mock_world_projection_inconsistency(self) -> None:
+        self._action_mock_world_projection_inconsistencies += 1
+        self.action_mock_world_projection_inconsistencies_total_c.inc()
 
     def record_director_v2_shadow(self, outcome: str, retained: int) -> None:
         key = str(outcome)

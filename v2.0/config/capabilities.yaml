@@ -141,3 +141,6 @@ mock_action:
   default_outcome: success
   execution_timeout_s: 1.0
   max_recent_results: 64
+  max_idempotency_records: 256
+  max_connected_guests: 8
+  max_verification_evidence_refs: 8

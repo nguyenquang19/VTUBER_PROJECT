@@ -40,6 +40,14 @@ class ReservationResult(BaseModel):
 
 class ActionTransactionService(Service):
     @abstractmethod
+    def get(self, transaction_id: str) -> ActionTransaction | None:
+        """Return authoritative state for one retained transaction."""
+
+    @abstractmethod
+    def find_by_idempotency_key(self, idempotency_key: str) -> ActionTransaction | None:
+        """Return the retained transaction currently owning an idempotency key."""
+
+    @abstractmethod
     def reserve(self, action: str, idempotency_key: str) -> ReservationResult:
         """Reserve an action or return its already-committed transaction."""
 

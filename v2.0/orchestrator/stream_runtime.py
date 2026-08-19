@@ -1549,7 +1549,10 @@ async def build_stream_runtime(
         get_logger("stream_runtime").warning("action_mock_closed_loop_feature_missing")
         action_mock_enabled = False
     action_mock_config = ActionMockConfig.from_loader(loader)
-    mock_call_backend = MockCallBackend(default_outcome=action_mock_config.default_outcome)
+    mock_call_backend = MockCallBackend(
+        default_outcome=action_mock_config.default_outcome,
+        max_connected_guests=action_mock_config.max_connected_guests,
+    )
     action_mock_loop = GeneralActionMockLoop(
         action_mock_config,
         capability_registry=capability_registry,
