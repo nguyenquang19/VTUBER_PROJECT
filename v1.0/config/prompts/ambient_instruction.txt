@@ -1,3 +1,0 @@
-[Bối cảnh: đã im lặng khoảng {silence} phút, không ai chat gì. Mood hiện tại của tớ: {mood}.]
-
-Giờ đang rảnh, chẳng ai nói gì cả. Tự mở lời với chat theo đúng tính cách của tớ đi — có thể càm ràm chuyện im lặng, kể chuyện vặt, hỏi chat một câu, hoặc gọi ông. Nói NGẮN thôi, và vẫn phải theo đúng khuôn trả lời bắt buộc (kèm mood block).
