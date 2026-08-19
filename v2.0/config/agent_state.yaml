@@ -33,7 +33,28 @@ perception:
   max_payload_items: 16
   max_payload_chars: 1024
   max_recent_events: 128
-  allowed_input_sources: [chat_twitch, chat_youtube, chat_discord, voice_operator, system_timer, dashboard]
+  max_event_age_s: 300
+  max_future_skew_s: 5
+  dedup_ttl_s: 1800
+  max_dedup_keys: 256
+  chat:
+    producer: chat_perception_adapter
+    sources: [chat_twitch, chat_youtube, chat_discord]
+  system:
+    producer: system_perception_adapter
+    input_sources: [system_timer, dashboard]
+    grounded_routes:
+      - producer: stream_runtime
+        event_source: runtime
+        canonical_source: runtime
+        world_path: stream.runtime
+        payload_mode: snapshot
+  obs:
+    producer: obs_perception_adapter
+    source: environment
+    world_path: stream.current_scene
+    poll_interval_s: 2
+    query_timeout_s: 2
 
 # Phase 3: only bounds the immutable read-only projection.
 self_model:

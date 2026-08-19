@@ -48,9 +48,30 @@ def test_stream_runtime_composition_uses_public_boundaries() -> None:
     assert "router.add_activity_listener(_on_input_activity)" in source
     assert "director_loop.set_runtime_context_provider(rt.runtime_context)" in source
     assert "async def execute_external_action" in source
+    assert "router.add_activity_listener(chat_perception_adapter.observe_input)" in source
+    assert "router.add_activity_listener(system_perception_adapter.observe_input)" in source
+    assert "agent_state.add_event_listener(system_perception_adapter.observe_grounded)" in source
     director_call = source[
         source.index("director_loop = DirectorLoop("):
         source.index("# ─── M9 operator control plane")
     ]
     assert "external_action_loop" not in director_call
     assert "external_executor_registry" not in director_call
+    assert "obs_perception_adapter" not in director_call
+
+
+def test_perception_adapters_cannot_call_director_or_action_execution() -> None:
+    source = (REPO_ROOT / "services" / "perception" / "adapters.py").read_text(
+        encoding="utf-8",
+    )
+    forbidden = (
+        "services.director",
+        "interfaces.director",
+        "ExternalActionLoop",
+        "execute_external_action",
+        ".set_current_program_scene(",
+        ".apply_event(",
+    )
+    assert [token for token in forbidden if token in source] == []
+    assert "self._ingress.submit(" in source
+    assert "self._transport.get_current_program_scene()" in source

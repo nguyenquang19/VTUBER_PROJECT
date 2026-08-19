@@ -216,8 +216,16 @@ class TestRuntimeFilterWiring:
             assert dashboard["regenerator"] is runtime._regenerator
             assert dashboard["goal_manager"] is runtime.goal_manager
             assert set(runtime._health_supervisor.snapshot()["targets"]) == {
-                "dashboard", "input_router", "llm_main", "obs_websocket",
+                "dashboard", "input_router", "llm_main", "obs_perception_adapter",
+                "obs_websocket",
             }
+            assert [
+                adapter.service_id for adapter in runtime._perception_adapters
+            ] == [
+                "chat_perception_adapter",
+                "system_perception_adapter",
+                "obs_perception_adapter",
+            ]
             assert runtime._external_executor_registry.snapshot()["bindings"] == [{
                 "executor_id": "obs_scene",
                 "verifier_id": "obs_scene_state",
@@ -359,6 +367,15 @@ async def test_local_action_adapters_are_composed_with_independent_feature_lifec
     try:
         assert boundary.snapshot()["running"] is True
         assert (await boundary.health_check()).state.value == "degraded"
+        assert runtime._world_model.query("stream.runtime") is not None
+        perception = runtime.operations_snapshot()["perception"]
+        assert perception["ingress"]["perception_recent_events"] == 1
+        assert perception["adapters"]["chat_perception_adapter"][
+            "chat_perception_running"
+        ] is True
+        assert perception["adapters"]["obs_perception_adapter"][
+            "obs_perception_enabled"
+        ] is False
         enabled = await runtime._feature_manager.enable("speech_action_adapter")
         assert enabled.ok is True
         assert boundary.speech_enabled is True

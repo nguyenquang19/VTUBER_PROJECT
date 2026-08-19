@@ -104,6 +104,7 @@ class StreamRuntime:
         director_loop: Any = None,   # C0.4 DirectorLoop — turn driver (thay autonomy loop)
         agent_state: Any = None,
         perception_ingress: Any = None,
+        perception_adapters: tuple[Any, ...] = (),
         world_model: Any = None,
         self_model: Any = None,
         capability_registry: Any = None,
@@ -150,6 +151,7 @@ class StreamRuntime:
         self._director_loop = director_loop
         self._agent_state = agent_state
         self._perception_ingress = perception_ingress
+        self._perception_adapters = tuple(perception_adapters)
         self._world_model = world_model
         self._self_model = self_model
         self._capability_registry = capability_registry
@@ -206,6 +208,8 @@ class StreamRuntime:
             await self._world_model.start()
         if self._perception_ingress is not None:
             await self._perception_ingress.start()
+        for adapter in self._perception_adapters:
+            await adapter.start()
         if self._director_v2_shadow is not None:
             await self._director_v2_shadow.start()
         if self._director_v2_takeover is not None:
@@ -355,6 +359,9 @@ class StreamRuntime:
         if self._external_action_loop is not None:
             with contextlib.suppress(Exception):
                 await self._external_action_loop.stop()
+        for adapter in reversed(self._perception_adapters):
+            with contextlib.suppress(Exception):
+                await adapter.stop()
         if self._external_executor_registry is not None:
             with contextlib.suppress(Exception):
                 await self._external_executor_registry.stop()
@@ -443,6 +450,16 @@ class StreamRuntime:
             "external_actions": (
                 self._external_action_loop.snapshot()
                 if self._external_action_loop is not None else None
+            ),
+            "perception": (
+                {
+                    "ingress": self._perception_ingress.get_metrics(),
+                    "adapters": {
+                        adapter.service_id: adapter.get_metrics()
+                        for adapter in self._perception_adapters
+                    },
+                }
+                if self._perception_ingress is not None else None
             ),
             "director_v2_shadow": (
                 self._director_v2_shadow.snapshot() if self._director_v2_shadow is not None else None
@@ -657,6 +674,17 @@ class StreamRuntime:
         if self._world_model is not None:
             with contextlib.suppress(Exception):
                 m.update(self._world_model.get_metrics())
+        if self._perception_ingress is not None:
+            with contextlib.suppress(Exception):
+                m.update(self._perception_ingress.get_metrics())
+        active_perception_adapters = 0
+        for adapter in self._perception_adapters:
+            with contextlib.suppress(Exception):
+                adapter_metrics = adapter.get_metrics()
+                m.update(adapter_metrics)
+                if adapter.enabled:
+                    active_perception_adapters += 1
+        m["perception_active_adapters"] = active_perception_adapters
         if self._self_model is not None:
             with contextlib.suppress(Exception):
                 m.update(self._self_model.get_metrics())
@@ -799,7 +827,12 @@ async def build_stream_runtime(
     )
     # Phase 10: one canonical ingress; it remains outside the Director path.
     from services.world.world_model import WorldModelShadow
-    from services.perception.ingress import PerceptionIngress
+    from services.perception.adapters import (
+        ChatCompatibilityAdapter,
+        OBSPerceptionAdapter,
+        SystemPerceptionAdapter,
+    )
+    from services.perception.ingress import PerceptionIngress, PerceptionIngressConfig
     try:
         world_status = await feature_manager.get_status("world_model_shadow")
         world_enabled = world_status in (FeatureStatus.ENABLED, FeatureStatus.DEGRADED)
@@ -813,13 +846,40 @@ async def build_stream_runtime(
     except KeyError:
         get_logger("stream_runtime").warning("perception_expansion_feature_missing")
         perception_enabled = False
-    perception_ingress = PerceptionIngress.from_loader(
-        loader, world_model=world_model, metrics=metrics, enabled=perception_enabled,
+    perception_config = PerceptionIngressConfig.from_loader(loader)
+    perception_ingress = PerceptionIngress(
+        perception_config, world_model=world_model, metrics=metrics, enabled=perception_enabled,
+    )
+    chat_perception_adapter = ChatCompatibilityAdapter(
+        perception_config, perception_ingress, enabled=perception_enabled, metrics=metrics,
+    )
+    system_perception_adapter = SystemPerceptionAdapter(
+        perception_config, perception_ingress, enabled=perception_enabled, metrics=metrics,
     )
 
-    agent_state.add_event_listener(perception_ingress.observe_grounded)
+    agent_state.add_event_listener(system_perception_adapter.observe_grounded)
     attach_set_enabled_feature(feature_manager, "world_model_shadow", world_model)
-    attach_set_enabled_feature(feature_manager, "perception_expansion", perception_ingress)
+
+    async def _set_perception_enabled(enabled: bool) -> None:
+        if enabled:
+            perception_ingress.set_enabled(True)
+            await chat_perception_adapter.set_enabled(True)
+            await system_perception_adapter.set_enabled(True)
+            return
+        await chat_perception_adapter.set_enabled(False)
+        await system_perception_adapter.set_enabled(False)
+        perception_ingress.set_enabled(False)
+
+    attach_boolean_feature(
+        feature_manager,
+        "perception_expansion",
+        set_enabled=_set_perception_enabled,
+        is_enabled=lambda: (
+            perception_ingress.enabled
+            and chat_perception_adapter.enabled
+            and system_perception_adapter.enabled
+        ),
+    )
     try:
         mood_policy_status = await feature_manager.get_status("mood_behavior_policy")
         mood_policy_enabled = mood_policy_status in (
@@ -1357,7 +1417,8 @@ async def build_stream_runtime(
         relationship_manager=relationship_manager,
     )
 
-    router.add_activity_listener(perception_ingress.observe_input)
+    router.add_activity_listener(chat_perception_adapter.observe_input)
+    router.add_activity_listener(system_perception_adapter.observe_input)
     # Animation adapter (VTube Studio) — gate qua feature `animation_smooth`.
     from services.animation.vts_service import VTSAnimationService
     try:
@@ -1702,6 +1763,23 @@ async def build_stream_runtime(
     external_action_config = ExternalActionConfig.from_loader(loader)
     obs_scene_config = OBSSceneConfig.from_loader(loader)
     obs_transport = OBSWebSocketTransport(obs_scene_config)
+    try:
+        obs_perception_status = await feature_manager.get_status("obs_perception_adapter")
+        obs_perception_enabled = (
+            obs_perception_status in (FeatureStatus.ENABLED, FeatureStatus.DEGRADED)
+            and perception_enabled
+            and world_enabled
+        )
+    except KeyError:
+        get_logger("stream_runtime").warning("obs_perception_adapter_feature_missing")
+        obs_perception_enabled = False
+    obs_perception_adapter = OBSPerceptionAdapter(
+        perception_config,
+        perception_ingress,
+        obs_transport,
+        enabled=obs_perception_enabled,
+        metrics=metrics,
+    )
     obs_scene_executor = OBSSceneExecutor(
         obs_scene_config, obs_transport, enabled=obs_scene_enabled, metrics=metrics,
     )
@@ -1747,6 +1825,12 @@ async def build_stream_runtime(
             external_action_loop.enabled
             and obs_scene_executor.public_health().is_ok
         ),
+    )
+    attach_boolean_feature(
+        feature_manager,
+        "obs_perception_adapter",
+        set_enabled=obs_perception_adapter.set_enabled,
+        is_enabled=lambda: obs_perception_adapter.enabled,
     )
 
     # Phase 6 shadow remains proposal-only. Phase 7 may transfer decision ownership
@@ -2046,6 +2130,9 @@ async def build_stream_runtime(
         health_supervisor.register_target(
             "obs_websocket", obs_scene_executor.health_check,
         )
+        health_supervisor.register_target(
+            "obs_perception_adapter", obs_perception_adapter.health_check,
+        )
     emergency_controller = build_emergency_controller(
         enabled=operations_enabled,
         loader=loader,
@@ -2079,6 +2166,11 @@ async def build_stream_runtime(
         goal_manager=goal_manager,
         goal_proposal=goal_proposal,
         perception_ingress=perception_ingress,
+        perception_adapters=(
+            chat_perception_adapter,
+            system_perception_adapter,
+            obs_perception_adapter,
+        ),
         thread_extractor=thread_extractor,
         conversation_context=conversation_context,
         repair_policy=repair_policy,

@@ -369,6 +369,18 @@ features:
     category: input
     depends_on: []
     conflicts_with: []
+    name: Perception expansion
+    description: Strict bounded Chat and System canonical ingress; never calls Director or actions.
+
+  obs_perception_adapter:
+    enabled: false
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: input
+    depends_on: [perception_expansion, world_model_shadow]
+    conflicts_with: []
+    name: OBS perception adapter
+    description: Read-only OBS current-program scene sensing through canonical perception ingress.
 
   self_model_projection:
     enabled: true

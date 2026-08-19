@@ -31,12 +31,15 @@ Mai hiện có nền móng kỹ thuật đáng tiếp tục: ranh giới dữ li
 trạng thái có giới hạn, nhiều cờ bật/tắt và bộ kiểm thử rộng. Vòng hành động mô phỏng đã sửa đúng thứ tự
 commit rồi mới project Mô hình Thế giới. Phase 9 đã bổ sung lát cắt OBS đổi scene typed, kiểm chứng bằng
 truy vấn độc lập và rollback có điều kiện; feature vẫn mặc định tắt và chưa có live OBS canary.
+Phase 10 đã đóng canonical perception ingress cho Chat/System và read-only OBS sensing; OBS sensing vẫn
+mặc định tắt và chưa có live canary.
 
 Tuy nhiên, **V2 chưa phải một vòng tự chủ hoàn chỉnh đang chạy trong thực tế**. Các phần quan sát thế
 giới, mô hình bản thân, năng lực, lựa chọn hành động và khung thực thi đã được xây dựng ở nhiều mức độ
 khác nhau, nhưng chưa nối liền thành một đường đi production duy nhất. Controlled takeover, speech/avatar
-adapters và OBS scene action đều đã compose nhưng production flag vẫn tắt, chưa có live rollout/canary
-evidence. Phase 9 cũng không trao external action cho Director; Perception Phase 10 trở đi chưa đóng gate.
+adapters, OBS scene action và Perception Phase 10 đều đã compose nhưng production flag vẫn tắt, chưa có live rollout/canary
+evidence cho các capability liên quan. Phase 9/10 không trao external action hoặc raw
+observation cho Director; Phase 11 trở đi chưa đóng gate.
 
 Vì vậy, cách mô tả chính xác nhất là:
 
@@ -79,6 +82,7 @@ Các cột dưới đây độc lập với nhau. “Có mã” không thay th�
 | Speech action adapter | Có | Live `DirectorDeliveryBoundary` qua local typed boundary khi bật; exact legacy khi tắt | Unit, negative-path, transaction integration và full offline regression | Không; mặc định tắt |
 | Avatar action adapter | Có | Local typed intentional-gesture boundary; không giả automatic mood thành action | Unit, VTS fail-safe, composition và full offline regression | Không; mặc định tắt |
 | External OBS scene executor | Có | Compose tại `StreamRuntime`, chỉ callable qua typed boundary khi feature/permission/health đạt | Unit, transaction integration, deterministic fake-OBS replay và full offline regression | Không; mặc định tắt, chưa live canary |
+| Perception expansion | Có | Chat/System qua canonical ingress; OBS read-only compose nhưng mặc định tắt | Unit, negative-path, runtime composition, deterministic replay và full offline regression | Không; OBS chưa live canary |
 | Goals và short intentions | Có | Partial | Unit | Không |
 | Memory và ContextSelector V2 | Có | Partial | Unit/integration | Không như V2 release |
 | Embodiment Policy | Có | Partial/shadow | Unit | Không |
@@ -787,14 +791,13 @@ Không nên đổi nhãn sản phẩm thành V2 chỉ vì các lớp hoặc tài
 Nếu nguồn lực có hạn, nên làm đúng thứ tự này:
 
 1. giữ Phase 7 mặc định tắt cho tới khi có kế hoạch rollout/canary và rollback evidence;
-2. thực hiện Phase 10: đưa nguồn nhận thức mới qua canonical ingress;
-3. thực hiện Phase 11: hoàn thiện goal và short intention lifecycle;
-4. thực hiện Phase 12: ghép Memory và ContextSelector bounded/grounded;
-5. thực hiện Phase 13: ghép Embodiment Policy với delivery state thật;
-6. thực hiện Phase 14: trajectory replay, observability hardening và human-like calibration;
-7. chỉ sau đó thực hiện Phase 15 release gate, live/canary, security và rollback rehearsal;
-8. giữ Phase 8/9 production flags tắt tới khi có audio/VTS/OBS canary tương ứng;
-9. giảm nợ bảo trì mà không đổi thứ tự phase hoặc thêm logic V3.
+2. thực hiện Phase 11: hoàn thiện goal và short intention lifecycle;
+3. thực hiện Phase 12: ghép Memory và ContextSelector bounded/grounded;
+4. thực hiện Phase 13: ghép Embodiment Policy với delivery state thật;
+5. thực hiện Phase 14: trajectory replay, observability hardening và human-like calibration;
+6. chỉ sau đó thực hiện Phase 15 release gate, live/canary, security và rollback rehearsal;
+7. giữ Phase 8/9/10 production flags tắt tới khi có audio/VTS/OBS canary tương ứng;
+8. giảm nợ bảo trì mà không đổi thứ tự phase hoặc thêm logic V3.
 
 Thứ tự này ưu tiên độ tin cậy trước, quyền quyết định thật sau, rồi mới mở rộng hành động và tối ưu kiến trúc.
 
@@ -1439,6 +1442,96 @@ projection failure đều xanh. Feature `obs_scene_executor` vẫn mặc định
 instance/credential canary hay rollback rehearsal; product version tiếp tục là `1.4.3` và action chưa
 được tuyên bố production.
 
+#### 17.2.10. Closure contract canonical perception expansion Phase 10
+
+Phase 10 đóng một receive boundary chung cho ba adapter bắt buộc: Chat compatibility, System và OBS.
+STT, Vision và Game tiếp tục optional/interface-only vì working tree chưa có backend production tương
+ứng; không dựng adapter giả rồi tuyên bố capability đã chạy. Phase này không sửa Director core, prompt,
+action selection, action transaction hoặc quyền takeover, và không biến observation thành world truth
+chỉ vì callback đã nhận được dữ liệu.
+
+Owner dự kiến của contract là `interfaces/perception.py`; canonical admission và bounded state thuộc
+`services/perception/ingress.py`; các mapper/adapter Chat, System, OBS được gom trong
+`services/perception/adapters.py`; `orchestrator/stream_runtime.py` chỉ compose dependency và lifecycle.
+OBS adapter phải tái sử dụng đúng một `OBSSceneTransportService` đã có từ Phase 9 theo kiểu read-only,
+không tạo SDK/backend/config OBS thứ hai và không gọi method ghi scene.
+
+Gate Phase 10 yêu cầu:
+
+- Mọi adapter chỉ được tạo `PerceptionEvent` typed rồi gọi một canonical `submit` của
+  `PerceptionIngressService`. SDK callback, timer, STT chunk, Vision frame và Game event không được gọi
+  Director, World, capability registry, executor hoặc action coordinator trực tiếp. Chỉ ingress có thể
+  chuyển tiếp `world.observation` đã hợp lệ sang `WorldModelService.apply_event`.
+- `PerceptionEvent`, config và adapter dependency phải strict/deep-immutable: không stringify/coerce
+  `None`, số, mapping, chuỗi boolean hoặc object duck-typed thành source, producer, event type, path,
+  timestamp hay enabled flag hợp lệ. Source, producer, event type và đường projection phải khớp route
+  allowlist trong YAML; unknown/disabled route fail closed trước retention và trước World.
+- Ingress phải từ chối event đã quá `max_event_age_s`, timestamp vượt `max_future_skew_s`, payload quá
+  bound, key nhạy cảm, duplicate hoặc event được nộp khi service stopped/feature disabled. Dedup dùng
+  `dedup_key` hoặc `event_id`, có TTL và capacity bounded từ YAML; recent history chỉ giữ accepted event
+  theo arrival order, read-only và bounded. World tiếp tục là owner của authority/timestamp arbitration;
+  ingress không bịa lại conflict policy Phase 2.
+- Chat compatibility adapter chỉ nhận `InputEvent` thật từ các source chat được khai báo, bảo toàn
+  event identity/timestamp/platform và tạo `input.received`. Nó không ghi World. Metadata phải sanitize,
+  user identity/token/credential không được đưa vào payload; content chỉ tồn tại trong bounded in-memory
+  history, không xuất hiện trong metric, health, dashboard snapshot hoặc log của Perception.
+- System adapter chỉ nhận hai schema explicit: `InputEvent` từ system source allowlist thành
+  `system.signal` không project World; và `GroundedEvent(kind=environment_observed)` từ producer/route
+  allowlist thành `world.observation`. Runtime startup summary hiện có chỉ được chiếu vào path
+  `stream.runtime` qua mapping khai báo trong YAML; GroundedEvent khác, payload thiếu schema hoặc raw
+  observation không được tự trở thành truth.
+- OBS adapter chỉ được poll/read `GetCurrentProgramScene` trong interval/timeout bounded, validate typed
+  `OBSSceneState`, rồi submit `world.observation` cho `stream.current_scene` với source `environment` và
+  evidence/provenance đầy đủ. Scene không đổi phải bị suppress deterministic; scene đổi đi rồi quay lại
+  vẫn là observation mới hợp lệ. Adapter không được gọi `SetCurrentProgramScene`, action transaction hay
+  dùng cached Phase 9 action result làm observation.
+- Runtime dùng một OBS transport instance chung; registry Phase 9 giữ lifecycle transport, adapter
+  Phase 10 chỉ giữ poll task và không tự start/stop transport. Startup phải theo thứ tự transport → World
+  → ingress → adapter; shutdown ngược lại. Cancellation phải propagate, poll task phải dừng idempotent và
+  adapter failure không được làm chết chat/router/runtime.
+- `perception_expansion` tiếp tục gate ingress và các adapter local an toàn. OBS sensing có feature riêng
+  `obs_perception_adapter`, phụ thuộc `perception_expansion` và `world_model_shadow`, mặc định
+  `enabled=false`; nó độc lập với quyền ghi `obs_scene_executor`. Tắt feature phải ngừng I/O mới, hủy poll
+  task an toàn và xóa recent/dedup/last-seen cache chứa dữ liệu; bật lại không được replay cache cũ.
+- Threshold, TTL, interval, timeout, route allowlist, producer/path mapping và mọi capacity production nằm
+  trong `config/agent_state.yaml`/`config/features.yaml`; không hardcode. Credential OBS tiếp tục chỉ đọc
+  theo environment variable Phase 9 và không được lưu trong Perception event, evidence, metric, exception,
+  health, snapshot hoặc log.
+- World trả về chỉ được coi accepted khi là `bool` chính xác; malformed return, exception hoặc projection
+  reject phải fail isolated và có reason metric, không xóa canonical event đã accepted và không làm hỏng
+  producer path. Metric/health/snapshot callback đều best-effort, không được đổi admission result hoặc
+  state đã xác định.
+- Metrics tối thiểu phân biệt accepted/rejected/duplicate/stale/future/disabled/stopped/capacity theo
+  adapter/source/reason; projection accepted/rejected/error; OBS poll success/unchanged/failure; cache
+  eviction, retained count và active adapter count. Nhãn metric phải bounded từ allowlist, không dùng raw
+  content, scene, event ID hoặc exception text làm label.
+
+Gate kiểm thử gồm strict interface/config/routes/dependency; payload/provenance immutability; lifecycle,
+toggle và cache clearing; stale/future/dedup/capacity; sensitive metadata; chat không ghi World; System
+schema/path allowlist; OBS feature-off không I/O, query-only, unchanged suppression, change-away-return,
+timeout/auth/malformed state/cancellation và shared-transport ordering; World false/malformed/exception;
+metric exception isolation và negative source-code boundary chứng minh adapter không import/call Director
+hoặc action execution. Integration phải chứng minh cả ba adapter đi qua cùng ingress mà không sửa
+Director V1/V2 proposal, takeover, prompt hay transaction; deterministic replay cùng input sequence phải
+tạo cùng accepted/rejected outcomes, recent history và World snapshot. Impacted Phase 1/2/3/4/6/7/9,
+router/runtime, documentation guard và full offline regression phải tiếp tục xanh.
+
+**Trạng thái Phase 10:** đạt closure gate kỹ thuật ngày 20/08/2026. Chat compatibility, System và OBS
+adapter đều implement `PerceptionAdapterService` và chỉ submit `PerceptionEvent` qua một strict ingress;
+ingress là owner duy nhất của freshness, route allowlist, dedup, bounded retention và World projection.
+Runtime startup summary được chiếu vào `stream.runtime`; system timer/dashboard chỉ thành `system.signal`;
+chat không ghi World. STT/Vision/Game tiếp tục optional/interface-only.
+
+OBS adapter dùng chung transport Phase 9, chỉ gọi `GetCurrentProgramScene`, suppress scene không đổi và
+chấp nhận chuỗi đổi-đi-quay-lại như observation mới; adapter không sở hữu lifecycle transport, không gọi
+action/Director và feature `obs_perception_adapter` vẫn mặc định `enabled=false`. Toggle, cancellation,
+malformed/timeout/metric/World failure đều fail isolated; disable/stop xóa recent/dedup/last-seen cache.
+
+Targeted ingress/adapter/boundary đạt 29 test; documentation guard đạt 9 test và full offline
+`pytest tests -q` đạt 2.080 test, 0 lỗi. Deterministic replay của cùng Chat/System sequence tạo cùng
+canonical history và World events. Chưa có live OBS instance/credential sensing canary, nên Phase 10
+closure không phải production rollout; product version tiếp tục là `1.4.3`.
+
 ### 17.3. Chuỗi mã để lần theo một lượt
 
 ```mermaid
@@ -1552,12 +1645,14 @@ Một chức năng chỉ thực sự hoạt động khi đã được khai báo,
   `embodiment_policy`, `animation_micro`, `speech_action_adapter`, `avatar_action_adapter`,
   `memory_semantic`, `memory_hierarchical`, `qc_persona`, `agent_context`, `context_selector`,
   `goal_proposals`, `thread_extraction`, `speculative_decoding`, `turn_taking_predictor`,
-  `director_v2_takeover`, `obs_scene_executor`.
+  `director_v2_takeover`, `obs_scene_executor`, `obs_perception_adapter`.
 
 Trong đó `speech_action_adapter` và `avatar_action_adapter` đã được ghép vào local typed action boundary
 và composition root nhưng vẫn mặc định tắt, chưa có live audio/VTS canary. `director_v2_takeover` đã có
 strict controlled ownership nhưng mặc định tắt và chưa có live rollout evidence. `obs_scene_executor` đã
 được compose qua external transaction boundary nhưng mặc định tắt, chưa có credential/live OBS canary.
+`obs_perception_adapter` dùng chung read-only OBS transport và cũng mặc định tắt, chưa có live sensing
+canary.
 Trạng thái bật/tắt không được dùng riêng để suy ra mức production.
 
 ### 19.5. Hồ sơ cấu hình nên chuẩn hóa

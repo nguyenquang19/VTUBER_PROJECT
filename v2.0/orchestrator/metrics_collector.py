@@ -324,7 +324,7 @@ class MetricsCollector:
         self._world_model_stale_evictions = 0
         # --- Perception ingress metrics (Phase 10; no decision side effects) ---
         self.perception_events_total_c = Counter(
-            "mai_perception_events_total", "Canonical perception ingress outcomes",
+            "mai_perception_events_total", "Canonical perception ingress and adapter outcomes",
             ["outcome", "source"], registry=self.registry,
         )
         self.perception_recent_events_g = Gauge(
