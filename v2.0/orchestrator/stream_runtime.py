@@ -1571,7 +1571,9 @@ async def build_stream_runtime(
 
     # Phase 6: read-only Director V2 shadow. It is deliberately not passed to DirectorLoop.
     from interfaces.director_v2 import DirectorV2Candidate, DirectorV2Context
-    from services.director.v2_shadow import DirectorV2Shadow, DirectorV2ShadowConfig
+    from services.director.v2_shadow import (
+        DirectorV2Shadow, DirectorV2ShadowConfig, director_v2_snapshot_id,
+    )
     try:
         director_v2_status = await feature_manager.get_status("director_v2_shadow")
         director_v2_enabled = director_v2_status in (FeatureStatus.ENABLED, FeatureStatus.DEGRADED)
@@ -1582,49 +1584,191 @@ async def build_stream_runtime(
 
     def _director_v2_context() -> DirectorV2Context:
         now = time.time()
-        world_snapshot = world_model.snapshot()
-        self_snapshot = self_model.snapshot()
-        capability_snapshot = capability_registry.snapshot()
-        transaction_snapshot = action_transactions.snapshot()
+        failures: list[str] = []
+
+        def failed(source: str) -> None:
+            if source not in failures:
+                failures.append(source)
+
+        try:
+            world_snapshot = world_model.snapshot()
+            if not isinstance(world_snapshot.snapshot_id, str) or not world_snapshot.snapshot_id:
+                raise ValueError("world snapshot ID is invalid")
+            world_snapshot_id = world_snapshot.snapshot_id
+        except Exception:
+            world_snapshot = None
+            world_snapshot_id = "world-unavailable"
+            failed("world")
+        try:
+            self_snapshot = self_model.snapshot()
+            if not isinstance(self_snapshot.snapshot_id, str) or not self_snapshot.snapshot_id:
+                raise ValueError("self snapshot ID is invalid")
+            if not isinstance(self_snapshot.degraded, bool):
+                raise ValueError("self degraded flag is invalid")
+            self_snapshot_id = self_snapshot.snapshot_id
+            critical_state = self_snapshot.degraded
+        except Exception:
+            self_snapshot = None
+            self_snapshot_id = "self-unavailable"
+            critical_state = True
+            failed("self")
+        try:
+            capability_snapshot = capability_registry.snapshot()
+            if not isinstance(capability_snapshot, dict):
+                raise ValueError("capability snapshot is invalid")
+            capability_enabled = capability_snapshot.get("enabled")
+            entries = capability_snapshot.get("capabilities")
+            if not isinstance(capability_enabled, bool) or not isinstance(entries, list):
+                raise ValueError("capability snapshot fields are invalid")
+        except Exception:
+            capability_snapshot = None
+            capability_enabled = False
+            entries = []
+            failed("capability")
+        try:
+            transaction_snapshot = action_transactions.snapshot()
+            if not isinstance(transaction_snapshot, dict):
+                raise ValueError("transaction snapshot is invalid")
+            recent_transactions = transaction_snapshot.get("recent")
+            if not isinstance(recent_transactions, list):
+                raise ValueError("transaction recent state is invalid")
+            states: list[str] = []
+            for item in recent_transactions:
+                if not isinstance(item, dict) or not isinstance(item.get("state"), str):
+                    raise ValueError("transaction item is invalid")
+                states.append(item["state"])
+            transaction_conflict = any(
+                state in {"reserved", "generated", "delivering", "delivered"}
+                for state in states
+            )
+        except Exception:
+            transaction_conflict = True
+            failed("transaction")
+        try:
+            emergency_snapshot = emergency_controller.snapshot()
+            emergency = emergency_snapshot.get("latched")
+            if not isinstance(emergency_snapshot, dict) or not isinstance(emergency, bool):
+                raise ValueError("emergency snapshot is invalid")
+        except Exception:
+            emergency = True
+            failed("emergency")
+        try:
+            operator_hold = control_plane.paused
+            if not isinstance(operator_hold, bool):
+                raise ValueError("operator hold is invalid")
+        except Exception:
+            operator_hold = True
+            failed("operator")
+
         candidates: list[DirectorV2Candidate] = []
-        for message in pool.top_cluster(now, max_refs=director_v2_config.max_candidates_per_source):
-            candidates.append(DirectorV2Candidate(
-                source="chat", candidate_id=str(message.msg_id), action_type="READ_CHAT",
-                capability_id="READ_CHAT", score=float(pool.current_score(message, now)),
-                evidence_refs=(f"chat:{message.msg_id}",), is_donation=bool(message.is_super),
-            ))
-        goal_snapshot = goal_manager.snapshot()
-        if goal_snapshot.active is not None:
-            candidates.append(DirectorV2Candidate(
-                source="goal", candidate_id=str(goal_snapshot.active.goal_id), action_type="FOLLOW_UP",
-                capability_id="FOLLOW_UP", score=float(goal_snapshot.active.priority),
-                evidence_refs=(f"goal:{goal_snapshot.active.goal_id}",),
-            ))
-        agent_snapshot = agent_state.snapshot()
-        for thread in agent_snapshot.open_threads[:director_v2_config.max_candidates_per_source]:
-            candidates.append(DirectorV2Candidate(
-                source="thread", candidate_id=str(thread.thread_id), action_type="FOLLOW_UP",
-                capability_id="FOLLOW_UP", score=0.0, evidence_refs=(f"thread:{thread.thread_id}",),
-            ))
-        if any(bool(getattr(world_snapshot, domain, {})) for domain in ("stream", "social", "call", "media", "physical", "game")):
-            candidates.append(DirectorV2Candidate(
-                source="world", candidate_id=world_snapshot.snapshot_id, action_type="WAIT",
-                capability_id="WAIT", evidence_refs=(world_snapshot.snapshot_id,),
-            ))
-        entries = capability_snapshot.get("capabilities", ()) if isinstance(capability_snapshot, dict) else ()
-        available_count = 0
-        for entry in entries:
-            if not isinstance(entry, dict) or not bool((entry.get("availability") or {}).get("available")):
-                continue
-            capability = entry.get("capability") or {}
-            capability_id = str(capability.get("capability_id", "")).strip()
-            if capability_id and capability_id != "WAIT":
-                candidates.append(DirectorV2Candidate(
-                    source="capability", candidate_id=f"cap:{capability_id}",
-                    action_type=str(capability.get("action_type", capability_id)), capability_id=capability_id,
-                    evidence_refs=(f"capability:{capability_id}",),
+        try:
+            chat_candidates: list[DirectorV2Candidate] = []
+            for message in pool.top_cluster(
+                now, max_refs=director_v2_config.max_candidates_per_source,
+            ):
+                if not isinstance(message.msg_id, str) or not isinstance(message.is_super, bool):
+                    raise ValueError("chat candidate is invalid")
+                chat_candidates.append(DirectorV2Candidate(
+                    source="chat", candidate_id=message.msg_id,
+                    action_type="READ_CHAT", capability_id="READ_CHAT",
+                    score=pool.current_score(message, now),
+                    evidence_refs=(f"chat:{message.msg_id}",),
+                    is_donation=message.is_super,
                 ))
-                available_count += 1
+            candidates.extend(chat_candidates)
+        except Exception:
+            failed("chat")
+        try:
+            goal_snapshot = goal_manager.snapshot()
+            if goal_snapshot.active is not None:
+                goal_id = goal_snapshot.active.goal_id
+                if not isinstance(goal_id, str):
+                    raise ValueError("goal ID is invalid")
+                candidates.append(DirectorV2Candidate(
+                    source="goal", candidate_id=goal_id,
+                    action_type="FOLLOW_UP", capability_id="FOLLOW_UP",
+                    score=goal_snapshot.active.priority,
+                    evidence_refs=(f"goal:{goal_id}",),
+                ))
+        except Exception:
+            failed("goal")
+        try:
+            agent_snapshot = agent_state.snapshot()
+            thread_candidates: list[DirectorV2Candidate] = []
+            for thread in agent_snapshot.open_threads[
+                :director_v2_config.max_candidates_per_source
+            ]:
+                if not isinstance(thread.thread_id, str):
+                    raise ValueError("thread ID is invalid")
+                thread_candidates.append(DirectorV2Candidate(
+                    source="thread", candidate_id=thread.thread_id,
+                    action_type="FOLLOW_UP", capability_id="FOLLOW_UP", score=0.0,
+                    evidence_refs=(f"thread:{thread.thread_id}",),
+                ))
+            candidates.extend(thread_candidates)
+        except Exception:
+            failed("thread")
+        if world_snapshot is not None and any(
+            bool(getattr(world_snapshot, domain, {}))
+            for domain in ("stream", "social", "call", "media", "physical", "game")
+        ):
+            candidates.append(DirectorV2Candidate(
+                source="world", candidate_id=world_snapshot_id,
+                action_type="WAIT", capability_id="WAIT",
+                evidence_refs=(world_snapshot_id,),
+            ))
+        capability_identity: list[dict[str, object]] = []
+        capability_candidates: list[DirectorV2Candidate] = []
+        if capability_snapshot is not None:
+            try:
+                for entry in entries:
+                    if not isinstance(entry, dict) or not isinstance(entry.get("mock_only"), bool):
+                        raise ValueError("capability entry is invalid")
+                    availability = entry.get("availability")
+                    capability = entry.get("capability")
+                    if not isinstance(availability, dict) or not isinstance(capability, dict):
+                        raise ValueError("capability entry fields are invalid")
+                    available = availability.get("available")
+                    reason_code = availability.get("reason_code")
+                    capability_id = capability.get("capability_id")
+                    action_type = capability.get("action_type")
+                    if (
+                        not isinstance(available, bool)
+                        or not isinstance(reason_code, str)
+                        or not isinstance(capability_id, str)
+                        or not isinstance(action_type, str)
+                    ):
+                        raise ValueError("capability identity is invalid")
+                    capability_identity.append({
+                        "capability_id": capability_id,
+                        "action_type": action_type,
+                        "available": available,
+                        "reason_code": reason_code,
+                        "mock_only": entry["mock_only"],
+                    })
+                    if available and capability_id != "WAIT":
+                        capability_candidates.append(DirectorV2Candidate(
+                            source="capability", candidate_id=f"cap:{capability_id}",
+                            action_type=action_type, capability_id=capability_id,
+                            evidence_refs=(f"capability:{capability_id}",),
+                        ))
+                capability_identity.sort(key=lambda item: str(item["capability_id"]))
+                capability_candidates.sort(key=lambda item: item.candidate_id)
+                candidates.extend(
+                    capability_candidates[:director_v2_config.max_candidates_per_source]
+                )
+            except Exception:
+                capability_identity = []
+                failed("capability")
+        try:
+            if capability_snapshot is None or "capability" in failures:
+                raise ValueError("capability snapshot is unavailable")
+            capability_snapshot_id = director_v2_snapshot_id(
+                "capabilities", capability_identity,
+            )
+        except Exception:
+            capability_snapshot_id = "capabilities-unavailable"
+            failed("capability")
         try:
             if autonomy.urge.should_speak_now():
                 candidates.append(DirectorV2Candidate(
@@ -1632,18 +1776,19 @@ async def build_stream_runtime(
                     capability_id="SELF_TALK", evidence_refs=("proactive:urge",),
                 ))
         except Exception:
-            pass
-        recent_transactions = transaction_snapshot.get("recent", ()) if isinstance(transaction_snapshot, dict) else ()
-        transaction_conflict = any(
-            isinstance(item, dict) and str(item.get("state", "")) in {"reserved", "generated", "delivering"}
-            for item in recent_transactions
-        )
+            failed("proactive")
         return DirectorV2Context(
-            created_at=now, world_snapshot_id=world_snapshot.snapshot_id,
-            self_snapshot_id=self_snapshot.snapshot_id,
-            capability_snapshot_id=f"capabilities-{available_count}",
-            candidates=tuple(candidates), transaction_conflict=transaction_conflict,
-            critical_state=bool(self_snapshot.degraded),
+            created_at=now,
+            world_snapshot_id=world_snapshot_id,
+            self_snapshot_id=self_snapshot_id,
+            capability_snapshot_id=capability_snapshot_id,
+            candidates=tuple(candidates),
+            emergency=emergency,
+            operator_hold=operator_hold,
+            permission_hold=not capability_enabled,
+            transaction_conflict=transaction_conflict,
+            critical_state=critical_state,
+            source_failures=tuple(sorted(failures)),
         )
 
     director_v2_shadow = DirectorV2Shadow(

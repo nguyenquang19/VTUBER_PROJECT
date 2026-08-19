@@ -67,6 +67,7 @@ Các cột dưới đây độc lập với nhau. “Có mã” không thay th�
 | Self Model | Có | Shadow read-only | Unit, negative-path, impacted và full offline regression | Không |
 | Capability/permission/health registry | Có | Shadow read-only | Unit, negative-path, impacted và full offline regression | Không |
 | Action transaction | Có | Mock closed loop strict; không nối Director V1 | Unit, negative-path, impacted, replay và full offline regression | Không cho external action |
+| Director V2 shadow | Có | Proposal/log read-only strict; không đổi live decision | Unit, negative-path, impacted, replay và full offline regression | Không |
 | Director V2 takeover | Có | Có nhánh gọi nhưng quyết định legacy vẫn thắng | Unit/integration | Không |
 | Speech action adapter | Có | Chưa compose đầy đủ | Unit | Không |
 | Avatar action adapter | Có | Chưa compose đầy đủ | Unit | Không |
@@ -1113,6 +1114,83 @@ Targeted strict suite đạt 35 test, impacted regression đạt 124 test, full 
 test. Replay success chạy lặp đều cho `verified=true`, World `connected=true`, transaction `committed`;
 replay failure chạy lặp đều cho `mock_failed`, World giữ `connected=false`, transaction `released`.
 Feature vẫn mock-only, không nối Director V1, speech transaction hoặc external executor production.
+
+#### 17.2.6. Closure contract Director V2 shadow Phase 6
+
+Phase 6 chỉ đọc các projection/source đã có để tạo `DirectorV2Proposal` và structured shadow log.
+`DirectorDecision` hiện hành tiếp tục là object duy nhất đi vào action transaction, LLM, TTS và delivery.
+Phase này không bật takeover, không execute proposal, không reserve action và không tiêu thụ/mutate chat,
+thread, goal, World, proactive material hoặc capability state. Implementation Phase 7 hiện có phải tiếp
+tục disabled và chỉ được dùng làm negative boundary chứng minh proposal Phase 6 không đổi live behavior.
+
+Hard arbitration precedence bắt buộc là emergency → operator hold → safety hold → permission hold →
+transaction conflict → critical state → donation theo policy hiện hành. Hold phải là boolean strict;
+không dùng truthiness. Emergency/operator state có sẵn trong composition root phải được phản ánh vào
+context; source bắt buộc exception/malformed phải fail closed thành proposal `WAIT` có reason rõ ràng,
+không được bịa trạng thái “không hold”. Transaction `reserved`, `generated`, `delivering` và `delivered`
+đều là active conflict; chỉ `committed`/`released` là terminal.
+
+Gate Phase 6 yêu cầu:
+
+- `DirectorV2Candidate`, `DirectorV2Context` và `DirectorV2Proposal` phải immutable và strict. Source,
+  ID, action, capability, snapshot ID và reason phải là chuỗi không rỗng; tuple phải đúng kiểu và chứa
+  đúng contract type; score/timestamp/weight phải hữu hạn; hold/donation phải là `bool` thật. Không nhận
+  `None`, số, list, mapping mutable, `NaN`/infinity hoặc stringify/coercion để cho qua.
+- `DirectorV2ShadowConfig` phải deep-immutable. Tick là số hữu hạn dương; capacity/label bound là `int`
+  thật dương; weights hữu hạn; `source_weights` và `source_priority` phải chứa đúng một lần toàn bộ
+  inventory `chat`, `thread`, `goal`, `world`, `capability`, `proactive`, `wait`. Không nhận chuỗi số,
+  `bool`, float số nguyên, duplicate hoặc source lạ.
+- Candidate generation phải validate rồi canonical-sort trước hard donation selection, giới hạn từng
+  source bằng YAML và luôn tạo đúng một fallback `WAIT/WAIT`. Duplicate source/candidate identity,
+  label vượt bound và malformed candidate phải fail closed/deterministic, không silently truncate hoặc
+  phụ thuộc thứ tự input.
+- Donation priority chỉ áp dụng cho candidate chat/donation hợp lệ, có evidence và action/capability
+  đúng policy hội thoại hiện hành. Nhiều donation candidate phải dùng cùng scoring/tie-break canonical;
+  đảo thứ tự input không được đổi proposal.
+- Soft score bằng candidate score cộng đúng một lần source weight. Sort theo score giảm dần, source
+  priority rồi identity canonical; mọi score/weight phải hữu hạn. Cùng context phải tạo cùng proposal,
+  reason, evidence và proposal ID trên replay.
+- `WAIT` chỉ hợp lệ khi action/capability đều là `WAIT`. Action khác phải có declaration tồn tại,
+  `candidate.action_type` trùng declaration action và availability trả object typed với boolean strict.
+  Missing/malformed/exception, permission denied, unhealthy dependency, precondition hoặc transaction
+  conflict đều fallback `WAIT` với reason fail-closed; không nhận chuỗi truthy làm `available=true`.
+- Composition root phải tạo snapshot ID từ nội dung projection ổn định, không dùng riêng số lượng
+  capability. Mỗi source candidate bị bound trước khi dựng context; capability chỉ vào context khi
+  availability strict true. World source chỉ dùng fact/evidence đã được World Model chấp nhận; proactive
+  source chỉ đọc metadata đã có, không reserve/consume material.
+- Structured log, evidence, reason, candidate collection và dashboard snapshot đều bounded. Lần lặp
+  cùng proposal vẫn phải có outcome/metric quan sát được mà không tăng state vô hạn. Metrics/dashboard
+  failure không được đổi proposal, làm mất record đã xác định hoặc giết background task.
+- Feature disabled không tạo background task/record và chỉ trả safe `WAIT` không side effect. Lifecycle
+  start/stop/toggle phải idempotent; health phải degraded khi disabled và không báo healthy nếu worker
+  đã chết ngoài ý muốn.
+- Dashboard chỉ đọc proposal/log/metrics. Director V1 phải trả exact legacy decision kể cả shadow
+  context/proposal/metric lỗi; Phase 6 không được xuất hiện trong production prompt hoặc gọi action mock,
+  external registry, transaction reserve, LLM hay speech delivery.
+
+Gate kiểm thử gồm strict/deep-immutable contracts và config, hard precedence, emergency/operator/source
+failure, delivered transaction conflict, donation evidence/order, per-source/total bounds, duplicate,
+finite score/weight, stable replay/ID, action-capability mismatch, malformed availability, fallback WAIT,
+retention/metrics failure isolation, lifecycle/worker health, dashboard read-only và negative boundary với
+Director V1, prompt, transaction, mock/external executor và Phase 7 disabled.
+
+**Trạng thái Phase 6:** đạt closure gate ngày 20/08/2026. Candidate/context/proposal và config đã strict,
+finite và deep-immutable; không còn stringify/coercion hoặc mutable weight mapping. Candidate được
+validate, bound và canonical-sort trước donation/scoring; donation thiếu evidence bị từ chối và đảo thứ
+tự input không đổi proposal. Validator đối chiếu declaration action với capability và chỉ nhận
+`CapabilityAvailability` typed. Duplicate, overflow, label/evidence quá bound, source/malformed
+availability và metrics failure đều fail closed/fail isolated thành `WAIT` có reason quan sát được.
+Structured log giữ từng lần proposal trong capacity, worker health phát hiện task chết và lifecycle
+disabled không gọi context provider.
+
+Composition context đã phản ánh emergency latch, operator pause, Self degraded và transaction active kể
+cả `delivered`; source exception/malformed tạo `source_failures` thay vì bịa state. Capability candidate
+chỉ nhận strict `available=true`, bị bound trước context và snapshot ID là hash nội dung ổn định thay vì
+available count. Targeted strict suite đạt 22 test, impacted Director/runtime regression đạt 210 test và
+full offline regression đạt 1978 test. Replay với candidate order đảo nhau tạo cùng proposal ID/action;
+replay transaction hold tạo cùng `WAIT`/reason. Shadow/selector cùng lỗi vẫn trả exact legacy
+`READ_CHAT` và delivery cũ. Phase 7 takeover tiếp tục disabled; Phase 6 không execute/reserve action,
+không đi vào prompt và không nắm live behavior.
 
 ### 17.3. Chuỗi mã để lần theo một lượt
 

@@ -208,6 +208,23 @@ def _make(now=0.0, autonomy=None, agent_state=None, goal_manager=None, **dir_ove
 
 @pytest.mark.asyncio
 class TestDirectorLoop:
+    async def test_shadow_failure_cannot_change_legacy_decision(self) -> None:
+        class BrokenShadow:
+            def propose_current(self) -> None:
+                raise RuntimeError("shadow unavailable")
+
+        class BrokenSelector:
+            def evaluate(self, **_kwargs: object) -> None:
+                raise RuntimeError("selector unavailable")
+
+        loop, _director, pool, _pulse, runner, clock = _make()
+        loop.configure_director_v2_takeover(BrokenShadow(), BrokenSelector())
+        pool.add("m1", "Mai ơi chơi gì", now=0.0, kind="mention")
+        clock["t"] = 1.0
+
+        assert await loop.tick_once() == DirectorAction.READ_CHAT
+        assert runner.read_calls == ["Mai ơi chơi gì"]
+
     async def test_targeted_read_focuses_only_its_delivered_thread(self) -> None:
         now = datetime(2026, 8, 14, tzinfo=timezone.utc)
         thread = OpenThread(
