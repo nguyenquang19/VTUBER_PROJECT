@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable, Mapping
@@ -12,22 +13,27 @@ from interfaces.compatibility import SelfSnapshot
 from interfaces.self_model import SelfModelService
 
 
-_ACTIVE_TRANSACTION_STATES = frozenset({"reserved", "generated", "delivering"})
-_DEGRADED_HEALTH_STATES = frozenset({"degraded", "unhealthy"})
+_ACTIVE_TRANSACTION_STATES = frozenset({"reserved", "generated", "delivering", "delivered"})
+_TRANSACTION_STATES = _ACTIVE_TRANSACTION_STATES | frozenset({"committed", "released"})
 
 
 @dataclass(frozen=True)
 class SelfModelConfig:
     max_recent_action_ids: int
 
+    def __post_init__(self) -> None:
+        if (
+            isinstance(self.max_recent_action_ids, bool)
+            or not isinstance(self.max_recent_action_ids, int)
+            or self.max_recent_action_ids <= 0
+        ):
+            raise ValueError("self_model.max_recent_action_ids must be a positive integer")
+
     @classmethod
     def from_loader(cls, loader: Any) -> "SelfModelConfig":
-        config = cls(max_recent_action_ids=int(loader.get(
-            "agent_state", "self_model.max_recent_action_ids", 0,
-        )))
-        if config.max_recent_action_ids <= 0:
-            raise ValueError("self_model.max_recent_action_ids must be positive")
-        return config
+        return cls(max_recent_action_ids=loader.get(
+            "agent_state", "self_model.max_recent_action_ids", None,
+        ))
 
 
 class SelfModelProjection(SelfModelService):
@@ -107,42 +113,40 @@ class SelfModelProjection(SelfModelService):
         health_degraded, failed = _read_health(self._health_snapshot_provider)
         source_failed = source_failed or failed
 
-        transactions = _recent_transactions(transaction_snapshot)
-        active = next((item for item in transactions if str(item.get("state")) in _ACTIVE_TRANSACTION_STATES), None)
+        current_topic, focused_thread_id, failed = _agent_values(agent_snapshot)
+        source_failed = source_failed or failed
+        active_goal_id, failed = _goal_value(goal_snapshot)
+        source_failed = source_failed or failed
+        transactions, failed = _recent_transactions(transaction_snapshot)
+        source_failed = source_failed or failed
+        active = next((item for item in transactions if item["state"] in _ACTIVE_TRANSACTION_STATES), None)
         action_ids = tuple(
-            str(item["transaction_id"])
-            for item in transactions[:self._config.max_recent_action_ids]
-            if str(item.get("transaction_id") or "").strip()
+            item["transaction_id"] for item in transactions[:self._config.max_recent_action_ids]
         )
-        topic = getattr(agent_snapshot, "current_topic", None)
-        threads = tuple(getattr(agent_snapshot, "open_threads", ()) or ())
-        focused = max(
-            threads,
-            key=lambda item: (getattr(item, "updated_at", now), str(getattr(item, "thread_id", ""))),
-            default=None,
-        )
-        active_goal = getattr(goal_snapshot, "active", None)
+        current_action_id = active["transaction_id"] if active is not None else None
+        degraded = bool(source_failed or avatar_degraded or health_degraded)
+        busy = bool(speaking or active is not None)
         snapshot = SelfSnapshot(
             snapshot_id=_snapshot_id({
                 "speaking": speaking,
-                "busy": bool(speaking or active is not None),
-                "degraded": bool(source_failed or avatar_degraded or health_degraded),
-                "current_action_id": _text(active, "transaction_id"),
-                "active_goal_id": _text(active_goal, "goal_id"),
-                "focused_thread_id": _text(focused, "thread_id"),
-                "current_topic": _text(topic, "summary"),
+                "busy": busy,
+                "degraded": degraded,
+                "current_action_id": current_action_id,
+                "active_goal_id": active_goal_id,
+                "focused_thread_id": focused_thread_id,
+                "current_topic": current_topic,
                 "avatar_state": avatar_state,
                 "recent_action_ids": action_ids,
             }),
             created_at=now,
             speaking=speaking,
-            busy=bool(speaking or active is not None),
-            degraded=bool(source_failed or avatar_degraded or health_degraded),
-            current_action_id=_text(active, "transaction_id"),
+            busy=busy,
+            degraded=degraded,
+            current_action_id=current_action_id,
             current_intention_id=None,
-            active_goal_id=_text(active_goal, "goal_id"),
-            focused_thread_id=_text(focused, "thread_id"),
-            current_topic=_text(topic, "summary"),
+            active_goal_id=active_goal_id,
+            focused_thread_id=focused_thread_id,
+            current_topic=current_topic,
             attention_target=None,
             avatar_state=avatar_state,
             recent_action_ids=action_ids,
@@ -159,7 +163,12 @@ class SelfModelProjection(SelfModelService):
     def _record(self, outcome: str, snapshot: SelfSnapshot) -> None:
         self._snapshots[outcome] = self._snapshots.get(outcome, 0) + 1
         if self._metrics is not None and hasattr(self._metrics, "record_self_model_snapshot"):
-            self._metrics.record_self_model_snapshot(outcome, snapshot.degraded, len(snapshot.recent_action_ids))
+            try:
+                self._metrics.record_self_model_snapshot(
+                    outcome, snapshot.degraded, len(snapshot.recent_action_ids),
+                )
+            except Exception:
+                pass
 
 
 def _empty_snapshot(now: datetime, *, degraded: bool) -> SelfSnapshot:
@@ -182,7 +191,7 @@ def _empty_snapshot(now: datetime, *, degraded: bool) -> SelfSnapshot:
 
 def _read_snapshot(source: Any) -> tuple[Any, bool]:
     if source is None or not hasattr(source, "snapshot"):
-        return None, False
+        return None, True
     try:
         return source.snapshot(), False
     except Exception:
@@ -191,20 +200,27 @@ def _read_snapshot(source: Any) -> tuple[Any, bool]:
 
 def _read_speaking(player: Any) -> tuple[bool, bool]:
     if player is None:
-        return False, False
+        return False, True
     try:
-        return bool(player.is_playing), False
+        value = player.is_playing
+        if not isinstance(value, bool):
+            return False, True
+        return value, False
     except Exception:
         return False, True
 
 
 def _read_avatar(animation: Any) -> tuple[dict[str, bool], bool, bool]:
     if animation is None:
-        return {}, False, False
+        return {}, True, True
     try:
-        enabled = bool(getattr(animation, "enabled", False))
-        metrics = animation.get_metrics() if hasattr(animation, "get_metrics") else {}
-        connected = bool(metrics.get("animation_connected", False))
+        enabled = getattr(animation, "enabled")
+        metrics = animation.get_metrics()
+        if not isinstance(enabled, bool) or not isinstance(metrics, Mapping):
+            return {}, True, True
+        connected = metrics.get("animation_connected")
+        if not isinstance(connected, bool):
+            return {}, True, True
         return {"enabled": enabled, "connected": connected}, bool(enabled and not connected), False
     except Exception:
         return {}, True, True
@@ -212,48 +228,129 @@ def _read_avatar(animation: Any) -> tuple[dict[str, bool], bool, bool]:
 
 def _read_health(provider: Callable[[], Mapping[str, Any] | None] | None) -> tuple[bool, bool]:
     if provider is None:
-        return False, False
+        return True, True
     try:
-        snapshot = provider() or {}
-        targets = snapshot.get("targets", {}) if isinstance(snapshot, Mapping) else {}
+        snapshot = provider()
+        if not isinstance(snapshot, Mapping):
+            return True, True
+        targets = snapshot.get("targets")
         if not isinstance(targets, Mapping):
-            return False, True
-        return any(
-            str(item.get("health", "")).lower() in _DEGRADED_HEALTH_STATES
-            for item in targets.values() if isinstance(item, Mapping)
-        ), False
+            return True, True
+        degraded = not targets
+        malformed = False
+        for item in targets.values():
+            if not isinstance(item, Mapping):
+                malformed = True
+                continue
+            health = item.get("health")
+            if not isinstance(health, str) or not health.strip():
+                malformed = True
+                continue
+            if health.strip().lower() != "healthy":
+                degraded = True
+        return bool(degraded or malformed), malformed
     except Exception:
-        return False, True
+        return True, True
 
 
-def _recent_transactions(snapshot: Any) -> tuple[Mapping[str, Any], ...]:
+def _agent_values(snapshot: Any) -> tuple[str | None, str | None, bool]:
+    topic, topic_present = _member(snapshot, "current_topic")
+    threads, threads_present = _member(snapshot, "open_threads")
+    if not topic_present or not threads_present or not isinstance(threads, (list, tuple)):
+        return None, None, True
+    current_topic, failed = _optional_member_text(topic, "summary")
+    focused: tuple[float, str] | None = None
+    for thread in threads:
+        thread_id, thread_id_valid = _required_member_text(thread, "thread_id")
+        updated_at, updated_present = _member(thread, "updated_at")
+        if not thread_id_valid or not updated_present or not isinstance(updated_at, datetime):
+            failed = True
+            continue
+        try:
+            timestamp = _utc(updated_at).timestamp()
+        except (TypeError, ValueError):
+            failed = True
+            continue
+        candidate = (timestamp, thread_id)
+        if focused is None or candidate > focused:
+            focused = candidate
+    return current_topic, focused[1] if focused is not None else None, failed
+
+
+def _goal_value(snapshot: Any) -> tuple[str | None, bool]:
+    active, active_present = _member(snapshot, "active")
+    if not active_present:
+        return None, True
+    return _optional_member_text(active, "goal_id")
+
+
+def _recent_transactions(snapshot: Any) -> tuple[tuple[dict[str, Any], ...], bool]:
     if not isinstance(snapshot, Mapping):
-        return ()
-    recent = snapshot.get("recent", ())
+        return (), True
+    recent = snapshot.get("recent")
     if not isinstance(recent, (list, tuple)):
-        return ()
-    values = [item for item in recent if isinstance(item, Mapping)]
+        return (), True
+    values: list[dict[str, Any]] = []
+    failed = False
+    for item in recent:
+        if not isinstance(item, Mapping):
+            failed = True
+            continue
+        transaction_id = item.get("transaction_id")
+        state = item.get("state")
+        updated_at = item.get("updated_at")
+        if (
+            not isinstance(transaction_id, str)
+            or not transaction_id.strip()
+            or not isinstance(state, str)
+            or state not in _TRANSACTION_STATES
+            or isinstance(updated_at, bool)
+            or not isinstance(updated_at, (int, float))
+            or not math.isfinite(float(updated_at))
+        ):
+            failed = True
+            continue
+        values.append({
+            "transaction_id": transaction_id.strip(),
+            "state": state,
+            "updated_at": float(updated_at),
+        })
     values.sort(
-        key=lambda item: (_timestamp(item.get("updated_at")), str(item.get("transaction_id", ""))),
+        key=lambda item: (item["updated_at"], item["transaction_id"]),
         reverse=True,
     )
-    return tuple(values)
+    deduplicated: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in values:
+        transaction_id = item["transaction_id"]
+        if transaction_id in seen:
+            failed = True
+            continue
+        seen.add(transaction_id)
+        deduplicated.append(item)
+    return tuple(deduplicated), failed
 
 
-def _timestamp(value: Any) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return 0.0
-
-
-def _text(value: Any, name: str) -> str | None:
+def _member(value: Any, name: str) -> tuple[Any, bool]:
     if isinstance(value, Mapping):
-        raw = value.get(name)
-    else:
-        raw = getattr(value, name, None)
-    text = str(raw or "").strip()
-    return text or None
+        return value.get(name), name in value
+    if value is None or not hasattr(value, name):
+        return None, False
+    return getattr(value, name), True
+
+
+def _required_member_text(value: Any, name: str) -> tuple[str, bool]:
+    raw, present = _member(value, name)
+    if not present or not isinstance(raw, str) or not raw.strip():
+        return "", False
+    return raw.strip(), True
+
+
+def _optional_member_text(value: Any, name: str) -> tuple[str | None, bool]:
+    if value is None:
+        return None, False
+    text, valid = _required_member_text(value, name)
+    return (text if valid else None), not valid
 
 
 def _snapshot_id(value: Mapping[str, Any]) -> str:

@@ -918,7 +918,7 @@ async def build_stream_runtime(
         loader, goal_provider=goal_manager.snapshot, metrics=metrics,
         repair_policy=repair_policy, relationship_context=relationship_manager,
         world_snapshot_provider=world_model.snapshot,
-        self_snapshot_provider=lambda: self_model,
+        self_snapshot_provider=lambda: self_model.snapshot(),
         capability_snapshot_provider=lambda: capability_registry.snapshot(),
         memory_provider=lambda: memory,
         selector_enabled=context_selector_enabled,

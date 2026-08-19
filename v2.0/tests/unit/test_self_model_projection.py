@@ -31,6 +31,14 @@ class BrokenSource:
         raise RuntimeError("unavailable")
 
 
+class LoaderValue:
+    def __init__(self, value: object) -> None:
+        self.value = value
+
+    def get(self, *_args: object) -> object:
+        return self.value
+
+
 class Player:
     def __init__(self, is_playing: bool = False) -> None:
         self.is_playing = is_playing
@@ -110,13 +118,22 @@ def test_self_model_reflects_source_changes_and_bounds_recent_actions() -> None:
     ]})
     model, _ = _model(agent_state=agent, action_transactions=transactions, audio_player=Player(True))
 
-    snapshot = model.snapshot()
-    assert snapshot.speaking is True
-    assert snapshot.busy is True
-    assert snapshot.current_action_id == "act-3"
-    assert snapshot.current_topic == "games"
-    assert snapshot.focused_thread_id == "thread-3"
-    assert snapshot.recent_action_ids == ("act-3", "act-2")
+    first = model.snapshot()
+    assert first.speaking is True
+    assert first.busy is True
+    assert first.current_action_id == "act-3"
+    assert first.current_topic == "games"
+    assert first.focused_thread_id == "thread-3"
+    assert first.recent_action_ids == ("act-3", "act-2")
+
+    agent.value = SimpleNamespace(
+        current_topic=SimpleNamespace(summary="drawing"),
+        open_threads=(SimpleNamespace(thread_id="thread-4", updated_at=NOW),),
+    )
+    second = model.snapshot()
+    assert second.current_topic == "drawing"
+    assert second.focused_thread_id == "thread-4"
+    assert second.snapshot_id != first.snapshot_id
 
 
 def test_self_model_degrades_without_fabricating_state_and_feature_disable_is_explicit() -> None:
@@ -152,7 +169,69 @@ def test_self_model_yaml_feature_dashboard_and_director_boundary() -> None:
     assert dashboard["self"]["metrics"]["self_model_enabled"] is True
 
     source = (root / "orchestrator" / "stream_runtime.py").read_text(encoding="utf-8")
+    assert "self_snapshot_provider=lambda: self_model.snapshot()" in source
     director_call = source[source.index("director_loop = DirectorLoop("):source.index("# ─── M9 operator control plane")]
     assert "self_model=self_model" not in director_call
     template = (root / "dashboard" / "templates" / "operator_v2.html").read_text(encoding="utf-8")
     assert 'id="system-self"' in template
+
+
+@pytest.mark.parametrize("value", [None, True, False, 0, -1, 2.5, "8"])
+def test_self_model_config_rejects_missing_coerced_and_non_positive_values(value: object) -> None:
+    with pytest.raises(ValueError, match="positive integer"):
+        SelfModelConfig.from_loader(LoaderValue(value))
+
+
+def test_self_model_treats_delivered_as_active_until_commit() -> None:
+    model, _ = _model(action_transactions=SnapshotSource({"recent": [
+        {"transaction_id": "act-delivered", "state": "delivered", "updated_at": 2.0},
+        {"transaction_id": "act-committed", "state": "committed", "updated_at": 1.0},
+    ]}))
+
+    snapshot = model.snapshot()
+    assert snapshot.current_action_id == "act-delivered"
+    assert snapshot.busy is True
+    assert snapshot.degraded is False
+
+
+@pytest.mark.parametrize(
+    ("override", "value"),
+    [
+        ("agent_state", None),
+        ("agent_state", SnapshotSource({})),
+        ("goal_manager", SnapshotSource({})),
+        ("action_transactions", SnapshotSource({"recent": "invalid"})),
+        ("audio_player", None),
+        ("audio_player", SimpleNamespace(is_playing="false")),
+        ("animation", None),
+        ("health_snapshot_provider", None),
+    ],
+)
+def test_self_model_missing_or_malformed_authoritative_source_degrades(
+    override: str, value: object,
+) -> None:
+    model, _ = _model(**{override: value})
+
+    assert model.snapshot().degraded is True
+
+
+@pytest.mark.parametrize("health", ["unknown", "stopped", "degraded", "unhealthy"])
+def test_self_model_non_healthy_runtime_target_degrades(health: str) -> None:
+    model, _ = _model(
+        health_snapshot_provider=lambda: {"targets": {"runtime": {"health": health}}},
+    )
+
+    assert model.snapshot().degraded is True
+
+
+def test_self_model_deduplicates_recent_actions_and_marks_malformed_source() -> None:
+    model, _ = _model(action_transactions=SnapshotSource({"recent": [
+        {"transaction_id": "act-same", "state": "delivered", "updated_at": 3.0},
+        {"transaction_id": "act-same", "state": "generated", "updated_at": 2.0},
+        {"transaction_id": "act-next", "state": "committed", "updated_at": 1.0},
+    ]}))
+
+    snapshot = model.snapshot()
+    assert snapshot.current_action_id == "act-same"
+    assert snapshot.recent_action_ids == ("act-same", "act-next")
+    assert snapshot.degraded is True

@@ -44,6 +44,7 @@ Trạng thái phát hành khách quan:
 | Đường hội thoại kế thừa V1 | Có implementation và hồi quy rộng; chưa có live evidence mới trong đợt rà soát này |
 | Core compatibility contracts Phase 1 | Đã đóng gate: strict validation, immutable value, UTC/serialization, bounded compatibility mapping; không đổi Director production |
 | World Model shadow Phase 2 | Đã đóng gate: strict reducer/config, TTL, provenance, authority, uncertainty, bounds, metrics và dashboard read-only; không đổi Director production |
+| Self Model projection Phase 3 | Đã đóng gate: strict projection/config, authoritative-source degradation, transaction lifecycle, bounded action history, metrics và dashboard read-only; không đổi Director production |
 | Nền nhận thức/trạng thái V2 | Có mã, chủ yếu ở shadow hoặc từng thành phần riêng |
 | Director V2 takeover | Chưa tiếp quản thật; nhánh hiện trả quyết định legacy |
 | Action adapters | Có mã và test đơn vị; chưa được compose đầy đủ |
@@ -62,7 +63,7 @@ Các cột dưới đây độc lập với nhau. “Có mã” không thay th�
 |---|---|---|---|---|
 | Hội thoại V1: input → Director → LLM → TTS | Có | Có | Unit/integration/offline regression | Có, product `1.4.3` |
 | World Model | Có | Shadow read-only | Unit, negative-path và full offline regression | Không |
-| Self Model | Có | Shadow/partial | Unit | Không |
+| Self Model | Có | Shadow read-only | Unit, negative-path, impacted và full offline regression | Không |
 | Capability/permission/health registry | Có | Shadow/partial | Unit/integration | Không |
 | Action transaction | Có | Mock/simulation | Unit/integration | Không cho external action |
 | Director V2 takeover | Có | Có nhánh gọi nhưng quyết định legacy vẫn thắng | Unit/integration | Không |
@@ -942,6 +943,48 @@ Gate Phase 2 yêu cầu:
 path/evidence/config không coercion; toàn payload được bound. Targeted consumer tests và full offline
 regression đạt; World Model vẫn chỉ shadow/read-only và không đi vào Director V1 hoặc production prompt.
 
+#### 17.2.3. Closure contract Self Model projection Phase 3
+
+Self Model là projection read-only tức thời, không phải domain store. Mỗi lần `snapshot()` phải đọc
+lại nguồn authoritative hiện có; service không được sao chép hoặc sở hữu Mood, Goal, Thread,
+transaction, TTS hay animation mutable thứ hai.
+
+Nguồn và quy tắc projection:
+
+- `AgentStateSnapshot` sở hữu current topic và danh sách open thread; focused thread là thread có
+  `updated_at` mới nhất, tie-break bằng `thread_id` để kết quả deterministic.
+- `GoalManager.snapshot()` sở hữu active goal. `ActionTransactionService.snapshot()` sở hữu vòng
+  đời action; transaction mới nhất trong `reserved/generated/delivering/delivered` là current action
+  và làm `busy=true`. Chỉ `committed/released` là terminal.
+- `AudioPlayer.is_playing` là nguồn duy nhất của `speaking`; `busy=true` khi đang phát audio hoặc có
+  transaction chưa terminal. Animation projection chỉ phản ánh feature enabled và adapter connected.
+- Health projection đọc target của runtime/executor. Source exception, source bắt buộc bị thiếu,
+  shape không hợp lệ, target `unknown/stopped/degraded/unhealthy`, hoặc animation đã bật nhưng mất
+  kết nối đều phải cho `degraded=true`; không được bịa state thay thế.
+- `recent_action_ids` sắp theo `updated_at` rồi `transaction_id`, mới nhất trước, không
+  trùng lặp và bị giới hạn bởi `agent_state.yaml::self_model.max_recent_action_ids`.
+  Threshold này phải là `int` thật dương; không nhận `bool`, chuỗi hay float qua coercion.
+- `SelfSnapshot` và mọi mapping lồng nhau phải immutable. `snapshot_id` là hash nội dung ổn định,
+  không phụ thuộc `created_at`: source state không đổi thì ID không đổi; source state thay đổi
+  thì ID phải phản ánh thay đổi.
+- Khi feature tắt, snapshot rỗng có ID cố định và `degraded=true`. Dashboard chỉ đọc snapshot
+  và metric; lỗi projection phải fail isolated khỏi dashboard và đường hội thoại V1.
+- `self_model_projection` do `FeatureManager` sở hữu và có health/metrics bounded. Trong Phase 3,
+  `SelfSnapshot` không được đi vào Director V1 hoặc production prompt. Consumer của phase sau
+  chỉ được đọc snapshot qua feature gate shadow/disabled của chính nó.
+
+Gate kiểm thử Phase 3 gồm contract/immutability, source reflection, missing/malformed/exception
+isolation, transaction lifecycle, TTS/animation/health degradation, recent-action bound, stable ID,
+FeatureManager, metrics, dashboard snapshot và negative boundary với Director V1/production prompt.
+
+**Trạng thái Phase 3:** đạt closure gate ngày 19/08/2026. Config không còn coercion;
+transaction `delivered` tiếp tục là active cho tới commit/release; source bắt buộc thiếu, sai
+shape hoặc exception và health không `healthy` đều fail isolated thành projection degraded;
+recent action được sort, khử trùng và bound deterministic. ContextSelector đã đọc đúng
+`self_model.snapshot`; feature này vẫn tắt. Targeted/impacted regression đạt 88 test và full
+offline regression đạt 1927 test; Self Model vẫn shadow/read-only, không đi vào Director V1
+hoặc production prompt.
+
 ### 17.3. Chuỗi mã để lần theo một lượt
 
 ```mermaid
@@ -1054,8 +1097,8 @@ Một chức năng chỉ thực sự hoạt động khi đã được khai báo,
 - **Đang tắt/tùy chọn:** `input_voice`, `input_emotion_voice`, `filter_ai`, `tts_emotion_aware`,
   `embodiment_policy`, `animation_micro`, `speech_action_adapter`, `avatar_action_adapter`,
   `memory_semantic`, `memory_hierarchical`, `qc_persona`, `agent_context`, `context_selector`,
-  `goal_proposals`, `thread_extraction`, `human_like_calibration`, `release_gate_evaluation`,
-  `speculative_decoding`, `turn_taking_predictor`, `director_v2_takeover`.
+  `goal_proposals`, `thread_extraction`, `speculative_decoding`, `turn_taking_predictor`,
+  `director_v2_takeover`.
 
 Trong đó `speech_action_adapter` và `avatar_action_adapter` là cờ có implementation nhưng chưa được ghép
 vào composition root; `director_v2_takeover` chưa tạo takeover thật. Trạng thái bật/tắt không được dùng để
