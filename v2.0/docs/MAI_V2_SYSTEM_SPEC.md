@@ -45,6 +45,7 @@ Trạng thái phát hành khách quan:
 | Core compatibility contracts Phase 1 | Đã đóng gate: strict validation, immutable value, UTC/serialization, bounded compatibility mapping; không đổi Director production |
 | World Model shadow Phase 2 | Đã đóng gate: strict reducer/config, TTL, provenance, authority, uncertainty, bounds, metrics và dashboard read-only; không đổi Director production |
 | Self Model projection Phase 3 | Đã đóng gate: strict projection/config, authoritative-source degradation, transaction lifecycle, bounded action history, metrics và dashboard read-only; không đổi Director production |
+| Capability registry Phase 4 | Đã đóng gate: strict immutable declaration/config, permission, executor/verifier health, fail-closed transaction/precondition, bounded registration, metrics và dashboard read-only; không đổi Director production |
 | Nền nhận thức/trạng thái V2 | Có mã, chủ yếu ở shadow hoặc từng thành phần riêng |
 | Director V2 takeover | Chưa tiếp quản thật; nhánh hiện trả quyết định legacy |
 | Action adapters | Có mã và test đơn vị; chưa được compose đầy đủ |
@@ -64,7 +65,7 @@ Các cột dưới đây độc lập với nhau. “Có mã” không thay th�
 | Hội thoại V1: input → Director → LLM → TTS | Có | Có | Unit/integration/offline regression | Có, product `1.4.3` |
 | World Model | Có | Shadow read-only | Unit, negative-path và full offline regression | Không |
 | Self Model | Có | Shadow read-only | Unit, negative-path, impacted và full offline regression | Không |
-| Capability/permission/health registry | Có | Shadow/partial | Unit/integration | Không |
+| Capability/permission/health registry | Có | Shadow read-only | Unit, negative-path, impacted và full offline regression | Không |
 | Action transaction | Có | Mock/simulation | Unit/integration | Không cho external action |
 | Director V2 takeover | Có | Có nhánh gọi nhưng quyết định legacy vẫn thắng | Unit/integration | Không |
 | Speech action adapter | Có | Chưa compose đầy đủ | Unit | Không |
@@ -984,6 +985,64 @@ recent action được sort, khử trùng và bound deterministic. ContextSelect
 `self_model.snapshot`; feature này vẫn tắt. Targeted/impacted regression đạt 88 test và full
 offline regression đạt 1927 test; Self Model vẫn shadow/read-only, không đi vào Director V1
 hoặc production prompt.
+
+#### 17.2.4. Closure contract Capability, permission và health registry Phase 4
+
+Capability Registry là projection khai báo read-only, deterministic và fail-closed. Registry chỉ trả
+lời capability nào có thể làm ngay và lý do AVAILABLE/BLOCKED; không gọi LLM, không trả
+callable thực thi và không tự reserve/execute/verify/commit action.
+
+Inventory Phase 4 gồm sáu declaration nội bộ `SPEAK`, `WAIT`, `READ_CHAT`, `SELF_TALK`,
+`FOLLOW_UP`, `AVATAR_GESTURE` và năm declaration mock-only `PLAY_MUSIC`, `STOP_MUSIC`,
+`SWITCH_SCENE`, `CALL_GUEST`, `REMOVE_GUEST`. Thêm capability ngoài inventory này là thay đổi
+scope có chủ ý, không được xuất hiện do config coercion hoặc registration runtime.
+
+Gate Phase 4 yêu cầu:
+
+- `Capability`, `CapabilityDefinition` và `CapabilityRegistryConfig` phải immutable sau khi dựng.
+  ID, action type, description, executor, verifier, health target, permission, precondition path và
+  conflict action phải là chuỗi không rỗng; không stringify `None`, số hay object.
+- `max_evidence_refs` phải là `int` thật dương. `mock_only` phải là `bool` thật. Sequence và
+  mapping config sai shape, duplicate ID/permission/conflict, policy/risk/schema không hợp lệ và
+  declaration không có `WAIT` phải bị từ chối khi load, không ép kiểu để cho qua.
+- Thứ tự reason deterministic là feature/unknown declaration → permission → executor health →
+  verifier registration/health → transaction conflict → World precondition → Self precondition
+  → `available`. LLM không tham gia bất kỳ bước nào.
+- Direct health provider đăng ký theo `Capability.executor_id`, đúng interface. Provider chỉ được
+  trả `HealthStatus`, health mapping hợp lệ hoặc boolean strict (`true=healthy`); exception, false,
+  missing, unknown, stopped, degraded, unhealthy hoặc malformed đều BLOCKED. Nếu không có direct
+  provider thì đọc `health_target_id` từ runtime health snapshot. Verifier phải đã đăng ký
+  và health dependency của verifier phải healthy; declaration hiện tại có thể dùng chung target
+  với executor, nhưng target khác phải được khai báo rõ.
+- Capability có conflict phải BLOCKED khi transaction cùng action ở `reserved`, `generated`,
+  `delivering` hoặc `delivered`; chỉ `committed`/`released` là terminal. Transaction source thiếu, exception
+  hoặc malformed phải fail closed, không được suy ra “không có conflict”.
+- World/Self precondition chỉ pass khi path thực sự tồn tại và value bằng expected value.
+  Path bị thiếu không được trùng với expected `null`; source thiếu, exception hoặc malformed
+  đều BLOCKED. Precondition mapping phải là bản immutable thuộc declaration.
+- Runtime chỉ được register verifier/executor health ID đã được declaration tham chiếu;
+  registration lạ phải bị từ chối để state không tăng vô hạn. Evidence refs, declarations,
+  registration, check reason và dashboard snapshot đều phải bounded/deterministic.
+- Metrics/dashboard failure không được thay đổi kết quả availability hoặc làm hỏng V1.
+  Dashboard phải hiển thị AVAILABLE/BLOCKED kèm `reason_code` và `mock_only`; action consumer
+  phải từ chối capability unavailable trước executor boundary.
+- `capability_registry` do `FeatureManager` sở hữu. Phase 4 chỉ cho dashboard, ContextSelector
+  disabled, Director V2 shadow và action mock của phase sau đọc snapshot; registry không được
+  nắm quyền Director V1 hoặc mở external action production.
+
+Gate kiểm thử gồm strict/deep-immutable config, inventory, deterministic reason precedence,
+World/Self path presence, permission denied, executor/verifier health, missing verifier, transaction
+lifecycle/malformed source, unavailable-action rejection, bounded registration/evidence, metric failure
+isolation, dashboard reason và negative boundary với Director V1/production prompt.
+
+**Trạng thái Phase 4:** đạt closure gate ngày 19/08/2026. Config/API không còn
+stringify/coercion; declaration và precondition được freeze sâu; inventory production/mock-only
+được khóa bằng test. Direct health provider được tra đúng executor ID và hỗ trợ boolean
+strict; verifier registration/health được kiểm tra và registration lạ bị từ chối. Transaction
+`delivered`, source transaction thiếu/sai và World/Self path không tồn tại đều fail closed;
+metric failure không đổi availability. Targeted/impacted regression đạt 87 test và full offline
+regression đạt 1946 test. Registry vẫn shadow/read-only, chỉ cung cấp declaration và
+availability; không thực thi action, không nắm Director V1 và không mở external action production.
 
 ### 17.3. Chuỗi mã để lần theo một lượt
 

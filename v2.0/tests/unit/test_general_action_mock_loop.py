@@ -43,6 +43,16 @@ def _world() -> WorldModelShadow:
 
 
 def _registry(world: WorldModelShadow, transactions: ActionTransactionManager) -> CapabilityRegistry:
+    wait = CapabilityDefinition(
+        capability=Capability(
+            capability_id="WAIT", action_type="WAIT", description="wait declaration",
+            executor_id="mock_call", verifier_id="mock_call", risk_level="low",
+            required_permissions=(), parameter_schema={}, transaction_policy="none",
+        ),
+        health_target_id="mock_external", world_equals={}, self_equals={},
+        conflict_actions=(), mock_only=False,
+    )
+
     def capability(capability_id: str, expected: bool) -> CapabilityDefinition:
         value = Capability(
             capability_id=capability_id, action_type=capability_id,
@@ -59,7 +69,9 @@ def _registry(world: WorldModelShadow, transactions: ActionTransactionManager) -
     registry = CapabilityRegistry(
         CapabilityRegistryConfig(
             max_evidence_refs=4, granted_permissions=frozenset({"call.control"}),
-            definitions=(capability("CALL_GUEST", False), capability("REMOVE_GUEST", True)),
+            definitions=(
+                wait, capability("CALL_GUEST", False), capability("REMOVE_GUEST", True),
+            ),
         ),
         world_snapshot_provider=world.snapshot,
         transaction_snapshot_provider=transactions.snapshot,
@@ -161,6 +173,21 @@ def test_mock_loop_rejects_bad_request_and_deduplicates_without_second_execution
     duplicate = asyncio.run(loop.execute(_request("CALL_GUEST", key="same")))
     assert first == duplicate
     assert calls == 1
+
+
+def test_mock_loop_rejects_delivered_transaction_conflict_before_executor() -> None:
+    loop, world, transactions, metrics = _loop()
+    occupied = transactions.reserve("CALL_GUEST", "occupied").transaction
+    transactions.mark_generated(occupied.transaction_id)
+    transactions.mark_delivering(occupied.transaction_id)
+    transactions.mark_delivered(occupied.transaction_id)
+
+    result = asyncio.run(loop.execute(_request("CALL_GUEST", key="blocked")))
+
+    assert result.verified is False
+    assert result.error_code == "transaction_conflict"
+    assert world.query("call.guest_connected").value is False  # type: ignore[union-attr]
+    assert metrics.action_mock_snapshot()["outcomes"]["rejected"] == 1
 
 
 def test_mock_loop_releases_when_world_update_is_rejected_and_dashboard_is_read_only() -> None:

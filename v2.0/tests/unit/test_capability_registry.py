@@ -4,7 +4,10 @@ import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+
 from dashboard.dashboard_server import DashboardServer
+from interfaces.base import HealthStatus
 from interfaces.capability import CapabilityRegistryService
 from interfaces.compatibility import Capability
 from orchestrator.config_loader import ConfigLoader
@@ -32,6 +35,27 @@ class Source:
         return self.value
 
 
+class ConfigSource:
+    def __init__(self, registry: object, declarations: object) -> None:
+        self.registry = registry
+        self.declarations = declarations
+
+    def get(self, _file: str, path: str, default: object = None) -> object:
+        if path == "registry":
+            return self.registry
+        if path == "capabilities":
+            return self.declarations
+        return default
+
+
+class BrokenMetrics:
+    def record_capability_availability(self, *_args: object) -> None:
+        raise RuntimeError("metric unavailable")
+
+    def set_capability_registry_counts(self, *_args: object) -> None:
+        raise RuntimeError("metric unavailable")
+
+
 def _definition(
     capability_id: str,
     *,
@@ -41,13 +65,15 @@ def _definition(
     world: dict[str, object] | None = None,
     self_state: dict[str, object] | None = None,
     conflicts: tuple[str, ...] = (),
+    executor: str | None = None,
+    verifier_health_target: str | None = None,
 ) -> CapabilityDefinition:
     return CapabilityDefinition(
         capability=Capability(
             capability_id=capability_id,
             action_type=capability_id,
             description=f"{capability_id} declaration",
-            executor_id=health_target,
+            executor_id=executor or health_target,
             verifier_id=verifier,
             risk_level="low",
             required_permissions=permissions,
@@ -59,6 +85,7 @@ def _definition(
         self_equals=self_state or {},
         conflict_actions=conflicts,
         mock_only=capability_id.startswith("MOCK"),
+        verifier_health_target_id=verifier_health_target,
     )
 
 
@@ -148,3 +175,170 @@ def test_capability_registry_yaml_dashboard_and_director_boundary() -> None:
     assert "capability_registry=capability_registry" not in director_call
     template = (root / "dashboard" / "templates" / "operator_v2.html").read_text(encoding="utf-8")
     assert 'id="system-capabilities"' in template
+
+
+def _raw_wait(**overrides: object) -> dict[str, object]:
+    value: dict[str, object] = {
+        "action_type": "WAIT",
+        "description": "Wait without side effects.",
+        "executor_id": "local_wait",
+        "health_target_id": "local_wait",
+        "verifier_id": "local_wait",
+        "risk_level": "low",
+        "required_permissions": [],
+        "parameter_schema": {},
+        "transaction_policy": "none",
+        "conflict_actions": [],
+        "mock_only": False,
+    }
+    value.update(overrides)
+    return value
+
+
+@pytest.mark.parametrize(
+    ("registry", "declaration"),
+    [
+        ({"max_evidence_refs": True, "granted_permissions": []}, _raw_wait()),
+        ({"max_evidence_refs": "4", "granted_permissions": []}, _raw_wait()),
+        ({"max_evidence_refs": 4, "granted_permissions": [1]}, _raw_wait()),
+        ({"max_evidence_refs": 4, "granted_permissions": []}, _raw_wait(mock_only="false")),
+        ({"max_evidence_refs": 4, "granted_permissions": []}, _raw_wait(required_permissions=[None])),
+        ({"max_evidence_refs": 4, "granted_permissions": []}, _raw_wait(risk_level="critical")),
+        ({"max_evidence_refs": 4, "granted_permissions": []}, _raw_wait(transaction_policy="best_effort")),
+        ({"max_evidence_refs": 4, "granted_permissions": []}, _raw_wait(world_equals=[])),
+    ],
+)
+def test_capability_registry_config_rejects_coercion_and_invalid_shapes(
+    registry: object, declaration: object,
+) -> None:
+    with pytest.raises(ValueError):
+        CapabilityRegistryConfig.from_loader(ConfigSource(registry, {"WAIT": declaration}))
+
+    with pytest.raises(ValueError):
+        CapabilityRegistryConfig(0, frozenset(), ())
+
+
+def test_capability_declaration_is_deeply_immutable_and_inventory_is_exact() -> None:
+    expected = {"call.connected": False}
+    definition = _definition("WAIT", world=expected)
+    expected.clear()
+    assert definition.world_equals == {"call.connected": False}
+    with pytest.raises(TypeError):
+        definition.world_equals["call.connected"] = True  # type: ignore[index]
+
+    root = Path(__file__).resolve().parents[2]
+    loader = ConfigLoader(root / "config")
+    loader.load_all()
+    config = CapabilityRegistryConfig.from_loader(loader)
+    assert {item.capability.capability_id for item in config.definitions} == {
+        "SPEAK", "WAIT", "READ_CHAT", "SELF_TALK", "FOLLOW_UP", "AVATAR_GESTURE",
+        "PLAY_MUSIC", "STOP_MUSIC", "SWITCH_SCENE", "CALL_GUEST", "REMOVE_GUEST",
+    }
+    assert {item.capability.capability_id for item in config.definitions if item.mock_only} == {
+        "PLAY_MUSIC", "STOP_MUSIC", "SWITCH_SCENE", "CALL_GUEST", "REMOVE_GUEST",
+    }
+
+
+def test_capability_registry_uses_executor_id_provider_and_strict_boolean_health() -> None:
+    definition = _definition(
+        "WAIT", executor="wait_executor", health_target="runtime_wait",
+    )
+    registry = CapabilityRegistry(
+        CapabilityRegistryConfig(2, frozenset(), (definition,)),
+        health_snapshot_provider=lambda: {
+            "targets": {"runtime_wait": {"health": "unhealthy"}},
+        },
+        clock=Clock(),
+    )
+    registry.register_verifier("local")
+    registry.register_health_provider("wait_executor", lambda: True)
+    assert registry.availability("WAIT").reason_code == "available"
+
+    registry.register_health_provider("wait_executor", lambda: False)
+    assert registry.availability("WAIT").reason_code == "executor_unhealthy"
+    registry.register_health_provider(
+        "wait_executor", lambda: HealthStatus.healthy("wait_executor"),
+    )
+    assert registry.availability("WAIT").reason_code == "available"
+
+
+def test_capability_registry_requires_registered_and_healthy_verifier() -> None:
+    definition = _definition(
+        "WAIT", health_target="executor", verifier="verify",
+        verifier_health_target="verifier",
+    )
+    health = Source({
+        "targets": {
+            "executor": {"health": "healthy"},
+            "verifier": {"health": "unhealthy"},
+        },
+    })
+    registry = CapabilityRegistry(
+        CapabilityRegistryConfig(2, frozenset(), (definition,)),
+        health_snapshot_provider=health, clock=Clock(),
+    )
+    assert registry.availability("WAIT").reason_code == "missing_verifier"
+    registry.register_verifier("verify")
+    assert registry.availability("WAIT").reason_code == "verifier_unhealthy"
+    health.value = {
+        "targets": {
+            "executor": {"health": "healthy"},
+            "verifier": {"health": "healthy"},
+        },
+    }
+    assert registry.availability("WAIT").reason_code == "available"
+
+
+@pytest.mark.parametrize(
+    "transactions",
+    [
+        {"recent": [{"action": "SPEAK", "state": "delivered"}]},
+        {"recent": [{"action": "SPEAK", "state": "unexpected"}]},
+        {"recent": ["malformed"]},
+        {"recent": "malformed"},
+    ],
+)
+def test_capability_registry_fails_closed_for_active_or_malformed_transactions(
+    transactions: object,
+) -> None:
+    registry, _ = _registry(transactions=transactions)
+    assert registry.availability("SPEAK").reason_code == "transaction_conflict"
+
+    registry._transaction_snapshot_provider = None
+    assert registry.availability("SPEAK").reason_code == "transaction_conflict"
+
+
+def test_capability_registry_missing_path_never_matches_expected_null() -> None:
+    definition = _definition("WAIT", world={"call.missing": None})
+    registry = CapabilityRegistry(
+        CapabilityRegistryConfig(2, frozenset(), (definition,)),
+        world_snapshot_provider=lambda: {},
+        health_snapshot_provider=lambda: {
+            "targets": {"local": {"health": "healthy"}},
+        },
+        clock=Clock(),
+    )
+    registry.register_verifier("local")
+    assert registry.availability("WAIT").reason_code == "world_precondition_failed"
+
+
+def test_capability_registry_bounds_registration_and_isolates_metric_failures() -> None:
+    registry, _ = _registry()
+    with pytest.raises(ValueError, match="undeclared verifier"):
+        registry.register_verifier("unknown")
+    with pytest.raises(ValueError, match="undeclared executor"):
+        registry.register_health_provider("unknown", lambda: True)
+    registry.register_verifier("local")
+    assert len(registry._verifiers) == 2
+
+    registry._metrics = BrokenMetrics()
+    assert registry.availability("WAIT").available is True
+    assert registry.snapshot()["capabilities"]
+
+
+def test_capability_lookup_does_not_coerce_invalid_identifiers() -> None:
+    registry, _ = _registry()
+    assert registry.capability(123) is None  # type: ignore[arg-type]
+    unavailable = registry.availability(None)  # type: ignore[arg-type]
+    assert unavailable.capability_id == "unknown"
+    assert unavailable.reason_code == "unknown_capability"
