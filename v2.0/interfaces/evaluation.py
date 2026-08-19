@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from abc import abstractmethod
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Mapping
 
 from interfaces.base import Service
 
@@ -46,3 +46,36 @@ class MoodABReviewService(Service):
     @abstractmethod
     def finalize(self, artifact: dict[str, Any]) -> dict[str, Any]:
         """Validate human review and calculate the cutover recommendation."""
+
+
+class HumanLikeCalibrationService(Service):
+    @abstractmethod
+    def build(self, comparisons: tuple[dict[str, Any], ...]) -> dict[str, Any]:
+        """Build a sanitized blind review artifact without hidden internals."""
+
+    @abstractmethod
+    def finalize(self, artifact: dict[str, Any]) -> dict[str, Any]:
+        """Validate human scores and produce non-automatic calibration evidence."""
+
+    @abstractmethod
+    def reveal_internals(self, artifact: dict[str, Any]) -> dict[str, Any]:
+        """Reveal bounded structured metadata only after finalized human scoring."""
+
+
+class TrajectoryRecorderService(Service):
+    @abstractmethod
+    def record_decision(self, **kwargs: Any) -> str | None:
+        """Record bounded structured decision evidence without raw prompt/memory."""
+
+    @abstractmethod
+    def update_result(self, trajectory_id: str, **kwargs: Any) -> bool:
+        """Attach action/verification and next snapshot IDs to a trajectory record."""
+
+    @abstractmethod
+    def snapshot(self) -> dict[str, Any]:
+        """Return bounded replay-safe trajectory records."""
+
+class ProductReleaseGateService(Service):
+    @abstractmethod
+    def evaluate(self, evidence: Mapping[str, Any]) -> dict[str, Any]:
+        """Fail closed on release evidence and never authorize deployment mutation."""

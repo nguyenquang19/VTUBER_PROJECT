@@ -295,6 +295,25 @@ features:
     depends_on: []
     conflicts_with: []
 
+  human_like_calibration:
+    enabled: false
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: evaluation
+    depends_on: ["evaluation_harness"]
+    conflicts_with: []
+    name: Human-like calibration
+    description: Offline blind review and bounded trajectory evidence; no automatic release approval.
+
+  release_gate_evaluation:
+    enabled: false
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: evaluation
+    depends_on: ["evaluation_harness", "human_like_calibration"]
+    conflicts_with: []
+    name: Product release gate evaluation
+    description: Offline fail-closed Gate A-E evidence evaluator; never changes version or retires fallbacks.
   evaluation_acceptance:
     enabled: true               # M10.5 deterministic text-only failure acceptance
     vram_cost_mb: 0

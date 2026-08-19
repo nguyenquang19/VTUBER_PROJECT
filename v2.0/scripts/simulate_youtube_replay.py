@@ -614,6 +614,20 @@ async def simulate_replay(
     }
 
 
+def _console_summary(report: dict[str, Any], *, output: Path) -> dict[str, Any]:
+    """Return aggregate-only console output; detailed replay stays local diagnostic data."""
+    delivery = dict(report.get("delivery") or {})
+    return {
+        "input": dict(report.get("input") or {}),
+        "timing": dict(report.get("timing") or {}),
+        "director": dict(report.get("director") or {}),
+        "delivery": {
+            key: delivery.get(key)
+            for key in ("generated_responses", "delivered_responses", "mode", "transactions")
+        },
+        "output": str(output.resolve()),
+    }
+
 def _prompt_field(prompt: str, name: str) -> str:
     prefix = f"{name}:"
     for line in prompt.splitlines():
@@ -667,19 +681,13 @@ async def _run(args: argparse.Namespace) -> int:
         json.dumps(report, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
-    summary = {
-        "input": report["input"],
-        "timing": report["timing"],
-        "director": report["director"],
-        "delivery": report["delivery"],
-        "output": str(output.resolve()),
-    }
+    summary = _console_summary(report, output=output)
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     decisions = [item for item in report["trace"] if item["action"] != "wait"]
     if console_count > 0:
         print("\nCác quyết định đầu tiên:")
         for item in decisions[:console_count]:
-            selected = ", ".join(ref["text"] for ref in item["selected"]) or "-"
+            selected = "{0} selected".format(len(item["selected"]))
             print(
                 f"  t={item['offset_ms'] / 1000:7.1f}s "
                 f"action={item['action']:<12} reason={item['reason']:<28} selected={selected}"

@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from orchestrator.config_loader import ConfigLoader
-from scripts.simulate_youtube_replay import simulate_replay
+from scripts.simulate_youtube_replay import _console_summary, simulate_replay
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -101,3 +101,24 @@ async def test_replay_never_delivers_self_talk_on_a_tick_with_new_chat(
         )
         for item in incoming_ticks
     )
+
+
+def test_replay_console_summary_excludes_delivery_text(tmp_path: Path) -> None:
+    report = {
+        "input": {"events": 1},
+        "timing": {"ticks_total": 1},
+        "director": {"action_counts": {"read_chat": 1}},
+        "delivery": {
+            "generated_responses": 1,
+            "delivered_responses": 1,
+            "mode": "subtitle_stub",
+            "transactions": {"committed": 1},
+            "items": [{"text": "private replay message", "request_id": "read_1"}],
+        },
+    }
+
+    summary = _console_summary(report, output=tmp_path / "report.json")
+
+    assert summary["delivery"]["delivered_responses"] == 1
+    assert "items" not in summary["delivery"]
+    assert "private replay message" not in str(summary)

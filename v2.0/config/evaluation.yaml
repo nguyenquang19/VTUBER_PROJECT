@@ -182,3 +182,33 @@ fine_tune_gate:
   min_holdout_sessions: 5
   max_safety_regression: 0
   max_latency_increase_percent: 10
+  # Phase 15: fail-closed offline product release evidence evaluation.
+  release_gates:
+    target_product_version: "2.0.0"
+    max_trace_refs: 16
+    min_completed_reviews: 1
+    min_aggregate_improvement: 0.001
+    max_ai_smell_increase: 0.0
+    max_blind_ab_regressions: 0
+    correctness_maximums:
+      unauthorized_executed_actions: 0
+      unavailable_capability_executed_actions: 0
+      duplicate_committed_actions: 0
+      false_committed_world_states: 0
+      transaction_inconsistencies: 0
+      unbounded_state_or_queue_growth: 0
+  # Phase 14: offline HLC review and replay-safe trajectory evidence.
+  human_like_calibration:
+    max_artifact_rows: 64
+    max_candidate_chars: 500
+    max_note_chars: 400
+    max_smell_tags: 5
+    max_trajectory_records: 128
+    max_reason_codes: 6
+    weights:
+      language: 0.20
+      presence: 0.25
+      context: 0.15
+      character: 0.15
+      timing: 0.15
+      spontaneity: 0.10
