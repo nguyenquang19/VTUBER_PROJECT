@@ -1,4 +1,4 @@
-"""Test A3 — ResponsePacer + FillerManager (docs/03_COMPONENT_REFERENCE.md §PHASE A).
+"""Test A3 — ResponsePacer + FillerManager (docs/MAI_V2_SYSTEM_SPEC.md).
 
 DoD A3:
 - phân bố delay có σ>0 (không constant)

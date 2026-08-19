@@ -1,4 +1,4 @@
-"""ChatPulse — đo độ sôi nổi chat (C0.2, docs/03_COMPONENT_REFERENCE.md §C0.3).
+"""ChatPulse — đo độ sôi nổi chat (C0.2; xem docs/MAI_V2_SYSTEM_SPEC.md).
 
 Nâng "đếm tin" thành tín hiệu năng lượng cho Director + mood + urge.
 Sôi nổi ≠ chỉ số lượng — phải TÁCH:

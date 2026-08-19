@@ -1,6 +1,6 @@
 """LlamaCppLLMService — streaming qua llama-server (ARCHITECTURE 8.2, 1.B).
 
-Cách gọi ĐÃ CHỐT (xem docs/06_OPERATIONS_AND_TROUBLESHOOTING.md + memory reference-llm-model):
+Cách gọi ĐÃ CHỐT (xem docs/MAI_V2_SYSTEM_SPEC.md + memory reference-llm-model):
 
 - Endpoint `/v1/chat/completions` (KHÔNG `/completion` raw). Model là uncensored
   Gemma 4 12B, cần chat template của chính nó; /completion raw → output rác.

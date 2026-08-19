@@ -1,4 +1,4 @@
-"""Integration C0.4 — DirectorLoop turn driver với FakeLLM (docs/03_COMPONENT_REFERENCE.md §C0.4).
+"""Integration C0.4 — DirectorLoop turn driver với FakeLLM (docs/MAI_V2_SYSTEM_SPEC.md).
 
 Verify Director cầm nhịp (không FIFO): chat vào pool → Director nhặt → sinh turn.
 DoD: superchat acked first; read gỡ khỏi pool; dead-air→self_talk; no infinite read.

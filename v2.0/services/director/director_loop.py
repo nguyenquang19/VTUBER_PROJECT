@@ -1,4 +1,4 @@
-"""DirectorLoop — turn driver duy nhất (C0.4, docs/03_COMPONENT_REFERENCE.md §C0.4 "hợp nhất kiến trúc").
+"""DirectorLoop — turn driver duy nhất (C0.4; xem docs/MAI_V2_SYSTEM_SPEC.md).
 
 Bỏ FIFO: ChatRouter chỉ bơm chat vào SaliencePool + ChatPulse (intake mode).
 DirectorLoop là VÒNG DUY NHẤT sinh turn — tick định kỳ, hỏi Director nên làm gì,

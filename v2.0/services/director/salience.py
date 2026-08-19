@@ -1,4 +1,4 @@
-"""SaliencePool — chấm điểm + decay + cluster chat (C0.1, docs/03_COMPONENT_REFERENCE.md §C0.1).
+"""SaliencePool — chấm điểm + decay + cluster chat (C0.1; xem docs/MAI_V2_SYSTEM_SPEC.md).
 
 Thay lock FIFO "đáp mọi tin" bằng POOL có điểm: chat tới → score → vào pool
 (KHÔNG tự thành turn). Director khi chọn read_chat mới nhặt top từ pool.

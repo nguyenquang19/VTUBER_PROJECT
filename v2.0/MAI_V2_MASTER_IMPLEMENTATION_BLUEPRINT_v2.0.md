@@ -8,6 +8,12 @@
 **Frozen historical baseline:** Mai `1.0.0`  
 **Status:** Canonical migration plan; không phải bằng chứng feature đã production.
 
+> **Trạng thái đối chiếu 19/08/2026:** Phase 1–13 có implementation ở các mức khác nhau nhưng không đồng
+> nghĩa production. Director takeover hiện không nắm quyền thật; speech/avatar adapters chưa compose đầy
+> đủ; external executor production còn trống; action mock có lỗi thứ tự cập nhật World trước final commit.
+> Phase 14–15 là WIP/chưa có release evidence hợp lệ. Trạng thái chi tiết và blockers chỉ lấy từ
+> `docs/MAI_V2_SYSTEM_SPEC.md`.
+
 ---
 
 ## 0. Mục đích và nguyên tắc sử dụng

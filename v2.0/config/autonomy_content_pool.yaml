@@ -2,7 +2,7 @@
 # LLM KHÔNG tự bịa chủ đề — nhận seed từ pool xoay vòng. Việc "đa dạng" chuyển
 # từ trách nhiệm LLM (không kiểm soát) sang config (kiểm soát, N6).
 #
-# A2 (docs/03_COMPONENT_REFERENCE.md §PHASE A): 15 → ~55 seed, no_repeat 8 → 20.
+# A2 (docs/MAI_V2_SYSTEM_SPEC.md): 15 → ~55 seed, no_repeat 8 → 20.
 # Seed là HẠT GIỐNG Ý TƯỞNG (định hướng chủ đề), KHÔNG phải câu thoại sẵn —
 # LLM vẫn tự viết bằng giọng Mai. User nên lọc tay bỏ cái nhạt/lệch lore.
 

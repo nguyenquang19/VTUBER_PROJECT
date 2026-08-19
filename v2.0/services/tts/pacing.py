@@ -1,4 +1,4 @@
-"""Response pacing + filler (A3, docs/03_COMPONENT_REFERENCE.md §PHASE A).
+"""Response pacing + filler (A3; xem docs/MAI_V2_SYSTEM_SPEC.md).
 
 Hai thành phần độc lập, pure-logic (RNG inject → test tất định):
 

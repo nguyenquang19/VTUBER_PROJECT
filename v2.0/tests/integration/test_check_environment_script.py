@@ -46,16 +46,20 @@ def fake_project(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def _run_check(project_root: Path, python_path: Path | None = None) -> subprocess.CompletedProcess[str]:
+def _run_check(
+    project_root: Path,
+    python_path: Path | None = None,
+    *,
+    script_path: Path = SCRIPT_PATH,
+    pass_project_root: bool = True,
+) -> subprocess.CompletedProcess[str]:
     command = [
         _powershell_executable(),
         "-NoProfile",
         "-ExecutionPolicy",
         "Bypass",
         "-File",
-        str(SCRIPT_PATH),
-        "-ProjectRoot",
-        str(project_root),
+        str(script_path),
         "-PythonPath",
         str(python_path or Path(sys.executable)),
         "-OutputFormat",
@@ -63,6 +67,8 @@ def _run_check(project_root: Path, python_path: Path | None = None) -> subproces
         "-SkipCudaCheck",
         "-SkipLlamaHealth",
     ]
+    if pass_project_root:
+        command[6:6] = ["-ProjectRoot", str(project_root)]
     return subprocess.run(command, capture_output=True, text=True, check=False, timeout=30)
 
 
@@ -82,6 +88,23 @@ def test_preflight_passes_for_complete_fixture(fake_project: Path) -> None:
     assert checks["llama_binary"]["status"] == "PASS"
     assert checks["llm_model"]["status"] == "PASS"
     assert checks["cuda"]["status"] == "SKIP"
+
+
+def test_preflight_defaults_project_root_from_script_location(fake_project: Path) -> None:
+    copied_script = fake_project / "scripts" / SCRIPT_PATH.name
+    copied_script.parent.mkdir()
+    copied_script.write_text(SCRIPT_PATH.read_text(encoding="utf-8"), encoding="utf-8")
+
+    result = _run_check(
+        fake_project,
+        script_path=copied_script,
+        pass_project_root=False,
+    )
+    payload = _json_output(result)
+
+    assert result.returncode == 0, result.stderr
+    checks = {item["name"]: item for item in payload["checks"]}
+    assert checks["project_root"]["message"] == str(fake_project)
 
 
 def test_preflight_reports_missing_llama_binary(fake_project: Path) -> None:

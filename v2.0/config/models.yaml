@@ -1,5 +1,5 @@
 # models.yaml — cấu hình model (ARCHITECTURE 10.3)
-# Số liệu latency đã điền từ Pre-flight Day 1 + Day 2 (docs/05_CONFIGURATION.md)
+# Số liệu latency đã điền từ Pre-flight Day 1 + Day 2 (docs/MAI_V2_SYSTEM_SPEC.md)
 
 llm_main:
   provider: llama_cpp
@@ -98,7 +98,7 @@ llm_canned:
     decode_tps_min: 35         # conservative full-session p50 gate; raw min vẫn được report
 
   # Day 1 finding: llama-server stream qua delta.reasoning_content thay vì delta.content
-  # Phase 1 parser phải handle cả 2 field. Xem docs/05_CONFIGURATION.md.
+  # Phase 1 parser phải handle cả 2 field. Xem docs/MAI_V2_SYSTEM_SPEC.md.
   stream_content_fields:
     - "content"
     - "reasoning_content"
@@ -141,7 +141,7 @@ tts_fallback:
   output_file: ".\\logs\\live\\subtitle.txt"
   require_delivery: true        # Chỉ commit khi subtitle thật sự tới ít nhất một sink
 
-# STT deferred — xem docs/01_SYSTEM_OVERVIEW.md (user scope decision, MVP chat-only).
+# STT deferred — xem docs/MAI_V2_SYSTEM_SPEC.md (user scope decision, MVP chat-only).
 # Giữ block config để Phase 5 wire sau; interfaces/stt.py có stub trả "".
 stt:
   enabled: false

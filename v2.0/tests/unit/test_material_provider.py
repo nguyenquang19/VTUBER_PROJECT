@@ -161,7 +161,7 @@ class TestFromLoader:
 
 
 class TestA2DoD:
-    """DoD A2 (docs/03_COMPONENT_REFERENCE.md §PHASE A): no seed lặp trong 20; không đọc số liệu thô."""
+    """DoD A2 (docs/MAI_V2_SYSTEM_SPEC.md): no seed lặp trong 20; không đọc số liệu thô."""
 
     def _real_mp(self) -> MaterialProvider:
         from orchestrator.config_loader import ConfigLoader

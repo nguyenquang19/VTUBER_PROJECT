@@ -1,4 +1,4 @@
-"""Test C0.1 — SaliencePool (docs/03_COMPONENT_REFERENCE.md §C0.1).
+"""Test C0.1 — SaliencePool (docs/MAI_V2_SYSTEM_SPEC.md).
 
 DoD:
 - superchat 500k luôn được nhặt trước chat thường

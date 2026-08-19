@@ -7,7 +7,7 @@
 
 ## Bối cảnh (đọc trước)
 
-- Đọc `AGENTS.md` + `docs/00_V1_0_BASELINE.md` §8 (version policy) trước khi làm.
+- Đọc `AGENTS.md` + `docs/V1_BASELINE.md` §8 (version policy) trước khi làm.
 - Sampling hiện tại nằm ở `config/models.yaml::llm_main` (temperature, min_p,
   repeat_penalty, presence_penalty, frequency_penalty, top_p, top_k).
 - Nghi vấn hiện có: `presence_penalty 0.3` + `frequency_penalty 0.15` hơi nặng, có thể
@@ -86,7 +86,7 @@ Hỏi user duyệt config mới hay muốn thử tay giá trị khác. Chỉ san
 1. Bump `config/system.yaml::app.version` → `1.2.1` (patch: chỉnh sampling, tương thích ngược).
 2. Thêm entry `CHANGELOG.md`: giá trị sampling cũ → mới + lý do + số liệu sweep (distinct_2,
    exact_rep, latency trước/sau).
-3. Cập nhật `docs/05_CONFIGURATION.md` nếu có mô tả giá trị sampling.
+3. Cập nhật `docs/MAI_V2_SYSTEM_SPEC.md` nếu có mô tả giá trị sampling.
 4. KHÔNG cần đổi schema/contract. Rollback = revert giá trị `llm_main` cũ.
 5. Chạy lại `sample_conversation.py` một lần cuối làm evidence, đính kèm.
 

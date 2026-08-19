@@ -136,7 +136,7 @@ class TestTickLoop:
 
 class TestLLMHint:
     async def test_apply_llm_hint_is_noop_after_a1(self, orch: EmotionOrchestrator) -> None:
-        # A1 (docs/03_COMPONENT_REFERENCE.md §PHASE A): Kênh B bỏ. apply_llm_hint no-op, target không đổi.
+        # A1 (docs/MAI_V2_SYSTEM_SPEC.md): Kênh B bỏ. apply_llm_hint no-op, target không đổi.
         pre_target = dict(orch._engine.target)
         orch.apply_llm_hint(MoodState(vui=10))
         assert orch._engine.target == pre_target

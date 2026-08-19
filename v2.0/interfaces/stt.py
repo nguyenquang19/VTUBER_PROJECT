@@ -1,6 +1,6 @@
 """STT interface (ARCHITECTURE 7.3).
 
-Voice input bị defer theo scope decision (xem `docs/01_SYSTEM_OVERVIEW.md`).
+Voice input bị defer theo scope decision (xem `docs/MAI_V2_SYSTEM_SPEC.md`).
 `NullSTTService` là stub để Phase 0-4 chạy được mà không cần STT thật;
 Phase 5 sẽ thêm implementation faster-whisper cạnh nó, không breaking.
 """

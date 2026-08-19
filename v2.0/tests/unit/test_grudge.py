@@ -1,4 +1,4 @@
-"""Test A4 — GrudgeTracker trong ModifierEngine (docs/03_COMPONENT_REFERENCE.md §PHASE A).
+"""Test A4 — GrudgeTracker trong ModifierEngine (docs/MAI_V2_SYSTEM_SPEC.md).
 
 DoD A4 (phần grudge):
 - grudge tự hết sau ngưỡng thời gian (decay)

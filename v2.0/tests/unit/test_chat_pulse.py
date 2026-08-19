@@ -1,4 +1,4 @@
-"""Test C0.2 — ChatPulse (docs/03_COMPONENT_REFERENCE.md §C0.3).
+"""Test C0.2 — ChatPulse (docs/MAI_V2_SYSTEM_SPEC.md).
 
 DoD:
 - burst emote (nhiều tin, ít người) → HYPE_SPAM

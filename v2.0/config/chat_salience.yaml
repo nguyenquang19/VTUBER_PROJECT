@@ -1,4 +1,4 @@
-# chat_salience.yaml — C0.1 Salience pool (docs/03_COMPONENT_REFERENCE.md §C0.1)
+# chat_salience.yaml — C0.1 Salience pool (docs/MAI_V2_SYSTEM_SPEC.md)
 #
 # Thay FIFO "đáp mọi tin" bằng POOL có điểm + decay: tin quan trọng (superchat,
 # câu hỏi, mention) nổi lên; tin cũ tự rụng; tin trùng gom cụm. Director nhặt

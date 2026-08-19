@@ -1,4 +1,4 @@
-"""Director — đạo diễn stream, quyết định NÊN làm gì (C0.3, docs/03_COMPONENT_REFERENCE.md §C0.4).
+"""Director — đạo diễn stream, quyết định NÊN làm gì (C0.3; xem docs/MAI_V2_SYSTEM_SPEC.md).
 
 Biến reactive (đáp mọi tin FIFO) → host: pure decision engine đọc
 (segment, ChatPulse, SaliencePool top, dead-air, urge) → chốt 1 action.

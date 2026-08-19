@@ -1,4 +1,4 @@
-# pacing.yaml — nhịp phản ứng biến thiên + filler (A3, docs/03_COMPONENT_REFERENCE.md §PHASE A)
+# pacing.yaml — nhịp phản ứng biến thiên + filler (A3, docs/MAI_V2_SYSTEM_SPEC.md)
 #
 # Vấn đề gốc: mọi turn phản hồi ~đều nhau = thứ lộ AI rõ nhất. A3 thêm:
 #  1. Delay trước khi nói: base + noise gauss, scale theo độ dài/độ khó câu.

@@ -3,6 +3,26 @@
 Mọi thay đổi product sau baseline dùng Semantic Versioning. Product version nằm tại
 `config/system.yaml::app.version`; schema/component version là trục độc lập.
 
+## [Unreleased]
+
+### Documentation
+
+- Hợp nhất tài liệu runtime/component/phase vào `docs/MAI_V2_SYSTEM_SPEC.md`.
+- Tách `docs/V1_BASELINE.md` thành baseline lịch sử bất biến; inventory feature hiện tại chỉ thuộc
+  System Spec.
+- Thu gọn `docs/` còn mục lục, hai tài liệu canonical và thư mục evidence máy đọc.
+- Thêm documentation guard cho version, baseline/current feature inventory, config registry, link và
+  các giới hạn V2 quan trọng.
+
+Không đổi behavior runtime hoặc product version. Chỉ tăng version khi change được duyệt như một release.
+
+### Environment
+
+- Thêm `scripts/bootstrap_environment.ps1`: cài Python `3.11.15` bằng `uv`, dựng staging, cài
+  `requirements.lock.txt`, chạy `pip check` và chỉ thay `venv` sau khi toàn bộ đạt.
+- Sửa `scripts/check_environment.ps1` để tự xác định project root đúng trên Windows PowerShell 5.
+- Full offline regression bằng `v2.0\venv`: 1.900 đạt, 5 deselected, 0 lỗi.
+
 ## [1.4.3] — 2026-08-14
 
 Khóa freshness và durability của live-readiness artifact để báo cáo platform cũ hoặc file ghi dở không
@@ -120,7 +140,7 @@ không phải template. Minor: thêm capability, tương thích ngược (không
 
 ### Docs
 
-- `docs/00_V1_0_BASELINE.md`, `docs/03_COMPONENT_REFERENCE.md`, `docs/05_CONFIGURATION.md`.
+- Nội dung lịch sử hiện được giữ trong `docs/V1_BASELINE.md` và `docs/MAI_V2_SYSTEM_SPEC.md`.
 
 ### Fixed — release stabilization
 
@@ -154,7 +174,7 @@ giá trị sampling gửi per-request, KHÔNG đụng runtime/interface/schema/c
 
 ### Docs
 
-- `docs/05_CONFIGURATION.md` (§5 LLM): cập nhật giá trị sampling production + Applies-to.
+- Cấu hình LLM và lịch sử sampling hiện được hợp nhất trong `docs/MAI_V2_SYSTEM_SPEC.md`.
 
 ## [1.2.0] — 2026-08-12
 
@@ -186,7 +206,7 @@ Nâng cấp cách tạo dataset để model học hội thoại tự nhiên, kh�
 
 ### Docs
 
-- `docs/00_V1_0_BASELINE.md`, `docs/04_DATA_AND_STORAGE.md` (§4.2).
+- Nội dung baseline và data/storage hiện nằm trong `docs/V1_BASELINE.md` và `docs/MAI_V2_SYSTEM_SPEC.md`.
 
 Rollback: `--judge-min-score 0` (tắt judge), `inject_mood_directive: true` (giữ directive). Muốn quay lại
 SFT 1-lượt thì dùng bundle cũ (immutable, không bị ghi đè).
@@ -224,8 +244,8 @@ không đổi). Không phá interface/CLI/behavior boundary.
 
 ### Docs
 
-- `docs/00_V1_0_BASELINE.md`, `docs/03_COMPONENT_REFERENCE.md`, `docs/04_DATA_AND_STORAGE.md`,
-  `docs/05_CONFIGURATION.md`.
+- Nội dung tài liệu liên quan hiện được hợp nhất trong `docs/V1_BASELINE.md` và
+  `docs/MAI_V2_SYSTEM_SPEC.md`.
 
 Rollback: đặt `animation_smooth: false` (tắt animation); dataset hardening thuần thêm lớp validate,
 revert commit nếu cần.
@@ -239,7 +259,7 @@ revert commit nếu cần.
   `librosa.effects.pitch_shift`. Metric mới `audio_pitch_semitones`.
 - Code: `services/tts/pitch.py`; wiring trong `services/tts/audio_player.py`, `scripts/cli.py`,
   `orchestrator/stream_runtime.py`. Test trong `tests/unit/test_audio_player.py`.
-- Docs: `docs/05_CONFIGURATION.md`, `docs/03_COMPONENT_REFERENCE.md`.
+- Docs: nội dung hiện được hợp nhất trong `docs/MAI_V2_SYSTEM_SPEC.md`.
 
 ### Fixed
 - Cập nhật 2 test mã hóa mốc `dead_air_seconds` cũ (20s) cho khớp giá trị production `28s` đã đổi ở
@@ -256,7 +276,7 @@ Không đổi interface, CLI, storage hay data contract. Rollback: đặt `pitch
     cho chat viewer → chat share of speech 39.6%→~47%).
   - `config/models.yaml`: `temperature` 0.85→0.88, `frequency_penalty` 0.0→0.15 (giảm lặp câu verbatim
     1.83%→0.5% khi đáp nhiều chat).
-- Cập nhật `docs/05_CONFIGURATION.md` với các giá trị tune mới.
+- Giá trị tune hiện được mô tả trong `docs/MAI_V2_SYSTEM_SPEC.md`.
 
 Không đổi runtime, interface, CLI, storage hay data contract; chỉ threshold/sampling. Rollback: revert
 commit này. Bằng chứng đánh giá: `logs/evaluation/conversation_eval_2026-08-12.md`.
@@ -266,8 +286,8 @@ commit này. Bằng chứng đánh giá: `logs/evaluation/conversation_eval_2026
 ### Changed
 - Chuẩn hóa tên file test: bỏ hậu tố phase/milestone (`_m3`…`_m10`, `phase1`, `phase2`, `m8_...`), đặt tên
   theo component/hành vi. Không đổi nội dung/logic test; regression offline vẫn xanh.
-- Ghi rõ nguyên tắc **docs-first** và quy ước đặt tên/runner test trong `AGENTS.md`,
-  `docs/07_TESTING_AND_EXTENSION.md` và `CLAUDE.md` (thư mục cha).
+- Ghi rõ nguyên tắc **docs-first** và quy ước đặt tên/runner test trong `AGENTS.md` và `CLAUDE.md`
+  (thư mục cha); nội dung tài liệu runtime hiện được hợp nhất trong `docs/MAI_V2_SYSTEM_SPEC.md`.
 
 ### Removed
 - Bỏ `scripts/test_phases.py` (runner ad-hoc gom theo phase); dùng `pytest` + marker và các lệnh theo
@@ -295,7 +315,8 @@ Baseline đầu tiên được đóng dấu cho toàn bộ runtime Mai:
 Contract baseline: architecture `mai-agent-v1`, turn schema `3`, delivery outcome schema `1`, canonical
 schema `1`, SFT/DPO schema `1`.
 
-Chi tiết và giới hạn production nằm trong `docs/00_V1_0_BASELINE.md`.
+Chi tiết baseline nằm trong `docs/V1_BASELINE.md`; giới hạn implementation hiện tại nằm trong
+`docs/MAI_V2_SYSTEM_SPEC.md`.
 
 ## Quy tắc entry tiếp theo
 

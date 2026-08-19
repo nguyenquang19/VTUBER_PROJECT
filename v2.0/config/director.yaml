@@ -1,4 +1,4 @@
-# director.yaml — C0.3 Director loop (docs/03_COMPONENT_REFERENCE.md §C0.4)
+# director.yaml — C0.3 Director loop (docs/MAI_V2_SYSTEM_SPEC.md)
 #
 # Đạo diễn: biến reactive (đáp mọi tin) → host (biết NÊN làm gì). State machine
 # segment + bảng action + vài rule if/else. KHÔNG utility-scoring nhiều chiều,

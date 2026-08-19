@@ -1,8 +1,12 @@
-# 00 — Mai v1.0.0 baseline và version policy
+# Mai V1 — Frozen baseline and version policy
+
+> **Document role:** immutable historical baseline; never add V2 capabilities to this inventory
+>
+> **Current implementation truth:** `docs/MAI_V2_SYSTEM_SPEC.md`
 
 > **Product release:** Mai `1.0.0` (gọi ngắn là **v1.0**)
 >
-> **Baseline status:** frozen technical baseline
+> **Baseline status:** frozen technical baseline; inherited by the V2 working tree
 >
 > **Platform:** Windows 11, Python 3.11+, local-first
 >
@@ -74,13 +78,16 @@ Enabled toggle ở baseline:
 `mood_v2_prompt`, `action_transactions`, `decision_records`, `operator_dashboard_v2`,
 `proactive_hosting`, `self_talk_planner`, `behavior_library`, `natural_timing`,
 `self_talk_lore`, `relationship_memory`, `evaluation_harness`, `evaluation_acceptance`, `live_operations`,
-`kv_cache_q8`, `ambient_talk`, `world_model_shadow`, `perception_expansion`, `self_model_projection`, `capability_registry`, `action_mock_closed_loop`, `director_v2_shadow`.
+`kv_cache_q8`, `ambient_talk`.
 
 Disabled/optional toggle ở baseline:
 
-`input_voice`, `input_emotion_voice`, `filter_ai`, `tts_emotion_aware`, `embodiment_policy`, `animation_micro`, `speech_action_adapter`, `avatar_action_adapter`,
-`memory_semantic`, `memory_hierarchical`, `qc_persona`, `agent_context`, `context_selector`, `goal_proposals`,
-`thread_extraction`, `speculative_decoding`, `turn_taking_predictor`, `director_v2_takeover`.
+`input_voice`, `input_emotion_voice`, `filter_ai`, `tts_emotion_aware`, `animation_micro`,
+`memory_semantic`, `memory_hierarchical`, `qc_persona`, `agent_context`, `goal_proposals`,
+`thread_extraction`, `speculative_decoding`, `turn_taking_predictor`.
+
+Danh sách trên là ảnh chụp lịch sử của baseline `1.0.0`, không đồng bộ theo `features.yaml` hiện tại.
+Các cờ V2 phát sinh sau baseline chỉ được mô tả trong `docs/MAI_V2_SYSTEM_SPEC.md`.
 
 Từ `1.1.0`, `animation_smooth=true` gate `VTSAnimationService` thật (`services/animation/`); nếu VTube
 Studio không mở/không nối được thì service chạy `degraded` fail-safe, không giết turn.
@@ -98,7 +105,7 @@ Studio không mở/không nối được thì service chạy `degraded` fail-saf
 | `eval/` | frozen scenario và data contracts |
 | `scripts/` | live/CLI/replay/stress/eval/export/backup tools |
 | `tests/` | unit, integration, acceptance, live-marker và slow tests |
-| `docs/` | tài liệu core + versioned baseline evidence |
+| `docs/` | baseline lịch sử, đặc tả runtime hiện tại và baseline evidence |
 | `logs/` | active rotated journals/snapshots/output; không phải source code |
 | `data/` | SQLite, privacy salt và immutable dataset bundles |
 | `backups/` | checksum manifests và recovery copies |
@@ -167,10 +174,9 @@ xóa trong thao tác cleanup dataset.
 
 1. Tài liệu này để khóa đúng product version và invariant.
 2. `README.md` để biết entrypoint/chạy live và source-of-truth order.
-3. `docs/01_SYSTEM_OVERVIEW.md` và `docs/02_DATA_PIPELINE.md` để hiểu lifecycle.
-4. `docs/03_COMPONENT_REFERENCE.md` để tìm owner/file.
-5. Chọn `docs/04`–`docs/08` theo loại task.
-6. Đọc interface, composition root, implementation và YAML liên quan trước khi sửa.
+3. `docs/MAI_V2_SYSTEM_SPEC.md` để hiểu runtime, lifecycle, owner, cấu hình và known gaps hiện tại.
+4. `MAI_V2_MASTER_IMPLEMENTATION_BLUEPRINT_v2.0.md` chỉ để hiểu scope và thứ tự migration tương lai.
+5. Đọc interface, composition root, implementation, YAML và test liên quan trước khi sửa.
 
 AI không được tìm `PHASE.md`, `docs/QUICKSTART.md` hoặc `docs/ARCHITECTURE.md`; nội dung hợp lệ đã được
 gộp vào bộ tài liệu v1.0.0 này. Comment cũ có từ “phase/milestone/v2” chỉ là lịch sử hoặc nhãn component,
@@ -200,7 +206,7 @@ hành; version được tăng khi thay đổi được chấp nhận như một 
 ## 9. Tiêu chí coi tài liệu v1.0.0 còn đồng bộ
 
 - Version trong docs khớp `config/system.yaml`.
-- Feature inventory khớp `config/features.yaml`.
+- Feature inventory lịch sử không thay đổi theo `config/features.yaml` hiện tại.
 - YAML inventory khớp `ConfigLoader.CONFIG_FILES`.
 - Data schema trong config/docs khớp frozen data contract.
 - Mọi path/link trong bộ tài liệu tồn tại.

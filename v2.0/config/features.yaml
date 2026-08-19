@@ -8,7 +8,7 @@
 
 features:
   input_voice:
-    enabled: false              # STT deferred — xem docs/01_SYSTEM_OVERVIEW.md
+    enabled: false              # STT deferred — xem docs/MAI_V2_SYSTEM_SPEC.md
     vram_cost_mb: 1024
     latency_impact_ms: 150
     category: input

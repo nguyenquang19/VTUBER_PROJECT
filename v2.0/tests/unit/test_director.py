@@ -1,4 +1,4 @@
-"""Test C0.3 — Director loop (docs/03_COMPONENT_REFERENCE.md §C0.4).
+"""Test C0.3 — Director loop (docs/MAI_V2_SYSTEM_SPEC.md).
 
 DoD:
 - 1h giả lập: Director hoàn thành ≥80% segment planned

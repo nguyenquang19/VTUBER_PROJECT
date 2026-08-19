@@ -273,7 +273,7 @@ class EmotionOrchestrator:
         return self._engine.tick(dt or self._dt)
 
     def apply_llm_hint(self, mood_state: MoodState) -> None:
-        """A1 (docs/03_COMPONENT_REFERENCE.md §PHASE A): Kênh B ĐÃ BỎ — no-op.
+        """A1 (docs/MAI_V2_SYSTEM_SPEC.md): Kênh B ĐÃ BỎ — no-op.
 
         Giữ signature để backward compat với caller cũ. LLM không còn tự report
         mood (persona đã xoá mood block instruction). Mood engine giờ chỉ đi 1

@@ -1,5 +1,7 @@
 # Python
 venv/
+venv.next/
+venv.backup-*/
 __pycache__/
 *.pyc
 *.pyo
@@ -7,6 +9,7 @@ __pycache__/
 test-results/
 .mypy_cache/
 .ruff_cache/
+.uv-cache/
 
 # Env
 .env
