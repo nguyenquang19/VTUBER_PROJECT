@@ -47,7 +47,7 @@ Trạng thái phát hành khách quan:
 | Action adapters | Có mã và test đơn vị; chưa được compose đầy đủ |
 | External action | Chỉ có khung và mock; registry executor production trống |
 | Vòng tự chủ khép kín | Chưa đạt |
-| Release readiness | Chưa đạt: môi trường chuẩn đã phục hồi và repository đã nhẹ hơn, nhưng Discord credential chưa được thu hồi và release evidence chưa đủ tin cậy |
+| Release readiness | Chưa đạt: Mức 0 về môi trường/repository/credential đã hoàn tất, nhưng release evidence và các gate V2 chưa đủ |
 
 Không dùng một điểm số tổng hợp làm cổng phát hành. Chỉ code, composition, test và release evidence tương
 ứng mới được phép nâng một capability từ “có mã” lên “đang chạy” hoặc “production”.
@@ -535,7 +535,7 @@ bỏ qua riêng health endpoint vì `llama-server` không chạy trong lúc xác
 **Rủi ro còn lại:** cần giữ bootstrap script và lock file đồng bộ; live/LLM acceptance vẫn phải chạy khi
 server thật hoạt động. Backup của venv hỏng đã được xóa sau khi môi trường mới vượt qua regression.
 
-### 9.13. Snapshot đã source-only; credential vẫn phải thu hồi — mức cao
+### 9.13. Snapshot source-only và credential cũ đã được thu hồi — đã xử lý ngày 19/08/2026
 
 Trước khi làm sạch ngày 19/08/2026, bản lưu V1 trong `ver/v1.0` có kích thước khoảng 12,9 GB, gồm mô
 hình, môi trường Python, nhật ký, sao lưu, cơ sở dữ liệu và tệp `.env` có dữ liệu. Sau khi đối chiếu,
@@ -547,9 +547,8 @@ sang `E:\BAI_CUA_DUC\AI_VTUBER_RUNTIME_ARCHIVE\mai-v1.4.3-20260819`; không coi 
 hoặc release evidence. Snapshot hiện chỉ còn 470 file nguồn, khoảng 3,06 MiB; không còn `.env`, bytecode,
 cache test/Python hoặc worktree metadata.
 
-**Rủi ro còn lại:** xóa `.env` cục bộ không vô hiệu hóa token. Discord credential tương ứng phải được
-rotate/revoke tại nhà cung cấp. Owner đã nhận trách nhiệm reset token; chưa được đánh dấu hoàn tất khi
-chưa có xác nhận từ owner.
+Owner xác nhận ngày 19/08/2026 rằng Discord credential cũ đã được reset tại nhà cung cấp. Credential mới
+chỉ được cấp qua environment/secret store khi chạy và không được ghi vào snapshot, Git hoặc tài liệu.
 
 **Contract sau làm sạch:** source V1 tiếp tục nằm trong `ver/v1.0`; model production chỉ nằm trong
 `v2.0/models`; runtime artifact không được đưa trở lại snapshot; kho vận hành ngoài repository không được
@@ -635,10 +634,11 @@ Mục tiêu: mọi người có thể chạy đúng cùng một môi trường.
 3. **Đã hoàn tất 19/08/2026:** full offline regression chạy bằng chính `v2.0\venv`.
 4. **Đã hoàn tất 19/08/2026:** snapshot V1 chỉ còn source; runtime/environment/cache và dữ liệu vận hành
    đã bị loại hoặc chuyển sang kho ngoài repository.
-5. **Đã xóa bản cục bộ; còn việc owner:** rotate/revoke Discord credential tại nhà cung cấp.
+5. **Đã hoàn tất 19/08/2026:** owner xác nhận reset Discord credential cũ tại nhà cung cấp; token mới
+   không được lưu trong repository.
 
-**Điều kiện hoàn tất Mức 0:** phần môi trường đã đạt; toàn Mức 0 vẫn chưa đạt cho tới khi repository/snapshot
-V1 đã sạch, nhưng Discord credential có nguy cơ lộ vẫn phải được thu hồi.
+**Điều kiện hoàn tất Mức 0:** **đạt ngày 19/08/2026** — Python 3.11/lock file đã xác minh, snapshot V1
+source-only, runtime artifact đã tách khỏi repository và credential cũ đã được reset.
 
 ### Mức 1 — lập lại nguồn sự thật
 

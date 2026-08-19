@@ -14,8 +14,8 @@
 > Phase 14–15 là WIP/chưa có release evidence hợp lệ. Trạng thái chi tiết và blockers chỉ lấy từ
 > `docs/MAI_V2_SYSTEM_SPEC.md`. Môi trường Python 3.11 đã được phục hồi và cây V1 trùng ở repository root
 > đã bị loại; source baseline duy nhất tiếp tục nằm trong `ver/v1.0`. Model/runtime/environment lớn và
-> `.env` đã được loại khỏi snapshot theo contract trong System Spec; snapshot hiện source-only. Discord
-> credential vẫn phải được thu hồi tại nhà cung cấp. Việc này không thay đổi inventory lịch sử V1.
+> `.env` đã được loại khỏi snapshot theo contract trong System Spec; snapshot hiện source-only. Owner đã
+> xác nhận reset Discord credential cũ tại nhà cung cấp. Việc này không thay đổi inventory lịch sử V1.
 
 ---
 
