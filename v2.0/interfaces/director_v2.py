@@ -4,7 +4,7 @@ from __future__ import annotations
 import math
 from abc import abstractmethod
 from dataclasses import dataclass
-from typing import Callable
+from typing import Callable, Literal
 
 from interfaces.base import Service
 
@@ -15,6 +15,13 @@ DIRECTOR_V2_SOURCES = (
 DIRECTOR_V2_FAILURE_SOURCES = (
     "context", "world", "self", "capability", "transaction", "emergency",
     "operator", "chat", "goal", "thread", "proactive",
+)
+DIRECTOR_V2_TAKEOVER_STAGES = (
+    "WAIT", "READ_CHAT", "SELF_TALK", "FOLLOW_UP", "SPEECH_SCHEDULING",
+)
+DIRECTOR_V2_TAKEOVER_ACTIONS = (
+    "WAIT", "READ_CHAT", "ACK_DONATION", "SELF_TALK", "FOLLOW_UP",
+    "CONTINUE_THREAD", "ASK_FOLLOW_UP", "SHARE_GOAL_PROGRESS",
 )
 
 
@@ -127,13 +134,39 @@ class DirectorV2Proposal:
 
 @dataclass(frozen=True)
 class DirectorV2TakeoverSelection:
-    """Agreement result; the legacy decision remains the executable object."""
+    """Strict ownership result for one controlled conversational decision."""
 
     accepted: bool
     stage: str
     reason_code: str
     action_type: str
-    proposal_id: str
+    proposal_id: str | None = None
+    decision_owner: Literal["legacy", "director_v2"] = "legacy"
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.accepted, bool):
+            raise ValueError("accepted must be a bool")
+        stage = _required_string(self.stage, "stage")
+        if stage not in DIRECTOR_V2_TAKEOVER_STAGES:
+            raise ValueError("stage is unsupported")
+        action = _required_string(self.action_type, "action_type")
+        if action not in DIRECTOR_V2_TAKEOVER_ACTIONS:
+            raise ValueError("action_type is unsupported")
+        reason = _required_string(self.reason_code, "reason_code")
+        proposal_id = self.proposal_id
+        if proposal_id is not None:
+            proposal_id = _required_string(proposal_id, "proposal_id")
+        if self.decision_owner not in {"legacy", "director_v2"}:
+            raise ValueError("decision_owner is unsupported")
+        if self.accepted:
+            if proposal_id is None or self.decision_owner != "director_v2":
+                raise ValueError("accepted selection must be owned by director_v2")
+        elif self.decision_owner != "legacy":
+            raise ValueError("rejected selection must be owned by legacy")
+        object.__setattr__(self, "stage", stage)
+        object.__setattr__(self, "reason_code", reason)
+        object.__setattr__(self, "action_type", action)
+        object.__setattr__(self, "proposal_id", proposal_id)
 
 
 DirectorV2ContextProvider = Callable[[], DirectorV2Context]
@@ -180,14 +213,14 @@ class DirectorV2ShadowService(Service):
 
 
 class DirectorV2TakeoverService(Service):
-    """Feature-gated agreement selector; it must never execute a turn."""
+    """Feature-gated ownership selector; it must never execute a turn."""
 
     @abstractmethod
     def evaluate(
         self, *, legacy_action: str, proposal: DirectorV2Proposal | None,
         evidence_ids: tuple[str, ...] = (),
     ) -> DirectorV2TakeoverSelection:
-        """Return an agreement result without altering the legacy decision."""
+        """Select V2 ownership or an exact legacy fallback for one decision."""
 
     @abstractmethod
     def snapshot(self) -> dict[str, object]:

@@ -8,15 +8,10 @@
 **Frozen historical baseline:** Mai `1.0.0`  
 **Status:** Canonical migration plan; không phải bằng chứng feature đã production.
 
-> **Trạng thái đối chiếu 19/08/2026:** Phase 1–4 đã đạt closure gate; Phase 5–13 có implementation ở các mức
-> khác nhau nhưng không đồng nghĩa production. Director takeover hiện không nắm quyền thật; speech/avatar
-> adapters chưa compose đầy
-> đủ; external executor production còn trống; action mock có lỗi thứ tự cập nhật World trước final commit.
-> Phase 14–15 là WIP/chưa có release evidence hợp lệ. Trạng thái chi tiết và blockers chỉ lấy từ
-> `docs/MAI_V2_SYSTEM_SPEC.md`. Môi trường Python 3.11 đã được phục hồi và cây V1 trùng ở repository root
-> đã bị loại; source baseline duy nhất tiếp tục nằm trong `ver/v1.0`. Model/runtime/environment lớn và
-> `.env` đã được loại khỏi snapshot theo contract trong System Spec; snapshot hiện source-only. Owner đã
-> xác nhận reset Discord credential cũ tại nhà cung cấp. Việc này không thay đổi inventory lịch sử V1.
+> **Trạng thái implementation không được nhân bản trong blueprint.** Closure phase, test evidence,
+> production composition, feature state và blockers hiện tại chỉ lấy từ
+> `docs/MAI_V2_SYSTEM_SPEC.md`. Blueprint này chỉ khóa scope, thứ tự và acceptance gate để tránh một ảnh
+> chụp tiến độ cũ bị hiểu nhầm thành behavior production.
 
 ---
 

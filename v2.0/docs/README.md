@@ -4,7 +4,7 @@
 
 **Product version:** lấy duy nhất từ `config/system.yaml::app.version`, hiện là `1.4.3`
 
-**Ngày đối chiếu:** 19/08/2026
+**Ngày đối chiếu:** 20/08/2026
 
 Toàn dự án chỉ có ba nguồn tài liệu chính thức. Tệp mục lục này chỉ điều hướng, không phải nguồn thứ tư.
 Mọi hướng dẫn runtime, component, pipeline, cấu hình, storage, vận hành, bảo mật, kiểm thử và known gaps

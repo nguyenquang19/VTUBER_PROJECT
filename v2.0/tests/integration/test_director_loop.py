@@ -15,10 +15,13 @@ import pytest
 
 from interfaces.tts import TTSDeliveryMode, TTSDeliveryResult
 from interfaces.animation import MoodState
+from interfaces.director_v2 import DirectorV2Proposal, DirectorV2TakeoverSelection
 from interfaces.filter import FilterCategory, FilterVerdict
 from services.director.chat_pulse import ChatPulse
 from services.director.action_types import DirectorInput
-from services.director.director import Director, DirectorAction, ReadMode, Segment
+from services.director.director import (
+    Director, DirectorAction, DirectorDecision, ReadMode, Segment,
+)
 from services.director.director_loop import DirectorLoop, _self_talk_correction_prompt
 from services.director.salience import SaliencePool
 from services.autonomy.self_talk_planner import SelfTalkPlanner
@@ -208,6 +211,73 @@ def _make(now=0.0, autonomy=None, agent_state=None, goal_manager=None, **dir_ove
 
 @pytest.mark.asyncio
 class TestDirectorLoop:
+    async def test_accepted_takeover_owns_a_compatibility_identical_decision(self) -> None:
+        proposal = DirectorV2Proposal(
+            "p-read", 1.0, "READ_CHAT", "READ_CHAT", "m1",
+            ("selected", "validated"), ("chat:m1",),
+        )
+
+        class StaticShadow:
+            @staticmethod
+            def propose_current() -> DirectorV2Proposal:
+                return proposal
+
+        class AcceptingSelector:
+            @staticmethod
+            def evaluate(**_kwargs: object) -> DirectorV2TakeoverSelection:
+                return DirectorV2TakeoverSelection(
+                    True, "READ_CHAT", "accepted", "READ_CHAT", "p-read",
+                    "director_v2",
+                )
+
+        loop, director, pool, _pulse, _runner, clock = _make()
+        loop.configure_director_v2_takeover(StaticShadow(), AcceptingSelector())
+        pool.add("m1", "Mai ơi chơi gì", now=0.0, kind="mention")
+        clock["t"] = 1.0
+        director_input = loop._build_director_input(1.0, False)
+        legacy = director.decide(director_input)
+        selected = loop._apply_director_v2_takeover(legacy, director_input)
+
+        assert selected is not legacy
+        assert selected.decision_owner == "director_v2"
+        assert selected.director_v2_proposal_id == "p-read"
+        assert selected.action is legacy.action
+        assert selected.refs == legacy.refs
+        assert selected.read_mode is legacy.read_mode
+        assert selected.reason == legacy.reason
+
+    async def test_rejected_or_malformed_takeover_returns_exact_legacy_object(self) -> None:
+        proposal = DirectorV2Proposal(
+            "p-read", 1.0, "READ_CHAT", "READ_CHAT", "m1",
+            ("selected", "validated"), ("chat:m1",),
+        )
+
+        class StaticShadow:
+            @staticmethod
+            def propose_current() -> DirectorV2Proposal:
+                return proposal
+
+        class RejectedSelector:
+            @staticmethod
+            def evaluate(**_kwargs: object) -> DirectorV2TakeoverSelection:
+                return DirectorV2TakeoverSelection(
+                    False, "READ_CHAT", "action_mismatch", "READ_CHAT", "p-read",
+                )
+
+        loop, _director, _pool, _pulse, _runner, _clock = _make()
+        value = DirectorDecision(DirectorAction.WAIT, "main", "idle")
+        director_input = loop._build_director_input(1.0, False)
+        loop.configure_director_v2_takeover(StaticShadow(), RejectedSelector())
+        assert loop._apply_director_v2_takeover(value, director_input) is value
+
+        class MalformedSelector:
+            @staticmethod
+            def evaluate(**_kwargs: object) -> object:
+                return object()
+
+        loop.configure_director_v2_takeover(StaticShadow(), MalformedSelector())
+        assert loop._apply_director_v2_takeover(value, director_input) is value
+
     async def test_shadow_failure_cannot_change_legacy_decision(self) -> None:
         class BrokenShadow:
             def propose_current(self) -> None:

@@ -1569,7 +1569,8 @@ async def build_stream_runtime(
     from services.action.external_registry import ExternalExecutorRegistry
     external_executor_registry = ExternalExecutorRegistry()
 
-    # Phase 6: read-only Director V2 shadow. It is deliberately not passed to DirectorLoop.
+    # Phase 6 shadow remains proposal-only. Phase 7 may transfer decision ownership
+    # through the strict selector; DirectorLoop still owns execution and fallback.
     from interfaces.director_v2 import DirectorV2Candidate, DirectorV2Context
     from services.director.v2_shadow import (
         DirectorV2Shadow, DirectorV2ShadowConfig, director_v2_snapshot_id,

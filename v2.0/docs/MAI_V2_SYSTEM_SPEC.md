@@ -4,7 +4,7 @@
 
 **Phiên bản sản phẩm hiện tại:** `1.4.3`
 
-**Ngày xác minh:** 19/08/2026
+**Ngày xác minh:** 20/08/2026
 
 **Vai trò:** nguồn sự thật duy nhất cho behavior đã triển khai, ownership, vận hành, kiểm thử, an toàn,
 tiến độ và known gaps.
@@ -28,10 +28,10 @@ production YAML → tests → tài liệu này. Nội dung blueprint không ph�
 ## 1. Kết luận ngắn
 
 Mai hiện có nền móng kỹ thuật đáng tiếp tục: ranh giới dữ liệu khá rõ, thiết kế giao dịch đúng hướng,
-trạng thái có giới hạn, nhiều cờ bật/tắt và bộ kiểm thử rộng. Tuy nhiên, một nhánh mô phỏng vẫn cập nhật
-Mô hình Thế giới trước xác nhận cuối; vì vậy chưa được gọi toàn bộ cơ chế giao dịch là an toàn.
+trạng thái có giới hạn, nhiều cờ bật/tắt và bộ kiểm thử rộng. Vòng hành động mô phỏng đã sửa đúng thứ tự
+commit rồi mới project Mô hình Thế giới; nó vẫn chỉ là mock và không chứng minh external action thật.
 
-Tuy nhiên, **V2 chưa phải một vòng tự chủ hoàn chỉnh đang chạy trong thực tế**. Các phần quan sát thế giới, mô hình bản thân, năng lực, lựa chọn hành động và khung thực thi đã được xây dựng ở nhiều mức độ khác nhau, nhưng chưa nối liền thành một đường đi duy nhất. Bộ chọn V2 hiện chủ yếu đề xuất và ghi nhận quyết định; quyết định thật vẫn do luồng cũ nắm quyền. Các bộ chuyển đổi giọng nói và nhân vật ảo đã có mã, nhưng chưa được lắp đầy đủ vào điểm khởi động chính. Hành động bên ngoài mới dừng ở khung và mô phỏng.
+Tuy nhiên, **V2 chưa phải một vòng tự chủ hoàn chỉnh đang chạy trong thực tế**. Các phần quan sát thế giới, mô hình bản thân, năng lực, lựa chọn hành động và khung thực thi đã được xây dựng ở nhiều mức độ khác nhau, nhưng chưa nối liền thành một đường đi duy nhất. Controlled takeover đã có thể chuyển ownership cho quyết định V2/legacy đồng thuận, nhưng production flag vẫn tắt và chưa có live rollout evidence. Các bộ chuyển đổi giọng nói và nhân vật ảo đã có mã, nhưng chưa được lắp đầy đủ vào điểm khởi động chính. Hành động bên ngoài mới dừng ở khung và mô phỏng.
 
 Vì vậy, cách mô tả chính xác nhất là:
 
@@ -46,8 +46,10 @@ Trạng thái phát hành khách quan:
 | World Model shadow Phase 2 | Đã đóng gate: strict reducer/config, TTL, provenance, authority, uncertainty, bounds, metrics và dashboard read-only; không đổi Director production |
 | Self Model projection Phase 3 | Đã đóng gate: strict projection/config, authoritative-source degradation, transaction lifecycle, bounded action history, metrics và dashboard read-only; không đổi Director production |
 | Capability registry Phase 4 | Đã đóng gate: strict immutable declaration/config, permission, executor/verifier health, fail-closed transaction/precondition, bounded registration, metrics và dashboard read-only; không đổi Director production |
+| General action mock closed loop Phase 5 | Đã đóng gate: strict transaction, verified result, commit-before-World projection, idempotency/cancellation/failure isolation; vẫn mock-only |
+| Director V2 shadow Phase 6 | Đã đóng gate: deterministic proposal, hard precedence, strict capability/evidence, bounded log/metrics; không đổi live decision |
 | Nền nhận thức/trạng thái V2 | Có mã, chủ yếu ở shadow hoặc từng thành phần riêng |
-| Director V2 takeover | Chưa tiếp quản thật; nhánh hiện trả quyết định legacy |
+| Director V2 takeover Phase 7 | Đã đóng gate kỹ thuật: accepted agreement tạo executable decision ownership V2; mọi lỗi trả exact legacy; production flag vẫn tắt |
 | Action adapters | Có mã và test đơn vị; chưa được compose đầy đủ |
 | External action | Chỉ có khung và mock; registry executor production trống |
 | Vòng tự chủ khép kín | Chưa đạt |
@@ -68,7 +70,7 @@ Các cột dưới đây độc lập với nhau. “Có mã” không thay th�
 | Capability/permission/health registry | Có | Shadow read-only | Unit, negative-path, impacted và full offline regression | Không |
 | Action transaction | Có | Mock closed loop strict; không nối Director V1 | Unit, negative-path, impacted, replay và full offline regression | Không cho external action |
 | Director V2 shadow | Có | Proposal/log read-only strict; không đổi live decision | Unit, negative-path, impacted, replay và full offline regression | Không |
-| Director V2 takeover | Có | Có nhánh gọi nhưng quyết định legacy vẫn thắng | Unit/integration | Không |
+| Director V2 takeover | Có | Strict controlled agreement ownership; mặc định tắt, exact legacy fallback | Unit, negative-path, impacted, replay và full offline regression | Không |
 | Speech action adapter | Có | Chưa compose đầy đủ | Unit | Không |
 | Avatar action adapter | Có | Chưa compose đầy đủ | Unit | Không |
 | External executor thật | Chỉ có interface/registry/mock | Không | Chưa có end-to-end thật | Không |
@@ -79,7 +81,7 @@ Các cột dưới đây độc lập với nhau. “Có mã” không thay th�
 | Product `2.0.0` release gates | WIP chưa commit | Chưa đủ evidence độc lập | Test WIP | Không |
 
 Ma trận chỉ được nâng trạng thái khi có đường code tương ứng, test phù hợp và evidence máy đọc hoặc vận
-hành. Blueprint tiếp tục giữ scope/phase order; bảng này chỉ mô tả working tree ngày 19/08/2026.
+hành. Blueprint tiếp tục giữ scope/phase order; bảng này chỉ mô tả working tree ngày 20/08/2026.
 
 ---
 
@@ -390,7 +392,7 @@ Hiện hệ thống chưa có bộ thực thi thật cho ví dụ này. Vì vậ
 | Danh mục năng lực | Đã có | Từ chối mặc định, phù hợp yêu cầu an toàn |
 | Vòng hành động mô phỏng | Đã có | Chứng minh được giao dịch nhưng chưa phải hành động thật |
 | Bộ điều phối V2 quan sát | Đã có | So sánh được với luồng cũ |
-| Tiếp quản có kiểm soát | Chưa hoàn chỉnh | Kết quả V2 chưa nắm quyền quyết định thật |
+| Tiếp quản có kiểm soát | Đã đóng gate kỹ thuật, chưa rollout production | V2 sở hữu decision khi strict agreement pass; cờ mặc định tắt và fallback V1 còn nguyên |
 | Chuyển đổi giọng nói và nhân vật | Có mã, chưa ghép đủ | Chưa được lắp hoàn chỉnh ở điểm khởi động chính |
 | Khung thực thi bên ngoài | Có khung | Danh sách bộ thực thi thật còn trống |
 | Nhận thức mở rộng | Có nền | Cần gắn với nguồn tín hiệu thật |
@@ -407,8 +409,8 @@ Hiện hệ thống chưa có bộ thực thi thật cho ví dụ này. Vì vậ
 flowchart LR
     A["Nhận thức"] --> B["Thế giới và Bản thân"]
     B --> C["Năng lực"]
-    C --> D["V2 đề xuất và ghi nhận"]
-    D -. "chưa nắm quyền thật" .-> E["Hành động sản xuất"]
+    C --> D["V2 đề xuất và strict agreement"]
+    D -. "production flag đang tắt" .-> E["Hành động sản xuất"]
 
     F["Vòng hành động mô phỏng"] --> G["Thực thi giả lập"]
     G --> H["Kiểm chứng và giao dịch"]
@@ -440,8 +442,8 @@ V2 được đưa vào theo từng lớp, có cờ bật/tắt và chế độ q
 
 ### 8.5. Bộ kiểm thử rộng
 
-Bộ kiểm thử bao phủ nhiều subsystem và các bài targeted cho lõi V2 đang xanh. Ngày 19/08/2026, sau khi
-khôi phục môi trường chuẩn, full offline regression bằng `v2.0\venv` đạt 1.900 bài, 5 deselected và 0 lỗi.
+Bộ kiểm thử bao phủ nhiều subsystem và các bài targeted cho lõi V2 đang xanh. Ngày 20/08/2026, sau
+closure Phase 7, full offline regression bằng `v2.0\venv` đạt 1.999 bài, 5 deselected và 0 lỗi.
 Kết quả này chứng minh đường offline hiện có đang xanh; nó không thay thế live/LLM acceptance hoặc chứng
 minh các capability chưa compose đã production.
 
@@ -465,11 +467,15 @@ Về kỹ thuật sinh câu, kết quả đủ khả quan để tiếp tục. Ph
 
 ## 9. Điểm yếu và rủi ro
 
-### 9.1. Bộ điều phối V2 chưa nắm quyền thật — mức nghiêm trọng cao
+### 9.1. Controlled takeover chưa rollout production — mức cao
 
-Nhánh tiếp quản có gọi bộ chọn V2, nhưng sau đó vẫn trả về quyết định của luồng cũ. Vì vậy tên gọi “tiếp quản” hiện mạnh hơn hành vi thực tế.
+Nhánh tiếp quản đã có thể tạo executable `DirectorDecision` mang ownership V2 khi proposal và legacy
+đồng thuận, còn mới, đúng stage và đủ evidence. Tuy nhiên `director_v2_takeover` vẫn mặc định tắt, stage
+production vẫn là `WAIT` và chưa có live/canary evidence. Gate hiện là agreement-only nên chưa cho V2
+thực thi một action khác với compatibility fallback.
 
-**Hậu quả:** không thể chứng minh V2 đang điều khiển hệ thống, dù số liệu có thể cho thấy V2 đã tạo quyết định.
+**Hậu quả:** closure kỹ thuật không đồng nghĩa V2 đang điều khiển phiên phát thật; production vẫn dùng
+legacy cho tới khi owner bật rollout có giám sát.
 
 ### 9.2. Các bộ chuyển đổi hành động chưa được ghép vào điểm khởi động — mức cao
 
@@ -483,11 +489,12 @@ Khung đăng ký bộ thực thi đang trống hoặc chưa hoạt động thự
 
 **Hậu quả:** chưa đạt định nghĩa tự chủ khép kín của V2.
 
-### 9.4. Nguy cơ cập nhật trạng thái trước xác nhận giao dịch — mức cao
+### 9.4. Vòng transaction đã đúng thứ tự nhưng vẫn mock-only — mức trung bình
 
-Vòng hành động mô phỏng có nhánh cập nhật Thế giới trước khi giao dịch được xác nhận xong.
+Vòng mô phỏng đã commit transaction trước khi project World và giữ failure/unknown không tạo success
+fact. Nó chưa có external executor cùng authoritative verifier thật.
 
-**Hậu quả:** nếu xác nhận cuối thất bại, trạng thái có thể nói rằng hành động đã xảy ra dù thực tế chưa chắc xảy ra.
+**Hậu quả:** bằng chứng mock không được dùng để tuyên bố action ngoài hệ thống đã production.
 
 ### 9.5. Ý định ngắn chưa trở thành trạng thái sống — mức trung bình
 
@@ -768,19 +775,16 @@ Không nên đổi nhãn sản phẩm thành V2 chỉ vì các lớp hoặc tài
 
 Nếu nguồn lực có hạn, nên làm đúng thứ tự này:
 
-1. sửa môi trường Python;
-2. làm sạch kho lưu trữ và thay khóa có nguy cơ lộ;
-3. đồng bộ tài liệu, phiên bản và trạng thái chức năng;
-4. sửa lỗi cập nhật trạng thái trước xác nhận;
-5. cho V2 nắm quyền thật với `WAIT`, sau đó `READ_CHAT`;
-6. ghép bộ chuyển đổi giọng nói và nhân vật;
-7. hoàn thiện ý định trong Mô hình Bản thân;
-8. ghép bộ ghi hành trình quyết định;
-9. làm lát cắt đổi cảnh thật;
-10. đánh giá nội dung bởi con người và bổ sung kiểm tra bám dữ kiện;
-11. giảm số ứng viên và giao dịch bị hủy;
-12. tách nhỏ điểm ghép chính và vòng điều phối;
-13. thêm kiểm tra kiểu, định dạng, độ bao phủ và bí mật vào quy trình tự động.
+1. giữ Phase 7 mặc định tắt cho tới khi có kế hoạch rollout/canary và rollback evidence;
+2. thực hiện Phase 8: ghép bộ chuyển đổi giọng nói và nhân vật qua action boundary;
+3. thực hiện Phase 9: hoàn thành một external executor có verifier thật, ưu tiên OBS;
+4. thực hiện Phase 10: đưa nguồn nhận thức mới qua canonical ingress;
+5. thực hiện Phase 11: hoàn thiện goal và short intention lifecycle;
+6. thực hiện Phase 12: ghép Memory và ContextSelector bounded/grounded;
+7. thực hiện Phase 13: ghép Embodiment Policy với delivery state thật;
+8. thực hiện Phase 14: trajectory replay, observability hardening và human-like calibration;
+9. chỉ sau đó thực hiện Phase 15 release gate, live/canary, security và rollback rehearsal;
+10. giảm nợ bảo trì mà không đổi thứ tự phase hoặc thêm logic V3.
 
 Thứ tự này ưu tiên độ tin cậy trước, quyền quyết định thật sau, rồi mới mở rộng hành động và tối ưu kiến trúc.
 
@@ -1192,6 +1196,71 @@ replay transaction hold tạo cùng `WAIT`/reason. Shadow/selector cùng lỗi v
 `READ_CHAT` và delivery cũ. Phase 7 takeover tiếp tục disabled; Phase 6 không execute/reserve action,
 không đi vào prompt và không nắm live behavior.
 
+#### 17.2.7. Closure contract controlled conversational takeover Phase 7
+
+Phase 7 chuyển quyền sở hữu quyết định hội thoại theo rollout
+`WAIT → READ_CHAT → SELF_TALK → FOLLOW_UP → SPEECH_SCHEDULING`, nhưng không thay executor hoặc delivery
+boundary hiện hành. `DirectorDecision` chỉ được đánh dấu do Director V2 sở hữu khi proposal V2 hợp lệ,
+còn mới, thuộc stage đang cho phép, có evidence cùng tick khi action cần evidence và đồng ý với action
+legacy sau canonical alias. Payload thực thi, chat refs, read mode, goal/thread metadata, transaction key,
+LLM, filter, TTS và commit semantics tiếp tục dùng compatibility payload đã được V1 chứng minh. Đây là
+controlled agreement takeover: V2 sở hữu quyết định được chấp nhận; V1 vẫn là fallback độc lập và không
+bị retire trong phase này.
+
+Gate Phase 7 yêu cầu:
+
+- `DirectorV2TakeoverSelection` phải immutable và strict. `accepted` là `bool` thật; stage, reason và
+  action là chuỗi hợp lệ; owner chỉ là `legacy` hoặc `director_v2`. Selection accepted bắt buộc có
+  proposal ID và owner V2; selection rejected bắt buộc giữ owner legacy. Không nhận truthiness,
+  stringify hoặc object duck-typed qua execution boundary.
+- `DirectorV2TakeoverConfig` phải deep-immutable và strict. Stage inventory phải đúng thứ tự khóa trong
+  blueprint; mỗi stage có action set không rỗng, tăng đơn điệu và chỉ chứa action hội thoại được hỗ trợ;
+  `WAIT` chỉ chứa `WAIT`. Alias phải trỏ về canonical action hợp lệ. Capacity, label/evidence bound là
+  `int` thật dương; proposal age là số hữu hạn dương. Không nhận chuỗi số, `bool`, float số nguyên,
+  stage/action lạ, duplicate hoặc mapping/list mutable sau construction.
+- Feature tắt phải trả exact legacy decision, không tạo takeover record và không đổi prompt,
+  transaction, LLM/TTS hoặc state. Enable/disable và start/stop phải idempotent; disabled health phải
+  degraded, stopped health phải stopped. `FeatureManager` tiếp tục sở hữu toggle; cấu hình production
+  mặc định giữ `enabled=false` cho tới khi owner duyệt rollout/live evidence.
+- Proposal phải là `DirectorV2Proposal` typed, không ở tương lai và không cũ quá TTL YAML. Proposal
+  missing/malformed/stale, action ngoài stage, action mismatch, capability/source failure, hard hold
+  hoặc evidence thiếu/sai đều fallback exact legacy decision với reason deterministic. Metrics hoặc
+  audit record failure không được đổi selection.
+- `ACK_DONATION` được canonical về `READ_CHAT`; thread/goal actions được canonical về `FOLLOW_UP`.
+  `READ_CHAT`/donation chỉ nhận candidate ID có trong chat refs cùng tick; follow-up/thread/goal chỉ nhận
+  ID có trong goal/thread refs cùng tick. Evidence input phải là tuple chuỗi unique, bounded và strict.
+- Khi selection accepted, `DirectorLoop` tạo executable `DirectorDecision` mới với
+  `decision_owner=director_v2` và proposal ID tương ứng, nhưng giữ nguyên toàn bộ action payload legacy.
+  Selection object sai contract, selector/shadow exception hoặc accepted result không khớp action/
+  proposal phải fail isolated và trả đúng object legacy ban đầu.
+- Takeover không reserve hoặc execute trực tiếp. `DirectorLoop` vẫn là transaction owner duy nhất;
+  duplicate committed action không deliver lần hai, delivery failure không remove chat/advance state,
+  và cancellation sau reserve phải release transaction active rồi re-raise `CancelledError`.
+- Takeover records, evidence, reason, dashboard snapshot và metrics phải bounded/deterministic. Replay
+  cùng decision/proposal/evidence phải cho cùng accepted/fallback reason và không đổi user-visible
+  action, prompt hoặc delivery payload so với compatibility path.
+
+Gate kiểm thử gồm strict/deep-immutable contract và config, stage inventory/monotonic rollout, alias,
+freshness, evidence, hard/capability/source rejection, disabled/exceptions/malformed selection exact
+fallback, accepted ownership, FeatureManager toggle/lifecycle/health, bounded record và metrics failure
+isolation. Integration phải bao phủ `WAIT`, `READ_CHAT`, donation, self-talk, follow-up, duplicate commit,
+delivery failure và cancellation; deterministic replay phải chứng minh accepted path giữ action/payload
+V1 và rollback switch trả exact legacy behavior.
+
+**Trạng thái Phase 7:** đạt closure gate ngày 20/08/2026. Selection/config đã strict và deep-immutable;
+stage inventory tăng đơn điệu theo thứ tự blueprint, alias donation/thread được khóa, proposal stale/
+future/malformed, evidence sai, hard/capability/source rejection và metrics failure đều fail closed hoặc
+fail isolated. Accepted agreement tạo executable `DirectorDecision` mới với ownership V2 nhưng giữ
+nguyên action payload, prompt, idempotency và delivery semantics compatibility; disabled, mismatch,
+selector/shadow exception hoặc malformed selection trả đúng object legacy ban đầu. Cancellation sau
+reserve release transaction rồi propagate; delivery failure không remove chat; duplicate committed
+không deliver lần hai.
+
+Targeted Phase 7 đạt 79 test, impacted Director/transaction/runtime regression đạt 220 test và full
+offline regression đạt 1999 test, 5 deselected. Replay cùng proposal/decision/evidence tạo cùng ownership
+selection; rollback switch giữ exact legacy behavior. `director_v2_takeover` vẫn mặc định `enabled=false`,
+stage `WAIT`, chưa có live/canary evidence và chưa được phát hành; product version vẫn là `1.4.3`.
+
 ### 17.3. Chuỗi mã để lần theo một lượt
 
 ```mermaid
@@ -1291,7 +1360,7 @@ Hàng chờ sự kiện, nhóm tin nổi bật, quyết định, giao dịch, y�
 
 Một chức năng chỉ thực sự hoạt động khi đã được khai báo, đủ phụ thuộc, không xung đột tài nguyên, có phần cài đặt, được ghép vào `StreamRuntime`, có bộ chuyển đổi bên ngoài nếu cần, sức khỏe đạt và cờ đang bật. “Bật trong YAML” không phải bằng chứng có đầu ra thật.
 
-Ảnh chụp `config/features.yaml` ngày 19/08/2026:
+Ảnh chụp `config/features.yaml` ngày 20/08/2026:
 
 - **Đang bật:** `filter_rule`, `tts_streaming`, `animation_smooth`, `data_collector`,
   `director_goal_arbiter`, `director_chat_gate`, `conversation_continuity`, `mood_behavior_policy`,
@@ -1308,8 +1377,8 @@ Một chức năng chỉ thực sự hoạt động khi đã được khai báo,
   `director_v2_takeover`.
 
 Trong đó `speech_action_adapter` và `avatar_action_adapter` là cờ có implementation nhưng chưa được ghép
-vào composition root; `director_v2_takeover` chưa tạo takeover thật. Trạng thái bật/tắt không được dùng để
-suy ra mức production.
+vào composition root; `director_v2_takeover` đã có strict controlled ownership nhưng mặc định tắt và
+chưa có live rollout evidence. Trạng thái bật/tắt không được dùng riêng để suy ra mức production.
 
 ### 19.5. Hồ sơ cấu hình nên chuẩn hóa
 
@@ -1568,15 +1637,16 @@ Danh tính lưu lâu dài dùng muối cục bộ tại `data/privacy_salt.bin`.
 
 ### 24.2. Kết quả xác minh gần nhất
 
-Ngày 19/08/2026:
+Ngày 20/08/2026:
 
 - `compileall` source chính: đạt;
 - CPython `3.11.15`, 125 dependency từ lock và `pip check`: đạt;
 - `scripts/check_environment.ps1 -SkipLlamaHealth`: 9 đạt, 0 lỗi, 1 bỏ qua;
 - regression của environment checker: 6 đạt;
-- full offline `pytest -m "not llm and not slow"`: 1.900 đạt, 5 deselected, 0 lỗi, 114,45 giây;
+- Phase 7 targeted: 79 đạt; impacted Director/transaction/runtime: 220 đạt;
+- full offline `pytest -m "not slow and not llm"`: 1.999 đạt, 5 deselected, 0 lỗi;
 - còn một cảnh báo deprecation giữa Starlette TestClient và `httpx`;
-- chưa chạy live/LLM acceptance vì `llama-server` không được khởi động trong phase môi trường.
+- chưa chạy live/LLM acceptance hoặc canary takeover; `llama-server` không được khởi động trong phase này.
 
 Kết quả cũ dùng Python 3.12 thay thế chỉ còn giá trị chẩn đoán lịch sử, không phải release evidence hiện tại.
 
@@ -1736,4 +1806,4 @@ Nhánh hội thoại V1 đã đi được phần lớn vòng này. V2 đã có c
 
 Sau khi bổ sung, tài liệu này có thể dùng để hiểu mục tiêu và kiến trúc Mai; lần theo luồng tin nhắn, tự nói và V2; tìm tệp chịu trách nhiệm; hiểu hợp đồng và thời điểm ghi dữ liệu; đọc cấu hình; cài đặt, khởi động, theo dõi và tắt; xử lý lỗi; hiểu sao lưu, quay lui và kiểm thử; đồng thời xác định chính xác vì sao V2 chưa hoàn chỉnh.
 
-Tài liệu mô tả hiện trạng đã đối chiếu ngày 19/08/2026. Khi mã, cấu hình, phiên bản hoặc trạng thái ghép nối thay đổi, phần tương ứng phải được cập nhật cùng thay đổi đó. Nếu có mâu thuẫn, áp dụng thứ tự nguồn sự thật ở đầu tài liệu và báo conflict trước khi sửa.
+Tài liệu mô tả hiện trạng đã đối chiếu ngày 20/08/2026. Khi mã, cấu hình, phiên bản hoặc trạng thái ghép nối thay đổi, phần tương ứng phải được cập nhật cùng thay đổi đó. Nếu có mâu thuẫn, áp dụng thứ tự nguồn sự thật ở đầu tài liệu và báo conflict trước khi sửa.

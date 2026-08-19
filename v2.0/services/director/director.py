@@ -73,6 +73,8 @@ class DirectorDecision:
     proactive_category: str | None = None
     proactive_evidence_ids: tuple[str, ...] = ()
     proactive_summary: str = ""
+    decision_owner: str = "legacy"
+    director_v2_proposal_id: str | None = None
 
 
 class Director:

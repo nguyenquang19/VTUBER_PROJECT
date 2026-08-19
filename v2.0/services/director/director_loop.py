@@ -24,6 +24,7 @@ from typing import Any, Awaitable, Callable
 
 from interfaces.animation import MoodState
 from interfaces.decision_record import DecisionCandidateSummary
+from interfaces.director_v2 import DirectorV2TakeoverSelection
 from interfaces.self_talk import SelfTalkContext, SelfTalkStage
 from orchestrator.logger import get_logger
 from services.autonomy.material_provider import RuntimeContext
@@ -199,7 +200,7 @@ class DirectorLoop:
         self._thread_forced_park_total = 0
 
     def configure_director_v2_takeover(self, shadow: Any, selector: Any) -> None:
-        """Attach the agreement-only V2 gate after composition; no new driver is created."""
+        """Attach the agreement-only V2 ownership gate; no new driver is created."""
         self._director_v2_shadow = shadow
         self._director_v2_takeover = selector
 
@@ -217,15 +218,27 @@ class DirectorLoop:
         except Exception:
             proposal = None
         try:
-            self._director_v2_takeover.evaluate(
+            selection = self._director_v2_takeover.evaluate(
                 legacy_action=decision.action.value,
                 proposal=proposal,
-                evidence_ids=tuple(evidence_ids),
+                evidence_ids=tuple(dict.fromkeys(evidence_ids)),
             )
         except Exception:
-            pass
-        # The exact existing decision remains the execution object. This gate cannot create a turn.
-        return decision
+            return decision
+        if (
+            not isinstance(selection, DirectorV2TakeoverSelection)
+            or selection.accepted is not True
+            or selection.decision_owner != "director_v2"
+            or proposal is None
+            or selection.proposal_id != proposal.proposal_id
+            or selection.action_type != decision.action.value.upper()
+        ):
+            return decision
+        return replace(
+            decision,
+            decision_owner="director_v2",
+            director_v2_proposal_id=selection.proposal_id,
+        )
     # ---------- lifecycle ----------
 
     async def start(self) -> None:
@@ -343,6 +356,19 @@ class DirectorLoop:
                         outcome="completed" if committed else "not_delivered",
                     )
                 self._record_director_action(dec, now)
+            except asyncio.CancelledError:
+                if transaction_id is not None:
+                    try:
+                        transaction = self._transactions.release(
+                            transaction_id, "cancelled",
+                        )
+                        self._update_decision_transaction(
+                            decision_id, transaction,
+                            delivery_state="cancelled", outcome="released",
+                        )
+                    except Exception:
+                        pass
+                raise
             except Exception as e:
                 self._execute_failed_total += 1
                 if transaction_id is not None:

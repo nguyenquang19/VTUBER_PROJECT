@@ -404,4 +404,4 @@ features:
     depends_on: [director_v2_shadow]
     conflicts_with: []
     name: Director V2 controlled takeover
-    description: Agreement-only conversational gate with immediate legacy fallback; disabled by default.
+    description: Agreement-only V2 decision ownership with immediate legacy fallback; disabled by default.

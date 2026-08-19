@@ -184,14 +184,14 @@ def test_document_index_links_only_canonical_documents() -> None:
 def test_system_spec_keeps_critical_wip_limits_explicit() -> None:
     spec = (ROOT / "docs" / "MAI_V2_SYSTEM_SPEC.md").read_text(encoding="utf-8")
     required = (
-        "nhánh hiện trả quyết định legacy",
+        "production flag vẫn tắt và chưa có live rollout evidence",
         "registry executor production trống",
         "speech_action_adapter",
         "avatar_action_adapter",
-        "cập nhật Thế giới trước khi giao dịch được xác nhận",
+        "commit rồi mới project Mô hình Thế giới",
         "Vòng tự chủ khép kín | Chưa đạt",
         "`v2.0\\venv` hiện dùng CPython `3.11.15`",
-        "full offline `pytest -m \"not llm and not slow\"`: 1.900 đạt",
+        "full offline `pytest -m \"not slow and not llm\"`: 1.999 đạt",
     )
     for statement in required:
         assert statement in spec, f"critical implementation limit disappeared: {statement}"

@@ -68,11 +68,14 @@ director:
       proactive: 0.0
       wait: -1.0
     source_priority: [chat, thread, goal, world, capability, proactive, wait]
-  # Phase 7: V2 may gate an identical legacy conversational decision only when enabled.
+  # Phase 7: accepted V2/legacy agreement transfers decision ownership while
+  # preserving the proven compatibility payload and immediate legacy fallback.
   director_v2_takeover:
     stage: WAIT
     max_recent_decisions: 128
     max_reason_chars: 120
+    max_evidence_ids: 16
+    max_proposal_age_seconds: 2.0
     stage_order: [WAIT, READ_CHAT, SELF_TALK, FOLLOW_UP, SPEECH_SCHEDULING]
     stages:
       WAIT: [WAIT]
@@ -81,6 +84,7 @@ director:
       FOLLOW_UP: [WAIT, READ_CHAT, ACK_DONATION, SELF_TALK, FOLLOW_UP, CONTINUE_THREAD, ASK_FOLLOW_UP, SHARE_GOAL_PROGRESS]
       SPEECH_SCHEDULING: [WAIT, READ_CHAT, ACK_DONATION, SELF_TALK, FOLLOW_UP, CONTINUE_THREAD, ASK_FOLLOW_UP, SHARE_GOAL_PROGRESS]
     action_aliases:
+      ACK_DONATION: READ_CHAT
       CONTINUE_THREAD: FOLLOW_UP
       ASK_FOLLOW_UP: FOLLOW_UP
       SHARE_GOAL_PROGRESS: FOLLOW_UP

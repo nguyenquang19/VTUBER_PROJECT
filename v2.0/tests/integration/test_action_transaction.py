@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
+from interfaces.director_v2 import DirectorV2Proposal, DirectorV2TakeoverSelection
 from interfaces.tts import TTSDeliveryMode, TTSDeliveryResult
 from services.director.action_transaction import ActionTransactionManager
 from services.director.director import DirectorAction
@@ -12,6 +15,28 @@ def _enable_transactions(loop) -> ActionTransactionManager:
     manager = ActionTransactionManager(enabled=True)
     loop._transactions = manager
     return manager
+
+
+def _enable_v2_read_ownership(loop) -> None:
+    proposal = DirectorV2Proposal(
+        "p-read", 1.0, "READ_CHAT", "READ_CHAT", "m1",
+        ("selected", "validated"), ("chat:m1",),
+    )
+
+    class StaticShadow:
+        @staticmethod
+        def propose_current() -> DirectorV2Proposal:
+            return proposal
+
+    class AcceptingSelector:
+        @staticmethod
+        def evaluate(**_kwargs: object) -> DirectorV2TakeoverSelection:
+            return DirectorV2TakeoverSelection(
+                True, "READ_CHAT", "accepted", "READ_CHAT", "p-read",
+                "director_v2",
+            )
+
+    loop.configure_director_v2_takeover(StaticShadow(), AcceptingSelector())
 
 
 @pytest.mark.asyncio
@@ -29,6 +54,61 @@ async def test_read_chat_is_not_removed_when_delivery_fails() -> None:
     assert pool.size() == 1
     assert manager.snapshot()["counts"]["released"] == 1
     assert "committed" not in manager.snapshot()["counts"]
+
+
+@pytest.mark.asyncio
+async def test_v2_owned_read_releases_transaction_when_delivery_fails() -> None:
+    loop, _director, pool, _pulse, _runner, clock = _make()
+    manager = _enable_transactions(loop)
+    _enable_v2_read_ownership(loop)
+    pool.add("m1", "Mai ơi", now=0.0, kind="mention")
+
+    async def fail_speech(_request_id: str, _text: str) -> None:
+        raise RuntimeError("delivery failed")
+
+    loop._speak = fail_speech
+    clock["t"] = 1.0
+    assert await loop.tick_once() is DirectorAction.READ_CHAT
+    assert pool.size() == 1
+    assert manager.snapshot()["counts"]["released"] == 1
+    assert "committed" not in manager.snapshot()["counts"]
+
+
+@pytest.mark.asyncio
+async def test_v2_owned_read_cancellation_releases_and_propagates() -> None:
+    loop, _director, pool, _pulse, _runner, clock = _make()
+    manager = _enable_transactions(loop)
+    _enable_v2_read_ownership(loop)
+    pool.add("m1", "Mai ơi", now=0.0, kind="mention")
+
+    async def cancel_speech(_request_id: str, _text: str) -> None:
+        raise asyncio.CancelledError
+
+    loop._speak = cancel_speech
+    clock["t"] = 1.0
+    with pytest.raises(asyncio.CancelledError):
+        await loop.tick_once()
+    assert pool.size() == 1
+    assert manager.snapshot()["counts"]["released"] == 1
+    assert "committed" not in manager.snapshot()["counts"]
+
+
+@pytest.mark.asyncio
+async def test_v2_owned_duplicate_committed_read_is_not_delivered_twice() -> None:
+    loop, _director, pool, _pulse, runner, clock = _make()
+    manager = _enable_transactions(loop)
+    _enable_v2_read_ownership(loop)
+    pool.add("m1", "Mai ơi", now=0.0, kind="mention")
+    clock["t"] = 1.0
+    assert await loop.tick_once() is DirectorAction.READ_CHAT
+    assert runner.read_calls == ["Mai ơi"]
+
+    pool.add("m1", "Mai ơi", now=1.1, kind="mention")
+    clock["t"] = 2.0
+    assert await loop.tick_once() is DirectorAction.READ_CHAT
+    assert runner.read_calls == ["Mai ơi"]
+    assert pool.size() == 1
+    assert manager.snapshot()["counts"]["duplicate_committed"] == 1
 
 
 @pytest.mark.asyncio
