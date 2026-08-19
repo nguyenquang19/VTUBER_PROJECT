@@ -235,8 +235,16 @@ def test_capability_declaration_is_deeply_immutable_and_inventory_is_exact() -> 
         "PLAY_MUSIC", "STOP_MUSIC", "SWITCH_SCENE", "CALL_GUEST", "REMOVE_GUEST",
     }
     assert {item.capability.capability_id for item in config.definitions if item.mock_only} == {
-        "PLAY_MUSIC", "STOP_MUSIC", "SWITCH_SCENE", "CALL_GUEST", "REMOVE_GUEST",
+        "PLAY_MUSIC", "STOP_MUSIC", "CALL_GUEST", "REMOVE_GUEST",
     }
+    scene = next(
+        item for item in config.definitions
+        if item.capability.capability_id == "SWITCH_SCENE"
+    )
+    assert scene.capability.executor_id == "obs_scene"
+    assert scene.capability.verifier_id == "obs_scene_state"
+    assert dict(scene.capability.parameter_schema) == {"scene_name": "string"}
+    assert scene.mock_only is False
 
 
 def test_capability_registry_uses_executor_id_provider_and_strict_boolean_health() -> None:

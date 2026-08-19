@@ -184,8 +184,8 @@ def test_document_index_links_only_canonical_documents() -> None:
 def test_system_spec_keeps_critical_wip_limits_explicit() -> None:
     spec = (ROOT / "docs" / "MAI_V2_SYSTEM_SPEC.md").read_text(encoding="utf-8")
     required = (
-        "production flag vẫn tắt và chưa có live rollout evidence",
-        "registry executor production trống",
+        "production flag vẫn tắt, chưa có live rollout/canary",
+        "Feature `obs_scene_executor` vẫn mặc định `enabled=false`",
         "speech_action_adapter",
         "avatar_action_adapter",
         "commit rồi mới project Mô hình Thế giới",

@@ -101,6 +101,16 @@ features:
     name: Avatar action adapter
     description: Typed intentional VTS gesture adapter; automatic mood expression is unchanged.
 
+  obs_scene_executor:
+    enabled: false
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: action
+    depends_on: [capability_registry, world_model_shadow, action_transactions]
+    conflicts_with: []
+    name: OBS scene executor
+    description: Verified OBS current-program scene transaction; requires operator credential and canary.
+
   memory_semantic:
     enabled: false
     vram_cost_mb: 500

@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable
 
+from interfaces.action_execution import ActionRequest, ActionResult
 from interfaces.animation import MoodState
 from interfaces.input import InputService
 from orchestrator.autonomy_engine import AutonomyEngine
@@ -110,6 +111,7 @@ class StreamRuntime:
         action_adapter_boundary: Any = None,
         embodiment_policy: Any = None,
         external_executor_registry: Any = None,
+        external_action_loop: Any = None,
         director_v2_shadow: Any = None,
         director_v2_takeover: Any = None,
         goal_manager: Any = None,
@@ -155,6 +157,7 @@ class StreamRuntime:
         self._action_adapter_boundary = action_adapter_boundary
         self._embodiment_policy = embodiment_policy
         self._external_executor_registry = external_executor_registry
+        self._external_action_loop = external_action_loop
         self._director_v2_shadow = director_v2_shadow
         self._director_v2_takeover = director_v2_takeover
         self._goal_manager = goal_manager
@@ -193,6 +196,8 @@ class StreamRuntime:
             await self._action_adapter_boundary.start()
         if self._external_executor_registry is not None:
             await self._external_executor_registry.start()
+        if self._external_action_loop is not None:
+            await self._external_action_loop.start()
         if self._embodiment_policy is not None:
             await self._embodiment_policy.start()
         if self._self_model is not None:
@@ -347,6 +352,9 @@ class StreamRuntime:
         if self._action_adapter_boundary is not None:
             with contextlib.suppress(Exception):
                 await self._action_adapter_boundary.stop()
+        if self._external_action_loop is not None:
+            with contextlib.suppress(Exception):
+                await self._external_action_loop.stop()
         if self._external_executor_registry is not None:
             with contextlib.suppress(Exception):
                 await self._external_executor_registry.stop()
@@ -395,6 +403,12 @@ class StreamRuntime:
             ("stop_agent_state", self._stop_agent_state),
         )
 
+    async def execute_external_action(self, request: ActionRequest) -> ActionResult:
+        """Invoke the typed external boundary; Director is never an implicit caller."""
+        if self._external_action_loop is None:
+            raise RuntimeError("external action boundary is unavailable")
+        return await self._external_action_loop.execute(request)
+
     def operations_snapshot(self) -> dict[str, Any]:
         return {
             "runtime": {
@@ -425,6 +439,10 @@ class StreamRuntime:
             "external_executors": (
                 self._external_executor_registry.snapshot()
                 if self._external_executor_registry is not None else None
+            ),
+            "external_actions": (
+                self._external_action_loop.snapshot()
+                if self._external_action_loop is not None else None
             ),
             "director_v2_shadow": (
                 self._director_v2_shadow.snapshot() if self._director_v2_shadow is not None else None
@@ -654,6 +672,9 @@ class StreamRuntime:
         if self._external_executor_registry is not None:
             with contextlib.suppress(Exception):
                 m.update(self._external_executor_registry.get_metrics())
+        if self._external_action_loop is not None:
+            with contextlib.suppress(Exception):
+                m.update(self._external_action_loop.get_metrics())
         if self._director_v2_shadow is not None:
             with contextlib.suppress(Exception):
                 m.update(self._director_v2_shadow.get_metrics())
@@ -1628,7 +1649,7 @@ async def build_stream_runtime(
     )
     for verifier_id in (
         "speech_delivery", "local_wait", "input_reader", "avatar_state",
-        "mock_media", "mock_scene", "mock_call",
+        "mock_media", "obs_scene_state", "mock_call",
     ):
         capability_registry.register_verifier(verifier_id)
     attach_set_enabled_feature(feature_manager, "capability_registry", capability_registry)
@@ -1659,9 +1680,74 @@ async def build_stream_runtime(
     action_mock_loop.register_verifier("mock_call", MockCallVerifier(mock_call_backend))
     attach_set_enabled_feature(feature_manager, "action_mock_closed_loop", action_mock_loop)
 
-    # Phase 9: inert registry only; it owns no external client or callable route.
+    # Phase 9: one disabled-by-default verified OBS scene route. It is callable
+    # only through the typed boundary below and is never supplied to Director.
+    from interfaces.external_executor import ExternalExecutorBinding
+    from services.action.external_loop import ExternalActionConfig, ExternalActionLoop
     from services.action.external_registry import ExternalExecutorRegistry
-    external_executor_registry = ExternalExecutorRegistry()
+    from services.action.obs_scene import (
+        OBSSceneConfig,
+        OBSSceneExecutor,
+        OBSSceneVerifier,
+        OBSWebSocketTransport,
+    )
+    try:
+        obs_scene_status = await feature_manager.get_status("obs_scene_executor")
+        obs_scene_enabled = obs_scene_status in (
+            FeatureStatus.ENABLED, FeatureStatus.DEGRADED,
+        )
+    except KeyError:
+        get_logger("stream_runtime").warning("obs_scene_executor_feature_missing")
+        obs_scene_enabled = False
+    external_action_config = ExternalActionConfig.from_loader(loader)
+    obs_scene_config = OBSSceneConfig.from_loader(loader)
+    obs_transport = OBSWebSocketTransport(obs_scene_config)
+    obs_scene_executor = OBSSceneExecutor(
+        obs_scene_config, obs_transport, enabled=obs_scene_enabled, metrics=metrics,
+    )
+    obs_scene_verifier = OBSSceneVerifier(
+        obs_scene_config, obs_transport, enabled=obs_scene_enabled, metrics=metrics,
+    )
+    obs_binding = ExternalExecutorBinding(
+        executor_id="obs_scene",
+        verifier_id="obs_scene_state",
+        feature_id="obs_scene_executor",
+        health_target_id="obs_websocket",
+    )
+    external_executor_registry = ExternalExecutorRegistry(
+        external_action_config.max_registry_bindings,
+        allowed_bindings=(obs_binding,),
+    )
+    external_executor_registry.register(
+        obs_binding, obs_scene_executor, obs_scene_verifier,
+    )
+    capability_registry.register_health_provider(
+        "obs_scene", obs_scene_executor.public_health,
+    )
+    external_action_loop = ExternalActionLoop(
+        external_action_config,
+        capability_registry=capability_registry,
+        executor_registry=external_executor_registry,
+        transactions=action_transactions,
+        world_model=world_model,
+        metrics=metrics,
+        enabled=obs_scene_enabled,
+    )
+
+    def _set_obs_scene_enabled(enabled: bool) -> None:
+        external_action_loop.set_enabled(enabled)
+        obs_scene_executor.set_enabled(enabled)
+        obs_scene_verifier.set_enabled(enabled)
+
+    attach_boolean_feature(
+        feature_manager,
+        "obs_scene_executor",
+        set_enabled=_set_obs_scene_enabled,
+        is_enabled=lambda: (
+            external_action_loop.enabled
+            and obs_scene_executor.public_health().is_ok
+        ),
+    )
 
     # Phase 6 shadow remains proposal-only. Phase 7 may transfer decision ownership
     # through the strict selector; DirectorLoop still owns execution and fallback.
@@ -1956,6 +2042,10 @@ async def build_stream_runtime(
         dashboard_ref=dashboard_ref,
         dashboard_server=dashboard_server,
     )
+    if health_supervisor is not None:
+        health_supervisor.register_target(
+            "obs_websocket", obs_scene_executor.health_check,
+        )
     emergency_controller = build_emergency_controller(
         enabled=operations_enabled,
         loader=loader,
@@ -1983,6 +2073,7 @@ async def build_stream_runtime(
         action_adapter_boundary=action_adapter_boundary,
         embodiment_policy=embodiment_policy,
         external_executor_registry=external_executor_registry,
+        external_action_loop=external_action_loop,
         director_v2_shadow=director_v2_shadow,
         director_v2_takeover=director_v2_takeover, cfg=cfg,
         goal_manager=goal_manager,

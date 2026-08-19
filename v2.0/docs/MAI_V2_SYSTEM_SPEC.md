@@ -29,9 +29,14 @@ production YAML → tests → tài liệu này. Nội dung blueprint không ph�
 
 Mai hiện có nền móng kỹ thuật đáng tiếp tục: ranh giới dữ liệu khá rõ, thiết kế giao dịch đúng hướng,
 trạng thái có giới hạn, nhiều cờ bật/tắt và bộ kiểm thử rộng. Vòng hành động mô phỏng đã sửa đúng thứ tự
-commit rồi mới project Mô hình Thế giới; nó vẫn chỉ là mock và không chứng minh external action thật.
+commit rồi mới project Mô hình Thế giới. Phase 9 đã bổ sung lát cắt OBS đổi scene typed, kiểm chứng bằng
+truy vấn độc lập và rollback có điều kiện; feature vẫn mặc định tắt và chưa có live OBS canary.
 
-Tuy nhiên, **V2 chưa phải một vòng tự chủ hoàn chỉnh đang chạy trong thực tế**. Các phần quan sát thế giới, mô hình bản thân, năng lực, lựa chọn hành động và khung thực thi đã được xây dựng ở nhiều mức độ khác nhau, nhưng chưa nối liền thành một đường đi duy nhất. Controlled takeover đã có thể chuyển ownership cho quyết định V2/legacy đồng thuận, nhưng production flag vẫn tắt và chưa có live rollout evidence. Các bộ chuyển đổi giọng nói và nhân vật ảo đã có mã, nhưng chưa được lắp đầy đủ vào điểm khởi động chính. Hành động bên ngoài mới dừng ở khung và mô phỏng.
+Tuy nhiên, **V2 chưa phải một vòng tự chủ hoàn chỉnh đang chạy trong thực tế**. Các phần quan sát thế
+giới, mô hình bản thân, năng lực, lựa chọn hành động và khung thực thi đã được xây dựng ở nhiều mức độ
+khác nhau, nhưng chưa nối liền thành một đường đi production duy nhất. Controlled takeover, speech/avatar
+adapters và OBS scene action đều đã compose nhưng production flag vẫn tắt, chưa có live rollout/canary
+evidence. Phase 9 cũng không trao external action cho Director; Perception Phase 10 trở đi chưa đóng gate.
 
 Vì vậy, cách mô tả chính xác nhất là:
 
@@ -51,7 +56,7 @@ Trạng thái phát hành khách quan:
 | Nền nhận thức/trạng thái V2 | Có mã, chủ yếu ở shadow hoặc từng thành phần riêng |
 | Director V2 takeover Phase 7 | Đã đóng gate kỹ thuật: accepted agreement tạo executable decision ownership V2; mọi lỗi trả exact legacy; production flag vẫn tắt |
 | Speech/avatar action adapters Phase 8 | Đã đóng gate kỹ thuật: local typed boundary, authoritative TTS verification, bounded idempotency và runtime composition; production flags vẫn tắt |
-| External action | Chỉ có khung và mock; registry executor production trống |
+| External OBS scene action Phase 9 | Đã đóng gate kỹ thuật: typed transport/executor/verifier, strict transaction, bounded retry/idempotency, conditional rollback và runtime composition; production flag vẫn tắt, chưa có live canary |
 | Vòng tự chủ khép kín | Chưa đạt |
 | Release readiness | Chưa đạt: Mức 0 về môi trường/repository/credential đã hoàn tất, nhưng release evidence và các gate V2 chưa đủ |
 
@@ -68,12 +73,12 @@ Các cột dưới đây độc lập với nhau. “Có mã” không thay th�
 | World Model | Có | Shadow read-only | Unit, negative-path và full offline regression | Không |
 | Self Model | Có | Shadow read-only | Unit, negative-path, impacted và full offline regression | Không |
 | Capability/permission/health registry | Có | Shadow read-only | Unit, negative-path, impacted và full offline regression | Không |
-| Action transaction | Có | Mock closed loop strict; không nối Director V1 | Unit, negative-path, impacted, replay và full offline regression | Không cho external action |
+| Action transaction | Có | Mock loop và OBS external boundary strict; không nối Director V1 | Unit, negative-path, impacted, replay và full offline regression | External OBS chưa phát hành; mặc định tắt |
 | Director V2 shadow | Có | Proposal/log read-only strict; không đổi live decision | Unit, negative-path, impacted, replay và full offline regression | Không |
 | Director V2 takeover | Có | Strict controlled agreement ownership; mặc định tắt, exact legacy fallback | Unit, negative-path, impacted, replay và full offline regression | Không |
 | Speech action adapter | Có | Live `DirectorDeliveryBoundary` qua local typed boundary khi bật; exact legacy khi tắt | Unit, negative-path, transaction integration và full offline regression | Không; mặc định tắt |
 | Avatar action adapter | Có | Local typed intentional-gesture boundary; không giả automatic mood thành action | Unit, VTS fail-safe, composition và full offline regression | Không; mặc định tắt |
-| External executor thật | Chỉ có interface/registry/mock | Không | Chưa có end-to-end thật | Không |
+| External OBS scene executor | Có | Compose tại `StreamRuntime`, chỉ callable qua typed boundary khi feature/permission/health đạt | Unit, transaction integration, deterministic fake-OBS replay và full offline regression | Không; mặc định tắt, chưa live canary |
 | Goals và short intentions | Có | Partial | Unit | Không |
 | Memory và ContextSelector V2 | Có | Partial | Unit/integration | Không như V2 release |
 | Embodiment Policy | Có | Partial/shadow | Unit | Không |
@@ -485,18 +490,22 @@ verification typed. Tuy nhiên hai cờ production vẫn mặc định tắt và
 **Hậu quả:** closure kỹ thuật chưa chứng minh adapter ổn định với thiết bị, hotkey và tải phát sóng thật;
 production tiếp tục dùng exact legacy speech path cho tới khi owner bật rollout có giám sát.
 
-### 9.3. Chưa có hành động bên ngoài thật — mức cao
+### 9.3. External OBS action chưa rollout production — mức cao
 
-Khung đăng ký bộ thực thi đang trống hoặc chưa hoạt động thực tế. Chưa có một lát cắt hoàn chỉnh như đổi cảnh thật, kiểm tra cảnh thật rồi cập nhật trạng thái.
+Lát cắt OBS `SWITCH_SCENE` đã có transport/executor/verifier typed, transaction, independent query,
+conditional rollback, World projection và runtime composition. Feature vẫn mặc định tắt; chưa có OBS
+instance/credential canary hoặc rollback rehearsal với operator thật.
 
-**Hậu quả:** chưa đạt định nghĩa tự chủ khép kín của V2.
+**Hậu quả:** closure kỹ thuật không phải bằng chứng action đã production; không được bật trên phiên phát
+thật nếu chưa kiểm tra scene inventory, authentication, operator race và recovery.
 
-### 9.4. Vòng transaction đã đúng thứ tự nhưng vẫn mock-only — mức trung bình
+### 9.4. External action chưa thuộc vòng quyết định tự chủ — mức trung bình
 
-Vòng mô phỏng đã commit transaction trước khi project World và giữ failure/unknown không tạo success
-fact. Nó chưa có external executor cùng authoritative verifier thật.
+OBS action chỉ được gọi qua public typed runtime boundary; Phase 9 không đưa `SWITCH_SCENE` vào Director,
+prompt hoặc Perception. Director takeover cũng vẫn mặc định tắt.
 
-**Hậu quả:** bằng chứng mock không được dùng để tuyên bố action ngoài hệ thống đã production.
+**Hậu quả:** hệ thống có một external closed-loop callable để kiểm chứng kiến trúc nhưng chưa tự quan sát,
+tự chọn và thực hiện scene action trong cùng vòng production.
 
 ### 9.5. Ý định ngắn chưa trở thành trạng thái sống — mức trung bình
 
@@ -778,15 +787,14 @@ Không nên đổi nhãn sản phẩm thành V2 chỉ vì các lớp hoặc tài
 Nếu nguồn lực có hạn, nên làm đúng thứ tự này:
 
 1. giữ Phase 7 mặc định tắt cho tới khi có kế hoạch rollout/canary và rollback evidence;
-2. thực hiện Phase 8: ghép bộ chuyển đổi giọng nói và nhân vật qua action boundary;
-3. thực hiện Phase 9: hoàn thành một external executor có verifier thật, ưu tiên OBS;
-4. thực hiện Phase 10: đưa nguồn nhận thức mới qua canonical ingress;
-5. thực hiện Phase 11: hoàn thiện goal và short intention lifecycle;
-6. thực hiện Phase 12: ghép Memory và ContextSelector bounded/grounded;
-7. thực hiện Phase 13: ghép Embodiment Policy với delivery state thật;
-8. thực hiện Phase 14: trajectory replay, observability hardening và human-like calibration;
-9. chỉ sau đó thực hiện Phase 15 release gate, live/canary, security và rollback rehearsal;
-10. giảm nợ bảo trì mà không đổi thứ tự phase hoặc thêm logic V3.
+2. thực hiện Phase 10: đưa nguồn nhận thức mới qua canonical ingress;
+3. thực hiện Phase 11: hoàn thiện goal và short intention lifecycle;
+4. thực hiện Phase 12: ghép Memory và ContextSelector bounded/grounded;
+5. thực hiện Phase 13: ghép Embodiment Policy với delivery state thật;
+6. thực hiện Phase 14: trajectory replay, observability hardening và human-like calibration;
+7. chỉ sau đó thực hiện Phase 15 release gate, live/canary, security và rollback rehearsal;
+8. giữ Phase 8/9 production flags tắt tới khi có audio/VTS/OBS canary tương ứng;
+9. giảm nợ bảo trì mà không đổi thứ tự phase hoặc thêm logic V3.
 
 Thứ tự này ưu tiên độ tin cậy trước, quyền quyết định thật sau, rồi mới mở rộng hành động và tối ưu kiến trúc.
 
@@ -1339,6 +1347,98 @@ subtitle verified mới commit, partial không remove chat và duplicate committ
 YouTube replay regression tiếp tục xanh. Hai feature vẫn mặc định `enabled=false`, chưa có live audio/VTS
 canary và chưa được phát hành; product version vẫn là `1.4.3`.
 
+#### 17.2.9. Closure contract external OBS scene action Phase 9
+
+Phase 9 chỉ đóng lát cắt external đầu tiên theo blueprint: `SWITCH_SCENE` qua OBS WebSocket 5.x. Media,
+call/guest và game/environment tiếp tục ngoài scope; Phase 9 không cho Director quyền tự sinh/chọn
+`SWITCH_SCENE`, không mở rộng Perception Phase 10 và không biến `GeneralActionMockLoop` thành production
+executor. `StreamRuntime` là composition owner, `ExternalExecutorRegistry` là registry typed và service
+điều phối external action phải dùng transaction boundary hiện có.
+
+Gate Phase 9 yêu cầu:
+
+- Chỉ chấp nhận `ActionRequest` typed với capability/action đúng `SWITCH_SCENE`, target scene canonical
+  duy nhất và `arguments.scene_name` nếu có phải trùng target. Scene thiếu, blank, quá giới hạn, chứa ký
+  tự điều khiển, tham số thừa hoặc identity mâu thuẫn phải bị từ chối trước reserve và trước mọi OBS I/O.
+  Không stringify/coerce `None`, số, mapping hoặc object duck-typed thành scene/ID hợp lệ.
+- `ExternalExecutorBinding`, registry và route phải strict/deep-immutable, bounded và chỉ đăng ký executor/
+  verifier implement đúng interface, ID khớp declaration capability. Duplicate cùng object có thể
+  idempotent; duplicate conflict, unknown declaration, route thiếu hoặc vượt capacity phải fail closed.
+  Registry start/stop adapter đúng một lần và không báo healthy chỉ vì bản thân registry đang chạy.
+- OBS transport là interface crossing subsystem; production adapter dùng dependency `websockets` hiện
+  có và protocol OBS WebSocket 5.x, không thêm SDK/runtime backend song song. Host, port, connect/request/
+  verification timeout, retry/backoff, capacity, scene/evidence limit và retention production lấy từ
+  YAML. Password chỉ đọc từ environment variable được YAML nêu tên; không lưu secret vào YAML, result,
+  snapshot, metric, exception hay log.
+- Feature `obs_scene_executor` do `FeatureManager` sở hữu và mặc định `enabled=false`. Capability phải có
+  permission `scene.control`, executor/verifier/health target cụ thể và schema `scene_name`; feature tắt,
+  permission thiếu, adapter stopped/degraded, conflict hoặc health stale phải chặn trước OBS I/O. Toggle,
+  lifecycle và health probe phải strict/idempotent; health chỉ tốt sau khi kết nối, xác thực và truy vấn
+  current program scene thành công trong giới hạn thời gian.
+- Executor phải đọc current program scene trước attempt để giữ rollback candidate, sau đó gửi
+  `SetCurrentProgramScene` cho đúng target. OBS acknowledgement chỉ chứng minh request được nhận, không
+  phải verified success. Verifier phải thực hiện truy vấn độc lập `GetCurrentProgramScene`, kiểm tra
+  response/request identity và chỉ thành công khi scene trả về là chuỗi strict trùng chính xác target.
+  Cached executor result, command acknowledgement, local target hay World state không được dùng thay
+  authoritative query.
+- Retry phải bounded, dùng cùng idempotency key/fingerprint và cùng target; không được đổi scene giữa
+  retry. Timeout, authentication failure, disconnect, malformed response, request mismatch, OBS error,
+  negative verification hoặc không xác định outcome đều fail closed. Cùng key và fingerprint trả terminal
+  result cũ mà không gửi lệnh lần hai; cùng key khác fingerprint trả `idempotency_conflict`. Ledger và
+  recent-result view đều bounded nhưng eviction recent result không được cho phép execute lại terminal
+  transaction.
+- Coordinator phải giữ đúng thứ tự validate/availability → reserve → execute → authoritative verify →
+  mark delivered → commit → project World. Chỉ transaction đã commit sau verification mới được project
+  `stream.current_scene` từ verified action evidence. Failure/unknown/cancellation trước commit phải
+  release transaction còn active và giữ World không đổi; cancellation propagate `asyncio.CancelledError`.
+  Commit exception phải đọc lại authoritative transaction state như Phase 5, không release transaction
+  đã commit và không bịa outcome.
+- Compensating rollback chỉ được thử khi executor đã lưu previous scene strict và một authoritative query
+  mới xác nhận current scene vẫn đúng target của attempt này. Khi đó mới gửi lệnh trả về previous scene
+  và verify độc lập lần nữa. Nếu operator đã đổi sang scene khác, previous scene thiếu, query không thực
+  hiện được hoặc rollback verification không thành công thì không ghi đè trạng thái hiện tại; outcome
+  rollback phải là `skipped`, `failed` hoặc `unknown`, có reason/evidence bounded. Không trường hợp nào
+  được đổi action failure/unknown thành success vì rollback thành công.
+- World projection failure sau external commit giữ transaction `committed` và verified external result,
+  đánh dấu `world_projected=false`, tăng inconsistency metric và không rollback scene đã commit. Metrics,
+  health publication, dashboard/snapshot hoặc log failure là best-effort, không được đổi terminal result,
+  transaction, OBS state hay World state đã xác định.
+- Metrics tối thiểu phải phân biệt validation/availability rejection, permission/feature/health block,
+  execute attempt/success/failure/timeout, verification success/failure/unknown, retry, idempotent hit/
+  conflict, transaction commit/release, rollback attempted/succeeded/failed/skipped/unknown, World
+  projection inconsistency và bounded eviction. Snapshot chỉ chứa ID/reason/count/state đã sanitize,
+  không chứa password, raw OBS payload hoặc dữ liệu nhạy cảm.
+
+Gate kiểm thử gồm strict config/binding/request/scene, missing credential, authentication/connect/health,
+feature và permission fail-closed trước I/O, successful set với independent query, acknowledgement nhưng
+scene mismatch, unknown/malformed/request-ID mismatch, timeout/disconnect và bounded retry, duplicate/
+idempotency conflict/eviction, cancellation, rollback success/failure/unknown/operator-race, registry
+capacity/lifecycle, transaction ordering, commit exception và World projection failure. Integration phải
+chứng minh runtime composition không dùng mock loop, không thay Director V1/V2 proposal hoặc prompt,
+không tự chuyển scene khi chưa có caller được cấp quyền và deterministic fake-OBS replay cho cùng chuỗi
+success/failure tạo cùng terminal transaction, rollback outcome và World state. Impacted Phase 4/5/6/7/8,
+runtime, documentation guard và full offline regression phải tiếp tục xanh.
+
+**Trạng thái Phase 9:** đạt closure gate kỹ thuật ngày 20/08/2026. `SWITCH_SCENE` đã chuyển từ mock-only
+declaration sang route `obs_scene`/`obs_scene_state`, compose tại `StreamRuntime` và chỉ callable qua
+`execute_external_action`; Director V1/V2, prompt, mock loop và Perception không nhận route này. Transport
+OBS WebSocket 5.x thực hiện authentication từ environment, command acknowledgement không được coi là
+success và verifier luôn query `GetCurrentProgramScene` độc lập trước commit/World projection.
+
+Registry/binding/config/request/result đều strict và bounded; health projection cần probe còn mới trong
+TTL, retry giữ nguyên target, idempotency từ chối collision và cancellation release transaction. Failure,
+unknown hoặc commit failure trước mutation thực hiện rollback có điều kiện: chỉ restore previous scene
+khi query mới xác nhận operator chưa đổi khỏi target; rollback success không đổi action failure thành
+success. Commit exception sau mutation được đọc lại thành committed; World projection failure sau commit
+giữ external verified result và không rollback.
+
+Targeted Phase 9 đạt 35 test; impacted Phase 4–8/runtime đạt 192 test; documentation guard đạt 9 test và
+full offline `pytest tests -q` đạt 2.057 test, 0 lỗi. Deterministic fake-OBS replay success/failure,
+operator race, rollback success/unknown, malformed executor, cancellation, commit trước/sau mutation và
+projection failure đều xanh. Feature `obs_scene_executor` vẫn mặc định `enabled=false`, chưa có live OBS
+instance/credential canary hay rollback rehearsal; product version tiếp tục là `1.4.3` và action chưa
+được tuyên bố production.
+
 ### 17.3. Chuỗi mã để lần theo một lượt
 
 ```mermaid
@@ -1452,12 +1552,13 @@ Một chức năng chỉ thực sự hoạt động khi đã được khai báo,
   `embodiment_policy`, `animation_micro`, `speech_action_adapter`, `avatar_action_adapter`,
   `memory_semantic`, `memory_hierarchical`, `qc_persona`, `agent_context`, `context_selector`,
   `goal_proposals`, `thread_extraction`, `speculative_decoding`, `turn_taking_predictor`,
-  `director_v2_takeover`.
+  `director_v2_takeover`, `obs_scene_executor`.
 
 Trong đó `speech_action_adapter` và `avatar_action_adapter` đã được ghép vào local typed action boundary
 và composition root nhưng vẫn mặc định tắt, chưa có live audio/VTS canary. `director_v2_takeover` đã có
-strict controlled ownership nhưng mặc định tắt và chưa có live rollout evidence. Trạng thái bật/tắt không
-được dùng riêng để suy ra mức production.
+strict controlled ownership nhưng mặc định tắt và chưa có live rollout evidence. `obs_scene_executor` đã
+được compose qua external transaction boundary nhưng mặc định tắt, chưa có credential/live OBS canary.
+Trạng thái bật/tắt không được dùng riêng để suy ra mức production.
 
 ### 19.5. Hồ sơ cấu hình nên chuẩn hóa
 

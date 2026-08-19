@@ -4,8 +4,9 @@
 >
 > **Inherited runtime release:** `1.4.3` (patch trên frozen baseline `1.0.0`, 2026-08-14).
 >
-> **Implementation status:** nhiều khối V2 đã có mã/shadow, nhưng takeover thật, action adapter composition
-> và external action closed loop chưa hoàn tất. Chưa đủ điều kiện phát hành Mai `2.0.0`.
+> **Implementation status:** Phase 1–9 đã đóng gate kỹ thuật; takeover, local action adapters và OBS scene
+> executor đều mặc định tắt/chưa có live canary. Perception expansion và các release gate sau vẫn chưa
+> hoàn tất, nên chưa đủ điều kiện phát hành Mai `2.0.0`.
 >
 > Mọi thay đổi product được chấp nhận sau baseline phải tăng version và cập nhật `CHANGELOG.md`.
 

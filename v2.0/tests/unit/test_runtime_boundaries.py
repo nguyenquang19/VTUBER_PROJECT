@@ -47,3 +47,10 @@ def test_stream_runtime_composition_uses_public_boundaries() -> None:
     assert [token for token in forbidden if token in source] == []
     assert "router.add_activity_listener(_on_input_activity)" in source
     assert "director_loop.set_runtime_context_provider(rt.runtime_context)" in source
+    assert "async def execute_external_action" in source
+    director_call = source[
+        source.index("director_loop = DirectorLoop("):
+        source.index("# ─── M9 operator control plane")
+    ]
+    assert "external_action_loop" not in director_call
+    assert "external_executor_registry" not in director_call

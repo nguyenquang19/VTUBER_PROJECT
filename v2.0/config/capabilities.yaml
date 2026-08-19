@@ -5,6 +5,7 @@ registry:
     - conversation.read
     - conversation.speak
     - avatar.gesture
+    - scene.control
 
 capabilities:
   SPEAK:
@@ -100,16 +101,17 @@ capabilities:
     mock_only: true
   SWITCH_SCENE:
     action_type: SWITCH_SCENE
-    description: Mock-only scene switch declaration.
-    executor_id: mock_scene
-    health_target_id: mock_external
-    verifier_id: mock_scene
+    description: Switch the OBS current program scene through a verified external transaction.
+    executor_id: obs_scene
+    health_target_id: obs_websocket
+    verifier_id: obs_scene_state
+    verifier_health_target_id: obs_websocket
     risk_level: medium
     required_permissions: [scene.control]
-    parameter_schema: {}
+    parameter_schema: {scene_name: string}
     transaction_policy: verified
     conflict_actions: [SWITCH_SCENE]
-    mock_only: true
+    mock_only: false
   CALL_GUEST:
     action_type: CALL_GUEST
     description: Mock-only guest call declaration.
@@ -151,3 +153,29 @@ action_adapters:
   execution_timeout_s: 120.0
   max_idempotency_records: 256
   max_evidence_refs: 8
+
+# Phase 9 external actions remain disabled by feature flag until an operator
+# provides OBS credentials and completes a live canary.
+external_actions:
+  execution_timeout_s: 8.0
+  verification_timeout_s: 4.0
+  rollback_timeout_s: 6.0
+  max_recent_results: 64
+  max_idempotency_records: 256
+  max_verification_evidence_refs: 8
+  max_registry_bindings: 8
+  obs:
+    host: 127.0.0.1
+    port: 4455
+    use_tls: false
+    password_env: OBS_WEBSOCKET_PASSWORD
+    connect_timeout_s: 2.0
+    request_timeout_s: 2.0
+    health_timeout_s: 5.0
+    health_ttl_s: 15.0
+    max_attempts: 2
+    retry_backoff_s: 0.1
+    max_scene_name_chars: 128
+    max_authority_records: 256
+    max_evidence_refs: 8
+    max_message_bytes: 1048576

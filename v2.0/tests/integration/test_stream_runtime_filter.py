@@ -216,8 +216,16 @@ class TestRuntimeFilterWiring:
             assert dashboard["regenerator"] is runtime._regenerator
             assert dashboard["goal_manager"] is runtime.goal_manager
             assert set(runtime._health_supervisor.snapshot()["targets"]) == {
-                "dashboard", "input_router", "llm_main",
+                "dashboard", "input_router", "llm_main", "obs_websocket",
             }
+            assert runtime._external_executor_registry.snapshot()["bindings"] == [{
+                "executor_id": "obs_scene",
+                "verifier_id": "obs_scene_state",
+                "feature_id": "obs_scene_executor",
+                "health_target_id": "obs_websocket",
+            }]
+            assert runtime._external_action_loop.enabled is False
+            assert runtime.operations_snapshot()["external_actions"]["recent"] == []
             assert runtime._llama_process_manager.started is True
             assert dashboard["control_plane"] is runtime._control_plane
             assert runtime.agent_state.snapshot().active_goal_ref is None
