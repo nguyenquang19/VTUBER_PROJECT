@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import json
+import math
 from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from types import MappingProxyType
 from typing import Any, Callable, Mapping
 
 from interfaces.base import HealthStatus
@@ -13,6 +15,7 @@ from interfaces.world import WorldModelService
 
 
 _EVENT_TYPE = "world.observation"
+_WORLD_DOMAINS = frozenset({"stream", "social", "call", "media", "physical", "game"})
 
 
 @dataclass(frozen=True)
@@ -27,40 +30,66 @@ class WorldModelConfig:
     dedup_ttl_s: float
     max_dedup_keys: int
 
+    def __post_init__(self) -> None:
+        if not isinstance(self.allowed_domains, tuple):
+            raise ValueError("world_model.allowed_domains must be a tuple")
+        domains = tuple(
+            _required_text(value, field_name="world_model.allowed_domains")
+            for value in self.allowed_domains
+        )
+        if not domains or len(set(domains)) != len(domains):
+            raise ValueError("world_model.allowed_domains must be unique and non-empty")
+        if set(domains) - _WORLD_DOMAINS:
+            raise ValueError("world_model.allowed_domains contains an unsupported domain")
+        if not isinstance(self.source_authority, Mapping) or not self.source_authority:
+            raise ValueError("world_model.source_authority must be a non-empty mapping")
+        authority: dict[str, int] = {}
+        for raw_key, raw_value in self.source_authority.items():
+            key = _required_text(raw_key, field_name="world_model.source_authority key")
+            authority[key] = _non_negative_int(
+                raw_value, field_name=f"world_model.source_authority.{key}",
+            )
+        if len(authority) != len(self.source_authority):
+            raise ValueError("world_model.source_authority keys must be unique after normalization")
+
+        object.__setattr__(self, "allowed_domains", domains)
+        object.__setattr__(self, "default_ttl_s", _positive_number(
+            self.default_ttl_s, field_name="world_model.default_ttl_s",
+        ))
+        object.__setattr__(self, "source_authority", MappingProxyType(authority))
+        for name in (
+            "max_state_entries", "max_evidence_refs", "max_payload_items",
+            "max_payload_chars", "max_dedup_keys",
+        ):
+            object.__setattr__(self, name, _positive_int(
+                getattr(self, name), field_name=f"world_model.{name}",
+            ))
+        object.__setattr__(self, "dedup_ttl_s", _positive_number(
+            self.dedup_ttl_s, field_name="world_model.dedup_ttl_s",
+        ))
+
     @classmethod
     def from_loader(cls, loader: Any) -> "WorldModelConfig":
         raw = loader.get("agent_state", "world_model", {}) or {}
         if not isinstance(raw, Mapping):
             raise ValueError("world_model config must be a mapping")
-        domains = tuple(str(value).strip() for value in raw.get("allowed_domains", ()))
+        domains_raw = raw.get("allowed_domains", ())
+        if not isinstance(domains_raw, (tuple, list)):
+            raise ValueError("world_model.allowed_domains must be a sequence")
         authority_raw = raw.get("source_authority", {})
         if not isinstance(authority_raw, Mapping):
             raise ValueError("world_model.source_authority must be a mapping")
-        authority = {str(key).strip(): int(value) for key, value in authority_raw.items()}
-        config = cls(
-            allowed_domains=domains,
-            default_ttl_s=float(raw.get("default_ttl_s", 0)),
-            source_authority=authority,
-            max_state_entries=int(raw.get("max_state_entries", 0)),
-            max_evidence_refs=int(raw.get("max_evidence_refs", 0)),
-            max_payload_items=int(raw.get("max_payload_items", 0)),
-            max_payload_chars=int(raw.get("max_payload_chars", 0)),
-            dedup_ttl_s=float(raw.get("dedup_ttl_s", 0)),
-            max_dedup_keys=int(raw.get("max_dedup_keys", 0)),
+        return cls(
+            allowed_domains=tuple(domains_raw),
+            default_ttl_s=raw.get("default_ttl_s", 0),
+            source_authority=authority_raw,
+            max_state_entries=raw.get("max_state_entries", 0),
+            max_evidence_refs=raw.get("max_evidence_refs", 0),
+            max_payload_items=raw.get("max_payload_items", 0),
+            max_payload_chars=raw.get("max_payload_chars", 0),
+            dedup_ttl_s=raw.get("dedup_ttl_s", 0),
+            max_dedup_keys=raw.get("max_dedup_keys", 0),
         )
-        if not config.allowed_domains or any(not value for value in config.allowed_domains):
-            raise ValueError("world_model.allowed_domains must be non-empty")
-        if len(set(config.allowed_domains)) != len(config.allowed_domains):
-            raise ValueError("world_model.allowed_domains must be unique")
-        if not config.source_authority or any(not key or value < 0 for key, value in authority.items()):
-            raise ValueError("world_model.source_authority must contain non-negative values")
-        if min(
-            config.default_ttl_s, config.max_state_entries, config.max_evidence_refs,
-            config.max_payload_items, config.max_payload_chars, config.dedup_ttl_s,
-            config.max_dedup_keys,
-        ) <= 0:
-            raise ValueError("world_model limits must be positive")
-        return config
 
 
 class WorldModelShadow(WorldModelService):
@@ -123,18 +152,25 @@ class WorldModelShadow(WorldModelService):
     async def health_check(self) -> HealthStatus:
         if not self._running:
             return HealthStatus.stopped(self.service_id)
+        if self._enabled:
+            self.evict_stale(_utc(self._clock()))
         return HealthStatus.healthy(self.service_id, enabled=self._enabled, entries=self._entry_count())
 
     def apply_event(self, event: PerceptionEvent) -> bool:
         now = _utc(self._clock())
-        self._evict_dedup(now)
         if not self._enabled:
             self._record("disabled", "feature_disabled")
             return False
+        self.evict_stale(now)
         try:
             domain, key, value, evidence_refs, authority = self._validated(event)
         except (TypeError, ValueError):
             self._record("rejected", "invalid")
+            return False
+
+        expires_at = event.timestamp + timedelta(seconds=self._config.default_ttl_s)
+        if expires_at <= now:
+            self._record("rejected", "stale")
             return False
 
         dedup_key = event.dedup_key or event.event_id
@@ -165,7 +201,7 @@ class WorldModelShadow(WorldModelService):
             confidence=event.confidence,
             updated_at=event.timestamp,
             evidence_refs=evidence_refs,
-            expires_at=event.timestamp + timedelta(seconds=self._config.default_ttl_s),
+            expires_at=expires_at,
             authority=authority,
         )
         self._dedup[dedup_key] = now + timedelta(seconds=self._config.dedup_ttl_s)
@@ -198,12 +234,13 @@ class WorldModelShadow(WorldModelService):
 
     def query(self, path: str) -> StateValue | None:
         now = _utc(self._clock())
+        self.evict_stale(now)
         try:
             domain, key = self._split_path(path)
-        except ValueError:
+        except (TypeError, ValueError):
             return None
         value = self._state[domain].get(key)
-        if value is None or _is_stale(value, now) or not self._enabled:
+        if value is None or not self._enabled:
             return None
         return value
 
@@ -225,6 +262,8 @@ class WorldModelShadow(WorldModelService):
         return removed
 
     def get_metrics(self) -> dict[str, Any]:
+        if self._enabled:
+            self.evict_stale(_utc(self._clock()))
         return {
             "world_model_enabled": self._enabled,
             "world_model_state_entries": self._entry_count() if self._enabled else 0,
@@ -242,26 +281,34 @@ class WorldModelShadow(WorldModelService):
             raise ValueError("unknown source")
         if set(event.payload) - {"path", "value", "evidence_refs"} or "path" not in event.payload or "value" not in event.payload:
             raise ValueError("invalid world observation payload")
-        domain, key = self._split_path(str(event.payload["path"]))
+        domain, key = self._split_path(event.payload["path"])
         value = event.payload["value"]
-        if _item_count(value) > self._config.max_payload_items:
+        if _item_count(event.payload) > self._config.max_payload_items:
             raise ValueError("payload item limit")
-        encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":"), default=_json_default)
+        encoded = json.dumps(
+            event.to_dict()["payload"], ensure_ascii=False, separators=(",", ":"),
+        )
         if len(encoded) > self._config.max_payload_chars:
             raise ValueError("payload character limit")
         refs_raw = event.payload.get("evidence_refs", ())
-        if not isinstance(refs_raw, (tuple, list)) or len(refs_raw) > self._config.max_evidence_refs:
+        if not isinstance(refs_raw, (tuple, list)):
             raise ValueError("invalid evidence refs")
-        refs = tuple(str(value).strip() for value in refs_raw)
-        if any(not value for value in refs):
-            raise ValueError("invalid evidence ref")
+        supplied_refs = tuple(
+            _required_text(ref, field_name="evidence_ref") for ref in refs_raw
+        )
+        source_event_id = event.provenance.source_event_id or event.event_id
+        provenance_ref = f"{event.provenance.producer}:{source_event_id}"
+        refs = _bounded_unique_strings(
+            (provenance_ref, *supplied_refs), self._config.max_evidence_refs,
+        )
         return domain, key, value, refs, self._config.source_authority[event.source]
 
     def _split_path(self, path: str) -> tuple[str, str]:
-        domain, separator, key = str(path).strip().partition(".")
+        clean_path = _required_text(path, field_name="world path")
+        domain, separator, key = clean_path.partition(".")
         if not separator or not domain or not key or domain not in self._state:
             raise ValueError("invalid world path")
-        if any(not part.strip() for part in key.split(".")):
+        if any(not part or part != part.strip() for part in key.split(".")):
             raise ValueError("invalid world path")
         return domain, key
 
@@ -311,16 +358,11 @@ def perception_event_from_grounded_observation(event: Any) -> PerceptionEvent | 
         return None
 
 
-def _json_default(value: Any) -> Any:
-    if isinstance(value, Mapping):
-        return dict(value)
-    raise TypeError(f"world value is not JSON-safe: {type(value).__name__}")
-
 def _item_count(value: Any) -> int:
     if isinstance(value, Mapping):
         return len(value) + sum(_item_count(item) for item in value.values())
     if isinstance(value, tuple):
-        return sum(_item_count(item) for item in value)
+        return len(value) + sum(_item_count(item) for item in value)
     return 0
 
 
@@ -332,3 +374,50 @@ def _utc(value: datetime) -> datetime:
     if value.tzinfo is None or value.utcoffset() is None:
         raise ValueError("world model time must be timezone-aware")
     return value.astimezone(timezone.utc)
+
+
+def _required_text(value: Any, *, field_name: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name} must be a string")
+    clean = value.strip()
+    if not clean:
+        raise ValueError(f"{field_name} must not be empty")
+    return clean
+
+
+def _positive_number(value: Any, *, field_name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field_name} must be numeric")
+    number = float(value)
+    if not math.isfinite(number) or number <= 0:
+        raise ValueError(f"{field_name} must be finite and positive")
+    return number
+
+
+def _positive_int(value: Any, *, field_name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{field_name} must be an integer")
+    if value <= 0:
+        raise ValueError(f"{field_name} must be positive")
+    return value
+
+
+def _non_negative_int(value: Any, *, field_name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{field_name} must be an integer")
+    if value < 0:
+        raise ValueError(f"{field_name} must be non-negative")
+    return value
+
+
+def _bounded_unique_strings(values: tuple[str, ...], limit: int) -> tuple[str, ...]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        result.append(value)
+        if len(result) >= limit:
+            break
+    return tuple(result)

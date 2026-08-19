@@ -43,6 +43,7 @@ Trạng thái phát hành khách quan:
 |---|---|
 | Đường hội thoại kế thừa V1 | Có implementation và hồi quy rộng; chưa có live evidence mới trong đợt rà soát này |
 | Core compatibility contracts Phase 1 | Đã đóng gate: strict validation, immutable value, UTC/serialization, bounded compatibility mapping; không đổi Director production |
+| World Model shadow Phase 2 | Đã đóng gate: strict reducer/config, TTL, provenance, authority, uncertainty, bounds, metrics và dashboard read-only; không đổi Director production |
 | Nền nhận thức/trạng thái V2 | Có mã, chủ yếu ở shadow hoặc từng thành phần riêng |
 | Director V2 takeover | Chưa tiếp quản thật; nhánh hiện trả quyết định legacy |
 | Action adapters | Có mã và test đơn vị; chưa được compose đầy đủ |
@@ -60,7 +61,7 @@ Các cột dưới đây độc lập với nhau. “Có mã” không thay th�
 | Capability | Có mã | Đã ghép đường chính | Evidence kiểm thử | Đã phát hành |
 |---|---|---|---|---|
 | Hội thoại V1: input → Director → LLM → TTS | Có | Có | Unit/integration/offline regression | Có, product `1.4.3` |
-| World Model | Có | Shadow/partial | Unit và simulation | Không |
+| World Model | Có | Shadow read-only | Unit, negative-path và full offline regression | Không |
 | Self Model | Có | Shadow/partial | Unit | Không |
 | Capability/permission/health registry | Có | Shadow/partial | Unit/integration | Không |
 | Action transaction | Có | Mock/simulation | Unit/integration | Không cho external action |
@@ -910,6 +911,36 @@ Các kiểu dữ liệu qua ranh giới nằm trong `interfaces/`. Đây là ngu
 **Trạng thái Phase 1:** đạt closure gate ngày 19/08/2026. Tám contract có một owner duy nhất, strict
 negative-path và shape-drift tests; compatibility mapper không được gọi trong Director production và
 full offline regression đạt sau khi siết validation.
+
+#### 17.2.2. Closure contract World Model shadow Phase 2
+
+World Model chỉ là reducer belief hiện tại, không phải memory và không được chọn hành động. API công khai
+giữ nguyên `apply_event`, `snapshot`, `query`, `evict_stale`; trạng thái chỉ được quan sát qua snapshot,
+metric và dashboard read-only.
+
+Gate Phase 2 yêu cầu:
+
+- Chỉ nhận `PerceptionEvent` loại `world.observation`, source đã khai báo và path thuộc sáu domain
+  `stream/social/call/media/physical/game`; path và evidence reference phải là chuỗi hợp lệ, không coercion.
+- Observation đã hết TTL tại thời điểm nhận phải bị từ chối. Trước kiểm tra conflict/capacity, reducer phải
+  dọn stale state để entry hết hạn không chặn observation mới; `query` và `snapshot` không được báo metric
+  entry còn fresh khi thực tế đã stale.
+- Conflict resolution cố định theo `source authority` rồi `event timestamp`; confidence được giữ như độ
+  bất định của belief, không được dùng để vượt authority. Cùng authority chỉ observation mới hơn mới thắng.
+- `StateValue.evidence_refs` phải bảo toàn trace về perception/source event bên cạnh evidence do producer
+  gửi, khử trùng lặp và áp dụng `max_evidence_refs` theo thứ tự deterministic.
+- Toàn bộ payload World, gồm path, value và evidence, phải qua giới hạn item/character từ
+  `agent_state.yaml`; state, dedup cache, snapshot và dashboard đều bounded/read-only.
+- Invalid/duplicate/stale/lower-authority/capacity outcomes phải fail isolated và có metric; không exception
+  nào từ shadow reducer được làm hỏng grounded-event production path.
+- `world_model_shadow` tiếp tục do `FeatureManager` sở hữu và có health/metrics; World snapshot không được
+  đưa vào Director V1 hoặc prompt production trong Phase 2. Consumer thuộc phase sau chỉ được chạy ở
+  shadow/disabled gate tương ứng.
+
+**Trạng thái Phase 2:** đạt closure gate ngày 19/08/2026. Observation đã stale bị từ chối; stale state
+được dọn trước conflict/capacity và trên read path; provenance reference luôn được giữ deterministic;
+path/evidence/config không coercion; toàn payload được bound. Targeted consumer tests và full offline
+regression đạt; World Model vẫn chỉ shadow/read-only và không đi vào Director V1 hoặc production prompt.
 
 ### 17.3. Chuỗi mã để lần theo một lượt
 
