@@ -657,11 +657,19 @@ Mục tiêu: tài liệu, mã và phiên bản nói cùng một điều.
 
 Mục tiêu: trạng thái không bao giờ đi trước kết quả thật.
 
-1. Chuyển cập nhật Thế giới sang sau khi giao dịch được xác nhận.
-2. Bổ sung kiểm thử cho trường hợp bộ thực thi thành công nhưng bước xác nhận cuối thất bại.
-3. Bảo đảm mọi thất bại đều giải phóng giữ chỗ và phát sự kiện kết quả rõ ràng.
+Contract sửa Phase 5 kế tiếp, chưa được coi là behavior đã triển khai:
 
-**Điều kiện hoàn tất:** không có đường đi nào ghi nhận hành động thành công trước xác nhận.
+1. Sau verification thành công, `GeneralActionMockLoop` phải `mark_delivered` rồi `commit` transaction
+   trước khi phát World event.
+2. Executor, verifier hoặc final commit thất bại phải release transaction và giữ World không đổi.
+3. World projection thất bại sau commit không được release một hành động đã commit; phải giữ kết quả
+   external đã verified, ghi outcome/metric inconsistency riêng và không tạo World fact giả.
+4. Bổ sung regression cho final commit ném lỗi và World projection từ chối event; cả hai phải chứng minh
+   thứ tự side effect bằng state/metric, không chỉ kiểm tra return value.
+
+**Điều kiện hoàn tất:** không có đường đi nào cập nhật World trước final commit; không có committed
+transaction bị báo là released; targeted Phase 5, transaction, World Model, capability registry và
+impacted V1 regression đều đạt.
 
 ### Mức 3 — cho V2 tiếp quản từng hành vi ít rủi ro
 
