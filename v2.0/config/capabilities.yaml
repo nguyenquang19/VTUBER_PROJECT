@@ -144,3 +144,10 @@ mock_action:
   max_idempotency_records: 256
   max_connected_guests: 8
   max_verification_evidence_refs: 8
+
+# Phase 8 local adapters do not own business transactions. These bounds cover
+# only execute/verify timeout, duplicate suppression and non-PII evidence.
+action_adapters:
+  execution_timeout_s: 120.0
+  max_idempotency_records: 256
+  max_evidence_refs: 8

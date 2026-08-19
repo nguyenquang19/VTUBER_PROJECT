@@ -153,7 +153,13 @@ class VTSAnimationService(AnimationService):
             self._skipped_total += 1
             return False
         try:
-            acknowledged = bool(await self._transport.trigger(hotkey))
+            acknowledgement = await self._transport.trigger(hotkey)
+            acknowledged = acknowledgement is True
+            if not isinstance(acknowledgement, bool):
+                self._errors_total += 1
+                self._log.warning(
+                    "intentional_gesture_ack_invalid", gesture_id=key,
+                )
         except Exception as exc:
             self._errors_total += 1
             self._log.warning("intentional_gesture_trigger_failed", gesture_id=key, error=str(exc))

@@ -6,6 +6,16 @@ import pytest
 
 from interfaces.director_v2 import DirectorV2Proposal, DirectorV2TakeoverSelection
 from interfaces.tts import TTSDeliveryMode, TTSDeliveryResult
+from services.action.legacy_adapters import (
+    ActionAdapterConfig,
+    AvatarGestureAuthority,
+    AvatarGestureExecutor,
+    AvatarGestureVerifier,
+    LocalActionAdapterBoundary,
+    SpeechDeliveryAuthority,
+    SpeechDeliveryExecutor,
+    SpeechDeliveryVerifier,
+)
 from services.director.action_transaction import ActionTransactionManager
 from services.director.director import DirectorAction
 from tests.integration.test_director_loop import _make
@@ -15,6 +25,23 @@ def _enable_transactions(loop) -> ActionTransactionManager:
     manager = ActionTransactionManager(enabled=True)
     loop._transactions = manager
     return manager
+
+
+async def _enable_speech_action_boundary(loop, speak) -> LocalActionAdapterBoundary:
+    authority = SpeechDeliveryAuthority(16)
+    avatar_authority = AvatarGestureAuthority(16)
+    boundary = LocalActionAdapterBoundary(
+        ActionAdapterConfig(1.0, 16, 4),
+        speech_executor=SpeechDeliveryExecutor(speak, authority, enabled=True),
+        speech_verifier=SpeechDeliveryVerifier(authority, enabled=True),
+        avatar_executor=AvatarGestureExecutor(
+            object(), avatar_authority, enabled=False,
+        ),
+        avatar_verifier=AvatarGestureVerifier(avatar_authority, enabled=False),
+    )
+    await boundary.start()
+    loop._action_adapter_boundary = boundary
+    return boundary
 
 
 def _enable_v2_read_ownership(loop) -> None:
@@ -220,3 +247,84 @@ async def test_subtitle_delivery_result_commits_in_degraded_mode() -> None:
     assert await loop.tick_once() is DirectorAction.READ_CHAT
     assert pool.size() == 0
     assert manager.snapshot()["counts"]["committed"] == 1
+
+
+@pytest.mark.asyncio
+async def test_typed_speech_action_verification_precedes_business_commit() -> None:
+    loop, _director, pool, _pulse, _runner, clock = _make()
+    manager = _enable_transactions(loop)
+    deliveries: list[str] = []
+
+    async def subtitle(request_id: str, _text: str) -> TTSDeliveryResult:
+        deliveries.append(request_id)
+        return TTSDeliveryResult(
+            request_id=request_id,
+            delivered=True,
+            mode=TTSDeliveryMode.SUBTITLE,
+            sentences_total=1,
+            sentences_delivered=1,
+            subtitle_sentences=1,
+        )
+
+    boundary = await _enable_speech_action_boundary(loop, subtitle)
+    pool.add("adapter-success", "Mai ơi", now=0.0, kind="mention")
+    clock["t"] = 1.0
+    assert await loop.tick_once() is DirectorAction.READ_CHAT
+    assert pool.size() == 0
+    assert manager.snapshot()["counts"]["committed"] == 1
+    assert len(deliveries) == 1
+    assert boundary.get_metrics()["local_action_adapter_verified_total"] == 1
+
+
+@pytest.mark.asyncio
+async def test_partial_speech_action_never_commits_or_removes_chat() -> None:
+    loop, _director, pool, _pulse, _runner, clock = _make()
+    manager = _enable_transactions(loop)
+
+    async def partial(request_id: str, _text: str) -> TTSDeliveryResult:
+        return TTSDeliveryResult(
+            request_id=request_id,
+            delivered=False,
+            mode=TTSDeliveryMode.MIXED,
+            sentences_total=2,
+            sentences_delivered=1,
+            subtitle_sentences=1,
+            failed_sentences=1,
+        )
+
+    await _enable_speech_action_boundary(loop, partial)
+    pool.add("adapter-partial", "Mai ơi", now=0.0, kind="mention")
+    clock["t"] = 1.0
+    assert await loop.tick_once() is DirectorAction.READ_CHAT
+    assert pool.size() == 1
+    assert manager.snapshot()["counts"]["released"] == 1
+    assert "committed" not in manager.snapshot()["counts"]
+
+
+@pytest.mark.asyncio
+async def test_speech_action_duplicate_committed_never_calls_tts_twice() -> None:
+    loop, _director, pool, _pulse, _runner, clock = _make()
+    manager = _enable_transactions(loop)
+    calls = 0
+
+    async def subtitle(request_id: str, _text: str) -> TTSDeliveryResult:
+        nonlocal calls
+        calls += 1
+        return TTSDeliveryResult(
+            request_id=request_id,
+            delivered=True,
+            mode=TTSDeliveryMode.SUBTITLE,
+            sentences_total=1,
+            sentences_delivered=1,
+            subtitle_sentences=1,
+        )
+
+    await _enable_speech_action_boundary(loop, subtitle)
+    pool.add("adapter-duplicate", "Mai ơi", now=0.0, kind="mention")
+    clock["t"] = 1.0
+    assert await loop.tick_once() is DirectorAction.READ_CHAT
+    pool.add("adapter-duplicate", "Mai ơi", now=1.1, kind="mention")
+    clock["t"] = 2.0
+    assert await loop.tick_once() is DirectorAction.READ_CHAT
+    assert calls == 1
+    assert manager.snapshot()["counts"]["duplicate_committed"] == 1

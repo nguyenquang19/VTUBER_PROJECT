@@ -13,6 +13,7 @@ import pytest
 from pydantic import ValidationError
 
 from interfaces.animation import AnimationCommand, AnimationService, MoodState
+from interfaces.action_execution import LocalActionBoundaryService
 from interfaces.agent import (
     AgentStateService, EventLedgerService, GoalManagerService, GoalProposalService,
     ConversationContextService, ConversationRepairService, OpenThreadManagerService,
@@ -70,6 +71,8 @@ class TestServiceContract:
             (TTSService, "cancel"),
             (AnimationService, "express"),
             (AnimationService, "sync_with_audio"),
+            (LocalActionBoundaryService, "execute"),
+            (LocalActionBoundaryService, "snapshot"),
             (MemoryService, "write"),
             (MemoryService, "query"),
             (MemoryService, "forget"),

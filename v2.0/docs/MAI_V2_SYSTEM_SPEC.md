@@ -50,7 +50,7 @@ Trạng thái phát hành khách quan:
 | Director V2 shadow Phase 6 | Đã đóng gate: deterministic proposal, hard precedence, strict capability/evidence, bounded log/metrics; không đổi live decision |
 | Nền nhận thức/trạng thái V2 | Có mã, chủ yếu ở shadow hoặc từng thành phần riêng |
 | Director V2 takeover Phase 7 | Đã đóng gate kỹ thuật: accepted agreement tạo executable decision ownership V2; mọi lỗi trả exact legacy; production flag vẫn tắt |
-| Action adapters | Có mã và test đơn vị; chưa được compose đầy đủ |
+| Speech/avatar action adapters Phase 8 | Đã đóng gate kỹ thuật: local typed boundary, authoritative TTS verification, bounded idempotency và runtime composition; production flags vẫn tắt |
 | External action | Chỉ có khung và mock; registry executor production trống |
 | Vòng tự chủ khép kín | Chưa đạt |
 | Release readiness | Chưa đạt: Mức 0 về môi trường/repository/credential đã hoàn tất, nhưng release evidence và các gate V2 chưa đủ |
@@ -71,8 +71,8 @@ Các cột dưới đây độc lập với nhau. “Có mã” không thay th�
 | Action transaction | Có | Mock closed loop strict; không nối Director V1 | Unit, negative-path, impacted, replay và full offline regression | Không cho external action |
 | Director V2 shadow | Có | Proposal/log read-only strict; không đổi live decision | Unit, negative-path, impacted, replay và full offline regression | Không |
 | Director V2 takeover | Có | Strict controlled agreement ownership; mặc định tắt, exact legacy fallback | Unit, negative-path, impacted, replay và full offline regression | Không |
-| Speech action adapter | Có | Chưa compose đầy đủ | Unit | Không |
-| Avatar action adapter | Có | Chưa compose đầy đủ | Unit | Không |
+| Speech action adapter | Có | Live `DirectorDeliveryBoundary` qua local typed boundary khi bật; exact legacy khi tắt | Unit, negative-path, transaction integration và full offline regression | Không; mặc định tắt |
+| Avatar action adapter | Có | Local typed intentional-gesture boundary; không giả automatic mood thành action | Unit, VTS fail-safe, composition và full offline regression | Không; mặc định tắt |
 | External executor thật | Chỉ có interface/registry/mock | Không | Chưa có end-to-end thật | Không |
 | Goals và short intentions | Có | Partial | Unit | Không |
 | Memory và ContextSelector V2 | Có | Partial | Unit/integration | Không như V2 release |
@@ -393,7 +393,7 @@ Hiện hệ thống chưa có bộ thực thi thật cho ví dụ này. Vì vậ
 | Vòng hành động mô phỏng | Đã có | Chứng minh được giao dịch nhưng chưa phải hành động thật |
 | Bộ điều phối V2 quan sát | Đã có | So sánh được với luồng cũ |
 | Tiếp quản có kiểm soát | Đã đóng gate kỹ thuật, chưa rollout production | V2 sở hữu decision khi strict agreement pass; cờ mặc định tắt và fallback V1 còn nguyên |
-| Chuyển đổi giọng nói và nhân vật | Có mã, chưa ghép đủ | Chưa được lắp hoàn chỉnh ở điểm khởi động chính |
+| Chuyển đổi giọng nói và nhân vật | Đã đóng gate kỹ thuật, chưa rollout production | Speech dùng verified local action boundary khi bật; intentional avatar route đã compose; hai cờ vẫn tắt |
 | Khung thực thi bên ngoài | Có khung | Danh sách bộ thực thi thật còn trống |
 | Nhận thức mở rộng | Có nền | Cần gắn với nguồn tín hiệu thật |
 | Mục tiêu và ý định ngắn | Có một phần | Liên kết vào trạng thái bản thân còn thiếu |
@@ -443,7 +443,7 @@ V2 được đưa vào theo từng lớp, có cờ bật/tắt và chế độ q
 ### 8.5. Bộ kiểm thử rộng
 
 Bộ kiểm thử bao phủ nhiều subsystem và các bài targeted cho lõi V2 đang xanh. Ngày 20/08/2026, sau
-closure Phase 7, full offline regression bằng `v2.0\venv` đạt 1.999 bài, 5 deselected và 0 lỗi.
+closure Phase 8, full offline regression bằng `v2.0\venv` đạt 2.028 bài và 0 lỗi.
 Kết quả này chứng minh đường offline hiện có đang xanh; nó không thay thế live/LLM acceptance hoặc chứng
 minh các capability chưa compose đã production.
 
@@ -477,11 +477,13 @@ thực thi một action khác với compatibility fallback.
 **Hậu quả:** closure kỹ thuật không đồng nghĩa V2 đang điều khiển phiên phát thật; production vẫn dùng
 legacy cho tới khi owner bật rollout có giám sát.
 
-### 9.2. Các bộ chuyển đổi hành động chưa được ghép vào điểm khởi động — mức cao
+### 9.2. Speech/avatar adapters chưa rollout production — mức trung bình
 
-Bộ chuyển đổi giọng nói và nhân vật tồn tại và có kiểm thử riêng, nhưng chưa được khởi tạo đầy đủ trong đường chạy chính.
+Speech/avatar adapters đã được compose vào `StreamRuntime`, có lifecycle, toggle, bounded idempotency và
+verification typed. Tuy nhiên hai cờ production vẫn mặc định tắt và chưa có audio/VTS canary thật.
 
-**Hậu quả:** mã đúng ở cấp đơn vị nhưng không tạo ra giá trị trong sản phẩm.
+**Hậu quả:** closure kỹ thuật chưa chứng minh adapter ổn định với thiết bị, hotkey và tải phát sóng thật;
+production tiếp tục dùng exact legacy speech path cho tới khi owner bật rollout có giám sát.
 
 ### 9.3. Chưa có hành động bên ngoài thật — mức cao
 
@@ -1261,6 +1263,82 @@ offline regression đạt 1999 test, 5 deselected. Replay cùng proposal/decisio
 selection; rollback switch giữ exact legacy behavior. `director_v2_takeover` vẫn mặc định `enabled=false`,
 stage `WAIT`, chưa có live/canary evidence và chưa được phát hành; product version vẫn là `1.4.3`.
 
+#### 17.2.8. Closure contract speech và avatar action adaptation Phase 8
+
+Phase 8 chỉ chuyển hai side-effect hiện có qua action boundary typed; không thay nội dung LLM, pacing,
+fallback TTS, quyền transaction của `DirectorLoop`, automatic mood expression hoặc scope external
+executor Phase 9. `StreamRuntime` là composition owner. `GeneralActionMockLoop` tiếp tục chỉ phục vụ
+mock action Phase 5 và `ExternalExecutorRegistry` tiếp tục inert cho Phase 9; không được dùng một trong
+hai thành phần này để tuyên bố speech/avatar Phase 8 đã compose.
+
+Gate Phase 8 yêu cầu:
+
+- Speech executor/verifier phải implement `ActionExecutor`/`ActionVerifier`, chỉ nhận `ActionRequest`
+  typed cho capability hội thoại được khai báo và gọi đúng callback TTS hiện có nhiều nhất một lần.
+  `TTSDeliveryResult` thật do callback trả về là authority duy nhất; không chấp nhận `None`, object
+  duck-typed, truthiness, stringify/coercion hoặc `ActionResult.result_data` tự khai làm bằng chứng giao
+  hàng. Result phải có `request_id` đúng action/request đang chạy, `delivered is True`, không cancelled,
+  `sentences_total` là `int` thật dương và toàn bộ câu đã được giao. `SUBTITLE` và `MIXED` vẫn là degraded
+  success khi toàn bộ câu thành công; thiếu callback, mode `NONE`/`CANCELLED`, request ID sai hoặc partial
+  sentence đều fail closed.
+- `DirectorDeliveryBoundary` tiếp tục là delivery-state boundary duy nhất. Khi adapter bật, boundary tạo
+  một request deterministic từ request/transaction hiện hành, gọi executor rồi verifier; chỉ
+  verification thành công mới được `mark_delivered`, finalize history, ghi speech-completed và trả success
+  cho `DirectorLoop`. `DirectorLoop` tiếp tục là business transaction owner duy nhất và chỉ commit/remove
+  chat/advance goal hoặc segment sau success đó. Executor/verifier không commit application state và
+  generation/result tự khai không được coi là delivery.
+- Feature `speech_action_adapter` tắt phải đi chính xác callback/delivery path hiện hành, không tạo
+  `ActionRequest` và không đổi user-visible text, pacing, filler, subtitle fallback, transaction key hoặc
+  delivery finalization. Khi adapter đã bắt đầu một attempt, lỗi execute/verify phải fail closed; không
+  gọi lại callback legacy trong cùng attempt vì có thể phát hai lần. Rollback switch chỉ áp dụng cho
+  attempt kế tiếp.
+- Cancellation phải propagate `asyncio.CancelledError` để transaction active được owner release; adapter
+  không được chuyển cancellation thành success/failure thông thường. Duplicate cùng idempotency key và
+  cùng fingerprint trả cùng terminal outcome mà không gọi TTS/VTS lần hai; cùng key khác fingerprint bị
+  từ chối. Idempotency/evidence/outcome retention phải bounded bằng YAML và không giữ text, audio hoặc PII
+  trong snapshot/metric.
+- Avatar executor/verifier chỉ nhận `AVATAR_GESTURE` intentional với `gesture_id` strict, allowlisted và
+  evidence bounded. Success chỉ khi lời gọi `trigger_intentional_gesture` của VTube Studio trả
+  acknowledgement `bool` thật; disconnected/degraded VTS, hotkey thiếu, policy rejection, exception hoặc
+  non-bool acknowledgement đều fail safe và không làm chết speech/runtime. Nếu Embodiment Policy bật,
+  lease intentional phải được kết thúc đúng một lần ở success, failure và cancellation.
+- Automatic mood expression sau confirmed speech vẫn chạy trực tiếp qua `express` hoặc
+  `EmbodimentPolicy.apply_mid`; nó là cosmetic delivery follow-up, không được tạo `AVATAR_GESTURE`, action
+  transaction, verification record hoặc evidence giả. Intentional gesture không được gọi từ mood
+  dominant/keyword hay tự suy ra từ nội dung LLM.
+- `StreamRuntime` phải compose/start/stop các adapter, nối handler enable/disable/health với
+  `FeatureManager`, đưa speech pair vào live delivery boundary và cung cấp avatar pair tại local typed
+  action boundary. Toggle phải strict/idempotent; stopped/disabled/degraded health phải phân biệt được.
+  Metrics adapter phải bounded, không ném lỗi ngược vào side-effect và không làm đổi result khi metrics,
+  log hoặc snapshot hỏng.
+- Hai feature production tiếp tục mặc định `enabled=false` trong lúc đóng gate kỹ thuật. Việc bật flag
+  hoặc có unit test không tự chứng minh production/live readiness; cần composition evidence, impacted
+  regression và live VTS/audio canary riêng trước rollout.
+
+Gate kiểm thử gồm strict type/action/capability/request identity, malformed result/ack, subtitle-only và
+mixed degraded success, missing callback, partial sentence failure, cancel trước/trong execute và verify,
+duplicate/idempotency conflict, metrics failure isolation, lifecycle/FeatureManager toggle, VTS
+disconnected/hotkey missing/policy rejection, automatic mood không tạo action và no commit before verified
+delivery. Integration phải chứng minh enabled adapter không double-deliver, disabled adapter giữ exact
+legacy path, delivery failure/cancel không remove chat hoặc advance state, duplicate committed không phát
+lần hai và runtime composition không đăng ký nhầm route vào mock loop hoặc external registry.
+
+**Trạng thái Phase 8:** đạt closure gate kỹ thuật ngày 20/08/2026. `LocalActionAdapterBoundary` implement
+interface local typed, compose/start/stop tại `StreamRuntime`, nối hai toggle qua `FeatureManager` và
+không đăng ký route vào mock loop Phase 5 hoặc external registry Phase 9. Speech executor lưu bounded
+`TTSDeliveryResult` typed làm authority cho verifier; request ID/count/mode/cancel/partial đều strict và
+failure không gọi callback legacy lần hai. Boundary chỉ `mark_delivered` sau verified result;
+`DirectorLoop` vẫn là transaction/commit owner duy nhất. Duplicate cùng fingerprint trả terminal result
+đã lưu, conflict bị từ chối và cancellation propagate để owner release transaction.
+
+Avatar route chỉ nhận intentional gesture, VTS acknowledgement phải là `bool` thật, allowlist/degraded/
+policy/exception đều fail safe. Automatic mood expression vẫn là cosmetic follow-up sau speech và không
+tạo action record. Targeted Phase 8 đạt 163 test, impacted Director/TTS/animation/runtime regression đạt
+306 test và full offline `pytest tests -q` đạt 2.028 test, 0 lỗi. Transaction integration chứng minh
+subtitle verified mới commit, partial không remove chat và duplicate committed không gọi TTS lần hai;
+YouTube replay regression tiếp tục xanh. Hai feature vẫn mặc định `enabled=false`, chưa có live audio/VTS
+canary và chưa được phát hành; product version vẫn là `1.4.3`.
+
 ### 17.3. Chuỗi mã để lần theo một lượt
 
 ```mermaid
@@ -1376,9 +1454,10 @@ Một chức năng chỉ thực sự hoạt động khi đã được khai báo,
   `goal_proposals`, `thread_extraction`, `speculative_decoding`, `turn_taking_predictor`,
   `director_v2_takeover`.
 
-Trong đó `speech_action_adapter` và `avatar_action_adapter` là cờ có implementation nhưng chưa được ghép
-vào composition root; `director_v2_takeover` đã có strict controlled ownership nhưng mặc định tắt và
-chưa có live rollout evidence. Trạng thái bật/tắt không được dùng riêng để suy ra mức production.
+Trong đó `speech_action_adapter` và `avatar_action_adapter` đã được ghép vào local typed action boundary
+và composition root nhưng vẫn mặc định tắt, chưa có live audio/VTS canary. `director_v2_takeover` đã có
+strict controlled ownership nhưng mặc định tắt và chưa có live rollout evidence. Trạng thái bật/tắt không
+được dùng riêng để suy ra mức production.
 
 ### 19.5. Hồ sơ cấu hình nên chuẩn hóa
 
@@ -1645,8 +1724,11 @@ Ngày 20/08/2026:
 - regression của environment checker: 6 đạt;
 - Phase 7 targeted: 79 đạt; impacted Director/transaction/runtime: 220 đạt;
 - full offline `pytest -m "not slow and not llm"`: 1.999 đạt, 5 deselected, 0 lỗi;
+- Phase 8 targeted: 163 đạt; impacted Director/TTS/animation/runtime: 306 đạt;
+- full offline `pytest tests -q`: 2.028 đạt, 0 lỗi;
 - còn một cảnh báo deprecation giữa Starlette TestClient và `httpx`;
-- chưa chạy live/LLM acceptance hoặc canary takeover; `llama-server` không được khởi động trong phase này.
+- chưa chạy live/LLM acceptance, audio/VTS canary hoặc canary takeover; `llama-server` không được khởi
+  động trong phase này.
 
 Kết quả cũ dùng Python 3.12 thay thế chỉ còn giá trị chẩn đoán lịch sử, không phải release evidence hiện tại.
 

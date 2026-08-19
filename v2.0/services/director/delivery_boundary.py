@@ -5,9 +5,11 @@ Business commit/release remains in :mod:`services.director.director_loop`.
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable
 
 from interfaces.animation import AnimationCommand, MoodState
+from interfaces.compatibility import ActionRequest, ActionStatus
 
 SpeakFn = Callable[[str, str], Awaitable[Any]]
 MoodProvider = Callable[[], MoodState]
@@ -30,12 +32,14 @@ class DirectorDeliveryBoundary:
         transactions: Any = None,
         animation: Any = None,
         embodiment_policy: Any = None,
+        action_adapter_boundary: Any = None,
     ) -> None:
         self._runner = runner
         self._speak = speak
         self._transactions = transactions
         self._animation = animation
         self._embodiment_policy = embodiment_policy
+        self._action_adapter_boundary = action_adapter_boundary
         self._mood_provider = mood_provider
         self._speech_completed = speech_completed
         self._filter_rejected = filter_rejected
@@ -79,23 +83,63 @@ class DirectorDeliveryBoundary:
         if transaction_id is not None:
             self._transactions.mark_generated(transaction_id)
             self._transactions.mark_delivering(transaction_id)
-        if self._speak is None:
-            self.finalize_runner_delivery(request_id, False)
-            self._log.warning("director_delivery_sink_missing", request_id=request_id)
-            return False
-        try:
-            delivery = await self._speak(request_id, text)
-        except Exception as exc:
-            self.finalize_runner_delivery(request_id, False)
-            self._log.warning("director_speak_failed", error=str(exc))
-            return False
-        if getattr(delivery, "delivered", False) is not True:
-            self.finalize_runner_delivery(request_id, False)
-            self._log.warning(
-                "director_delivery_not_reached",
-                mode=str(getattr(delivery, "mode", "unknown")),
+        use_action_adapter = (
+            self._action_adapter_boundary is not None
+            and getattr(self._action_adapter_boundary, "speech_enabled", None) is True
+        )
+        if use_action_adapter:
+            action_type = self._speech_action_type(action)
+            request = ActionRequest(
+                schema_version=1,
+                action_id=request_id,
+                capability_id=action_type,
+                action_type=action_type,
+                target=None,
+                arguments={"text": text},
+                intention_id=goal_id,
+                evidence_refs=(f"delivery:{request_id}",),
+                idempotency_key=f"speech:{request_id}",
+                priority=0.0,
+                requested_at=datetime.now(timezone.utc),
+                transaction_policy="delivery_aware",
             )
-            return False
+            try:
+                result = await self._action_adapter_boundary.execute(request)
+            except Exception as exc:
+                self.finalize_runner_delivery(request_id, False)
+                self._log.warning("director_speech_adapter_failed", error=str(exc))
+                return False
+            if not (
+                getattr(result, "action_id", None) == request_id
+                and getattr(result, "status", None) is ActionStatus.SUCCESS
+                and getattr(result, "verified", None) is True
+                and getattr(result, "verification_source", None) == "tts_delivery"
+            ):
+                self.finalize_runner_delivery(request_id, False)
+                self._log.warning(
+                    "director_speech_adapter_unverified",
+                    error_code=str(getattr(result, "error_code", "invalid_result")),
+                )
+                return False
+        else:
+            # Exact compatibility path when Phase 8 speech adaptation is disabled.
+            if self._speak is None:
+                self.finalize_runner_delivery(request_id, False)
+                self._log.warning("director_delivery_sink_missing", request_id=request_id)
+                return False
+            try:
+                delivery = await self._speak(request_id, text)
+            except Exception as exc:
+                self.finalize_runner_delivery(request_id, False)
+                self._log.warning("director_speak_failed", error=str(exc))
+                return False
+            if getattr(delivery, "delivered", False) is not True:
+                self.finalize_runner_delivery(request_id, False)
+                self._log.warning(
+                    "director_delivery_not_reached",
+                    mode=str(getattr(delivery, "mode", "unknown")),
+                )
+                return False
 
         if transaction_id is not None:
             self._transactions.mark_delivered(transaction_id)
@@ -122,6 +166,17 @@ class DirectorDeliveryBoundary:
             except Exception as exc:  # pragma: no cover - defensive
                 self._log.warning("animation_express_failed", error=str(exc))
         return True
+
+    @staticmethod
+    def _speech_action_type(action: Any) -> str:
+        value = getattr(action, "value", action)
+        if value == "self_talk":
+            return "SELF_TALK"
+        if value in {
+            "follow_up", "continue_thread", "ask_follow_up", "share_goal_progress",
+        }:
+            return "FOLLOW_UP"
+        return "SPEAK"
 
     async def run_turn_deferred(self, **kwargs: Any) -> Any:
         if hasattr(self._runner, "finalize_delivery"):

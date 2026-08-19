@@ -1,12 +1,15 @@
 """Direct contract tests for the Director delivery boundary."""
 from __future__ import annotations
 
+import asyncio
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
 from interfaces.animation import MoodState
+from interfaces.compatibility import ActionResult, ActionStatus
 from services.director.delivery_boundary import DirectorDeliveryBoundary
 
 
@@ -61,6 +64,7 @@ def make_boundary(
     transactions: Any = None,
     animation: Any = None,
     embodiment_policy: Any = None,
+    action_adapter_boundary: Any = None,
     completed: list[tuple[Any, ...]] | None = None,
     rejected: list[dict[str, Any]] | None = None,
 ) -> DirectorDeliveryBoundary:
@@ -72,6 +76,7 @@ def make_boundary(
         transactions=transactions,
         animation=animation,
         embodiment_policy=embodiment_policy,
+        action_adapter_boundary=action_adapter_boundary,
         mood_provider=lambda: MoodState(vui=4),
         speech_completed=lambda *args, **kwargs: completed_sink.append((args, kwargs)),
         filter_rejected=lambda **kwargs: rejected_sink.append(kwargs),
@@ -190,3 +195,112 @@ async def test_delivery_uses_embodiment_policy_only_after_confirmed_delivery() -
     assert await boundary.deliver("req-embodiment", SimpleNamespace(text="xin chào"), "read_chat", [])
     assert policy.calls == [("req-embodiment", MoodState(vui=4))]
     assert animation.commands == []
+
+
+class ActionBoundaryStub:
+    speech_enabled = True
+
+    def __init__(self, *, verified: bool = True, cancel: bool = False) -> None:
+        self.verified = verified
+        self.cancel = cancel
+        self.requests: list[Any] = []
+
+    async def execute(self, request: Any) -> ActionResult:
+        self.requests.append(request)
+        if self.cancel:
+            raise asyncio.CancelledError
+        now = datetime.now(timezone.utc)
+        return ActionResult(
+            schema_version=1,
+            action_id=request.action_id,
+            status=ActionStatus.SUCCESS if self.verified else ActionStatus.FAILED,
+            started_at=now,
+            completed_at=now,
+            verified=self.verified,
+            verification_source="tts_delivery" if self.verified else None,
+            result_data={},
+            error_code=None if self.verified else "delivery_not_verified",
+        )
+
+
+@pytest.mark.asyncio
+async def test_enabled_speech_action_boundary_verifies_before_delivered_once() -> None:
+    runner = RunnerStub()
+    transactions = TransactionsStub()
+    animation = AnimationStub()
+    adapter = ActionBoundaryStub()
+
+    async def legacy_speak(_request_id: str, _text: str) -> Any:
+        raise AssertionError("enabled adapter must own the single TTS call")
+
+    boundary = make_boundary(
+        runner,
+        speak=legacy_speak,
+        transactions=transactions,
+        animation=animation,
+        action_adapter_boundary=adapter,
+    )
+    reached = await boundary.deliver(
+        "req-action", SimpleNamespace(text="xin chào"), "self_talk", [],
+        transaction_id="tx-action",
+    )
+
+    assert reached is True
+    assert len(adapter.requests) == 1
+    assert adapter.requests[0].action_type == "SELF_TALK"
+    assert adapter.requests[0].idempotency_key == "speech:req-action"
+    assert transactions.stages == [
+        ("generated", "tx-action"),
+        ("delivering", "tx-action"),
+        ("delivered", "tx-action"),
+    ]
+    assert animation.commands and animation.commands[0].command_type == "express"
+    assert all(request.action_type != "AVATAR_GESTURE" for request in adapter.requests)
+
+
+@pytest.mark.asyncio
+async def test_unverified_speech_action_never_marks_delivered_or_expresses() -> None:
+    runner = RunnerStub()
+    transactions = TransactionsStub()
+    animation = AnimationStub()
+    adapter = ActionBoundaryStub(verified=False)
+    boundary = make_boundary(
+        runner,
+        speak=None,
+        transactions=transactions,
+        animation=animation,
+        action_adapter_boundary=adapter,
+    )
+
+    reached = await boundary.deliver(
+        "req-fail", SimpleNamespace(text="không giao"), "read_chat", [],
+        transaction_id="tx-fail",
+    )
+    assert reached is False
+    assert transactions.stages == [
+        ("generated", "tx-fail"), ("delivering", "tx-fail"),
+    ]
+    assert runner.finalized == [("req-fail", False)]
+    assert animation.commands == []
+
+
+@pytest.mark.asyncio
+async def test_speech_action_cancellation_propagates_before_delivery() -> None:
+    runner = RunnerStub()
+    transactions = TransactionsStub()
+    adapter = ActionBoundaryStub(cancel=True)
+    boundary = make_boundary(
+        runner,
+        speak=None,
+        transactions=transactions,
+        action_adapter_boundary=adapter,
+    )
+    with pytest.raises(asyncio.CancelledError):
+        await boundary.deliver(
+            "req-cancel", SimpleNamespace(text="dừng"), "follow_up", [],
+            transaction_id="tx-cancel",
+        )
+    assert transactions.stages == [
+        ("generated", "tx-cancel"), ("delivering", "tx-cancel"),
+    ]
+    assert runner.finalized == []

@@ -4,7 +4,11 @@ from datetime import datetime, timezone
 
 from interfaces.animation import MoodState
 from interfaces.compatibility import ActionRequest, ActionStatus
-from services.action.legacy_adapters import AvatarGestureExecutor, AvatarGestureVerifier
+from services.action.legacy_adapters import (
+    AvatarGestureAuthority,
+    AvatarGestureExecutor,
+    AvatarGestureVerifier,
+)
 from services.animation.embodiment_policy import EmbodimentPolicy, EmbodimentPolicyConfig
 
 
@@ -69,11 +73,17 @@ async def test_avatar_action_requires_grounded_evidence_and_records_vts_outcome(
     animation = Animation(acknowledged=True)
     policy = _policy(animation)
     await policy.start()
-    executor = AvatarGestureExecutor(animation, enabled=True, policy=policy)
+    authority = AvatarGestureAuthority(8)
+    executor = AvatarGestureExecutor(
+        animation, authority, enabled=True, policy=policy,
+    )
+    verifier = AvatarGestureVerifier(authority, enabled=True)
+    await executor.start()
+    await verifier.start()
     result = await executor.execute(_request("action-1", evidence=("event-1", "event-2", "event-3")))
     assert result.status is ActionStatus.SUCCESS
     assert result.result_data["evidence_refs"] == ("event-1", "event-2", "event-3")
-    assert (await AvatarGestureVerifier(enabled=True).verify(_request("action-1"), result)).verified is True
+    assert (await verifier.verify(_request("action-1"), result)).verified is True
     missing = await executor.execute(_request("action-2", evidence=()))
     assert missing.status is ActionStatus.REJECTED
     assert missing.error_code == "embodiment_policy_rejected"
@@ -83,7 +93,28 @@ async def test_vts_rejection_is_failed_not_verified_and_releases_high_lease() ->
     animation = Animation(acknowledged=False)
     policy = _policy(animation)
     await policy.start()
-    result = await AvatarGestureExecutor(animation, enabled=True, policy=policy).execute(_request("action-1"))
+    executor = AvatarGestureExecutor(
+        animation, AvatarGestureAuthority(8), enabled=True, policy=policy,
+    )
+    await executor.start()
+    result = await executor.execute(_request("action-1"))
     assert result.status is ActionStatus.FAILED
     assert policy.snapshot()["active_high"] is None
     assert policy.snapshot()["counts"]["high_failed"] == 1
+
+
+async def test_policy_metrics_failure_does_not_leak_intentional_lease() -> None:
+    class BrokenMetrics:
+        def record_embodiment_policy(self, *_args: object) -> None:
+            raise RuntimeError("metrics unavailable")
+
+    policy = EmbodimentPolicy(
+        EmbodimentPolicyConfig(2.0, 3.0, 2, 8),
+        animation=Animation(),
+        metrics=BrokenMetrics(),
+        enabled=True,
+    )
+    await policy.start()
+    assert await policy.begin_intentional("action-1", "wave", ("event-1",)) is True
+    await policy.finish_intentional("action-1", False)
+    assert policy.snapshot()["active_high"] is None

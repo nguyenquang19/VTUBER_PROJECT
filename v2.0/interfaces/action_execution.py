@@ -62,3 +62,15 @@ class GeneralActionService(Service):
     @abstractmethod
     def snapshot(self) -> dict[str, Any]:
         """Return bounded, operator-safe action outcomes."""
+
+
+class LocalActionBoundaryService(Service):
+    """Verify an existing local side effect without owning business commit state."""
+
+    @abstractmethod
+    async def execute(self, request: ActionRequest) -> ActionResult:
+        """Execute and verify one idempotent local action request."""
+
+    @abstractmethod
+    def snapshot(self) -> dict[str, Any]:
+        """Return a bounded summary without text, audio or credentials."""

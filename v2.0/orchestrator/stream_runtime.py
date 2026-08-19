@@ -107,6 +107,7 @@ class StreamRuntime:
         self_model: Any = None,
         capability_registry: Any = None,
         action_mock_loop: Any = None,
+        action_adapter_boundary: Any = None,
         embodiment_policy: Any = None,
         external_executor_registry: Any = None,
         director_v2_shadow: Any = None,
@@ -151,6 +152,7 @@ class StreamRuntime:
         self._self_model = self_model
         self._capability_registry = capability_registry
         self._action_mock_loop = action_mock_loop
+        self._action_adapter_boundary = action_adapter_boundary
         self._embodiment_policy = embodiment_policy
         self._external_executor_registry = external_executor_registry
         self._director_v2_shadow = director_v2_shadow
@@ -187,6 +189,8 @@ class StreamRuntime:
             await self._capability_registry.start()
         if self._action_mock_loop is not None:
             await self._action_mock_loop.start()
+        if self._action_adapter_boundary is not None:
+            await self._action_adapter_boundary.start()
         if self._external_executor_registry is not None:
             await self._external_executor_registry.start()
         if self._embodiment_policy is not None:
@@ -340,6 +344,9 @@ class StreamRuntime:
         if self._action_mock_loop is not None:
             with contextlib.suppress(Exception):
                 await self._action_mock_loop.stop()
+        if self._action_adapter_boundary is not None:
+            with contextlib.suppress(Exception):
+                await self._action_adapter_boundary.stop()
         if self._external_executor_registry is not None:
             with contextlib.suppress(Exception):
                 await self._external_executor_registry.stop()
@@ -410,6 +417,10 @@ class StreamRuntime:
             ),
             "action_mock": (
                 self._action_mock_loop.snapshot() if self._action_mock_loop is not None else None
+            ),
+            "local_action_adapters": (
+                self._action_adapter_boundary.snapshot()
+                if self._action_adapter_boundary is not None else None
             ),
             "external_executors": (
                 self._external_executor_registry.snapshot()
@@ -637,6 +648,9 @@ class StreamRuntime:
         if self._action_mock_loop is not None:
             with contextlib.suppress(Exception):
                 m.update(self._action_mock_loop.get_metrics())
+        if self._action_adapter_boundary is not None:
+            with contextlib.suppress(Exception):
+                m.update(self._action_adapter_boundary.get_metrics())
         if self._external_executor_registry is not None:
             with contextlib.suppress(Exception):
                 m.update(self._external_executor_registry.get_metrics())
@@ -1346,6 +1360,85 @@ async def build_stream_runtime(
         loader, animation=animation, metrics=metrics, enabled=embodiment_enabled,
     )
 
+    # Phase 8: local typed action boundary. It owns execute/verify and bounded
+    # duplicate suppression only; DirectorLoop remains the business transaction owner.
+    from services.action.legacy_adapters import (
+        ActionAdapterConfig,
+        AvatarGestureAuthority,
+        AvatarGestureExecutor,
+        AvatarGestureVerifier,
+        LocalActionAdapterBoundary,
+        SpeechDeliveryAuthority,
+        SpeechDeliveryExecutor,
+        SpeechDeliveryVerifier,
+    )
+    action_adapter_config = ActionAdapterConfig.from_loader(loader)
+    try:
+        speech_adapter_status = await feature_manager.get_status("speech_action_adapter")
+        speech_adapter_enabled = speech_adapter_status in (
+            FeatureStatus.ENABLED, FeatureStatus.DEGRADED,
+        )
+    except KeyError:
+        get_logger("stream_runtime").warning("speech_action_adapter_feature_missing")
+        speech_adapter_enabled = False
+    try:
+        avatar_adapter_status = await feature_manager.get_status("avatar_action_adapter")
+        avatar_adapter_enabled = avatar_adapter_status in (
+            FeatureStatus.ENABLED, FeatureStatus.DEGRADED,
+        )
+    except KeyError:
+        get_logger("stream_runtime").warning("avatar_action_adapter_feature_missing")
+        avatar_adapter_enabled = False
+    speech_delivery_authority = SpeechDeliveryAuthority(
+        action_adapter_config.max_idempotency_records,
+    )
+    avatar_gesture_authority = AvatarGestureAuthority(
+        action_adapter_config.max_idempotency_records,
+    )
+    speech_action_executor = SpeechDeliveryExecutor(
+        speak_callback,
+        speech_delivery_authority,
+        enabled=speech_adapter_enabled,
+        metrics=metrics,
+    )
+    speech_action_verifier = SpeechDeliveryVerifier(
+        speech_delivery_authority,
+        enabled=speech_adapter_enabled,
+        metrics=metrics,
+    )
+    avatar_action_executor = AvatarGestureExecutor(
+        animation,
+        avatar_gesture_authority,
+        enabled=avatar_adapter_enabled,
+        metrics=metrics,
+        policy=embodiment_policy,
+    )
+    avatar_action_verifier = AvatarGestureVerifier(
+        avatar_gesture_authority,
+        enabled=avatar_adapter_enabled,
+        metrics=metrics,
+    )
+    action_adapter_boundary = LocalActionAdapterBoundary(
+        action_adapter_config,
+        speech_executor=speech_action_executor,
+        speech_verifier=speech_action_verifier,
+        avatar_executor=avatar_action_executor,
+        avatar_verifier=avatar_action_verifier,
+        metrics=metrics,
+    )
+    attach_boolean_feature(
+        feature_manager,
+        "speech_action_adapter",
+        set_enabled=action_adapter_boundary.set_speech_enabled,
+        is_enabled=lambda: action_adapter_boundary.speech_enabled,
+    )
+    attach_boolean_feature(
+        feature_manager,
+        "avatar_action_adapter",
+        set_enabled=action_adapter_boundary.set_avatar_enabled,
+        is_enabled=lambda: action_adapter_boundary.avatar_enabled,
+    )
+
     # TASK 4: director tick TÁCH khỏi autonomy (autonomy 5s làm chat chờ lâu).
     director_tick = float(loader.get("director", "director.tick_seconds", 1.5))
     room_reaction = loader.get("director", "director.room_reaction", {}) or {}
@@ -1369,6 +1462,7 @@ async def build_stream_runtime(
         thread_manager=open_thread_manager,
         animation=animation,
         embodiment_policy=embodiment_policy,
+        action_adapter_boundary=action_adapter_boundary,
         room_reaction_recent_window=int(room_reaction.get("recent_window", 16)),
         room_reaction_similarity_threshold=float(
             room_reaction.get("similarity_threshold", 0.72)
@@ -1886,6 +1980,7 @@ async def build_stream_runtime(
         speak=speak_callback, filler=filler, director_loop=director_loop,
         agent_state=agent_state, world_model=world_model, self_model=self_model,
         capability_registry=capability_registry, action_mock_loop=action_mock_loop,
+        action_adapter_boundary=action_adapter_boundary,
         embodiment_policy=embodiment_policy,
         external_executor_registry=external_executor_registry,
         director_v2_shadow=director_v2_shadow,

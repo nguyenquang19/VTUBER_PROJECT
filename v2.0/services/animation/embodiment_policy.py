@@ -173,7 +173,10 @@ class EmbodimentPolicy(EmbodimentPolicyService):
         self._records.append(record)
         callback = getattr(self._metrics, "record_embodiment_policy", None)
         if callable(callback):
-            callback(str(record["level"]), outcome)
+            try:
+                callback(str(record["level"]), outcome)
+            except Exception:
+                pass
 
     @staticmethod
     def _in_cooldown(last_at: float | None, cooldown_s: float, now: float) -> bool:

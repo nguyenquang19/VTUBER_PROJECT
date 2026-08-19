@@ -325,3 +325,39 @@ class TestRuntimeFilterWiring:
             assert pref.records == []
         finally:
             await runtime.stop()
+
+
+@pytest.mark.asyncio
+async def test_local_action_adapters_are_composed_with_independent_feature_lifecycle(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runtime, _llm, _pref = await _build_runtime(
+        monkeypatch, tmp_path, [], filter_enabled=False,
+    )
+    boundary = runtime._action_adapter_boundary
+    assert boundary is not None
+    assert boundary.snapshot() == {
+        "running": False,
+        "speech_enabled": False,
+        "avatar_enabled": False,
+        "idempotency_records": 0,
+        "outcomes": {},
+    }
+    assert runtime._external_executor_registry.executor_for("speech_delivery") is None
+    assert "speech_delivery" not in runtime._action_mock_loop._executors
+
+    await runtime.start()
+    try:
+        assert boundary.snapshot()["running"] is True
+        assert (await boundary.health_check()).state.value == "degraded"
+        enabled = await runtime._feature_manager.enable("speech_action_adapter")
+        assert enabled.ok is True
+        assert boundary.speech_enabled is True
+        disabled = await runtime._feature_manager.disable("speech_action_adapter")
+        assert disabled.ok is True
+        assert boundary.speech_enabled is False
+        assert runtime.operations_snapshot()["local_action_adapters"]["running"] is True
+    finally:
+        await runtime.stop()
+    assert boundary.snapshot()["running"] is False
