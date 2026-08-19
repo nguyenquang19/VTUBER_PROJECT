@@ -908,9 +908,15 @@ class DirectorLoop:
                 )
             return False
         req_id = f"self_{uuid.uuid4().hex[:8]}"
+        question_budget_exempt = bool(
+            plan is not None and plan.stage is SelfTalkStage.INVITE
+        )
         prompt = _join_directives(
             prompt_text, _proactive_thread_directive(proactive_thread),
             self._behavior_directive(dec),
+            self._speech_style_directive(
+                question_budget_exempt=question_budget_exempt,
+            ),
         )
         delivery_req_id = req_id
         parsed = await self._run_ambient_deferred(req_id, prompt)
@@ -920,7 +926,7 @@ class DirectorLoop:
                 self._finalize_runner_delivery(req_id, False)
                 delivery_req_id = req_id + "_r"
                 parsed = await self._run_ambient_deferred(
-                    delivery_req_id, prompt_text,
+                    delivery_req_id, prompt,
                 )
                 # DPO pair: dedup regen (chosen = bản khác)
                 try:
@@ -971,6 +977,30 @@ class DirectorLoop:
                     )
                 except Exception:
                     pass
+        delivery_req_id, parsed = await self._repair_speech_style(
+            delivery_req_id,
+            parsed,
+            prompt,
+            lambda retry_id, retry_prompt: self._run_ambient_deferred(
+                retry_id, retry_prompt,
+            ),
+            question_budget_exempt=question_budget_exempt,
+        )
+        if plan is not None:
+            if not self._self_talk_planner.can_deliver(plan.plan_id):
+                self._finalize_runner_delivery(delivery_req_id, False)
+                self._self_talk_planner.release(plan.plan_id)
+                return False
+            final_validation = self._self_talk_planner.validate_output(
+                plan.plan_id, getattr(parsed, "text", ""),
+            )
+            if not final_validation.valid:
+                self._finalize_runner_delivery(delivery_req_id, False)
+                self._self_talk_planner.release(plan.plan_id)
+                self._director.defer_self_talk(
+                    now + self._self_talk_planner.unavailable_retry_seconds,
+                )
+                return False
         self._speech_dedup_generated_total += 1
         if self._speech_candidate_is_duplicate(parsed):
             self._speech_dedup_duplicate_total += 1

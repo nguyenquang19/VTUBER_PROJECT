@@ -992,6 +992,53 @@ class TestDirectorLoop:
         assert spoken == ["Tự nhiên tớ vừa để ý khoảng im này."]
         assert planner.get_metrics()["self_talk_planner_output_rejected_total"] == 1
 
+    async def test_self_talk_uses_speech_style_guard_before_delivery(self) -> None:
+        planner = SelfTalkPlanner(
+            cognitive_moves=("nhận ra một chi tiết nhỏ trong mỏ neo",),
+            min_silence_seconds=20.0,
+            stage_limits={"open": {"max_sentences": 1, "allow_question": False}},
+        )
+        loop, _, _, _, runner, _ = _make(
+            autonomy=FakeAutonomy(), speech_style_max_formula_openers=0,
+        )
+        loop._self_talk_planner = planner
+        loop.set_runtime_context_provider(
+            lambda: RuntimeContext(
+                silence_seconds=30.0, working_memory_recent=["chat đang bàn về trà"],
+            ),
+        )
+        outputs = iter((FakeParsed("Mà trà thơm thật."), FakeParsed("Trà thơm thật.")))
+
+        async def generate(_request_id: str, prompt: str):
+            runner.ambient_calls.append(prompt)
+            return next(outputs)
+
+        spoken: list[str] = []
+
+        async def deliver(request_id: str, text: str) -> TTSDeliveryResult:
+            spoken.append(text)
+            return TTSDeliveryResult(
+                request_id=request_id, delivered=True,
+                mode=TTSDeliveryMode.SUBTITLE, sentences_total=1,
+                sentences_delivered=1, subtitle_sentences=1,
+            )
+
+        runner.run_ambient_turn = generate
+        loop._speak = deliver
+
+        class _Decision:
+            action = DirectorAction.SELF_TALK
+            proactive_source = None
+            proactive_summary = None
+            proactive_category = None
+
+        assert await loop._exec_self_talk(_Decision(), 30.0) is True
+        assert len(runner.ambient_calls) == 2
+        assert "Ràng buộc nhịp văn phong" in runner.ambient_calls[0]
+        assert "SỬA VĂN PHONG" in runner.ambient_calls[1]
+        assert spoken == ["Trà thơm thật."]
+        assert loop.get_metrics()["director_speech_style_regenerated_total"] == 1
+
     async def test_chat_during_generation_blocks_ambient_delivery_and_preserves_arc(self) -> None:
         planner = SelfTalkPlanner(
             cognitive_moves=("nhận ra một chi tiết nhỏ trong mỏ neo",),

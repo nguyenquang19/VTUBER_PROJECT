@@ -179,6 +179,33 @@ def test_invite_wait_is_resolved_by_chat() -> None:
     assert planner.snapshot()["stage"] is None
 
 
+def test_invite_cadence_skips_generation_for_non_invite_arc() -> None:
+    planner = _planner(invite_every_n_arcs=2)
+    opened = planner.prepare(mood=MoodState(), now=30.0, context=_recent("chat bàn về trà"))
+    assert opened and planner.commit(opened.plan_id, "Tớ vừa để ý chuyện trà.", 30.0)
+    developed = planner.prepare(mood=MoodState(), now=31.0, context=_recent("chat bàn về trà"))
+    assert developed and planner.commit(
+        developed.plan_id, "Mùi trà nghe thôi đã thấy dịu rồi.", 31.0,
+    )
+    assert planner.snapshot()["stage"] == "wait"
+    assert planner.get_metrics()["self_talk_planner_invites_skipped_total"] == 1
+
+    planner.on_chat(50.0)
+    second_open = planner.prepare(
+        mood=MoodState(), now=60.0, context=_recent("chat bàn về cà phê"),
+    )
+    assert second_open and planner.commit(second_open.plan_id, "Cà phê có mùi rất rõ.", 60.0)
+    second_develop = planner.prepare(
+        mood=MoodState(), now=61.0, context=_recent("chat bàn về cà phê"),
+    )
+    assert second_develop and planner.commit(
+        second_develop.plan_id, "Vị đắng làm mạch này khác hẳn.", 61.0,
+    )
+    invited = planner.prepare(
+        mood=MoodState(), now=62.0, context=_recent("chat bàn về cà phê"),
+    )
+    assert invited and invited.stage is SelfTalkStage.INVITE
+
 def test_grounded_one_shot_uses_only_supplied_context_and_keeps_arc() -> None:
     planner = _planner()
     arc = planner.prepare(mood=MoodState(), now=30.0, context=_recent())

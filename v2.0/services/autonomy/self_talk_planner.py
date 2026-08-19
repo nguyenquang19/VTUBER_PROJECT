@@ -39,6 +39,7 @@ class _Arc:
     previous_text: str = ""
     wait_until: float = 0.0
     resume_after: float = 0.0
+    invite: bool = True
 
 
 class SelfTalkPlanner(SelfTalkPlanningService):
@@ -64,6 +65,7 @@ class SelfTalkPlanner(SelfTalkPlanningService):
         stage_repeat_min_tokens: int = 4,
         max_previous_text_chars: int = 280,
         recent_context_min_tokens: int = 3,
+        invite_every_n_arcs: int = 1,
         silence_intention: str = (
             "nhận xét thật ngắn về chính khoảng im lặng mà không suy đoán nguyên nhân"
         ),
@@ -92,6 +94,8 @@ class SelfTalkPlanner(SelfTalkPlanningService):
             raise ValueError("output_repeat_threshold phải trong khoảng 0..1")
         if not 0.0 <= stage_repeat_threshold <= 1.0:
             raise ValueError("stage_repeat_threshold phải trong khoảng 0..1")
+        if invite_every_n_arcs <= 0:
+            raise ValueError("invite_every_n_arcs phải dương")
         if stage_repeat_min_tokens <= 0:
             raise ValueError("stage_repeat_min_tokens phải dương")
         if not silence_intention.strip():
@@ -111,6 +115,7 @@ class SelfTalkPlanner(SelfTalkPlanningService):
         self._stage_repeat_min_tokens = int(stage_repeat_min_tokens)
         self._max_previous_chars = int(max_previous_text_chars)
         self._recent_context_min_tokens = max(1, int(recent_context_min_tokens))
+        self._invite_every_n_arcs = int(invite_every_n_arcs)
         self._silence_intention = silence_intention.strip()
         self._silence_allow_question = bool(silence_allow_question)
         self._grounded_categories = set(grounded_categories)
@@ -131,6 +136,7 @@ class SelfTalkPlanner(SelfTalkPlanningService):
         self._stage_limits = dict(stage_limits or {})
         self._ledger: deque[dict[str, Any]] = deque(maxlen=max(1, int(thought_ledger_size)))
         self._move_cursor = 0
+        self._arc_sequence = 0
         self._arc: _Arc | None = None
         self._pending: SelfTalkPlan | None = None
         self._pending_thought: Thought | None = None
@@ -155,6 +161,7 @@ class SelfTalkPlanner(SelfTalkPlanningService):
             "stage_repeat_rejected_total": 0,
             "semantic_question_rejected_total": 0,
             "recent_context_rejected_total": 0,
+            "invites_skipped_total": 0,
         }
 
     @classmethod
@@ -183,6 +190,7 @@ class SelfTalkPlanner(SelfTalkPlanningService):
             stage_repeat_min_tokens=int(raw.get("stage_repeat_min_tokens", 4)),
             max_previous_text_chars=int(raw.get("max_previous_text_chars", 280)),
             recent_context_min_tokens=int(raw.get("recent_context_min_tokens", 3)),
+            invite_every_n_arcs=int(raw.get("invite_every_n_arcs", 1)),
             silence_intention=str(raw.get(
                 "silence_intention",
                 "nhận xét thật ngắn về chính khoảng im lặng mà không suy đoán nguyên nhân",
@@ -290,7 +298,11 @@ class SelfTalkPlanner(SelfTalkPlanningService):
                 self._metrics["plans_total"] += 1
                 self._metrics["silence_one_shots_total"] += 1
                 return plan
-            self._arc = _Arc(thought=thought)
+            self._arc_sequence += 1
+            self._arc = _Arc(
+                thought=thought,
+                invite=self._arc_sequence % self._invite_every_n_arcs == 0,
+            )
             self._metrics["arcs_started_total"] += 1
 
         if (
@@ -433,7 +445,12 @@ class SelfTalkPlanner(SelfTalkPlanningService):
         if plan.stage is SelfTalkStage.OPEN:
             self._arc.stage = SelfTalkStage.DEVELOP
         elif plan.stage is SelfTalkStage.DEVELOP:
-            self._arc.stage = SelfTalkStage.INVITE
+            if self._arc.invite:
+                self._arc.stage = SelfTalkStage.INVITE
+            else:
+                self._arc.stage = SelfTalkStage.WAIT
+                self._arc.wait_until = now + self._wait_for_chat_s
+                self._metrics["invites_skipped_total"] += 1
         elif plan.stage is SelfTalkStage.INVITE:
             self._arc.stage = SelfTalkStage.WAIT
             self._arc.wait_until = now + self._wait_for_chat_s

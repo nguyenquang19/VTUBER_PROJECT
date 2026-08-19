@@ -31,6 +31,7 @@ def test_repository_runtime_config_is_valid() -> None:
     assert validated.self_talk_output_repeat_threshold == 0.88
     assert validated.self_talk_stage_repeat_threshold == 0.72
     assert validated.self_talk_stage_repeat_min_tokens == 4
+    assert validated.self_talk_invite_every_n_arcs == 2
     assert validated.self_talk_silence_allow_question is True
     assert validated.self_talk_question_particles == ("nhỉ", "hả", "ư")
     assert validated.self_talk_lore_max_anchor_chars == 280
@@ -129,6 +130,10 @@ def test_repository_runtime_config_is_valid() -> None:
         (
             "self_talk", "self_talk.stage_repeat_threshold", 1.1,
             "self_talk_stage_repeat_threshold",
+        ),
+        (
+            "self_talk", "self_talk.invite_every_n_arcs", 0,
+            "self_talk_invite_every_n_arcs",
         ),
         (
             "self_talk", "self_talk.lore_material.max_anchor_chars", 0,

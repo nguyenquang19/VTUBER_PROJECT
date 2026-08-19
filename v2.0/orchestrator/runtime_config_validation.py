@@ -48,6 +48,7 @@ class RuntimeCriticalConfig(BaseModel):
     self_talk_output_repeat_threshold: float = Field(ge=0, le=1)
     self_talk_stage_repeat_threshold: float = Field(ge=0, le=1)
     self_talk_stage_repeat_min_tokens: int = Field(gt=0)
+    self_talk_invite_every_n_arcs: int = Field(gt=0)
     self_talk_silence_intention: str = Field(min_length=1)
     self_talk_silence_allow_question: bool
     self_talk_question_endings: tuple[str, ...] = Field(min_length=1)
@@ -199,6 +200,9 @@ def validate_runtime_config(loader: Any) -> RuntimeCriticalConfig:
             ),
             self_talk_stage_repeat_min_tokens=loader.get(
                 "self_talk", "self_talk.stage_repeat_min_tokens", 4,
+            ),
+            self_talk_invite_every_n_arcs=loader.get(
+                "self_talk", "self_talk.invite_every_n_arcs", 1,
             ),
             self_talk_silence_intention=loader.get(
                 "self_talk", "self_talk.silence_intention", "silence",

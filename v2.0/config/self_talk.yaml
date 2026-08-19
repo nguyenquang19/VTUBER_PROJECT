@@ -10,6 +10,8 @@ self_talk:
   output_repeat_threshold: 0.88
   stage_repeat_threshold: 0.72
   stage_repeat_min_tokens: 4
+  # Chỉ một trong mỗi hai mạch đi đến invite; mạch còn lại wait sau develop.
+  invite_every_n_arcs: 2
   max_previous_text_chars: 280
   recent_context_min_tokens: 3
   silence_intention: "nhận xét thật ngắn về chính khoảng im lặng, không suy đoán nguyên nhân và không mô tả môi trường"
@@ -28,7 +30,7 @@ self_talk:
 
   cause_directions:
     silence: "Sự thật duy nhất là khoảng im lặng. Chỉ nói về chính nhịp im lặng hoặc cảm giác hiện tại của Mai; CẤM mô tả phòng, màn hình, cảnh vật, âm thanh hay sự kiện chưa có trong mỏ neo. Đây là một câu one-shot, không mở chủ đề dài."
-    recent_context: "Chỉ bám vào câu chat trong mỏ neo; nếu câu mơ hồ thì thừa nhận chưa rõ. Không tự điền phần người xem chưa nói và tuyệt đối không khẳng định ai đó biết, nghĩ, muốn, không quan tâm hoặc đã làm gì khi mỏ neo không ghi rõ."
+    recent_context: "Chỉ bám vào câu chat trong mỏ neo; nếu câu mơ hồ thì thừa nhận chưa rõ. Nếu câu chat gọi tên một host hoặc người khác, đó không phải câu hỏi dành cho Mai: không trả lời thay, không tự nhận tên đó và không bổ sung kiến thức ngoài mỏ neo. Không tự điền phần người xem chưa nói và tuyệt đối không khẳng định ai đó biết, nghĩ, muốn, không quan tâm hoặc đã làm gì khi mỏ neo không ghi rõ."
     environment: "Chỉ dùng chi tiết đã được ghi là quan sát môi trường xác thực."
 
   question_endings: ["nhỉ", "hả", "à", "ư", "không", "chưa", "sao", "gì", "nào"]
