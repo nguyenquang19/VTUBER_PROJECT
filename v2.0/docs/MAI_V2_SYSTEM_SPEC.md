@@ -47,10 +47,34 @@ Trạng thái phát hành khách quan:
 | Action adapters | Có mã và test đơn vị; chưa được compose đầy đủ |
 | External action | Chỉ có khung và mock; registry executor production trống |
 | Vòng tự chủ khép kín | Chưa đạt |
-| Release readiness | Chưa đạt: môi trường chuẩn đã phục hồi, nhưng repository hygiene và release evidence chưa đủ tin cậy |
+| Release readiness | Chưa đạt: môi trường chuẩn đã phục hồi và repository đã nhẹ hơn, nhưng Discord credential chưa được thu hồi và release evidence chưa đủ tin cậy |
 
 Không dùng một điểm số tổng hợp làm cổng phát hành. Chỉ code, composition, test và release evidence tương
 ứng mới được phép nâng một capability từ “có mã” lên “đang chạy” hoặc “production”.
+
+### 1.1. Ma trận trạng thái capability
+
+Các cột dưới đây độc lập với nhau. “Có mã” không thay thế cho composition, test hoặc release evidence.
+
+| Capability | Có mã | Đã ghép đường chính | Evidence kiểm thử | Đã phát hành |
+|---|---|---|---|---|
+| Hội thoại V1: input → Director → LLM → TTS | Có | Có | Unit/integration/offline regression | Có, product `1.4.3` |
+| World Model | Có | Shadow/partial | Unit và simulation | Không |
+| Self Model | Có | Shadow/partial | Unit | Không |
+| Capability/permission/health registry | Có | Shadow/partial | Unit/integration | Không |
+| Action transaction | Có | Mock/simulation | Unit/integration | Không cho external action |
+| Director V2 takeover | Có | Có nhánh gọi nhưng quyết định legacy vẫn thắng | Unit/integration | Không |
+| Speech action adapter | Có | Chưa compose đầy đủ | Unit | Không |
+| Avatar action adapter | Có | Chưa compose đầy đủ | Unit | Không |
+| External executor thật | Chỉ có interface/registry/mock | Không | Chưa có end-to-end thật | Không |
+| Goals và short intentions | Có | Partial | Unit | Không |
+| Memory và ContextSelector V2 | Có | Partial | Unit/integration | Không như V2 release |
+| Embodiment Policy | Có | Partial/shadow | Unit | Không |
+| Human-like calibration và trajectory | WIP chưa commit | Chưa xác minh composition | Test WIP, chưa có human evidence | Không |
+| Product `2.0.0` release gates | WIP chưa commit | Chưa đủ evidence độc lập | Test WIP | Không |
+
+Ma trận chỉ được nâng trạng thái khi có đường code tương ứng, test phù hợp và evidence máy đọc hoặc vận
+hành. Blueprint tiếp tục giữ scope/phase order; bảng này chỉ mô tả working tree ngày 19/08/2026.
 
 ---
 
@@ -509,19 +533,40 @@ phụ thuộc interpreter/package trong snapshot V1. `pip check` đạt; kiểm 
 bỏ qua riêng health endpoint vì `llama-server` không chạy trong lúc xác minh.
 
 **Rủi ro còn lại:** cần giữ bootstrap script và lock file đồng bộ; live/LLM acceptance vẫn phải chạy khi
-server thật hoạt động. Backup của venv hỏng chỉ giữ tạm cho tới khi user duyệt kết quả phục hồi.
+server thật hoạt động. Backup của venv hỏng đã được xóa sau khi môi trường mới vượt qua regression.
 
-### 9.13. Kho lưu trữ và thông tin nhạy cảm chưa sạch — mức cao
+### 9.13. Snapshot đã source-only; credential vẫn phải thu hồi — mức cao
 
-Bản lưu V1 trong `ver/v1.0` có kích thước khoảng 12,9 GB, gồm mô hình, môi trường Python, nhật ký, sao lưu, cơ sở dữ liệu và tệp `.env` có dữ liệu.
+Trước khi làm sạch ngày 19/08/2026, bản lưu V1 trong `ver/v1.0` có kích thước khoảng 12,9 GB, gồm mô
+hình, môi trường Python, nhật ký, sao lưu, cơ sở dữ liệu và tệp `.env` có dữ liệu. Sau khi đối chiếu,
+hai model trong snapshot giống byte-for-byte với model đang giữ trong `v2.0/models`.
 
-**Hậu quả:** kho nặng, khó sao chép, có nguy cơ mang theo bí mật hoặc dữ liệu vận hành. Cần thay khóa nếu từng có thông tin thật trong tệp môi trường.
+Ngày 19/08/2026, bản sao model, môi trường Python, cache dependency, `.env`, venv backup V2 và `.uv-cache`
+đã bị loại. `logs`, `data`, `backups`, cache Python lồng và `.claude/worktrees` được chuyển có thể phục hồi
+sang `E:\BAI_CUA_DUC\AI_VTUBER_RUNTIME_ARCHIVE\mai-v1.4.3-20260819`; không coi kho này là source of truth
+hoặc release evidence. Snapshot hiện chỉ còn 470 file nguồn, khoảng 3,06 MiB; không còn `.env`, bytecode,
+cache test/Python hoặc worktree metadata.
 
-### 9.14. Tài liệu và lịch sử phát hành không đồng bộ — mức trung bình
+**Rủi ro còn lại:** xóa `.env` cục bộ không vô hiệu hóa token. Discord credential tương ứng phải được
+rotate/revoke tại nhà cung cấp. Owner đã nhận trách nhiệm reset token; chưa được đánh dấu hoàn tất khi
+chưa có xác nhận từ owner.
 
-Tài liệu giới thiệu vẫn có chỗ nói V2 chưa triển khai, trong khi tài liệu giai đoạn lại nói nhiều phần đã hoàn thành. Nhật ký thay đổi dừng ở `1.4.3`; một số tài liệu vẫn ghi chờ duyệt hoặc chờ ghi nhận dù mã đã được đưa vào lịch sử. Một vài lần ghi nhận còn gộp nhiều giai đoạn, trái với quy trình một giai đoạn cho mỗi lần duyệt.
+**Contract sau làm sạch:** source V1 tiếp tục nằm trong `ver/v1.0`; model production chỉ nằm trong
+`v2.0/models`; runtime artifact không được đưa trở lại snapshot; kho vận hành ngoài repository không được
+Git theo dõi; credential thật không được lưu trong source snapshot.
 
-**Hậu quả:** người đọc không biết đâu là kế hoạch, đâu là mã đã có và đâu là khả năng đang chạy thật.
+### 9.14. Tài liệu chính đã hợp nhất; WIP vẫn phải tách phase — mức trung bình
+
+Ba nguồn chính thức hiện là `docs/V1_BASELINE.md`, tài liệu này và blueprint. Ma trận Mục 1.1 tách rõ
+“có mã”, “đã ghép”, “đã test” và “đã phát hành”. Product version vẫn đúng là `1.4.3`; việc changelog
+chưa có release mới là chủ ý, không phải thiếu đồng bộ.
+
+Working tree còn thay đổi Phase 14, Phase 15 và quality/replay chưa commit. Chúng không phải release
+evidence và không được gộp vào một lần duyệt. Khi hoàn tất từng phase, chỉ cập nhật tài liệu này cho
+behavior thực tế và blueprint cho trạng thái gate; không tạo lại tài liệu phase riêng.
+
+**Rủi ro còn lại:** nếu WIP được commit chung hoặc prose được nâng trạng thái trước test/evidence, người
+đọc vẫn có thể nhầm mã thử nghiệm với capability production.
 
 ---
 
@@ -588,11 +633,12 @@ Mục tiêu: mọi người có thể chạy đúng cùng một môi trường.
 1. **Đã hoàn tất 19/08/2026:** tạo lại môi trường Python `3.11.15` cho V2 từ lock file.
 2. **Đã hoàn tất 19/08/2026:** sửa bootstrap/preflight path và chạy lại kiểm tra môi trường chính thức.
 3. **Đã hoàn tất 19/08/2026:** full offline regression chạy bằng chính `v2.0\venv`.
-4. Làm sạch bản lưu V1 khỏi mô hình, môi trường Python, nhật ký, cơ sở dữ liệu và tệp bí mật.
-5. Thay các khóa có nguy cơ đã lộ.
+4. **Đã hoàn tất 19/08/2026:** snapshot V1 chỉ còn source; runtime/environment/cache và dữ liệu vận hành
+   đã bị loại hoặc chuyển sang kho ngoài repository.
+5. **Đã xóa bản cục bộ; còn việc owner:** rotate/revoke Discord credential tại nhà cung cấp.
 
 **Điều kiện hoàn tất Mức 0:** phần môi trường đã đạt; toàn Mức 0 vẫn chưa đạt cho tới khi repository/snapshot
-V1 được làm sạch và credential có nguy cơ lộ được xử lý.
+V1 đã sạch, nhưng Discord credential có nguy cơ lộ vẫn phải được thu hồi.
 
 ### Mức 1 — lập lại nguồn sự thật
 

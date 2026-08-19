@@ -6,18 +6,17 @@
 
 **Ngày đối chiếu:** 19/08/2026
 
-Thư mục này chỉ có hai tài liệu kỹ thuật chính. Mọi hướng dẫn runtime, component, pipeline, cấu hình,
-storage, vận hành, bảo mật, kiểm thử và known gaps đã được gộp vào một đặc tả để tránh sai lệch giữa
-nhiều file.
+Toàn dự án chỉ có ba nguồn tài liệu chính thức. Tệp mục lục này chỉ điều hướng, không phải nguồn thứ tư.
+Mọi hướng dẫn runtime, component, pipeline, cấu hình, storage, vận hành, bảo mật, kiểm thử và known gaps
+đã được gộp vào một đặc tả để tránh sai lệch giữa nhiều file.
 
 | Tài liệu | Vai trò |
 |---|---|
 | [V1_BASELINE.md](V1_BASELINE.md) | Ảnh chụp lịch sử bất biến của release `1.0.0`, invariant và version policy |
 | [MAI_V2_SYSTEM_SPEC.md](MAI_V2_SYSTEM_SPEC.md) | Nguồn sự thật duy nhất về implementation và hành vi hiện tại |
+| [MAI_V2_MASTER_IMPLEMENTATION_BLUEPRINT_v2.0.md](../MAI_V2_MASTER_IMPLEMENTATION_BLUEPRINT_v2.0.md) | Scope, thứ tự migration và acceptance gate tương lai |
 | [baselines/](baselines/) | Evidence máy đọc đã làm sạch; không phải hướng dẫn runtime |
 
-Roadmap duy nhất nằm ở
-[MAI_V2_MASTER_IMPLEMENTATION_BLUEPRINT_v2.0.md](../MAI_V2_MASTER_IMPLEMENTATION_BLUEPRINT_v2.0.md).
 Blueprint chỉ quy định scope, thứ tự và acceptance gate tương lai; không chứng minh feature đã production.
 
 ## Thứ tự đọc
