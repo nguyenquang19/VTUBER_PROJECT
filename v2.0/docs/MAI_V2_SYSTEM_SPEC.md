@@ -42,6 +42,7 @@ Trạng thái phát hành khách quan:
 | Phạm vi | Trạng thái đã xác minh |
 |---|---|
 | Đường hội thoại kế thừa V1 | Có implementation và hồi quy rộng; chưa có live evidence mới trong đợt rà soát này |
+| Core compatibility contracts Phase 1 | Đã đóng gate: strict validation, immutable value, UTC/serialization, bounded compatibility mapping; không đổi Director production |
 | Nền nhận thức/trạng thái V2 | Có mã, chủ yếu ở shadow hoặc từng thành phần riêng |
 | Director V2 takeover | Chưa tiếp quản thật; nhánh hiện trả quyết định legacy |
 | Action adapters | Có mã và test đơn vị; chưa được compose đầy đủ |
@@ -890,6 +891,25 @@ Các kiểu dữ liệu qua ranh giới nằm trong `interfaces/`. Đây là ngu
 | `ActionRequest` | hành động cần làm, mục tiêu, tham số, ý định, bằng chứng, khóa chống lặp và ưu tiên |
 | `VerificationResult` | kết quả kiểm chứng, nguồn, mã lý do và bằng chứng |
 | `ActionResult` | trạng thái cuối, thời gian, kết quả đã kiểm chứng, dữ liệu kết quả và mã lỗi |
+
+#### 17.2.1. Invariant compatibility contract Phase 1
+
+- Mã, tên nguồn, loại hành động và các trường text bắt buộc phải là `str` không rỗng; không stringify
+  `None`, số hoặc object để “cho qua” validation.
+- `schema_version` và integer field phải là `int` thật, không nhận `bool` hoặc số thực rồi truncate.
+- Boolean field phải là `bool` thật; chuỗi như `"false"` không được coercion thành `True`.
+- Confidence/priority phải là số hữu hạn, không nhận chuỗi hoặc `bool`; confidence nằm trong `[0, 1]`.
+- `ActionResult.verified=true` chỉ hợp lệ với `status=success` và `verification_source` có giá trị.
+  Kết quả không thành công không được mang verification source như thể đã xác minh.
+- Contract shape của tám kiểu Phase 1 được khóa bằng test field-level để drift phải là thay đổi có chủ ý.
+- Giới hạn kích thước payload thuộc boundary nhận dữ liệu: `perception_event_from_input` bắt buộc nhận
+  `max_payload_items`/`max_payload_chars` từ cấu hình, sau đó World Model kiểm tra lại bằng YAML. Value
+  object `PerceptionEvent` chịu trách nhiệm immutability, kiểu dữ liệu và sensitive-key rejection; không
+  sở hữu threshold production hoặc hardcode một giới hạn thứ hai.
+
+**Trạng thái Phase 1:** đạt closure gate ngày 19/08/2026. Tám contract có một owner duy nhất, strict
+negative-path và shape-drift tests; compatibility mapper không được gọi trong Director production và
+full offline regression đạt sau khi siết validation.
 
 ### 17.3. Chuỗi mã để lần theo một lượt
 

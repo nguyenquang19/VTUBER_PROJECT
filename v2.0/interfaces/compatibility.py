@@ -25,25 +25,53 @@ def _as_utc(value: datetime, *, field_name: str) -> datetime:
     return value.astimezone(timezone.utc)
 
 
-def _required(value: str, *, field_name: str) -> str:
-    clean = str(value).strip()
+def _required(value: Any, *, field_name: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name} must be a string")
+    clean = value.strip()
     if not clean:
         raise ValueError(f"{field_name} is required")
     return clean
 
 
-def _confidence(value: float) -> float:
+def _strict_positive_int(value: Any, *, field_name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{field_name} must be an integer")
+    if value <= 0:
+        raise ValueError(f"{field_name} must be positive")
+    return value
+
+
+def _strict_int(value: Any, *, field_name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{field_name} must be an integer")
+    return value
+
+
+def _strict_bool(value: Any, *, field_name: str) -> bool:
+    if not isinstance(value, bool):
+        raise ValueError(f"{field_name} must be boolean")
+    return value
+
+
+def _number(value: Any, *, field_name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field_name} must be numeric")
     number = float(value)
+    if not math.isfinite(number):
+        raise ValueError(f"{field_name} must be finite")
+    return number
+
+
+def _confidence(value: Any) -> float:
+    number = _number(value, field_name="confidence")
     if not math.isfinite(number) or not 0.0 <= number <= 1.0:
         raise ValueError("confidence must be finite and within [0, 1]")
     return number
 
 
-def _finite(value: float, *, field_name: str) -> float:
-    number = float(value)
-    if not math.isfinite(number):
-        raise ValueError(f"{field_name} must be finite")
-    return number
+def _finite(value: Any, *, field_name: str) -> float:
+    return _number(value, field_name=field_name)
 
 
 def _frozen_strings(values: tuple[str, ...], *, field_name: str) -> tuple[str, ...]:
@@ -65,7 +93,7 @@ def _freeze(value: Any) -> Any:
     if isinstance(value, Mapping):
         frozen: dict[str, Any] = {}
         for key, item in value.items():
-            frozen[_required(str(key), field_name="mapping key")] = _freeze(item)
+            frozen[_required(key, field_name="mapping key")] = _freeze(item)
         return MappingProxyType(frozen)
     if isinstance(value, (list, tuple)):
         return tuple(_freeze(item) for item in value)
@@ -191,9 +219,9 @@ class PerceptionEvent:
     dedup_key: str | None = None
 
     def __post_init__(self) -> None:
-        if int(self.schema_version) <= 0:
-            raise ValueError("schema_version must be positive")
-        object.__setattr__(self, "schema_version", int(self.schema_version))
+        object.__setattr__(self, "schema_version", _strict_positive_int(
+            self.schema_version, field_name="schema_version",
+        ))
         for name in ("event_id", "source", "event_type"):
             object.__setattr__(self, name, _required(getattr(self, name), field_name=name))
         object.__setattr__(self, "timestamp", _as_utc(self.timestamp, field_name="timestamp"))
@@ -229,7 +257,9 @@ class StateValue:
         object.__setattr__(self, "evidence_refs", _frozen_strings(self.evidence_refs, field_name="evidence_ref"))
         if self.expires_at is not None:
             object.__setattr__(self, "expires_at", _as_utc(self.expires_at, field_name="expires_at"))
-        object.__setattr__(self, "authority", int(self.authority))
+        object.__setattr__(self, "authority", _strict_int(
+            self.authority, field_name="authority",
+        ))
 
     def to_dict(self) -> dict[str, Any]:
         return _json_value(self)
@@ -286,6 +316,10 @@ class SelfSnapshot:
     def __post_init__(self) -> None:
         object.__setattr__(self, "snapshot_id", _required(self.snapshot_id, field_name="snapshot_id"))
         object.__setattr__(self, "created_at", _as_utc(self.created_at, field_name="created_at"))
+        for name in ("speaking", "busy", "degraded"):
+            object.__setattr__(self, name, _strict_bool(
+                getattr(self, name), field_name=name,
+            ))
         for name in (
             "current_action_id", "current_intention_id", "active_goal_id", "focused_thread_id",
             "current_topic", "attention_target",
@@ -335,7 +369,9 @@ class CapabilityAvailability:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "capability_id", _required(self.capability_id, field_name="capability_id"))
-        object.__setattr__(self, "available", bool(self.available))
+        object.__setattr__(self, "available", _strict_bool(
+            self.available, field_name="available",
+        ))
         object.__setattr__(self, "reason_code", _required(self.reason_code, field_name="reason_code"))
         object.__setattr__(self, "checked_at", _as_utc(self.checked_at, field_name="checked_at"))
         object.__setattr__(self, "evidence_refs", _frozen_strings(self.evidence_refs, field_name="evidence_ref"))
@@ -360,9 +396,9 @@ class ActionRequest:
     transaction_policy: str
 
     def __post_init__(self) -> None:
-        if int(self.schema_version) <= 0:
-            raise ValueError("schema_version must be positive")
-        object.__setattr__(self, "schema_version", int(self.schema_version))
+        object.__setattr__(self, "schema_version", _strict_positive_int(
+            self.schema_version, field_name="schema_version",
+        ))
         for name in ("action_id", "capability_id", "action_type", "idempotency_key", "transaction_policy"):
             object.__setattr__(self, name, _required(getattr(self, name), field_name=name))
         for name in ("target", "intention_id"):
@@ -391,9 +427,9 @@ class ActionResult:
     error_code: str | None = None
 
     def __post_init__(self) -> None:
-        if int(self.schema_version) <= 0:
-            raise ValueError("schema_version must be positive")
-        object.__setattr__(self, "schema_version", int(self.schema_version))
+        object.__setattr__(self, "schema_version", _strict_positive_int(
+            self.schema_version, field_name="schema_version",
+        ))
         object.__setattr__(self, "action_id", _required(self.action_id, field_name="action_id"))
         try:
             object.__setattr__(self, "status", ActionStatus(self.status))
@@ -405,11 +441,19 @@ class ActionResult:
             raise ValueError("completed_at cannot precede started_at")
         object.__setattr__(self, "started_at", started_at)
         object.__setattr__(self, "completed_at", completed_at)
-        object.__setattr__(self, "verified", bool(self.verified))
+        object.__setattr__(self, "verified", _strict_bool(
+            self.verified, field_name="verified",
+        ))
         for name in ("verification_source", "error_code"):
             value = getattr(self, name)
             if value is not None:
                 object.__setattr__(self, name, _required(value, field_name=name))
+        if self.verified and self.status is not ActionStatus.SUCCESS:
+            raise ValueError("verified result must have success status")
+        if self.verified and self.verification_source is None:
+            raise ValueError("verified result requires verification_source")
+        if not self.verified and self.verification_source is not None:
+            raise ValueError("unverified result cannot have verification_source")
         object.__setattr__(self, "result_data", _frozen_mapping(self.result_data, field_name="result_data"))
 
     def to_dict(self) -> dict[str, Any]:

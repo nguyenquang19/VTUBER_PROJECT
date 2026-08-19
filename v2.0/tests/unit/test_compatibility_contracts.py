@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, fields
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
@@ -10,6 +10,7 @@ import pytest
 
 from interfaces.action_transaction import ActionTransaction, ActionTransactionState
 from interfaces.compatibility import (
+    ActionRequest,
     ActionResult,
     ActionStatus,
     Capability,
@@ -46,6 +47,47 @@ def _perception(**overrides) -> PerceptionEvent:
 
 
 class TestCompatibilityContractValues:
+    def test_phase1_contract_shapes_are_explicit(self) -> None:
+        expected = {
+            PerceptionEvent: (
+                "schema_version", "event_id", "source", "event_type", "timestamp",
+                "payload", "provenance", "entities", "confidence", "dedup_key",
+            ),
+            StateValue: (
+                "value", "source", "confidence", "updated_at", "evidence_refs",
+                "expires_at", "authority",
+            ),
+            WorldSnapshot: (
+                "snapshot_id", "created_at", "stream", "social", "call", "media",
+                "physical", "game",
+            ),
+            SelfSnapshot: (
+                "snapshot_id", "created_at", "speaking", "busy", "degraded",
+                "current_action_id", "current_intention_id", "active_goal_id",
+                "focused_thread_id", "current_topic", "attention_target", "avatar_state",
+                "recent_action_ids",
+            ),
+            Capability: (
+                "capability_id", "action_type", "description", "executor_id",
+                "verifier_id", "risk_level", "required_permissions", "parameter_schema",
+                "transaction_policy",
+            ),
+            CapabilityAvailability: (
+                "capability_id", "available", "reason_code", "checked_at", "evidence_refs",
+            ),
+            ActionRequest: (
+                "schema_version", "action_id", "capability_id", "action_type", "target",
+                "arguments", "intention_id", "evidence_refs", "idempotency_key", "priority",
+                "requested_at", "transaction_policy",
+            ),
+            ActionResult: (
+                "schema_version", "action_id", "status", "started_at", "completed_at",
+                "verified", "verification_source", "result_data", "error_code",
+            ),
+        }
+        for contract, names in expected.items():
+            assert tuple(item.name for item in fields(contract)) == names
+
     def test_perception_normalizes_utc_and_deep_freezes(self) -> None:
         plus_seven = timezone(timedelta(hours=7))
         event = _perception(timestamp=NOW.astimezone(plus_seven), entities=("Mai",))
@@ -64,6 +106,37 @@ class TestCompatibilityContractValues:
     def test_invalid_confidence_is_rejected(self, confidence: float) -> None:
         with pytest.raises(ValueError, match="confidence"):
             _perception(confidence=confidence)
+
+    @pytest.mark.parametrize("confidence", [True, "0.5"])
+    def test_non_numeric_confidence_is_rejected(self, confidence: object) -> None:
+        with pytest.raises(ValueError, match="numeric"):
+            _perception(confidence=confidence)
+
+    @pytest.mark.parametrize("schema_version", [True, 1.5, "1"])
+    def test_schema_version_is_a_strict_integer(self, schema_version: object) -> None:
+        with pytest.raises(ValueError, match="integer"):
+            _perception(schema_version=schema_version)
+
+    def test_required_strings_and_mapping_keys_are_not_coerced(self) -> None:
+        with pytest.raises(ValueError, match="source must be a string"):
+            _perception(source=None)
+        with pytest.raises(ValueError, match="mapping key must be a string"):
+            _perception(payload={1: "not-a-wire-key"})
+
+    def test_boolean_fields_are_strict(self) -> None:
+        with pytest.raises(ValueError, match="available must be boolean"):
+            CapabilityAvailability(
+                capability_id="speech.say", available="false",  # type: ignore[arg-type]
+                reason_code="ready", checked_at=NOW, evidence_refs=(),
+            )
+        with pytest.raises(ValueError, match="speaking must be boolean"):
+            SelfSnapshot(
+                snapshot_id="self-1", created_at=NOW,
+                speaking="false", busy=False, degraded=False,  # type: ignore[arg-type]
+                current_action_id=None, current_intention_id=None, active_goal_id=None,
+                focused_thread_id=None, current_topic=None, attention_target=None,
+                avatar_state={}, recent_action_ids=(),
+            )
 
     def test_naive_timestamp_is_rejected(self) -> None:
         with pytest.raises(ValueError, match="timezone-aware"):
@@ -110,6 +183,66 @@ class TestCompatibilityContractValues:
                 started_at=NOW, completed_at=NOW, verified=False,
                 verification_source=None, result_data={},
             )
+
+    def test_action_result_verification_invariants_are_strict(self) -> None:
+        with pytest.raises(ValueError, match="success status"):
+            ActionResult(
+                schema_version=1, action_id="a1", status=ActionStatus.FAILED,
+                started_at=NOW, completed_at=NOW, verified=True,
+                verification_source="executor", result_data={},
+            )
+        with pytest.raises(ValueError, match="requires verification_source"):
+            ActionResult(
+                schema_version=1, action_id="a1", status=ActionStatus.SUCCESS,
+                started_at=NOW, completed_at=NOW, verified=True,
+                verification_source=None, result_data={},
+            )
+        with pytest.raises(ValueError, match="unverified result"):
+            ActionResult(
+                schema_version=1, action_id="a1", status=ActionStatus.SUCCESS,
+                started_at=NOW, completed_at=NOW, verified=False,
+                verification_source="executor", result_data={},
+            )
+        with pytest.raises(ValueError, match="verified must be boolean"):
+            ActionResult(
+                schema_version=1, action_id="a1", status=ActionStatus.SUCCESS,
+                started_at=NOW, completed_at=NOW, verified="true",  # type: ignore[arg-type]
+                verification_source="executor", result_data={},
+            )
+
+    def test_action_request_uses_strict_schema_and_priority_types(self) -> None:
+        values = {
+            "schema_version": 1,
+            "action_id": "a1",
+            "capability_id": "speech.say",
+            "action_type": "SPEAK",
+            "target": None,
+            "arguments": {"text": "xin chào"},
+            "intention_id": None,
+            "evidence_refs": (),
+            "idempotency_key": "speech:a1",
+            "priority": 1.0,
+            "requested_at": NOW,
+            "transaction_policy": "delivery_required",
+        }
+        with pytest.raises(ValueError, match="schema_version must be an integer"):
+            ActionRequest(**{**values, "schema_version": 1.5})
+        with pytest.raises(ValueError, match="priority must be numeric"):
+            ActionRequest(**{**values, "priority": "1.0"})
+
+        request = ActionRequest(**values)
+        with pytest.raises(TypeError):
+            request.arguments["text"] = "đã đổi"  # type: ignore[index]
+        with pytest.raises(FrozenInstanceError):
+            request.action_id = "other"  # type: ignore[misc]
+
+        result = ActionResult(
+            schema_version=1, action_id="a1", status=ActionStatus.SUCCESS,
+            started_at=NOW, completed_at=NOW, verified=False,
+            verification_source=None, result_data={"nested": {"ok": True}},
+        )
+        with pytest.raises(TypeError):
+            result.result_data["nested"]["ok"] = False  # type: ignore[index]
         with pytest.raises(ValueError, match="cannot precede"):
             ActionResult(
                 schema_version=1, action_id="a1", status=ActionStatus.SUCCESS,
