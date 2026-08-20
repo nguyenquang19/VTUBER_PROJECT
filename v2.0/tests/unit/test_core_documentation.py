@@ -243,7 +243,7 @@ def test_canonical_docs_keep_current_phase_and_release_limits_explicit() -> None
         "Phase 15 chưa đóng release gate",
         "Phase 13 Embodiment Policy targeted: 381 đạt",
         "Phase 14 calibration/trajectory targeted và impacted: 471 đạt",
-        "full offline `pytest tests -q`: 2.288 đạt, 0 lỗi",
+        "full offline `pytest tests -q`: 2.304 đạt, 0 lỗi",
         "contract và implementation kỹ thuật đạt ngày 20/08/2026",
         "Dashboard toggle thành công phải persist",
         "RuntimeCriticalConfig` không nhận chuỗi thay cho",
@@ -255,7 +255,8 @@ def test_canonical_docs_keep_current_phase_and_release_limits_explicit() -> None
     for statement in required:
         assert statement in spec, f"critical implementation limit disappeared: {statement}"
 
-    assert "Phase 1–14 đã đóng gate kỹ thuật" in readme
+    assert "Phase 1–15 đã đóng gate kỹ thuật" in readme
+    assert "Director V2 đang ở strict primary mode cho test-cutover" in readme
     forbidden = (
         "Phase 1–13 đã đóng gate kỹ thuật",
         "Phase 1–12 đã đóng gate kỹ thuật",

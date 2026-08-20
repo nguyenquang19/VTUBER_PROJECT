@@ -19,6 +19,7 @@ DIRECTOR_V2_FAILURE_SOURCES = (
 DIRECTOR_V2_TAKEOVER_STAGES = (
     "WAIT", "READ_CHAT", "SELF_TALK", "FOLLOW_UP", "SPEECH_SCHEDULING",
 )
+DIRECTOR_V2_OWNERSHIP_MODES = ("agreement", "primary")
 DIRECTOR_V2_TAKEOVER_ACTIONS = (
     "WAIT", "READ_CHAT", "ACK_DONATION", "SELF_TALK", "FOLLOW_UP",
     "CONTINUE_THREAD", "ASK_FOLLOW_UP", "SHARE_GOAL_PROGRESS",
@@ -221,10 +222,10 @@ class DirectorV2TakeoverService(Service):
 
     @abstractmethod
     def evaluate(
-        self, *, legacy_action: str, proposal: DirectorV2Proposal | None,
+        self, *, legacy_action: str | None, proposal: DirectorV2Proposal | None,
         evidence_ids: tuple[str, ...] = (),
     ) -> DirectorV2TakeoverSelection:
-        """Select V2 ownership or an exact legacy fallback for one decision."""
+        """Select V2 ownership or a compatibility fallback for one decision."""
 
     @abstractmethod
     def snapshot(self) -> dict[str, object]:

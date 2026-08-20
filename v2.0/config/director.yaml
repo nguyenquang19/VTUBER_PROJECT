@@ -77,9 +77,10 @@ director:
       proactive: 0.0
       wait: -1.0
     source_priority: [chat, thread, goal, world, capability, proactive, wait]
-  # Phase 7: accepted V2/legacy agreement transfers decision ownership while
-  # preserving the proven compatibility payload and immediate legacy fallback.
+  # Strict primary takeover. Switch to agreement for comparison rollback; disable
+  # the feature for exact compatibility rollback.
   director_v2_takeover:
+    ownership_mode: primary
     stage: SPEECH_SCHEDULING
     max_recent_decisions: 128
     max_reason_chars: 120

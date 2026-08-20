@@ -10,6 +10,7 @@ from typing import Any, Callable, Mapping
 
 from interfaces.base import HealthStatus
 from interfaces.director_v2 import (
+    DIRECTOR_V2_OWNERSHIP_MODES,
     DIRECTOR_V2_TAKEOVER_ACTIONS,
     DIRECTOR_V2_TAKEOVER_STAGES,
     DirectorV2Proposal,
@@ -33,6 +34,7 @@ _HARD_REASONS = frozenset({
 
 @dataclass(frozen=True)
 class DirectorV2TakeoverConfig:
+    ownership_mode: str
     stage: str
     max_recent_decisions: int
     max_reason_chars: int
@@ -43,6 +45,9 @@ class DirectorV2TakeoverConfig:
     action_aliases: Mapping[str, str]
 
     def __post_init__(self) -> None:
+        ownership_mode = _required_label(self.ownership_mode, "ownership_mode")
+        if ownership_mode not in DIRECTOR_V2_OWNERSHIP_MODES:
+            raise ValueError("director_v2_takeover ownership_mode is unsupported")
         stage = _required_label(self.stage, "stage")
         if stage not in DIRECTOR_V2_TAKEOVER_STAGES:
             raise ValueError("director_v2_takeover stage is unsupported")
@@ -96,6 +101,7 @@ class DirectorV2TakeoverConfig:
             raise ValueError("action_aliases must match the locked compatibility aliases")
         if not set(aliases) <= allowed or not set(aliases.values()) <= _CANONICAL_ACTIONS:
             raise ValueError("action_aliases contains an unsupported action")
+        object.__setattr__(self, "ownership_mode", ownership_mode)
         object.__setattr__(self, "stage", stage)
         object.__setattr__(self, "stage_order", stage_order)
         object.__setattr__(self, "max_proposal_age_seconds", max_age)
@@ -124,6 +130,7 @@ class DirectorV2TakeoverConfig:
                 raise ValueError("director_v2_takeover stage actions must be unique")
             stage_actions[stage_name] = frozenset(actions)
         return cls(
+            ownership_mode=raw.get("ownership_mode"),
             stage=raw.get("stage"),
             max_recent_decisions=raw.get("max_recent_decisions"),
             max_reason_chars=raw.get("max_reason_chars"),
@@ -171,6 +178,10 @@ class DirectorV2Takeover(DirectorV2TakeoverService):
     def enabled(self) -> bool:
         return self._enabled
 
+    @property
+    def ownership_mode(self) -> str:
+        return self._config.ownership_mode
+
     def set_enabled(self, enabled: bool) -> None:
         if not isinstance(enabled, bool):
             raise ValueError("enabled must be a bool")
@@ -190,29 +201,45 @@ class DirectorV2Takeover(DirectorV2TakeoverService):
         if not self._enabled:
             return HealthStatus.degraded(self.service_id, "director v2 takeover disabled")
         return HealthStatus.healthy(
-            self.service_id, stage=self._config.stage, retained=len(self._records),
+            self.service_id, stage=self._config.stage,
+            ownership_mode=self._config.ownership_mode,
+            retained=len(self._records),
         )
 
     def evaluate(
         self,
         *,
-        legacy_action: str,
+        legacy_action: str | None,
         proposal: DirectorV2Proposal | None,
         evidence_ids: tuple[str, ...] = (),
     ) -> DirectorV2TakeoverSelection:
-        action = _required_action(legacy_action)
+        legacy = _optional_action(legacy_action)
+        if self._config.ownership_mode == "agreement" and legacy is None:
+            raise ValueError("agreement mode requires legacy_action")
+        fallback_action = legacy or "WAIT"
         if not self._enabled:
-            return self._selection(False, "feature_disabled", action, proposal, record=False)
+            return self._selection(
+                False, "feature_disabled", fallback_action, proposal, record=False,
+            )
         try:
             evidence = _strict_evidence(evidence_ids, self._config.max_evidence_ids)
         except ValueError:
-            return self._selection(False, "evidence_invalid", action, proposal)
+            return self._selection(False, "evidence_invalid", fallback_action, proposal)
+        if proposal is None:
+            return self._selection(False, "proposal_missing", fallback_action, proposal)
+        if not isinstance(proposal, DirectorV2Proposal):
+            return self._selection(False, "proposal_malformed", fallback_action, None)
+        try:
+            proposal_action = _required_action(proposal.action_type)
+        except ValueError:
+            return self._selection(False, "proposal_action_invalid", fallback_action, proposal)
+        action = (
+            proposal_action
+            if self._config.ownership_mode == "primary"
+            else fallback_action
+        )
         if action not in self._config.stage_actions[self._config.stage]:
             return self._selection(False, "stage_blocked", action, proposal)
-        if proposal is None:
-            return self._selection(False, "proposal_missing", action, proposal)
-        if not isinstance(proposal, DirectorV2Proposal):
-            return self._selection(False, "proposal_malformed", action, None)
         try:
             now = _finite_number(self._clock(), "clock")
         except (TypeError, ValueError):
@@ -221,13 +248,12 @@ class DirectorV2Takeover(DirectorV2TakeoverService):
             return self._selection(False, "proposal_from_future", action, proposal)
         if now - proposal.created_at > self._config.max_proposal_age_seconds:
             return self._selection(False, "proposal_stale", action, proposal)
-        try:
-            proposal_action = _required_action(proposal.action_type)
-        except ValueError:
-            return self._selection(False, "proposal_action_invalid", action, proposal)
         normalized_action = self._config.action_aliases.get(action, action)
         normalized_proposal = self._config.action_aliases.get(proposal_action, proposal_action)
-        if normalized_proposal != normalized_action:
+        if (
+            self._config.ownership_mode == "agreement"
+            and normalized_proposal != normalized_action
+        ):
             return self._selection(False, "action_mismatch", action, proposal)
         reason_codes = set(proposal.reason_codes)
         if any(code.startswith("capability_") for code in reason_codes):
@@ -256,6 +282,7 @@ class DirectorV2Takeover(DirectorV2TakeoverService):
         recent = list(self._records.values())[-self._config.max_recent_decisions:]
         return {
             "enabled": self._enabled,
+            "ownership_mode": self._config.ownership_mode,
             "stage": self._config.stage,
             "counts": dict(sorted(self._counts.items())),
             "current": recent[-1] if recent else None,
@@ -265,6 +292,7 @@ class DirectorV2Takeover(DirectorV2TakeoverService):
     def get_metrics(self) -> dict[str, Any]:
         return {
             "director_v2_takeover_enabled": self._enabled,
+            "director_v2_takeover_ownership_mode": self._config.ownership_mode,
             "director_v2_takeover_stage": self._config.stage,
             "director_v2_takeover_retained": len(self._records),
             "director_v2_takeover_outcomes": dict(sorted(self._counts.items())),
@@ -324,6 +352,12 @@ def _required_action(value: object) -> str:
     if action not in DIRECTOR_V2_TAKEOVER_ACTIONS:
         raise ValueError("action is unsupported")
     return action
+
+
+def _optional_action(value: object) -> str | None:
+    if value is None:
+        return None
+    return _required_action(value)
 
 
 def _finite_number(value: object, field_name: str) -> float:

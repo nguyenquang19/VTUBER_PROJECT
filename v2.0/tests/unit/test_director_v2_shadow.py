@@ -437,3 +437,5 @@ def test_runtime_context_uses_strict_holds_and_stable_projection_identity() -> N
     assert "control_plane.paused" in context_source
     assert "director_v2_snapshot_id(" in context_source
     assert "available_count" not in context_source
+    assert 'source="world"' not in context_source
+    assert 'candidate_id=f"cap:' not in context_source

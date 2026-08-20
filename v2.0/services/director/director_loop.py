@@ -27,13 +27,17 @@ from interfaces.action_execution import VerificationResult
 from interfaces.animation import MoodState
 from interfaces.action_execution import ActionRequest, ActionResult
 from interfaces.decision_record import DecisionCandidateSummary
-from interfaces.director_v2 import DirectorV2TakeoverSelection
+from interfaces.director_v2 import DirectorV2Proposal, DirectorV2TakeoverSelection
 from interfaces.self_talk import SelfTalkContext, SelfTalkStage
 from orchestrator.logger import get_logger
 from services.autonomy.material_provider import RuntimeContext
 from services.autonomy.dedup import DedupBuffer
 from services.director.chat_pulse import PulseState
-from services.director.director import Director, DirectorAction, ReadMode
+from services.director.director import Director, DirectorAction, DirectorDecision, ReadMode
+from services.director.v2_primary import (
+    DirectorV2DecisionMaterializer,
+    DirectorV2MaterializationError,
+)
 from services.director.action_context import ActionContextBuilder
 from services.director.action_types import DirectorChatRef, DirectorInput
 from services.director.delivery_boundary import DirectorDeliveryBoundary
@@ -148,6 +152,10 @@ class DirectorLoop:
         self._action_adapter_boundary = action_adapter_boundary
         self._director_v2_shadow = None
         self._director_v2_takeover = None
+        self._director_v2_materializer: DirectorV2DecisionMaterializer | None = None
+        self._director_v2_primary_selected_total = 0
+        self._director_v2_primary_fallback_total = 0
+        self._director_v2_hard_preemption_total = 0
         self._room_reaction_dedup = DedupBuffer(
             window=room_reaction_recent_window,
             threshold=room_reaction_similarity_threshold,
@@ -209,9 +217,25 @@ class DirectorLoop:
         self._thread_forced_park_total = 0
 
     def configure_director_v2_takeover(self, shadow: Any, selector: Any) -> None:
-        """Attach the agreement-only V2 ownership gate; no new driver is created."""
+        """Attach the strict V2 ownership gate; DirectorLoop remains the driver."""
         self._director_v2_shadow = shadow
         self._director_v2_takeover = selector
+        self._director_v2_materializer = DirectorV2DecisionMaterializer(self._director)
+
+    def _open_director_v2_trajectory(
+        self, proposal: DirectorV2Proposal | None,
+    ) -> str | None:
+        if proposal is None or self._trajectory_records is None:
+            return None
+        try:
+            context = self._director_v2_shadow.trajectory_context(
+                proposal.proposal_id,
+            )
+            if context is not None:
+                return self._trajectory_records.begin(context, proposal)
+        except Exception as exc:
+            self._log.warning("trajectory_begin_failed", error=str(exc))
+        return None
 
     def _apply_director_v2_takeover(
         self, decision: DirectorDecision, director_input: DirectorInput,
@@ -226,16 +250,7 @@ class DirectorLoop:
             proposal = self._director_v2_shadow.propose_current()
         except Exception:
             proposal = None
-        trajectory_id: str | None = None
-        if proposal is not None and self._trajectory_records is not None:
-            try:
-                context = self._director_v2_shadow.trajectory_context(
-                    proposal.proposal_id,
-                )
-                if context is not None:
-                    trajectory_id = self._trajectory_records.begin(context, proposal)
-            except Exception as exc:
-                self._log.warning("trajectory_begin_failed", error=str(exc))
+        trajectory_id = self._open_director_v2_trajectory(proposal)
         try:
             selection = self._director_v2_takeover.evaluate(
                 legacy_action=decision.action.value,
@@ -261,6 +276,86 @@ class DirectorLoop:
             decision_owner="director_v2",
             director_v2_proposal_id=selection.proposal_id,
         )
+
+    def _primary_takeover_active(self) -> bool:
+        return bool(
+            self._director_v2_shadow is not None
+            and self._director_v2_takeover is not None
+            and self._director_v2_materializer is not None
+            and getattr(self._director_v2_takeover, "enabled", False) is True
+            and getattr(self._director_v2_takeover, "ownership_mode", None) == "primary"
+        )
+
+    def _select_director_decision(
+        self, director_input: DirectorInput,
+    ) -> DirectorDecision:
+        if not self._primary_takeover_active():
+            compatibility = self._director.decide(director_input)
+            return self._apply_director_v2_takeover(
+                compatibility, director_input,
+            )
+
+        preemptive = self._director.hard_preemptive_decision(director_input)
+        if preemptive is not None:
+            self._director_v2_hard_preemption_total += 1
+            return preemptive
+
+        evidence_ids = [ref.msg_id for ref in director_input.chat_candidates]
+        if director_input.goals.active is not None:
+            evidence_ids.append(director_input.goals.active.goal_id)
+        evidence_ids.extend(
+            thread.thread_id for thread in director_input.agent_state.open_threads
+        )
+        try:
+            proposal = self._director_v2_shadow.propose_current()
+        except Exception:
+            proposal = None
+        trajectory_id = self._open_director_v2_trajectory(
+            proposal if isinstance(proposal, DirectorV2Proposal) else None,
+        )
+        try:
+            selection = self._director_v2_takeover.evaluate(
+                legacy_action=None,
+                proposal=proposal,
+                evidence_ids=tuple(dict.fromkeys(evidence_ids)),
+            )
+        except Exception:
+            selection = None
+        if (
+            isinstance(selection, DirectorV2TakeoverSelection)
+            and selection.accepted is False
+            and selection.reason_code == "hard_hold"
+        ):
+            self._mark_trajectory_selection(trajectory_id, "legacy")
+            self._director_v2_hard_preemption_total += 1
+            return DirectorDecision(
+                DirectorAction.WAIT,
+                self._director.current_segment().name,
+                "director_v2_hard_hold",
+            )
+        if (
+            isinstance(selection, DirectorV2TakeoverSelection)
+            and selection.accepted is True
+            and selection.decision_owner == "director_v2"
+            and isinstance(proposal, DirectorV2Proposal)
+            and selection.proposal_id == proposal.proposal_id
+            and selection.action_type == proposal.action_type
+        ):
+            try:
+                decision = self._director_v2_materializer.materialize(
+                    proposal, director_input,
+                )
+            except DirectorV2MaterializationError:
+                decision = None
+            except Exception:
+                decision = None
+            if decision is not None:
+                self._mark_trajectory_selection(trajectory_id, "director_v2")
+                self._director_v2_primary_selected_total += 1
+                return decision
+        self._mark_trajectory_selection(trajectory_id, "legacy")
+        self._director_v2_primary_fallback_total += 1
+        return self._director.decide(director_input)
     # ---------- lifecycle ----------
 
     async def start(self) -> None:
@@ -325,8 +420,7 @@ class DirectorLoop:
             except Exception:
                 pass
         director_input = self._build_director_input(now, urge_ready)
-        dec = self._director.decide(director_input)
-        dec = self._apply_director_v2_takeover(dec, director_input)
+        dec = self._select_director_decision(director_input)
         expected_intention_id = self._decision_intention_id(dec, director_input)
         self._record_director_metric(dec)
         decision_id = self._record_decision(dec, director_input, now)
@@ -1865,6 +1959,15 @@ class DirectorLoop:
                 self._filter_context_quarantined_total
             ),
             "director_execute_failed_total": self._execute_failed_total,
+            "director_v2_primary_selected_total": (
+                self._director_v2_primary_selected_total
+            ),
+            "director_v2_primary_fallback_total": (
+                self._director_v2_primary_fallback_total
+            ),
+            "director_v2_hard_preemption_total": (
+                self._director_v2_hard_preemption_total
+            ),
             "director_room_reaction_generated_total": (
                 self._room_reaction_generated_total
             ),

@@ -228,6 +228,130 @@ def _make(now=0.0, autonomy=None, agent_state=None, goal_manager=None, **dir_ove
 
 @pytest.mark.asyncio
 class TestDirectorLoop:
+    async def test_primary_takeover_materializes_divergent_action_without_compatibility_decide(
+        self,
+    ) -> None:
+        proposal = DirectorV2Proposal(
+            "p-primary-read", 1.0, "READ_CHAT", "READ_CHAT", "m1",
+            ("selected", "validated"), ("chat:m1",),
+        )
+
+        class StaticShadow:
+            @staticmethod
+            def propose_current() -> DirectorV2Proposal:
+                return proposal
+
+        class PrimarySelector:
+            enabled = True
+            ownership_mode = "primary"
+
+            @staticmethod
+            def evaluate(**kwargs: object) -> DirectorV2TakeoverSelection:
+                assert kwargs["legacy_action"] is None
+                return DirectorV2TakeoverSelection(
+                    True, "SPEECH_SCHEDULING", "accepted", "READ_CHAT",
+                    proposal.proposal_id, "director_v2",
+                )
+
+        loop, director, pool, _pulse, runner, clock = _make()
+        loop.configure_director_v2_takeover(StaticShadow(), PrimarySelector())
+        pool.add("m1", "Mai primary nhé", now=0.0, kind="mention")
+        clock["t"] = 1.0
+
+        def forbidden_compatibility(_value: DirectorInput) -> DirectorDecision:
+            raise AssertionError("compatibility decide must not run on primary success")
+
+        director.decide = forbidden_compatibility  # type: ignore[method-assign]
+        assert await loop.tick_once() is DirectorAction.READ_CHAT
+        assert runner.read_calls == ["Mai primary nhé"]
+        metrics = loop.get_metrics()
+        assert metrics["director_v2_primary_selected_total"] == 1
+        assert metrics["director_v2_primary_fallback_total"] == 0
+
+    async def test_primary_failure_invokes_compatibility_fallback_once(self) -> None:
+        class BrokenShadow:
+            @staticmethod
+            def propose_current() -> None:
+                raise RuntimeError("proposal unavailable")
+
+        class PrimarySelector:
+            enabled = True
+            ownership_mode = "primary"
+
+            @staticmethod
+            def evaluate(**_kwargs: object) -> DirectorV2TakeoverSelection:
+                return DirectorV2TakeoverSelection(
+                    False, "SPEECH_SCHEDULING", "proposal_missing", "WAIT",
+                )
+
+        loop, director, pool, _pulse, runner, clock = _make()
+        loop.configure_director_v2_takeover(BrokenShadow(), PrimarySelector())
+        pool.add("m1", "fallback once", now=0.0, kind="mention")
+        clock["t"] = 1.0
+        original = director.decide
+        calls = 0
+
+        def counted(value: DirectorInput) -> DirectorDecision:
+            nonlocal calls
+            calls += 1
+            return original(value)
+
+        director.decide = counted  # type: ignore[method-assign]
+        assert await loop.tick_once() is DirectorAction.READ_CHAT
+        assert runner.read_calls == ["fallback once"]
+        assert calls == 1
+        assert loop.get_metrics()["director_v2_primary_fallback_total"] == 1
+
+    async def test_primary_segment_transition_is_hard_preemption_without_soft_policy(
+        self,
+    ) -> None:
+        class UnusedShadow:
+            @staticmethod
+            def propose_current() -> None:
+                raise AssertionError("shadow must not override a due transition")
+
+        class PrimarySelector:
+            enabled = True
+            ownership_mode = "primary"
+
+        loop, director, _pool, _pulse, runner, clock = _make()
+        loop.configure_director_v2_takeover(UnusedShadow(), PrimarySelector())
+        clock["t"] = 301.0
+
+        def forbidden_compatibility(_value: DirectorInput) -> DirectorDecision:
+            raise AssertionError("compatibility soft policy must not run")
+
+        director.decide = forbidden_compatibility  # type: ignore[method-assign]
+        assert await loop.tick_once() is DirectorAction.TRANSITION
+        assert len(runner.ambient_calls) == 1
+        assert loop.get_metrics()["director_v2_hard_preemption_total"] == 1
+
+    async def test_primary_safety_hold_waits_without_shadow_or_compatibility_policy(
+        self,
+    ) -> None:
+        class UnusedShadow:
+            @staticmethod
+            def propose_current() -> None:
+                raise AssertionError("shadow must not override safety hold")
+
+        class PrimarySelector:
+            enabled = True
+            ownership_mode = "primary"
+
+        loop, director, pool, _pulse, runner, clock = _make()
+        loop.configure_director_v2_takeover(UnusedShadow(), PrimarySelector())
+        loop._safety_hold_fn = lambda: True
+        pool.add("m1", "unsafe turn", now=0.0, kind="mention")
+        clock["t"] = 1.0
+
+        def forbidden_compatibility(_value: DirectorInput) -> DirectorDecision:
+            raise AssertionError("compatibility soft policy must not run")
+
+        director.decide = forbidden_compatibility  # type: ignore[method-assign]
+        assert await loop.tick_once() is DirectorAction.WAIT
+        assert runner.read_calls == []
+        assert loop.get_metrics()["director_v2_hard_preemption_total"] == 1
+
     async def test_accepted_takeover_owns_a_compatibility_identical_decision(self) -> None:
         proposal = DirectorV2Proposal(
             "p-read", 1.0, "READ_CHAT", "READ_CHAT", "m1",

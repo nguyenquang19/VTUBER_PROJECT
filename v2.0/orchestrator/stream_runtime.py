@@ -2268,17 +2268,7 @@ async def _compose_stream_runtime(
             candidates.extend(thread_candidates)
         except Exception:
             failed("thread")
-        if world_snapshot is not None and any(
-            bool(getattr(world_snapshot, domain, {}))
-            for domain in ("stream", "social", "call", "media", "physical", "game")
-        ):
-            candidates.append(DirectorV2Candidate(
-                source="world", candidate_id=world_snapshot_id,
-                action_type="WAIT", capability_id="WAIT",
-                evidence_refs=(world_snapshot_id,),
-            ))
         capability_identity: list[dict[str, object]] = []
-        capability_candidates: list[DirectorV2Candidate] = []
         if capability_snapshot is not None:
             try:
                 for entry in entries:
@@ -2306,17 +2296,7 @@ async def _compose_stream_runtime(
                         "reason_code": reason_code,
                         "mock_only": entry["mock_only"],
                     })
-                    if available and capability_id != "WAIT":
-                        capability_candidates.append(DirectorV2Candidate(
-                            source="capability", candidate_id=f"cap:{capability_id}",
-                            action_type=action_type, capability_id=capability_id,
-                            evidence_refs=(f"capability:{capability_id}",),
-                        ))
                 capability_identity.sort(key=lambda item: str(item["capability_id"]))
-                capability_candidates.sort(key=lambda item: item.candidate_id)
-                candidates.extend(
-                    capability_candidates[:director_v2_config.max_candidates_per_source]
-                )
             except Exception:
                 capability_identity = []
                 failed("capability")

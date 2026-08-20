@@ -45,6 +45,7 @@ ALIASES = {
 
 def _config(stage: str = "READ_CHAT", **overrides: object) -> DirectorV2TakeoverConfig:
     values: dict[str, object] = {
+        "ownership_mode": "agreement",
         "stage": stage,
         "max_recent_decisions": 2,
         "max_reason_chars": 120,
@@ -71,9 +72,13 @@ def _proposal(
     )
 
 
-def _selector(stage: str = "READ_CHAT", **kwargs: object) -> DirectorV2Takeover:
+def _selector(
+    stage: str = "READ_CHAT", *, ownership_mode: str = "agreement",
+    **kwargs: object,
+) -> DirectorV2Takeover:
     return DirectorV2Takeover(
-        _config(stage), enabled=True, clock=lambda: 10.5, **kwargs,
+        _config(stage, ownership_mode=ownership_mode),
+        enabled=True, clock=lambda: 10.5, **kwargs,
     )
 
 
@@ -107,6 +112,8 @@ def test_selection_contract_is_strict_immutable_and_ownership_consistent() -> No
         ("max_proposal_age_seconds", float("nan")),
         ("max_proposal_age_seconds", 0.0),
         ("stage_order", list(STAGES)),
+        ("ownership_mode", True),
+        ("ownership_mode", "future"),
     ],
 )
 def test_config_rejects_coercion_nonfinite_and_mutable_inventory(
@@ -134,6 +141,7 @@ def test_real_yaml_loads_v2_test_cutover_and_rollback_contract() -> None:
     loader = ConfigLoader(REPO_ROOT / "config")
     loader.load_all()
     config = DirectorV2TakeoverConfig.from_loader(loader)
+    assert config.ownership_mode == "primary"
     assert config.stage == "SPEECH_SCHEDULING"
     assert config.max_proposal_age_seconds == 2.0
     assert config.action_aliases["ACK_DONATION"] == "READ_CHAT"
@@ -184,6 +192,32 @@ def test_read_chat_and_donation_require_agreement_and_same_tick_evidence() -> No
     assert donation.accepted is True
     assert missing.reason_code == "chat_evidence_missing"
     assert mismatch.reason_code == "action_mismatch"
+
+
+def test_primary_mode_selects_proposal_without_compatibility_agreement() -> None:
+    selector = _selector("SELF_TALK", ownership_mode="primary")
+    selected = selector.evaluate(
+        legacy_action=None,
+        proposal=_proposal("SELF_TALK", "urge"),
+    )
+    divergent = selector.evaluate(
+        legacy_action="read_chat",
+        proposal=_proposal("SELF_TALK", "urge"),
+    )
+    assert selected.accepted is True
+    assert selected.action_type == "SELF_TALK"
+    assert divergent.accepted is True
+    assert divergent.action_type == "SELF_TALK"
+    assert selector.snapshot()["ownership_mode"] == "primary"
+
+
+def test_agreement_mode_requires_compatibility_action() -> None:
+    with pytest.raises(ValueError, match="requires legacy_action"):
+        _selector().evaluate(
+            legacy_action=None,
+            proposal=_proposal("READ_CHAT"),
+            evidence_ids=("chat-1",),
+        )
 
 
 def test_stage_rollout_blocks_later_actions_and_follow_up_alias_requires_evidence() -> None:

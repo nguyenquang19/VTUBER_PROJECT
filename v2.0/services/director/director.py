@@ -192,6 +192,10 @@ class Director:
     def chat_gate_enabled(self) -> bool:
         return self._chat_gate_enabled
 
+    @property
+    def ask_follow_up_before_expiry_seconds(self) -> float:
+        return self._ask_follow_up_before_expiry_s
+
     def set_chat_gate_enabled(self, enabled: bool) -> None:
         """Runtime toggle; OFF khôi phục việc đọc mọi candidate trên storage floor."""
         self._chat_gate_enabled = bool(enabled)
@@ -252,6 +256,52 @@ class Director:
         return cooldown_ready and float(now) >= self._room_reaction_deferred_until
 
     # ---------- decision ----------
+
+    def hard_preemptive_decision(
+        self, director_input: DirectorInput,
+    ) -> DirectorDecision | None:
+        """Return only invariants that may preempt Director V2 soft policy.
+
+        Donation and active-goal evidence intentionally defer to V2. This keeps
+        the established priority ahead of a due segment transition without
+        invoking the compatibility soft policy.
+        """
+        seg = self.current_segment()
+        if director_input.safety_hold:
+            return DirectorDecision(
+                DirectorAction.WAIT, seg.name, "safety_hold",
+            )
+        donation = next(
+            (ref for ref in director_input.chat_candidates if ref.is_super), None,
+        )
+        active_goal = director_input.goals.active
+        continue_source_pending = bool(
+            active_goal is not None
+            and active_goal.kind is GoalKind.CONTINUE_THREAD
+            and active_goal.metadata.get("source_delivered") is False
+        )
+        if donation is not None or (
+            active_goal is not None and not continue_source_pending
+        ):
+            return None
+        seg_started_at = (
+            director_input.now
+            if self._seg_started_at is None
+            else self._seg_started_at
+        )
+        if (
+            not self.is_last_segment()
+            and director_input.now - seg_started_at >= seg.duration_seconds
+            and "transition" in seg.allowed_actions
+        ):
+            nxt = self._segments[self._seg_idx + 1]
+            return DirectorDecision(
+                DirectorAction.TRANSITION,
+                seg.name,
+                "segment_time_elapsed",
+                next_segment=nxt.name,
+            )
+        return None
 
     def decide(
         self,
