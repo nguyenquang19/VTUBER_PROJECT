@@ -1197,9 +1197,16 @@ class DirectorLoop:
                 )
             return False
         req_id = f"self_{uuid.uuid4().hex[:8]}"
+        question_budget_exempt = bool(
+            plan is not None and plan.stage is SelfTalkStage.INVITE
+        )
         prompt = _join_directives(
             prompt_text, _proactive_thread_directive(proactive_thread),
             self._behavior_directive(dec),
+            self._speech_style_directive(
+                question_budget_exempt=question_budget_exempt,
+                max_sentences=(plan.max_sentences if plan is not None else None),
+            ),
         )
         delivery_req_id = req_id
         parsed = await self._run_ambient_deferred(req_id, prompt)
@@ -1209,7 +1216,7 @@ class DirectorLoop:
                 self._finalize_runner_delivery(req_id, False)
                 delivery_req_id = req_id + "_r"
                 parsed = await self._run_ambient_deferred(
-                    delivery_req_id, prompt_text,
+                    delivery_req_id, prompt,
                 )
                 # DPO pair: dedup regen (chosen = bản khác)
                 try:
@@ -1886,7 +1893,10 @@ class DirectorLoop:
         return self._speech_dedup.check(str(getattr(parsed, "text", "")))
 
     def _speech_style_directive(
-        self, *, question_budget_exempt: bool = False,
+        self,
+        *,
+        question_budget_exempt: bool = False,
+        max_sentences: int | None = None,
     ) -> str | None:
         forbidden, avoid_question = self._speech_style.constraints(
             question_budget_exempt=question_budget_exempt,
@@ -1894,7 +1904,10 @@ class DirectorLoop:
         return _speech_style_constraint_prompt(
             forbidden,
             avoid_question=avoid_question,
-            max_sentences=self._speech_style.max_sentences,
+            max_sentences=(
+                self._speech_style.max_sentences
+                if max_sentences is None else max(1, int(max_sentences))
+            ),
             max_words=self._speech_style.max_words,
         )
 

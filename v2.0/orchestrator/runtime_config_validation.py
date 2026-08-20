@@ -66,7 +66,7 @@ class RuntimeCriticalConfig(BaseModel):
     director_speech_style_question_endings: tuple[str, ...] = Field(min_length=1)
     director_speech_style_max_sentences: int = Field(gt=0)
     director_speech_style_max_words: int = Field(gt=0)
-    director_speech_style_max_regenerations: int = Field(ge=0, le=1)
+    director_speech_style_max_regenerations: int = Field(ge=0, le=2)
     conversation_summarize_after_moves: int = Field(gt=0)
     conversation_invite_after_moves: int = Field(gt=0)
     conversation_compare_after_viewer_contributions: int = Field(gt=0)
@@ -217,7 +217,7 @@ def validate_runtime_config(loader: Any) -> RuntimeCriticalConfig:
                 "director", "director.speech_style.max_words", 65,
             ),
             director_speech_style_max_regenerations=loader.get(
-                "director", "director.speech_style.max_regenerations", 1,
+                "director", "director.speech_style.max_regenerations", 2,
             ),
             conversation_summarize_after_moves=loader.get(
                 "conversation", "move_planner.summarize_after_moves", 2,

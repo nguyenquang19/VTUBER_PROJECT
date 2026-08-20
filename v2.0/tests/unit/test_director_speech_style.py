@@ -59,6 +59,21 @@ def test_question_budget_detects_semantic_ending_and_invite_bypasses() -> None:
     assert invite.valid is True
 
 
+def test_invite_exempts_only_question_budget() -> None:
+    guard = _guard()
+    guard.record("Mà chuyện này ổn rồi.")
+    guard.record("Cậu thấy đoạn này ổn không nhỉ.")
+
+    assessment = guard.assess(
+        "Mà cậu muốn kể tiếp không nào.", question_budget_exempt=True,
+    )
+
+    assert assessment.reasons == (
+        "formula_opener_budget", "same_opener_budget",
+    )
+    assert assessment.question_like is True
+
+
 def test_constraints_reflect_only_exhausted_budgets() -> None:
     guard = _guard(max_formula_openers=2)
     guard.record("Mà chuyện này ổn rồi.")

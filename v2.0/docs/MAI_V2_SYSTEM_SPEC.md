@@ -2443,6 +2443,14 @@ Ngày 20/08/2026:
   TTFT p50/p95 là 673,205/855,561 ms và decode p50 là 37,689 token/s. Scheduling/transaction gate đạt;
   technical quality gate vẫn chưa đạt riêng do opener công thức 21,6% và câu hỏi kết thúc 22,22%.
   Artifact gắn revision hiện tại nhưng source dirty do change đang review, nên chỉ là diagnostic evidence;
+- tuning opener/câu hỏi: targeted 157 đạt, compatibility regression 127 đạt và full offline regression
+  2.313 đạt. Real-llama diagnostic trên cùng corpus đưa opener
+  công thức từ 21,6% xuống 6,92% và câu hỏi kết thúc từ 22,22% xuống 19,50%; 159/159 committed output
+  được delivery, primary fallback 0,92%, không có output identity/meta/safety violation hoặc cooldown
+  violation. Turn latency p50/p95 là 1.793,633/2.673,808 ms, TTFT p50/p95 là 654,247/886,224 ms và
+  decode p50 38,088 token/s. Có một context overflow 4.117/4.096 token đã fallback level 1 thành công;
+  artifact gắn revision `5eee615f3aa86daa76bf479298b684d9055bcb5c` nhưng source dirty do change
+  đang review, nên là diagnostic evidence chứ chưa phải clean release evidence;
 - còn một cảnh báo deprecation giữa Starlette TestClient và `httpx`;
 - chưa chạy real-LLM acceptance, human review, live platform/audio/VTS/OBS/memory canary,
   backup/restore, security/PII hoặc rollback rehearsal; `llama-server` không được khởi động trong Phase 15.
@@ -2582,6 +2590,41 @@ chặn trước transaction theo `urge_not_ready`, `no_material`, planner wait/d
 revalidate tại materialization. Full real-llama stress ghi nhận 108 SELF_TALK, 14 transaction release,
 0 execute failure, 0 cooldown violation và primary fallback 0,95%; scheduling churn đã đóng. Hai gate còn
 đỏ là opener công thức và câu hỏi kết thúc thuộc task tuning chất lượng lời riêng, không phải readiness.
+
+### 24.9. Hợp đồng tune opener và câu hỏi kết thúc
+
+Speech style guard tiếp tục dùng duy nhất lịch sử output đã delivery; raw generation, output filter-fail và
+candidate bị release không được tiêu ngân sách. Cửa sổ production gồm 12 delivery gần nhất và áp dụng:
+
+- tối đa một output mở bằng nhóm formula opener cấu hình trong YAML; cùng một opener cũng chỉ được xuất
+  hiện một lần trong cửa sổ;
+- tối đa một output không phải invitation kết thúc theo dạng câu hỏi trong cửa sổ;
+- `invite` grounded từ conversation move hoặc `SelfTalkPlan.stage=invite` được miễn riêng ngân sách câu
+  hỏi vì câu hỏi là success contract của move đó, nhưng không được miễn formula opener, sentence/word
+  bound hoặc dedup;
+- READ_CHAT, FOLLOW_UP/goal, room reaction và SELF_TALK đều phải nhận directive trước generation. Các
+  nhánh READ_CHAT/FOLLOW_UP/room dùng global assessment/repair; SELF_TALK chỉ dùng `SelfTalkPlanner` làm
+  shape-validator/repair owner để tránh hai validator nối tiếp làm release một output đã grounded. Khi
+  dựng directive cho SELF_TALK, sentence bound của `SelfTalkPlan` phải thắng global speech bound để prompt
+  không tự mâu thuẫn rồi làm planner release hàng loạt;
+- output thuộc global assessment được tối đa hai lần style-only repair để xử lý trường hợp model lặp
+  nguyên hình dạng ở lần sửa đầu trong khi vẫn giữ retry bounded. Retry vẫn không đạt thì fail-open như
+  contract hiện hành, có metric
+  `director_speech_style_exhausted_total`; không được sửa từ ngữ bằng heuristic có thể đổi nghĩa;
+- threshold/cửa sổ nằm trong YAML, không đổi prompt persona, sampling, scheduler, transaction, cooldown
+  hoặc ownership của V2 primary trong task này.
+
+Gate tune yêu cầu strict-config/unit test, impacted Director/prompt/runtime regression, deterministic replay
+cùng corpus/seed và real-llama diagnostic trên clean source. Hai ratio delivery phải không vượt 20%; đồng
+thời fallback, identity/meta safety, transaction release, cooldown violation, primary fallback và latency
+phải được báo để phát hiện regression. Kết quả diagnostic chưa phải release evidence cho tới khi gắn đúng
+clean Git SHA và hoàn tất human review theo mục 24.5.
+
+**Trạng thái ngày 20/08/2026:** contract đã triển khai với ngân sách 1/12 cho formula opener và câu hỏi
+không phải invitation, tối đa hai global style repair và plan-specific sentence bound cho SELF_TALK.
+Real-llama diagnostic đạt cả hai gate: opener 6,92%, câu hỏi 19,50%, 159 delivery/commit và 20 release;
+planner commit 91 gần baseline 92, nên không còn under-speaking regression do validator chồng lớp. Một
+context overflow đã fallback đúng contract còn là known risk cần xử lý ở task bounded-context riêng.
 
 ---
 

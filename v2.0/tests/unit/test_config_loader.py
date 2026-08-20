@@ -240,7 +240,9 @@ class TestRealConfigFiles:
         assert loader.require("director", "director.room_reaction.cooldown_seconds") == 120
         assert loader.require("director", "director.speech_dedup.recent_window") == 64
         assert loader.require("director", "director.speech_style.recent_window") == 12
-        assert loader.require("director", "director.speech_style.max_formula_openers") == 2
+        assert loader.require("director", "director.speech_style.max_formula_openers") == 1
+        assert loader.require("director", "director.speech_style.max_questions") == 1
+        assert loader.require("director", "director.speech_style.max_regenerations") == 2
         assert loader.require("director", "director.speech_style.max_words") == 65
         assert loader.require("hosting", "behavior_library.behaviors.repair.directive")
 

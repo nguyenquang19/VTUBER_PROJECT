@@ -1871,7 +1871,7 @@ async def _compose_stream_runtime(
         speech_style_max_sentences=int(speech_style.get("max_sentences", 2)),
         speech_style_max_words=int(speech_style.get("max_words", 65)),
         speech_style_max_regenerations=int(
-            speech_style.get("max_regenerations", 1)
+            speech_style.get("max_regenerations", 2)
         ),
     )
 

@@ -131,12 +131,12 @@ def test_repository_runtime_config_is_valid() -> None:
     assert validated.director_speech_style_formula_openers == (
         "mà", "trời ơi", "ủa", "ơ kìa",
     )
-    assert validated.director_speech_style_max_formula_openers == 2
+    assert validated.director_speech_style_max_formula_openers == 1
     assert validated.director_speech_style_max_same_opener == 1
-    assert validated.director_speech_style_max_questions == 2
+    assert validated.director_speech_style_max_questions == 1
     assert validated.director_speech_style_max_sentences == 2
     assert validated.director_speech_style_max_words == 65
-    assert validated.director_speech_style_max_regenerations == 1
+    assert validated.director_speech_style_max_regenerations == 2
     assert validated.conversation_summarize_after_moves == 2
     assert validated.manage_llama_process is True
 
@@ -187,7 +187,7 @@ def test_repository_runtime_config_is_valid() -> None:
             "director_speech_style_formula_openers",
         ),
         (
-            "director", "director.speech_style.max_regenerations", 2,
+            "director", "director.speech_style.max_regenerations", 3,
             "director_speech_style_max_regenerations",
         ),
         (

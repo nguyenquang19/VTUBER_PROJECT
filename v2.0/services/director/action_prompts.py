@@ -195,7 +195,9 @@ def speech_style_correction_prompt(
         )
     if "question_budget" in reasons:
         rules.append(
-            "Đổi câu hỏi thành nhận xét khẳng định; không dùng dấu hỏi hoặc đuôi hỏi."
+            "Xóa toàn bộ câu hỏi và viết thành nhận xét khẳng định. Không dùng dấu hỏi, "
+            "đuôi hỏi hoặc chép lại câu hỏi cũ; nếu thiếu dữ kiện thì chỉ nói phản ứng "
+            "về phần đã biết."
         )
     if "sentence_budget" in reasons or "word_budget" in reasons:
         rules.append(

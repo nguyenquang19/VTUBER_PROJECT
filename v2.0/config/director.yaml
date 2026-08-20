@@ -29,13 +29,13 @@ director:
   speech_style:
     recent_window: 12             # delivery gần nhất dùng tính ngân sách văn phong
     formula_openers: ["mà", "trời ơi", "ủa", "ơ kìa"]
-    max_formula_openers: 2        # tối đa 2/12 lượt dùng nhóm opener công thức
+    max_formula_openers: 1        # tối đa 1/12 lượt dùng nhóm opener công thức
     max_same_opener: 1            # không lặp cùng opener trong cửa sổ
-    max_questions: 2              # invite bypass; các lượt khác dùng ngân sách chung
+    max_questions: 1              # invite bypass; các lượt khác tối đa 1/12 delivery
     question_endings: ["nhỉ", "hả", "à", "ư", "không", "chưa", "sao", "gì", "nào"]
     max_sentences: 2              # shape bound chống nhiều đoạn/lặp nội bộ
     max_words: 65                 # không dùng làm speech-rate gate
-    max_regenerations: 1          # style-bad sửa một lần; vẫn lỗi thì fail-open
+    max_regenerations: 2          # tối đa hai style-only retry; vẫn lỗi thì fail-open
 
   transactions:
     max_recent: 256               # bounded idempotency/trace cache

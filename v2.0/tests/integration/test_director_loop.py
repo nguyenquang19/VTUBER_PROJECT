@@ -721,6 +721,51 @@ class TestDirectorLoop:
         assert metrics["director_speech_style_regenerated_total"] == 1
         assert metrics["director_speech_style_exhausted_total"] == 0
 
+    async def test_read_question_can_use_second_bounded_style_repair(self) -> None:
+        loop, _, pool, _, runner, _ = _make(
+            speech_style_max_questions=0,
+            speech_style_max_regenerations=2,
+        )
+        outputs = iter((
+            "Cậu muốn kể tiếp không?",
+            "Vẫn còn chuyện khác hả?",
+            "Nghe vậy tớ vẫn tò mò về phần tiếp theo.",
+        ))
+        finalizations: list[bool] = []
+        deliveries: list[str] = []
+        ref = pool.add("chat-question", "còn chuyện nữa", now=1.0, kind="chat")
+
+        async def generate(**_kwargs):
+            return FakeParsed(next(outputs)), 0
+
+        def finalize(_request_id: str, success: bool) -> None:
+            finalizations.append(success)
+
+        async def deliver(request_id: str, text: str) -> TTSDeliveryResult:
+            deliveries.append(text)
+            return TTSDeliveryResult(
+                request_id=request_id, delivered=True,
+                mode=TTSDeliveryMode.SUBTITLE, sentences_total=1,
+                sentences_delivered=1, subtitle_sentences=1,
+            )
+
+        runner.run_turn = generate
+        runner.finalize_delivery = finalize
+        loop._speak = deliver
+        decision = SimpleNamespace(
+            action=DirectorAction.READ_CHAT,
+            read_mode=ReadMode.SINGLE,
+            refs=(ref,),
+            goal_id=None,
+        )
+
+        assert await loop._exec_read(decision, 10.0) is True
+        assert finalizations == [False, False, True]
+        assert deliveries == ["Nghe vậy tớ vẫn tò mò về phần tiếp theo."]
+        metrics = loop.get_metrics()
+        assert metrics["director_speech_style_regenerated_total"] == 2
+        assert metrics["director_speech_style_exhausted_total"] == 0
+
     async def test_exhausted_style_correction_fails_open_without_quarantine(
         self,
     ) -> None:
@@ -1219,6 +1264,58 @@ class TestDirectorLoop:
         assert len(runner.ambient_calls) == 2
         assert spoken == ["Tự nhiên tớ vừa để ý khoảng im này."]
         assert planner.get_metrics()["self_talk_planner_output_rejected_total"] == 1
+
+    async def test_self_talk_receives_global_style_directive_before_generation(self) -> None:
+        planner = SelfTalkPlanner(
+            cognitive_moves=("nhận ra một chi tiết nhỏ trong mỏ neo",),
+            min_silence_seconds=20.0,
+            stage_limits={"open": {"max_sentences": 1, "allow_question": False}},
+        )
+        loop, _, _, _, runner, _ = _make(
+            autonomy=FakeAutonomy(),
+            speech_style_max_formula_openers=0,
+        )
+        loop._self_talk_planner = planner
+        loop.set_runtime_context_provider(
+            lambda: RuntimeContext(
+                silence_seconds=30.0,
+                working_memory_recent=["chat đang bàn về trà"],
+            ),
+        )
+        output = FakeParsed("Tớ vừa để ý mạch chat này.")
+
+        async def generate(_request_id: str, prompt: str):
+            runner.ambient_calls.append(prompt)
+            return output
+
+        spoken: list[str] = []
+
+        async def deliver(request_id: str, text: str) -> TTSDeliveryResult:
+            spoken.append(text)
+            return TTSDeliveryResult(
+                request_id=request_id, delivered=True,
+                mode=TTSDeliveryMode.SUBTITLE, sentences_total=1,
+                sentences_delivered=1, subtitle_sentences=1,
+            )
+
+        runner.run_ambient_turn = generate
+        loop._speak = deliver
+
+        class _Decision:
+            action = DirectorAction.SELF_TALK
+            proactive_source = None
+            proactive_summary = None
+            proactive_category = None
+
+        assert await loop._exec_self_talk(_Decision(), 30.0) is True
+        assert "Ràng buộc nhịp văn phong" in runner.ambient_calls[0]
+        assert "Không mở câu trả lời này" in runner.ambient_calls[0]
+        assert "tối đa 1 câu" in runner.ambient_calls[0]
+        assert len(runner.ambient_calls) == 1
+        assert spoken == ["Tớ vừa để ý mạch chat này."]
+        metrics = loop.get_metrics()
+        assert metrics["director_speech_style_regenerated_total"] == 0
+        assert metrics["director_speech_style_exhausted_total"] == 0
 
     async def test_chat_during_generation_blocks_ambient_delivery_and_preserves_arc(self) -> None:
         planner = SelfTalkPlanner(
