@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -13,6 +13,7 @@ from interfaces.self_model import SelfModelService
 from orchestrator.config_loader import ConfigLoader
 from orchestrator.metrics_collector import MetricsCollector
 from services.self_model.projection import SelfModelConfig, SelfModelProjection
+from services.agent.goal_types import ShortIntention, ShortIntentionStatus
 
 
 NOW = datetime(2026, 8, 15, 8, 0, tzinfo=timezone.utc)
@@ -72,12 +73,31 @@ def _transactions() -> SnapshotSource:
     ]})
 
 
+def _goal_snapshot() -> SnapshotSource:
+    intention = ShortIntention(
+        intention_id="intention:goal-1:1",
+        goal_id="goal-1",
+        status=ShortIntentionStatus.ACTIVE,
+        step_index=0,
+        step_count=1,
+        step="grounded step",
+        created_at=NOW,
+        updated_at=NOW,
+        expires_at=NOW + timedelta(minutes=5),
+        reason_code="activated",
+    )
+    return SnapshotSource(SimpleNamespace(
+        active=SimpleNamespace(goal_id="goal-1"),
+        current_intention=intention,
+    ))
+
+
 def _model(**overrides: object) -> tuple[SelfModelProjection, MetricsCollector]:
     metrics = MetricsCollector()
     values: dict[str, object] = {
         "config": SelfModelConfig(max_recent_action_ids=2),
         "agent_state": _agent(),
-        "goal_manager": SnapshotSource(SimpleNamespace(active=SimpleNamespace(goal_id="goal-1"))),
+        "goal_manager": _goal_snapshot(),
         "action_transactions": _transactions(),
         "audio_player": Player(),
         "animation": Animation(),
@@ -99,6 +119,7 @@ def test_self_model_projects_immutable_authoritative_state_and_metrics() -> None
     assert snapshot.degraded is False
     assert snapshot.current_action_id == "act-live"
     assert snapshot.active_goal_id == "goal-1"
+    assert snapshot.current_intention_id == "intention:goal-1:1"
     assert snapshot.focused_thread_id == "thread-2"
     assert snapshot.current_topic == "music"
     assert snapshot.avatar_state == {"enabled": True, "connected": True}

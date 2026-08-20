@@ -169,6 +169,27 @@ async def test_deferred_turn_requests_explicit_delivery_finalization() -> None:
     assert runner.turn_kwargs == {
         "request_id": "req-4", "defer_delivery_commit": True,
     }
+
+
+@pytest.mark.asyncio
+async def test_goal_delivery_without_short_intention_fails_before_side_effect() -> None:
+    runner = RunnerStub()
+    calls: list[str] = []
+
+    async def speak(request_id: str, _text: str) -> Any:
+        calls.append(request_id)
+        raise AssertionError("missing intention must fail before TTS")
+
+    boundary = make_boundary(runner, speak=speak)
+    assert await boundary.deliver(
+        "req-missing-intention",
+        SimpleNamespace(text="xin chào"),
+        "continue_thread",
+        [],
+        goal_id="goal-1",
+    ) is False
+    assert calls == []
+    assert runner.finalized == [("req-missing-intention", False)]
 class EmbodimentStub:
     enabled = True
 
@@ -242,12 +263,15 @@ async def test_enabled_speech_action_boundary_verifies_before_delivered_once() -
     )
     reached = await boundary.deliver(
         "req-action", SimpleNamespace(text="xin chào"), "self_talk", [],
+        goal_id="goal-1",
+        intention_id="intention:goal-1:1",
         transaction_id="tx-action",
     )
 
     assert reached is True
     assert len(adapter.requests) == 1
     assert adapter.requests[0].action_type == "SELF_TALK"
+    assert adapter.requests[0].intention_id == "intention:goal-1:1"
     assert adapter.requests[0].idempotency_key == "speech:req-action"
     assert transactions.stages == [
         ("generated", "tx-action"),

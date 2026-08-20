@@ -39,7 +39,7 @@ giới, mô hình bản thân, năng lực, lựa chọn hành động và khung
 khác nhau, nhưng chưa nối liền thành một đường đi production duy nhất. Controlled takeover, speech/avatar
 adapters, OBS scene action và Perception Phase 10 đều đã compose nhưng production flag vẫn tắt, chưa có live rollout/canary
 evidence cho các capability liên quan. Phase 9/10 không trao external action hoặc raw
-observation cho Director; Phase 11 trở đi chưa đóng gate.
+observation cho Director. Phase 11 đã đóng goal/short-intention lifecycle; Phase 12 trở đi chưa đóng gate.
 
 Vì vậy, cách mô tả chính xác nhất là:
 
@@ -84,7 +84,7 @@ Các cột dưới đây độc lập với nhau. “Có mã” không thay th�
 | Avatar action adapter | Có | Local typed intentional-gesture boundary; không giả automatic mood thành action | Unit, VTS fail-safe, composition và full offline regression | Không; mặc định tắt |
 | External OBS scene executor | Có | Compose tại `StreamRuntime`, chỉ callable qua typed boundary khi feature/permission/health đạt | Unit, transaction integration, deterministic fake-OBS replay và full offline regression | Không; mặc định tắt, chưa live canary |
 | Perception expansion | Có | Chat/System qua canonical ingress; OBS read-only compose nhưng mặc định tắt | Unit, negative-path, runtime composition, deterministic replay và full offline regression | Không; OBS chưa live canary |
-| Goals và short intentions | Có | Partial | Unit | Không |
+| Goals và short intentions | Có | Có, qua GoalManager/Director/Self/dashboard | Unit, integration, replay và full offline regression | Không |
 | Memory và ContextSelector V2 | Có | Partial | Unit/integration | Không như V2 release |
 | Embodiment Policy | Có | Partial/shadow | Unit | Không |
 | Human-like calibration và trajectory | Có mã tiền V2 từ implementation cũ | Chưa audit/compose theo gate Phase 14 | Có test thành phần; chưa có human evidence Phase 14 | Không |
@@ -459,7 +459,7 @@ V2 được đưa vào theo từng lớp, có cờ bật/tắt và chế độ q
 
 Bộ kiểm thử bao phủ nhiều subsystem và các bài targeted cho lõi V2 đang xanh. Ngày 20/08/2026, sau
 closure Phase 10 và strict feature/config hardening, full offline regression bằng `v2.0\venv` đạt
-2.159 bài và 0 lỗi sau canonical/lifecycle/config/dashboard hardening.
+2.188 bài và 0 lỗi sau closure Phase 11.
 Kết quả này chứng minh đường offline hiện có đang xanh; nó không thay thế live/LLM acceptance hoặc chứng
 minh các capability chưa compose đã production.
 
@@ -518,11 +518,14 @@ prompt hoặc Perception. Director takeover cũng vẫn mặc định tắt.
 **Hậu quả:** hệ thống có một external closed-loop callable để kiểm chứng kiến trúc nhưng chưa tự quan sát,
 tự chọn và thực hiện scene action trong cùng vòng production.
 
-### 9.5. Ý định ngắn chưa trở thành trạng thái sống — mức trung bình
+### 9.5. Ý định ngắn đã trở thành trạng thái sống — đã xử lý ngày 20/08/2026
 
-Mục tiêu có thể chứa một vài bước ngắn, nhưng ảnh chụp trạng thái bản thân chưa mang đầy đủ mã ý định hiện tại.
+`GoalManager` hiện sở hữu value object/vòng đời `ShortIntention` 1–3 bước, projection ID hiện tại sang
+Self/dashboard và gắn đúng ID vào delivery request. Verified success advance đúng một bước; failure,
+cancellation, TTL và preemption chuyển trạng thái theo policy deterministic, bounded và có metric.
 
-**Hậu quả:** ý định dễ trở thành dữ liệu phụ thay vì yếu tố thật sự điều khiển quyết định.
+**Rủi ro còn lại:** `goal_proposals` vẫn mặc định tắt; Phase 11 không thêm autonomous planner và không
+thay thế rollout/canary của Director V2.
 
 ### 9.6. Ghi hành trình và cổng phát hành chưa đáng tin cậy hoàn toàn — mức trung bình
 
@@ -599,7 +602,7 @@ Ba nguồn chính thức hiện là `docs/V1_BASELINE.md`, tài liệu này và 
 chưa có release mới là chủ ý, không phải thiếu đồng bộ.
 
 Sau closure Phase 10, `main` không coi code goals/context/embodiment/calibration/release tooling đã có
-từ implementation generation trước là evidence đóng Phase 11–15. Mỗi phase vẫn phải được audit theo
+từ implementation generation trước là evidence đóng Phase 12–15. Mỗi phase vẫn phải được audit theo
 blueprint, cập nhật tài liệu này trước khi sửa code, chạy gate riêng và được user duyệt; không tạo
 lại tài liệu phase riêng.
 
@@ -811,7 +814,7 @@ Không nên đổi nhãn sản phẩm thành V2 chỉ vì các lớp hoặc tài
 Nếu nguồn lực có hạn, nên làm đúng thứ tự này:
 
 1. giữ Phase 7 mặc định tắt cho tới khi có kế hoạch rollout/canary và rollback evidence;
-2. thực hiện Phase 11: hoàn thiện goal và short intention lifecycle;
+2. giữ Phase 11 goal/short-intention contract trong regression khi mở consumer mới;
 3. thực hiện Phase 12: ghép Memory và ContextSelector bounded/grounded;
 4. thực hiện Phase 13: ghép Embodiment Policy với delivery state thật;
 5. thực hiện Phase 14: trajectory replay, observability hardening và human-like calibration;
@@ -1552,6 +1555,82 @@ Targeted ingress/adapter/boundary đạt 29 test; documentation guard đạt 9 t
 canonical history và World events. Chưa có live OBS instance/credential sensing canary, nên Phase 10
 closure không phải production rollout; product version tiếp tục là `1.4.3`.
 
+#### 17.2.11. Closure contract goals và short intentions Phase 11
+
+Phase 11 hoàn thiện state machine goal hiện có bằng một short-intention projection authoritative thuộc
+`GoalManager`; không tạo planner/service mutable thứ hai. Phạm vi chỉ gồm một goal active và một
+intention hiện tại có 1–3 bước tuyến tính. Không planning tree, recursive decomposition, background
+autonomy, online learning hoặc logic V3. `director_goal_arbiter` tiếp tục dùng đường compatibility hiện
+có; `goal_proposals` tiếp tục mặc định tắt và LLM chỉ được tạo proposal schema, không được tự activate,
+advance, terminalize hay commit goal/intention.
+
+Gate Phase 11 yêu cầu:
+
+- `Goal`, `ShortIntention`, snapshot và status phải immutable, strict và UTC-aware. ID/reason/step/success
+  condition phải là chuỗi không rỗng; collection phải đúng tuple/mapping shape; priority, index, bound và
+  TTL phải là số đúng kiểu/range. Không stringify/coerce `None`, số, object, chuỗi số/boolean hoặc nhận
+  timestamp naive. Metadata phải freeze sâu và bị bound trước khi vào state.
+- Lifecycle public của short intention chỉ gồm `PROPOSED`, `ACTIVE`, `COMPLETED`, `FAILED`, `CANCELLED`,
+  `SUSPENDED`. Goal compatibility có thể tiếp tục xuất `candidate`/`expired`; mapping bắt buộc là
+  deterministic: candidate→proposed, active→active, preemption→suspended, success→completed,
+  execution failure→failed, operator/thread invalidation/TTL→cancelled. Không thêm trạng thái ngầm hoặc
+  đổi wire value goal kế thừa trong phase này.
+- Mỗi goal có đúng một short intention gồm 1–3 bước tuyến tính lấy từ `Goal.steps`; mỗi bước có index và
+  intention ID ổn định, deterministic từ goal identity + index. Chỉ intention của goal active được
+  `ACTIVE`; preemption suspend đúng intention, resume giữ nguyên index/identity. Success chỉ advance một
+  bước; chỉ bước cuối verified/delivered mới complete intention rồi complete goal. Operator complete có
+  thể terminalize toàn bộ intention bằng audit explicit.
+- `GoalManager` là owner mutable duy nhất của goal + intention. `AgentState.active_goal_ref`,
+  `SelfModelProjection`, Director context, dashboard và metrics chỉ đọc/projection; không giữ bản mutable
+  thứ hai. `SelfSnapshot.current_intention_id` phải phản ánh intention active hiện tại và tham gia stable
+  `snapshot_id`; source thiếu/malformed phải degrade thay vì bịa ID.
+- `DirectorLoop` phải gắn đúng current intention vào action/delivery request. `ActionRequest.intention_id`
+  không được dùng `goal_id` thay thế. Outcome chỉ được áp dụng khi cả expected goal ID và intention ID còn
+  khớp snapshot hiện tại, để attempt cũ không terminalize goal mới sau preemption/operator action.
+- Action đã verified/delivered áp dụng success đúng một lần; duplicate committed không advance lần hai.
+  Not-delivered, executor/verifier failure, exception và cancellation cập nhật intention theo policy
+  deterministic khai báo trong `agent_goals.yaml`; policy không được retry/replan bằng LLM. Failure hook
+  phải chạy sau outcome authoritative, fail isolated khỏi transaction owner và không biến failed delivery
+  thành success. Safety/operator precedence và commit-after-delivery invariant V1 không thay đổi.
+- TTL/capacity cleanup phải bounded và deterministic. Intention hết hạn bị `CANCELLED` với reason code
+  cố định, được giữ trong terminal history bounded rồi eviction cùng owner. Candidate/suspended overflow
+  không được để intention orphan; active ref, goal snapshot, Self projection và dashboard phải chuyển
+  atomically theo cùng state transition quan sát được.
+- `GoalLimits`, `AgendaPolicyConfig` và proposal config phải đọc toàn bộ priority, TTL, step/failure policy,
+  evidence/token/temperature/capacity từ `config/agent_goals.yaml` bằng strict validation. Missing/unknown,
+  duplicate kind, bool-as-int, numeric string, NaN/Infinity, invalid range hoặc policy lạ phải fail-fast
+  khi composition; reload lỗi phải giữ config nguyên khối trước đó theo `ConfigLoader`.
+- Metrics tối thiểu phải phân biệt intention proposed/activated/advanced/suspended/resumed/completed/
+  failed/cancelled/rejected, action outcome reason, active intention age/current step và bounded eviction.
+  Metric/dashboard/audit sink failure không được đổi transition. Snapshot không chứa prompt, chain-of-
+  thought, raw credential hoặc payload không bound.
+- Phase 11 không bật `goal_proposals`, không thay production takeover/speech/avatar/OBS flags, không đưa
+  World/Memory Phase 12 vào prompt và không xóa V1 fallback. Rollback bằng tắt `director_goal_arbiter`
+  phải giữ đường hội thoại kế thừa; intention projection khi arbiter tắt không được tự phát action.
+
+Gate kiểm thử gồm strict/deep-immutable contract + YAML, lifecycle sáu trạng thái, 1–3 step bound,
+preempt/resume/TTL/capacity cleanup, stale/duplicate action outcome, failure/cancellation policy,
+LLM proposal authority, Self projection, ActionRequest linkage, dashboard/metrics/audit isolation và
+FeatureManager rollback. Integration phải chứng minh verified delivery advance/complete đúng một lần,
+failure không commit/remove input, preempted attempt không làm hỏng goal mới và deterministic replay cho
+cùng event/outcome tạo cùng lifecycle (bỏ qua timestamp/UUID runtime được inject). Impacted Phase 1/3/5/
+7/8/10, Director/runtime, documentation guard và full offline regression phải tiếp tục xanh.
+
+**Trạng thái Phase 11:** đạt closure gate kỹ thuật ngày 20/08/2026. `GoalManager` là owner mutable duy
+nhất của goal và short intention; mỗi goal có 1–3 bước tuyến tính với ID deterministic, lifecycle sáu
+trạng thái, preemption/resume/TTL/capacity cleanup và terminal history bounded. Goal wire status kế thừa
+được giữ; mapping intention dùng contract Phase 11, không tạo planner tree hoặc owner state thứ hai.
+
+`SelfSnapshot.current_intention_id`, dashboard và Director action context đều project cùng intention
+authoritative. Speech `ActionRequest` mang intention ID thật thay vì goal ID; outcome chỉ áp dụng khi
+expected goal + intention còn khớp. Verified delivery advance/complete đúng một lần; not-delivered,
+exception và cancellation dùng policy strict trong `agent_goals.yaml`. Proposal LLM vẫn proposal-only,
+`goal_proposals` mặc định tắt và fallback/production flag Phase 7–10 không đổi.
+
+Targeted Phase 11 đạt 160 test; full offline `pytest tests -q` đạt 2.188 test, 0 lỗi trong 150,83 giây.
+Replay cùng goal/event/outcome tạo cùng lifecycle snapshot. Documentation guard đạt 11 test;
+`compileall` và diff check đều đạt. Product version vẫn `1.4.3` vì đây chưa phải release acceptance.
+
 ### 17.3. Chuỗi mã để lần theo một lượt
 
 ```mermaid
@@ -1996,7 +2075,8 @@ Ngày 20/08/2026:
 - Phase 10 targeted: 29 đạt; impacted Phase 2–4/runtime: 246 đạt; documentation guard: 9 đạt;
 - feature persistence/strict config targeted: 129 đạt; impacted dashboard/Director/runtime: 173 đạt;
 - comment/document cleanup targeted: 255 đạt; documentation guard hiện tại: 11 đạt;
-- full offline `pytest tests -q`: 2.159 đạt, 0 lỗi;
+- Phase 11 goal/short-intention targeted: 160 đạt; deterministic lifecycle replay: đạt;
+- full offline `pytest tests -q`: 2.188 đạt, 0 lỗi trong 150,83 giây;
 - còn một cảnh báo deprecation giữa Starlette TestClient và `httpx`;
 - chưa chạy live/LLM acceptance, audio/VTS/OBS canary hoặc canary takeover; `llama-server` không được
   khởi động trong Phase 10.

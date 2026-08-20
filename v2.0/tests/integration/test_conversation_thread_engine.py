@@ -12,7 +12,15 @@ from services.agent.agent_state import AgentState, AgentStateLimits, AgentStateR
 from services.agent.agenda_policy import AgendaPolicy, AgendaPolicyConfig
 from services.agent.event_ledger import EventLedger
 from services.agent.goal_manager import GoalLimits, GoalManager
-from services.agent.goal_types import Goal, GoalKind, GoalSnapshot, GoalSource, GoalStatus
+from services.agent.goal_types import (
+    Goal,
+    GoalKind,
+    GoalSnapshot,
+    GoalSource,
+    GoalStatus,
+    ShortIntention,
+    ShortIntentionStatus,
+)
 from services.agent.open_thread_manager import OpenThreadLimits, OpenThreadManager
 from services.agent.thread_detector import RuleThreadDetector
 from services.agent.topic_matcher import LexicalTopicMatcher, TopicMatcherConfig
@@ -44,6 +52,22 @@ def _goal(thread_id: str) -> Goal:
         ("delivered speech addresses thread",), parent_thread_id=thread_id,
         metadata={"source_event_id": "chat-1"},
     )
+
+
+def _goal_snapshot(goal: Goal) -> GoalSnapshot:
+    intention = ShortIntention(
+        intention_id=f"intention:{goal.goal_id}:1",
+        goal_id=goal.goal_id,
+        status=ShortIntentionStatus.ACTIVE,
+        step_index=0,
+        step_count=len(goal.steps),
+        step=goal.steps[0],
+        created_at=goal.created_at,
+        updated_at=goal.created_at,
+        expires_at=goal.expires_at,
+        reason_code="activated",
+    )
+    return GoalSnapshot(active=goal, current_intention=intention)
 
 
 class _State:
@@ -125,7 +149,7 @@ def _loop_and_input():
         agent_state=AgentStateSnapshot(
             open_threads=manager.snapshot(), active_goal_ref=goal.goal_id,
         ),
-        goals=GoalSnapshot(active=goal),
+        goals=_goal_snapshot(goal),
     )
     loop = DirectorLoop(
         _Director(), object(), object(), _Runner(), agent_state=state, clock=lambda: 1.0,
@@ -300,7 +324,9 @@ def test_delivered_thread_runs_to_park_before_another_goal_can_activate() -> Non
     delivered_moves: list[str] = []
     for index, expected in enumerate(("deepen", "clarify", "summarize", "park")):
         active = goals.snapshot().active
+        intention = goals.snapshot().current_intention
         assert active is not None
+        assert intention is not None
         thread = state.snapshot().open_threads[0]
         assert thread.thread_id == thread_id
         assert thread.next_move is not None
@@ -315,6 +341,7 @@ def test_delivered_thread_runs_to_park_before_another_goal_can_activate() -> Non
             payload={
                 "action": "continue_thread",
                 "goal_id": active.goal_id,
+                "intention_id": intention.intention_id,
                 "thread_id": thread_id,
                 "conversation_move": expected,
                 "text": f"delivered {expected}",

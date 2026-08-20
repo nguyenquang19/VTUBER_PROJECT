@@ -115,7 +115,7 @@ class SelfModelProjection(SelfModelService):
 
         current_topic, focused_thread_id, failed = _agent_values(agent_snapshot)
         source_failed = source_failed or failed
-        active_goal_id, failed = _goal_value(goal_snapshot)
+        active_goal_id, current_intention_id, failed = _goal_values(goal_snapshot)
         source_failed = source_failed or failed
         transactions, failed = _recent_transactions(transaction_snapshot)
         source_failed = source_failed or failed
@@ -132,6 +132,7 @@ class SelfModelProjection(SelfModelService):
                 "busy": busy,
                 "degraded": degraded,
                 "current_action_id": current_action_id,
+                "current_intention_id": current_intention_id,
                 "active_goal_id": active_goal_id,
                 "focused_thread_id": focused_thread_id,
                 "current_topic": current_topic,
@@ -143,7 +144,7 @@ class SelfModelProjection(SelfModelService):
             busy=busy,
             degraded=degraded,
             current_action_id=current_action_id,
-            current_intention_id=None,
+            current_intention_id=current_intention_id,
             active_goal_id=active_goal_id,
             focused_thread_id=focused_thread_id,
             current_topic=current_topic,
@@ -277,11 +278,25 @@ def _agent_values(snapshot: Any) -> tuple[str | None, str | None, bool]:
     return current_topic, focused[1] if focused is not None else None, failed
 
 
-def _goal_value(snapshot: Any) -> tuple[str | None, bool]:
+def _goal_values(snapshot: Any) -> tuple[str | None, str | None, bool]:
     active, active_present = _member(snapshot, "active")
     if not active_present:
-        return None, True
-    return _optional_member_text(active, "goal_id")
+        return None, None, True
+    active_goal_id, goal_failed = _optional_member_text(active, "goal_id")
+    intention, intention_present = _member(snapshot, "current_intention")
+    if active_goal_id is None:
+        if intention is not None:
+            return None, None, True
+        return None, None, goal_failed or not intention_present
+    if not intention_present or intention is None:
+        return active_goal_id, None, True
+    intention_id, intention_failed = _optional_member_text(intention, "intention_id")
+    intention_goal_id, intention_goal_valid = _required_member_text(intention, "goal_id")
+    if intention_goal_id != active_goal_id:
+        intention_failed = True
+    return active_goal_id, intention_id, bool(
+        goal_failed or intention_failed or not intention_goal_valid
+    )
 
 
 def _recent_transactions(snapshot: Any) -> tuple[tuple[dict[str, Any], ...], bool]:

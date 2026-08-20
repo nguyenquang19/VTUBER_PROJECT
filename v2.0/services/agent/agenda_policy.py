@@ -22,33 +22,44 @@ class AgendaPolicyConfig:
     priorities: dict[GoalKind, int]
     ttl_seconds: dict[GoalKind, int]
 
+    def __post_init__(self) -> None:
+        expected = set(GoalKind)
+        for name, values, positive in (
+            ("priorities", self.priorities, False),
+            ("ttl_seconds", self.ttl_seconds, True),
+        ):
+            if not isinstance(values, dict) or set(values) != expected:
+                raise ValueError(f"{name} must define every GoalKind exactly once")
+            for kind, value in values.items():
+                if not isinstance(kind, GoalKind):
+                    raise ValueError(f"{name} keys must be GoalKind")
+                if isinstance(value, bool) or not isinstance(value, int):
+                    raise ValueError(f"{name}.{kind.value} must be an integer")
+                if (positive and value <= 0) or (not positive and value < 0):
+                    qualifier = "positive" if positive else "non-negative"
+                    raise ValueError(f"{name}.{kind.value} must be {qualifier}")
+
     @classmethod
     def from_loader(cls, loader: Any) -> "AgendaPolicyConfig":
         priorities = {
-            kind: int(loader.get("agent_goals", f"priorities.{kind.value}", default))
-            for kind, default in {
-                GoalKind.ACK_DONATION: 100,
-                GoalKind.WAIT_FOR_CHAT_ANSWER: 60,
-                GoalKind.CONTINUE_THREAD: 40,
-                GoalKind.ANSWER_FOLLOW_UP: 70,
-                GoalKind.OPERATOR_PINNED: 90,
-            }.items()
+            kind: loader.get("agent_goals", f"priorities.{kind.value}", None)
+            for kind in GoalKind
         }
         ttls = {
-            GoalKind.ACK_DONATION: int(
-                loader.get("agent_goals", "goal_manager.donation_ttl_s", 120)
+            GoalKind.ACK_DONATION: loader.get(
+                "agent_goals", "goal_manager.donation_ttl_s", None,
             ),
-            GoalKind.WAIT_FOR_CHAT_ANSWER: int(
-                loader.get("agent_goals", "goal_manager.wait_for_answer_ttl_s", 90)
+            GoalKind.WAIT_FOR_CHAT_ANSWER: loader.get(
+                "agent_goals", "goal_manager.wait_for_answer_ttl_s", None,
             ),
-            GoalKind.CONTINUE_THREAD: int(
-                loader.get("agent_goals", "goal_manager.continue_thread_ttl_s", 600)
+            GoalKind.CONTINUE_THREAD: loader.get(
+                "agent_goals", "goal_manager.continue_thread_ttl_s", None,
             ),
-            GoalKind.ANSWER_FOLLOW_UP: int(
-                loader.get("agent_goals", "goal_manager.follow_up_ttl_s", 180)
+            GoalKind.ANSWER_FOLLOW_UP: loader.get(
+                "agent_goals", "goal_manager.follow_up_ttl_s", None,
             ),
-            GoalKind.OPERATOR_PINNED: int(
-                loader.get("agent_goals", "goal_manager.operator_pinned_ttl_s", 3600)
+            GoalKind.OPERATOR_PINNED: loader.get(
+                "agent_goals", "goal_manager.operator_pinned_ttl_s", None,
             ),
         }
         return cls(priorities=priorities, ttl_seconds=ttls)
@@ -208,7 +219,10 @@ class AgendaPolicy:
         if self._mood_policy is None:
             return base
         try:
-            return int(self._mood_policy.goal_priority(kind, base, mood, tone_flags))
+            value = self._mood_policy.goal_priority(kind, base, mood, tone_flags)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                return base
+            return value
         except Exception:
             return base
 
@@ -235,6 +249,6 @@ def _thread_for_event(event: GroundedEvent, state: AgentStateSnapshot) -> Any:
 
 
 def _utc(value: datetime) -> datetime:
-    if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
+    if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError("agenda policy clock must return a timezone-aware datetime")
     return value.astimezone(timezone.utc)

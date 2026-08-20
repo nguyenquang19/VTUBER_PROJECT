@@ -70,6 +70,18 @@ class GoalManagerService(Service):
         """Record a deterministic failed action outcome without replanning."""
 
     @abstractmethod
+    def record_action_outcome(
+        self,
+        goal_id: str,
+        intention_id: str,
+        outcome_id: str,
+        *,
+        outcome: str,
+        reason: str,
+    ) -> bool:
+        """Apply one authoritative outcome to the matching active intention."""
+
+    @abstractmethod
     def snapshot(self) -> "GoalSnapshot":
         """Return an immutable, pruned goal snapshot."""
 

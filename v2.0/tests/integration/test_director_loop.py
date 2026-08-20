@@ -30,6 +30,7 @@ from services.autonomy.lore_material import LoreMaterial, LoreMaterialProvider
 from services.agent.goal_manager import GoalLimits, GoalManager
 from services.agent.goal_types import (
     Goal, GoalKind, GoalSnapshot, GoalSource, GoalStatus,
+    ShortIntention, ShortIntentionStatus,
 )
 from services.agent.types import (
     AgentStateSnapshot, ConversationMove, OpenThread, ThreadEvidence,
@@ -37,6 +38,22 @@ from services.agent.types import (
 from services.llm.parser import ParsedResponse
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _goal_snapshot(goal: Goal) -> GoalSnapshot:
+    intention = ShortIntention(
+        intention_id=f"intention:{goal.goal_id}:1",
+        goal_id=goal.goal_id,
+        status=ShortIntentionStatus.ACTIVE,
+        step_index=0,
+        step_count=len(goal.steps),
+        step=goal.steps[0],
+        created_at=goal.created_at,
+        updated_at=goal.created_at,
+        expires_at=goal.expires_at,
+        reason_code="activated",
+    )
+    return GoalSnapshot(active=goal, current_intention=intention)
 
 
 def test_self_talk_correction_explains_semantic_question_and_stage_repeat() -> None:
@@ -692,7 +709,7 @@ class TestDirectorLoop:
         director_input = DirectorInput(
             now=10.0,
             agent_state=AgentStateSnapshot(open_threads=(thread,)),
-            goals=GoalSnapshot(active=goal),
+            goals=_goal_snapshot(goal),
         )
 
         async def generate(_request_id: str, context: str, **_kwargs):

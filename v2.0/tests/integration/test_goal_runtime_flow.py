@@ -66,6 +66,12 @@ def _stack(clock: Clock) -> tuple[AgentState, GoalManager]:
     return state, goals
 
 
+def _intention_id(goals: GoalManager) -> str:
+    intention = goals.snapshot().current_intention
+    assert intention is not None
+    return intention.intention_id
+
+
 def test_wait_donation_preemption_ack_and_resume_full_dod() -> None:
     clock = Clock()
     state, goals = _stack(clock)
@@ -90,7 +96,10 @@ def test_wait_donation_preemption_ack_and_resume_full_dod() -> None:
     clock.now += timedelta(seconds=1)
     state.record(_event(
         "spoken-ack", AgentEventKind.SPEECH_COMPLETED,
-        {"action": "ack_donation", "goal_id": donation.goal_id}, seconds=2,
+        {
+            "action": "ack_donation", "goal_id": donation.goal_id,
+            "intention_id": _intention_id(goals),
+        }, seconds=2,
     ))
     assert goals.snapshot().active.goal_id == waiting.goal_id  # type: ignore[union-attr]
 
@@ -105,7 +114,10 @@ def test_wait_donation_preemption_ack_and_resume_full_dod() -> None:
     clock.now += timedelta(seconds=1)
     state.record(_event(
         "spoken-answer", AgentEventKind.SPEECH_COMPLETED,
-        {"action": "read_chat", "goal_id": follow_up.goal_id}, seconds=4,
+        {
+            "action": "read_chat", "goal_id": follow_up.goal_id,
+            "intention_id": _intention_id(goals),
+        }, seconds=4,
     ))
     snap = goals.snapshot()
     assert snap.active is None
@@ -158,7 +170,10 @@ def test_director_goal_actions_complete_or_mark_progress_without_repeat() -> Non
 
     state.record(_event(
         "asked-follow-up", AgentEventKind.SPEECH_COMPLETED,
-        {"action": "ask_follow_up", "goal_id": waiting.goal_id}, seconds=1,
+        {
+            "action": "ask_follow_up", "goal_id": waiting.goal_id,
+            "intention_id": _intention_id(goals),
+        }, seconds=1,
     ))
     marked = goals.snapshot().active
     assert marked and marked.goal_id == waiting.goal_id
@@ -167,7 +182,10 @@ def test_director_goal_actions_complete_or_mark_progress_without_repeat() -> Non
 
     state.record(_event(
         "asked-follow-up-again", AgentEventKind.SPEECH_COMPLETED,
-        {"action": "ask_follow_up", "goal_id": waiting.goal_id}, seconds=2,
+        {
+            "action": "ask_follow_up", "goal_id": waiting.goal_id,
+            "intention_id": _intention_id(goals),
+        }, seconds=2,
     ))
     assert goals.snapshot().active.metadata["follow_up_asked_event_id"] == first_marker_event  # type: ignore[union-attr]
 
@@ -175,7 +193,10 @@ def test_director_goal_actions_complete_or_mark_progress_without_repeat() -> Non
     assert pinned and goals.snapshot().active.goal_id == pinned.goal_id  # type: ignore[union-attr]
     state.record(_event(
         "shared-progress", AgentEventKind.SPEECH_COMPLETED,
-        {"action": "share_goal_progress", "goal_id": pinned.goal_id}, seconds=3,
+        {
+            "action": "share_goal_progress", "goal_id": pinned.goal_id,
+            "intention_id": _intention_id(goals),
+        }, seconds=3,
     ))
     active = goals.snapshot().active
     assert active and active.goal_id == pinned.goal_id
@@ -193,12 +214,18 @@ def test_continue_thread_completes_only_on_matching_completed_speech() -> None:
     assert active and active.kind is GoalKind.CONTINUE_THREAD
     state.record(_event(
         "wrong-action", AgentEventKind.SPEECH_COMPLETED,
-        {"action": "self_talk", "goal_id": active.goal_id}, seconds=1,
+        {
+            "action": "self_talk", "goal_id": active.goal_id,
+            "intention_id": _intention_id(goals),
+        }, seconds=1,
     ))
     assert goals.snapshot().active.goal_id == active.goal_id  # type: ignore[union-attr]
     state.record(_event(
         "continued", AgentEventKind.SPEECH_COMPLETED,
-        {"action": "continue_thread", "goal_id": active.goal_id}, seconds=2,
+        {
+            "action": "continue_thread", "goal_id": active.goal_id,
+            "intention_id": _intention_id(goals),
+        }, seconds=2,
     ))
     assert goals.snapshot().active is None
     assert any(

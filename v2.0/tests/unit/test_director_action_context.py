@@ -4,7 +4,15 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from services.agent.goal_types import Goal, GoalKind, GoalSnapshot, GoalSource, GoalStatus
+from services.agent.goal_types import (
+    Goal,
+    GoalKind,
+    GoalSnapshot,
+    GoalSource,
+    GoalStatus,
+    ShortIntention,
+    ShortIntentionStatus,
+)
 from services.agent.types import AgentStateSnapshot, ConversationMove, OpenThread
 from services.director.action_context import ActionContextBuilder, ActionContextLimits
 from services.director.action_types import DirectorInput
@@ -29,6 +37,22 @@ def _goal(kind: GoalKind, **over: object) -> Goal:
     return Goal(**values)  # type: ignore[arg-type]
 
 
+def _snapshot(goal: Goal) -> GoalSnapshot:
+    intention = ShortIntention(
+        intention_id=f"intention:{goal.goal_id}:1",
+        goal_id=goal.goal_id,
+        status=ShortIntentionStatus.ACTIVE,
+        step_index=0,
+        step_count=len(goal.steps),
+        step=goal.steps[0],
+        created_at=goal.created_at,
+        updated_at=goal.created_at,
+        expires_at=goal.expires_at,
+        reason_code="activated",
+    )
+    return GoalSnapshot(active=goal, current_intention=intention)
+
+
 def test_continue_thread_context_is_grounded_and_bounded() -> None:
     now = datetime.fromtimestamp(10.0, tz=timezone.utc)
     thread = OpenThread(
@@ -39,7 +63,7 @@ def test_continue_thread_context_is_grounded_and_bounded() -> None:
     value = DirectorInput(
         now=10.0,
         agent_state=AgentStateSnapshot(open_threads=(thread,)),
-        goals=GoalSnapshot(active=goal),
+        goals=_snapshot(goal),
     )
     decision = DirectorDecision(
         DirectorAction.CONTINUE_THREAD, "main", "continue_active_thread",
@@ -55,7 +79,7 @@ def test_continue_thread_context_is_grounded_and_bounded() -> None:
 def test_context_rejects_stale_or_unsupported_decision() -> None:
     goal = _goal(GoalKind.OPERATOR_PINNED)
     value = DirectorInput(
-        now=10.0, agent_state=AgentStateSnapshot(), goals=GoalSnapshot(active=goal),
+        now=10.0, agent_state=AgentStateSnapshot(), goals=_snapshot(goal),
     )
     builder = ActionContextBuilder()
     with pytest.raises(ValueError, match="active grounded goal"):
@@ -92,7 +116,7 @@ def test_continue_thread_context_enforces_move_specific_spoken_shape(
     value = DirectorInput(
         now=10.0,
         agent_state=AgentStateSnapshot(open_threads=(thread,)),
-        goals=GoalSnapshot(active=goal),
+        goals=_snapshot(goal),
     )
     decision = DirectorDecision(
         DirectorAction.CONTINUE_THREAD, "main", "continue_active_thread",

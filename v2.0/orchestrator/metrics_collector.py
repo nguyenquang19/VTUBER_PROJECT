@@ -134,6 +134,23 @@ class MetricsCollector:
             registry=self.registry,
         )
         self._goal_events: dict[tuple[str, str], int] = {}
+        self.intention_events_total_c = Counter(
+            "mai_agent_intentions_total",
+            "Short-intention lifecycle and authoritative action outcomes",
+            ["outcome", "reason"],
+            registry=self.registry,
+        )
+        self.intention_active_age_seconds_g = Gauge(
+            "mai_agent_intention_active_age_seconds",
+            "Age of the current active short intention",
+            registry=self.registry,
+        )
+        self.intention_current_step_g = Gauge(
+            "mai_agent_intention_current_step",
+            "One-based current short-intention step, or zero when inactive",
+            registry=self.registry,
+        )
+        self._intention_events: dict[tuple[str, str], int] = {}
 
         # --- Director Action Arbiter metrics (Master Plan M3) ---
         self.director_actions_total_c = Counter(
@@ -925,6 +942,23 @@ class MetricsCollector:
             "events": {
                 f"{outcome}:{reason}": count
                 for (outcome, reason), count in sorted(self._goal_events.items())
+            }
+        }
+
+    def record_intention_event(self, outcome: str, reason: str) -> None:
+        key = (str(outcome), str(reason))
+        self._intention_events[key] = self._intention_events.get(key, 0) + 1
+        self.intention_events_total_c.labels(outcome=key[0], reason=key[1]).inc()
+
+    def set_intention_active(self, age_seconds: float, current_step: int) -> None:
+        self.intention_active_age_seconds_g.set(max(0.0, float(age_seconds)))
+        self.intention_current_step_g.set(max(0, int(current_step)))
+
+    def intention_snapshot(self) -> dict[str, Any]:
+        return {
+            "events": {
+                f"{outcome}:{reason}": count
+                for (outcome, reason), count in sorted(self._intention_events.items())
             }
         }
 

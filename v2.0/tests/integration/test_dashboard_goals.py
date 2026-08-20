@@ -82,4 +82,6 @@ def test_snapshot_is_detached_and_exposes_operator_metric() -> None:
     snap = client.get("/api/snapshot").json()
     snap["goals"]["active"]["reason"] = "fake"
     assert goals.snapshot().active.reason == "grounded"  # type: ignore[union-attr]
+    assert snap["goals"]["current_intention"]["goal_id"] == goals.snapshot().active.goal_id  # type: ignore[union-attr]
+    assert snap["goals"]["current_intention"]["status"] == "active"
     assert snap["goal_metrics"]["goal_operator_override_total"] == 1

@@ -1,9 +1,21 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
+import pytest
+
+from orchestrator.config_loader import ConfigLoader
+from services.agent.agenda_policy import AgendaPolicyConfig
 from services.agent.goal_manager import GoalLimits, GoalManager
-from services.agent.goal_types import Goal, GoalKind, GoalSource, GoalStatus
+from services.agent.goal_types import (
+    Goal,
+    GoalKind,
+    GoalSource,
+    GoalStatus,
+    ShortIntentionStatus,
+)
 from services.agent.types import (
     AgentEventKind,
     AgentEventSource,
@@ -82,8 +94,14 @@ def test_higher_priority_preempts_then_completed_resumes_previous() -> None:
     snap = manager.snapshot()
     assert snap.active and snap.active.goal_id == "donation"
     assert [g.goal_id for g in snap.suspended] == ["thread"]
+    intention_status = {item.goal_id: item.status for item in snap.intentions}
+    assert intention_status == {
+        "donation": ShortIntentionStatus.ACTIVE,
+        "thread": ShortIntentionStatus.SUSPENDED,
+    }
     assert manager.complete("donation")
     assert manager.snapshot().active.goal_id == "thread"  # type: ignore[union-attr]
+    assert manager.snapshot().current_intention.status is ShortIntentionStatus.ACTIVE  # type: ignore[union-attr]
     assert active_refs == ["thread", "donation", "thread"]
 
 
@@ -223,6 +241,7 @@ def test_delivered_move_atomically_keeps_same_parent_until_park() -> None:
         payload={
             "action": "continue_thread",
             "goal_id": "active",
+            "intention_id": manager.snapshot().current_intention.intention_id,
             "conversation_move": "summarize",
         },
         provenance=EventProvenance("test"),
@@ -261,6 +280,7 @@ def test_delivered_park_releases_boundary_and_room_clear_removes_old_goals() -> 
         payload={
             "action": "continue_thread",
             "goal_id": "park",
+            "intention_id": manager.snapshot().current_intention.intention_id,
             "conversation_move": "park",
         },
         provenance=EventProvenance("test"),
@@ -271,3 +291,151 @@ def test_delivered_park_releases_boundary_and_room_clear_removes_old_goals() -> 
     assert manager.snapshot().active.goal_id == "other"
     assert manager.clear_continue_threads(reason="room_reaction_delivered") == 1
     assert manager.snapshot().active is None
+
+
+def test_short_intention_advances_three_linear_steps_then_completes_goal() -> None:
+    manager = _manager(Clock())
+    goal = replace(_goal("multi"), steps=("one", "two", "three"))
+    assert manager.submit(goal)
+
+    for index in range(3):
+        snapshot = manager.snapshot()
+        intention = snapshot.current_intention
+        assert intention is not None
+        assert intention.step_index == index
+        assert intention.status is ShortIntentionStatus.ACTIVE
+        assert manager.record_action_outcome(
+            goal.goal_id,
+            intention.intention_id,
+            f"outcome-{index}",
+            outcome="succeeded",
+            reason="verified_delivery",
+        )
+
+    snapshot = manager.snapshot()
+    assert snapshot.active is None
+    assert snapshot.current_intention is None
+    assert [item.status for item in snapshot.recent_intentions] == [
+        ShortIntentionStatus.COMPLETED,
+        ShortIntentionStatus.COMPLETED,
+        ShortIntentionStatus.COMPLETED,
+    ]
+
+
+def test_action_outcome_rejects_stale_and_duplicate_intention_identity() -> None:
+    manager = _manager(Clock())
+    assert manager.submit(replace(_goal("multi"), steps=("one", "two")))
+    first = manager.snapshot().current_intention
+    assert first is not None
+    assert manager.record_action_outcome(
+        "multi", first.intention_id, "delivery-1",
+        outcome="succeeded", reason="verified",
+    )
+    second = manager.snapshot().current_intention
+    assert second is not None
+    assert second.intention_id != first.intention_id
+    assert not manager.record_action_outcome(
+        "multi", first.intention_id, "delivery-1",
+        outcome="succeeded", reason="duplicate",
+    )
+    assert manager.snapshot().current_intention == second
+
+
+def test_action_failure_and_ttl_cancel_intentions_deterministically() -> None:
+    clock = Clock()
+    manager = _manager(clock)
+    assert manager.submit(_goal("failed"))
+    intention = manager.snapshot().current_intention
+    assert intention is not None
+    assert manager.record_action_outcome(
+        "failed", intention.intention_id, "attempt-1",
+        outcome="failed", reason="not_delivered",
+    )
+    assert manager.snapshot().recent_intentions[-1].status is ShortIntentionStatus.FAILED
+
+    assert manager.submit(_goal("expires", ttl=1))
+    clock.now += timedelta(seconds=2)
+    assert manager.snapshot().active is None
+    assert manager.snapshot().recent_intentions[-1].status is ShortIntentionStatus.CANCELLED
+    assert manager.snapshot().recent_intentions[-1].reason_code == "ttl_expired"
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("candidates_max", True),
+        ("suspended_max", "8"),
+        ("terminal_history_max", 0),
+        ("metadata_text_max_chars", 2.5),
+        ("short_intention_max_steps", 4),
+        ("operator_priority", -1),
+        ("action_failure_policy", "retry"),
+        ("action_cancellation_policy", "ignore"),
+    ],
+)
+def test_goal_limits_reject_coercion_and_invalid_policy(
+    field_name: str, value: object,
+) -> None:
+    values: dict[str, object] = {
+        "candidates_max": 8,
+        "suspended_max": 4,
+        "terminal_history_max": 16,
+        "metadata_text_max_chars": 240,
+        "short_intention_max_steps": 3,
+        "operator_priority": 90,
+        "operator_ttl_s": 3600,
+        "action_failure_policy": "fail",
+        "action_cancellation_policy": "cancel",
+    }
+    values[field_name] = value
+    with pytest.raises(ValueError):
+        GoalLimits(**values)  # type: ignore[arg-type]
+
+
+def test_goal_contract_rejects_naive_time_coerced_fields_and_unsupported_metadata() -> None:
+    with pytest.raises(ValueError, match="timezone-aware"):
+        replace(
+            _goal("naive"),
+            created_at=NOW.replace(tzinfo=None),
+            expires_at=(NOW + timedelta(minutes=1)).replace(tzinfo=None),
+        )
+    with pytest.raises(ValueError, match="priority"):
+        replace(_goal("bool-priority"), priority=True)
+    with pytest.raises(ValueError, match="one to three"):
+        replace(_goal("too-many"), steps=("1", "2", "3", "4"))
+    with pytest.raises(ValueError, match="unsupported"):
+        replace(_goal("bad-metadata"), metadata={"object": object()})
+
+
+def test_goal_yaml_loads_strict_phase_11_policies() -> None:
+    root = Path(__file__).resolve().parents[2]
+    loader = ConfigLoader(root / "config")
+    loader.load_all()
+    limits = GoalLimits.from_loader(loader)
+    agenda = AgendaPolicyConfig.from_loader(loader)
+    assert limits.short_intention_max_steps == 3
+    assert limits.action_failure_policy == "fail"
+    assert limits.action_cancellation_policy == "cancel"
+    assert set(agenda.priorities) == set(GoalKind)
+    assert set(agenda.ttl_seconds) == set(GoalKind)
+
+
+def test_short_intention_replay_is_deterministic_for_same_events_and_outcomes() -> None:
+    def replay() -> dict[str, object]:
+        manager = _manager(Clock())
+        manager.submit(replace(_goal("base"), steps=("one", "two")))
+        first = manager.snapshot().current_intention
+        assert first is not None
+        manager.record_action_outcome(
+            "base", first.intention_id, "delivery-1",
+            outcome="succeeded", reason="verified",
+        )
+        second = manager.snapshot().current_intention
+        assert second is not None
+        manager.record_action_outcome(
+            "base", second.intention_id, "delivery-2",
+            outcome="failed", reason="not_delivered",
+        )
+        return manager.snapshot().to_dict()
+
+    assert replay() == replay()

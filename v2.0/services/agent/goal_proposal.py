@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 import uuid
 from pathlib import Path
 from typing import Any
@@ -49,8 +50,33 @@ class GoalProposalGenerator(GoalProposalService):
         metrics: Any = None,
         enabled: bool = False,
     ) -> None:
+        if (
+            not isinstance(system_prompt, str)
+            or not system_prompt.strip()
+            or not isinstance(allowed_kinds, tuple)
+            or not allowed_kinds
+            or not all(isinstance(item, GoalKind) for item in allowed_kinds)
+            or len(set(allowed_kinds)) != len(allowed_kinds)
+        ):
+            raise ValueError("goal proposal prompt and allowed_kinds must be strict")
+        for name, value in (
+            ("evidence_max_items", evidence_max_items),
+            ("max_tokens", max_tokens),
+            ("max_reason_chars", max_reason_chars),
+        ):
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                raise ValueError(f"proposal.{name} must be a positive integer")
+        if (
+            isinstance(temperature, bool)
+            or not isinstance(temperature, (int, float))
+            or not math.isfinite(float(temperature))
+            or not 0.0 <= float(temperature) <= 2.0
+        ):
+            raise ValueError("proposal.temperature must be finite and between zero and two")
+        if not isinstance(enabled, bool):
+            raise ValueError("goal proposal enabled must be boolean")
         self._llm = llm
-        self._system_prompt = system_prompt
+        self._system_prompt = system_prompt.strip()
         self._allowed_kinds = allowed_kinds
         self._evidence_max_items = evidence_max_items
         self._max_tokens = max_tokens
@@ -68,21 +94,26 @@ class GoalProposalGenerator(GoalProposalService):
         cls, loader: Any, llm: Any, *, metrics: Any = None, enabled: bool = False,
     ) -> "GoalProposalGenerator":
         prompt_path = Path(__file__).resolve().parents[2] / "config" / "prompts" / "goal_proposal_system.txt"
+        raw_kinds = loader.get("agent_goals", "proposal.allowed_kinds", None)
+        if not isinstance(raw_kinds, list) or not raw_kinds or not all(
+            isinstance(value, str) and value.strip() for value in raw_kinds
+        ):
+            raise ValueError("proposal.allowed_kinds must be a non-empty list of strings")
+        try:
+            allowed_kinds = tuple(GoalKind(value.strip()) for value in raw_kinds)
+        except ValueError as exc:
+            raise ValueError("proposal.allowed_kinds contains an unsupported kind") from exc
         return cls(
             llm,
             prompt_path.read_text(encoding="utf-8"),
-            allowed_kinds=tuple(
-                GoalKind(str(value)) for value in loader.get(
-                    "agent_goals", "proposal.allowed_kinds", [],
-                )
+            allowed_kinds=allowed_kinds,
+            evidence_max_items=loader.get(
+                "agent_goals", "proposal.evidence_max_items", None,
             ),
-            evidence_max_items=int(
-                loader.get("agent_goals", "proposal.evidence_max_items", 6)
-            ),
-            max_tokens=int(loader.get("agent_goals", "proposal.max_tokens", 180)),
-            temperature=float(loader.get("agent_goals", "proposal.temperature", 0.1)),
-            max_reason_chars=int(
-                loader.get("agent_goals", "proposal.max_reason_chars", 160)
+            max_tokens=loader.get("agent_goals", "proposal.max_tokens", None),
+            temperature=loader.get("agent_goals", "proposal.temperature", None),
+            max_reason_chars=loader.get(
+                "agent_goals", "proposal.max_reason_chars", None,
             ),
             metrics=metrics,
             enabled=enabled,
@@ -93,7 +124,9 @@ class GoalProposalGenerator(GoalProposalService):
         return self._enabled
 
     def set_enabled(self, enabled: bool) -> None:
-        self._enabled = bool(enabled)
+        if not isinstance(enabled, bool):
+            raise ValueError("goal proposal enabled must be boolean")
+        self._enabled = enabled
 
     async def start(self) -> None:
         self._running = True

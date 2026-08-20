@@ -307,6 +307,7 @@ class DirectorLoop:
         director_input = self._build_director_input(now, urge_ready)
         dec = self._director.decide(director_input)
         dec = self._apply_director_v2_takeover(dec, director_input)
+        expected_intention_id = self._decision_intention_id(dec, director_input)
         self._record_director_metric(dec)
         decision_id = self._record_decision(dec, director_input, now)
 
@@ -351,12 +352,27 @@ class DirectorLoop:
                             decision_id, transaction,
                             delivery_state="failed", outcome="released",
                         )
+                        self._record_goal_action_outcome(
+                            dec,
+                            expected_intention_id,
+                            transaction_id,
+                            outcome="failed",
+                            reason="not_delivered",
+                        )
                 else:
                     self._update_decision_outcome(
                         decision_id,
                         delivery_state="delivered" if committed else "failed",
                         outcome="completed" if committed else "not_delivered",
                     )
+                    if not committed:
+                        self._record_goal_action_outcome(
+                            dec,
+                            expected_intention_id,
+                            decision_id or f"decision:{dec.action.value}:{now}",
+                            outcome="failed",
+                            reason="not_delivered",
+                        )
                 self._record_director_action(dec, now)
             except asyncio.CancelledError:
                 if transaction_id is not None:
@@ -368,8 +384,23 @@ class DirectorLoop:
                             decision_id, transaction,
                             delivery_state="cancelled", outcome="released",
                         )
+                        self._record_goal_action_outcome(
+                            dec,
+                            expected_intention_id,
+                            transaction_id,
+                            outcome="cancelled",
+                            reason="execution_cancelled",
+                        )
                     except Exception:
                         pass
+                else:
+                    self._record_goal_action_outcome(
+                        dec,
+                        expected_intention_id,
+                        decision_id or f"decision:{dec.action.value}:{now}",
+                        outcome="cancelled",
+                        reason="execution_cancelled",
+                    )
                 raise
             except Exception as e:
                 self._execute_failed_total += 1
@@ -380,6 +411,13 @@ class DirectorLoop:
                             decision_id, transaction,
                             delivery_state="failed", outcome="released",
                         )
+                        self._record_goal_action_outcome(
+                            dec,
+                            expected_intention_id,
+                            transaction_id,
+                            outcome="failed",
+                            reason="execution_failed",
+                        )
                     except Exception:
                         pass
                 else:
@@ -387,6 +425,13 @@ class DirectorLoop:
                         decision_id,
                         delivery_state="failed",
                         outcome="execution_failed",
+                    )
+                    self._record_goal_action_outcome(
+                        dec,
+                        expected_intention_id,
+                        decision_id or f"decision:{dec.action.value}:{now}",
+                        outcome="failed",
+                        reason="execution_failed",
                     )
                 self._log.warning("director_execute_failed",
                                   action=dec.action.value, error=str(e))
@@ -454,6 +499,70 @@ class DirectorLoop:
             self_talk_ready=self_talk_ready,
             self_talk_wait_reason=self_talk_wait_reason,
         )
+
+    @staticmethod
+    def _decision_intention_id(dec: Any, value: DirectorInput) -> str | None:
+        goal_id = getattr(dec, "goal_id", None)
+        intention = value.goals.current_intention
+        if (
+            not isinstance(goal_id, str)
+            or intention is None
+            or intention.goal_id != goal_id
+        ):
+            return None
+        return intention.intention_id
+
+    def _current_intention_id(self, goal_id: str | None) -> str | None:
+        if not isinstance(goal_id, str) or not goal_id or self._goal_manager is None:
+            return None
+        try:
+            snapshot = self._goal_manager.snapshot()
+            intention = snapshot.current_intention
+            if (
+                snapshot.active is None
+                or snapshot.active.goal_id != goal_id
+                or intention is None
+                or intention.goal_id != goal_id
+            ):
+                return None
+            return intention.intention_id
+        except Exception:
+            return None
+
+    def _record_goal_action_outcome(
+        self,
+        dec: Any,
+        intention_id: str | None,
+        outcome_id: str,
+        *,
+        outcome: str,
+        reason: str,
+    ) -> None:
+        goal_id = getattr(dec, "goal_id", None)
+        if (
+            self._goal_manager is None
+            or not isinstance(goal_id, str)
+            or not goal_id
+            or not isinstance(intention_id, str)
+            or not intention_id
+        ):
+            return
+        try:
+            self._goal_manager.record_action_outcome(
+                goal_id,
+                intention_id,
+                str(outcome_id),
+                outcome=outcome,
+                reason=reason,
+            )
+        except Exception as exc:
+            self._log.warning(
+                "director_goal_outcome_failed",
+                goal_id=goal_id,
+                intention_id=intention_id,
+                outcome=outcome,
+                error=str(exc),
+            )
 
     def _self_talk_readiness(self, now: float) -> tuple[bool, str]:
         if self._self_talk_planner is None or not self._self_talk_planner.enabled:
@@ -541,6 +650,7 @@ class DirectorLoop:
         *, transaction_id: str | None = None,
     ) -> bool:
         context = self._action_context_builder.render(dec, director_input)
+        intention_id = self._decision_intention_id(dec, director_input)
         thread = None
         if dec.goal_id and director_input.goals.active is not None:
             parent_id = director_input.goals.active.parent_thread_id
@@ -594,6 +704,7 @@ class DirectorLoop:
                             dec,
                             now,
                             thread,
+                            intention_id=intention_id,
                             transaction_id=transaction_id,
                         )
                     self._quarantine_repetition_context(
@@ -618,6 +729,7 @@ class DirectorLoop:
                         dec,
                         now,
                         thread,
+                        intention_id=intention_id,
                         transaction_id=transaction_id,
                     )
                 self._quarantine_repetition_context(
@@ -626,6 +738,7 @@ class DirectorLoop:
                 return False
         spoken = await self._maybe_speak(
             req_id, parsed, dec.action, [], goal_id=dec.goal_id,
+            intention_id=intention_id,
             transaction_id=transaction_id,
             thread_id=thread.thread_id if thread is not None else None,
             conversation_move=(
@@ -645,6 +758,7 @@ class DirectorLoop:
         now: float,
         thread: Any,
         *,
+        intention_id: str | None = None,
         transaction_id: str | None = None,
     ) -> bool:
         """Deliver one explicit close when a continuation cannot add a fresh idea."""
@@ -672,6 +786,7 @@ class DirectorLoop:
             dec.action,
             [],
             goal_id=dec.goal_id,
+            intention_id=intention_id,
             transaction_id=transaction_id,
             thread_id=thread.thread_id,
             conversation_move="park",
@@ -1071,16 +1186,19 @@ class DirectorLoop:
         refs: list[Any],
         *,
         goal_id: str | None = None,
+        intention_id: str | None = None,
         transaction_id: str | None = None,
         thread_id: str | None = None,
         conversation_move: str | None = None,
     ) -> bool:
+        intention_id = intention_id or self._current_intention_id(goal_id)
         spoken = await self._delivery_boundary().deliver(
             req_id,
             parsed,
             action,
             refs,
             goal_id=goal_id,
+            intention_id=intention_id,
             transaction_id=transaction_id,
             thread_id=thread_id,
             conversation_move=conversation_move,
@@ -1281,13 +1399,18 @@ class DirectorLoop:
 
     def _record_speech_completed(
         self, request_id: str, action: Any, refs: list[Any], *,
-        goal_id: str | None = None, text: str = "", thread_id: str | None = None,
+        goal_id: str | None = None, intention_id: str | None = None,
+        text: str = "", thread_id: str | None = None,
         conversation_move: str | None = None,
     ) -> None:
         if self._agent_state is None:
             return
         try:
             snapshot = self._agent_state.snapshot()
+            effective_goal_id = goal_id or snapshot.active_goal_ref
+            effective_intention_id = intention_id or self._current_intention_id(
+                effective_goal_id,
+            )
             self._agent_state.record(GroundedEvent(
                 event_id=f"agent:speech_completed:{request_id}",
                 kind=AgentEventKind.SPEECH_COMPLETED,
@@ -1296,7 +1419,8 @@ class DirectorLoop:
                 confidence=1.0,
                 payload={
                     "action": getattr(action, "value", str(action)),
-                    "goal_id": goal_id or snapshot.active_goal_ref,
+                    "goal_id": effective_goal_id,
+                    "intention_id": effective_intention_id,
                     "ref_event_ids": [getattr(ref, "msg_id", "") for ref in refs],
                     "text": text,
                     "thread_id": thread_id,

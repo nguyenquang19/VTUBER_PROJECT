@@ -132,3 +132,40 @@ async def test_service_lifecycle_and_runtime_toggle() -> None:
     assert (await generator.health_check()).is_ok
     assert generator.enabled
     await generator.stop()
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("evidence_max_items", True),
+        ("max_tokens", "100"),
+        ("temperature", float("nan")),
+        ("temperature", 3.0),
+        ("max_reason_chars", 0),
+        ("enabled", "false"),
+    ],
+)
+def test_goal_proposal_config_rejects_coercion_and_invalid_ranges(
+    field_name: str, value: object,
+) -> None:
+    values: dict[str, object] = {
+        "allowed_kinds": (GoalKind.CONTINUE_THREAD,),
+        "evidence_max_items": 3,
+        "max_tokens": 100,
+        "temperature": 0.1,
+        "max_reason_chars": 80,
+        "enabled": False,
+    }
+    values[field_name] = value
+    with pytest.raises(ValueError):
+        GoalProposalGenerator(
+            FakeLLM("{}"),
+            "strict prompt",
+            **values,  # type: ignore[arg-type]
+        )
+
+
+def test_goal_proposal_runtime_toggle_is_strict_boolean() -> None:
+    generator, _llm = _generator("{}", enabled=False)
+    with pytest.raises(ValueError, match="boolean"):
+        generator.set_enabled("true")  # type: ignore[arg-type]

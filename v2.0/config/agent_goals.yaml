@@ -5,6 +5,8 @@ goal_manager:
   terminal_history_max: 32
   metadata_text_max_chars: 240
   short_intention_max_steps: 3
+  action_failure_policy: fail
+  action_cancellation_policy: cancel
   default_ttl_s: 300
   donation_ttl_s: 120
   wait_for_answer_ttl_s: 90

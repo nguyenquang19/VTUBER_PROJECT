@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from interfaces.animation import MoodState
 from services.agent.agenda_policy import AgendaPolicy, AgendaPolicyConfig
 from services.agent.goal_types import Goal, GoalKind, GoalSnapshot, GoalSource, GoalStatus
@@ -143,3 +145,23 @@ def test_agenda_does_not_apply_mood_priority_to_created_goal() -> None:
         mood=MoodState(bon_chon=8),
     )[0]
     assert goal.priority == 40
+
+
+@pytest.mark.parametrize("value", [True, "60", 2.5, 0, -1])
+def test_agenda_policy_config_rejects_coerced_or_invalid_ttl(value: object) -> None:
+    with pytest.raises(ValueError):
+        AgendaPolicyConfig(
+            priorities={kind: 40 for kind in GoalKind},
+            ttl_seconds={
+                kind: (value if kind is GoalKind.CONTINUE_THREAD else 60)
+                for kind in GoalKind
+            },
+        )
+
+
+def test_agenda_policy_config_requires_complete_kind_inventory() -> None:
+    with pytest.raises(ValueError, match="every GoalKind"):
+        AgendaPolicyConfig(
+            priorities={GoalKind.CONTINUE_THREAD: 40},
+            ttl_seconds={kind: 60 for kind in GoalKind},
+        )

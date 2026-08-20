@@ -53,6 +53,7 @@ class DirectorDeliveryBoundary:
         refs: list[Any],
         *,
         goal_id: str | None = None,
+        intention_id: str | None = None,
         transaction_id: str | None = None,
         thread_id: str | None = None,
         conversation_move: str | None = None,
@@ -80,6 +81,15 @@ class DirectorDeliveryBoundary:
             )
             return False
 
+        if goal_id is not None and intention_id is None:
+            self.finalize_runner_delivery(request_id, False)
+            self._log.warning(
+                "director_goal_intention_missing",
+                goal_id=goal_id,
+                request_id=request_id,
+            )
+            return False
+
         if transaction_id is not None:
             self._transactions.mark_generated(transaction_id)
             self._transactions.mark_delivering(transaction_id)
@@ -96,7 +106,7 @@ class DirectorDeliveryBoundary:
                 action_type=action_type,
                 target=None,
                 arguments={"text": text},
-                intention_id=goal_id,
+                intention_id=intention_id,
                 evidence_refs=(f"delivery:{request_id}",),
                 idempotency_key=f"speech:{request_id}",
                 priority=0.0,
@@ -149,6 +159,7 @@ class DirectorDeliveryBoundary:
             action,
             refs,
             goal_id=goal_id,
+            intention_id=intention_id,
             text=text,
             thread_id=thread_id,
             conversation_move=conversation_move,
