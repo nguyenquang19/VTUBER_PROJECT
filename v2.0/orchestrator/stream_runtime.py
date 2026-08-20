@@ -1579,6 +1579,7 @@ async def _compose_stream_runtime(
     # ─── C0.4: Director stack — cầm nhịp thay FIFO ───
     from services.director.chat_pulse import ChatPulse
     from services.director.action_context import ActionContextBuilder
+    from services.director.action_types import DirectorInput
     from services.director.director import Director
     from services.director.director_loop import DirectorLoop
     from services.director.proactive_policy import ProactiveHostingPolicy
@@ -2238,6 +2239,7 @@ async def _compose_stream_runtime(
             candidates.extend(chat_candidates)
         except Exception:
             failed("chat")
+        goal_snapshot = None
         try:
             goal_snapshot = goal_manager.snapshot()
             if goal_snapshot.active is not None:
@@ -2253,19 +2255,25 @@ async def _compose_stream_runtime(
         except Exception:
             failed("goal")
         try:
+            if goal_snapshot is None:
+                raise ValueError("goal snapshot is unavailable")
             agent_snapshot = agent_state.snapshot()
-            thread_candidates: list[DirectorV2Candidate] = []
-            for thread in agent_snapshot.open_threads[
-                :director_v2_config.max_candidates_per_source
-            ]:
-                if not isinstance(thread.thread_id, str):
+            thread_choice = proactive_policy.choose_open_thread(
+                DirectorInput(
+                    now=now,
+                    agent_state=agent_snapshot,
+                    goals=goal_snapshot,
+                ),
+                allowed_actions=set(director.current_segment().allowed_actions),
+            )
+            if thread_choice is not None and thread_choice.action.value == "follow_up":
+                if not isinstance(thread_choice.source_id, str):
                     raise ValueError("thread ID is invalid")
-                thread_candidates.append(DirectorV2Candidate(
-                    source="thread", candidate_id=thread.thread_id,
+                candidates.append(DirectorV2Candidate(
+                    source="thread", candidate_id=thread_choice.source_id,
                     action_type="FOLLOW_UP", capability_id="FOLLOW_UP", score=0.0,
-                    evidence_refs=(f"thread:{thread.thread_id}",),
+                    evidence_refs=(f"thread:{thread_choice.source_id}",),
                 ))
-            candidates.extend(thread_candidates)
         except Exception:
             failed("thread")
         capability_identity: list[dict[str, object]] = []
@@ -2310,7 +2318,11 @@ async def _compose_stream_runtime(
             capability_snapshot_id = "capabilities-unavailable"
             failed("capability")
         try:
-            if autonomy.urge.should_speak_now():
+            urge_ready = autonomy.urge.should_speak_now()
+            self_talk_ready, _ = director_loop.self_talk_candidate_readiness(
+                now, urge_ready=urge_ready,
+            )
+            if self_talk_ready:
                 candidates.append(DirectorV2Candidate(
                     source="proactive", candidate_id="urge", action_type="SELF_TALK",
                     capability_id="SELF_TALK", evidence_refs=("proactive:urge",),

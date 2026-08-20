@@ -436,6 +436,9 @@ def test_runtime_context_uses_strict_holds_and_stable_projection_identity() -> N
     assert "emergency_controller.snapshot()" in context_source
     assert "control_plane.paused" in context_source
     assert "director_v2_snapshot_id(" in context_source
+    assert "proactive_policy.choose_open_thread(" in context_source
+    assert "director_loop.self_talk_candidate_readiness(" in context_source
+    assert "for thread in agent_snapshot.open_threads[" not in context_source
     assert "available_count" not in context_source
     assert 'source="world"' not in context_source
     assert 'candidate_id=f"cap:' not in context_source

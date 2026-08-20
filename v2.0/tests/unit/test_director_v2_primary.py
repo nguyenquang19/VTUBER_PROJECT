@@ -110,6 +110,17 @@ def test_materializes_wait_chat_donation_and_self_talk_deterministically() -> No
     assert materializer.materialize(_proposal("READ_CHAT", "chat-1"), value) == read
 
 
+def test_self_talk_materialization_revalidates_director_cooldown() -> None:
+    director = _director()
+    director.mark_spoke(DirectorAction.SELF_TALK, 0.0)
+
+    with pytest.raises(DirectorV2MaterializationError, match="self_talk_not_ready"):
+        DirectorV2DecisionMaterializer(director).materialize(
+            _proposal("SELF_TALK", "urge", evidence=("proactive:urge",)),
+            _input(urge_ready=True, self_talk_ready=True),
+        )
+
+
 @pytest.mark.parametrize(
     ("kind", "goal_changes", "expected"),
     [

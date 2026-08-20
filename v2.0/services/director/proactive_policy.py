@@ -75,6 +75,7 @@ class ProactiveHostingPolicy:
         self._metrics = metrics
         self.enabled = bool(enabled)
         self._last_used: dict[str, float] = {}
+        self._counts: dict[str, int] = {}
 
     @classmethod
     def from_loader(
@@ -92,35 +93,16 @@ class ProactiveHostingPolicy:
     def choose(
         self, value: DirectorInput, *, allowed_actions: set[str], silence_ready: bool,
     ) -> ProactiveChoice | None:
-        if not self.enabled or value.goals.active is not None:
+        if not self.enabled:
             return None
-        eligible_threads = tuple(
-            thread for thread in value.agent_state.open_threads
-            if getattr(thread.status, "value", "active") == "active"
+        thread_choice = self.choose_open_thread(
+            value, allowed_actions=allowed_actions,
         )
-        if eligible_threads:
-            thread = max(
-                eligible_threads,
-                key=lambda item: (item.updated_at, item.thread_id),
-            )
-            source_key = f"open_thread:{thread.thread_id}"
-            action = (
-                DirectorAction.FOLLOW_UP if "follow_up" in allowed_actions
-                else DirectorAction.SELF_TALK
-            )
-            if action.value in allowed_actions and self._ready(source_key, value.now):
-                evidence = tuple(item.source_event_id for item in thread.evidence)
-                evidence_ids = evidence or ((thread.origin_event_id or thread.thread_id),)
-                return self._selected(ProactiveChoice(
-                    ProactiveSource.OPEN_THREAD, action, self.config.open_thread_category,
-                    "grounded_open_thread", thread.thread_id, evidence_ids, thread.summary,
-                ))
-            if action.value in allowed_actions:
-                self._record(ProactiveSource.OPEN_THREAD.value, "cooldown")
-                return ProactiveChoice(
-                    ProactiveSource.OPEN_THREAD, DirectorAction.WAIT, "",
-                    "grounded_source_cooldown", thread.thread_id,
-                )
+        if thread_choice is not None:
+            return thread_choice
+        if value.goals.active is not None:
+            return None
+
         environment = value.agent_state.environment_summary or {}
         if bool(environment.get("salient")):
             source_id = str(environment.get("source_event_id") or "").strip()
@@ -159,12 +141,54 @@ class ProactiveHostingPolicy:
             ))
         return None
 
+    def choose_open_thread(
+        self, value: DirectorInput, *, allowed_actions: set[str],
+    ) -> ProactiveChoice | None:
+        """Return the one authoritative thread choice without consuming cooldown."""
+        if not self.enabled or value.goals.active is not None:
+            return None
+        eligible_threads = tuple(
+            thread for thread in value.agent_state.open_threads
+            if getattr(thread.status, "value", "active") == "active"
+        )
+        if eligible_threads:
+            thread = max(
+                eligible_threads,
+                key=lambda item: (item.updated_at, item.thread_id),
+            )
+            source_key = f"open_thread:{thread.thread_id}"
+            action = (
+                DirectorAction.FOLLOW_UP if "follow_up" in allowed_actions
+                else DirectorAction.SELF_TALK
+            )
+            if action.value in allowed_actions and self._ready(source_key, value.now):
+                evidence = tuple(item.source_event_id for item in thread.evidence)
+                evidence_ids = evidence or ((thread.origin_event_id or thread.thread_id),)
+                return self._selected(ProactiveChoice(
+                    ProactiveSource.OPEN_THREAD, action, self.config.open_thread_category,
+                    "grounded_open_thread", thread.thread_id, evidence_ids, thread.summary,
+                ))
+            if action.value in allowed_actions:
+                self._record(ProactiveSource.OPEN_THREAD.value, "cooldown")
+                return ProactiveChoice(
+                    ProactiveSource.OPEN_THREAD, DirectorAction.WAIT, "",
+                    "grounded_source_cooldown", thread.thread_id,
+                )
+        return None
+
     def mark_used(self, choice: ProactiveChoice, now: float) -> None:
         self._last_used[f"{choice.source.value}:{choice.source_id}"] = float(now)
         self._record(choice.source.value, "used")
 
     def mark_source_used(self, source: str, identifier: str, now: float) -> None:
         self._last_used[f"{source}:{identifier}"] = float(now)
+
+    def get_metrics(self) -> dict[str, Any]:
+        return {
+            "proactive_policy_enabled": self.enabled,
+            "proactive_source_cooldown_seconds": self.config.source_cooldown_seconds,
+            "proactive_candidate_outcomes": dict(sorted(self._counts.items())),
+        }
 
     def _ready(
         self, source_key: str, now: float, cooldown_seconds: float | None = None,
@@ -181,6 +205,8 @@ class ProactiveHostingPolicy:
         return choice
 
     def _record(self, source: str, outcome: str) -> None:
+        key = f"{source}:{outcome}"
+        self._counts[key] = self._counts.get(key, 0) + 1
         if self._metrics is not None and hasattr(self._metrics, "record_proactive_candidate"):
             try:
                 self._metrics.record_proactive_candidate(source, outcome)

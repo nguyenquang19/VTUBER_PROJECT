@@ -379,7 +379,9 @@ class SelfTalkPlanner(SelfTalkPlanningService):
             and self._lore_material.has_reservation(lore_id)
         )
 
-    def readiness(self, now: float) -> SelfTalkReadiness:
+    def readiness(
+        self, now: float, context: SelfTalkContext | None = None,
+    ) -> SelfTalkReadiness:
         if not self._enabled:
             return SelfTalkReadiness(ready=False, reason="disabled")
         if self._pending is not None:
@@ -400,6 +402,8 @@ class SelfTalkPlanner(SelfTalkPlanningService):
             return SelfTalkReadiness(
                 ready=False, reason="thought_wait_chat", retry_at=self._arc.wait_until,
             )
+        if context is not None and not self._has_schedulable_material(context):
+            return SelfTalkReadiness(ready=False, reason="no_material")
         return SelfTalkReadiness(ready=True)
 
     def commit(self, plan_id: str, delivered_text: str, now: float) -> bool:
@@ -688,6 +692,22 @@ class SelfTalkPlanner(SelfTalkPlanningService):
     def _has_recent_material(self, value: str) -> bool:
         without_emojis = re.sub(r":[^:\s]+:", " ", str(value))
         return len(_token_set(without_emojis)) >= self._recent_context_min_tokens
+
+    def _has_schedulable_material(self, ctx: SelfTalkContext) -> bool:
+        if self._arc is not None and self._arc.stage is not SelfTalkStage.WAIT:
+            return True
+        if ctx.environment_summary and ctx.environment_summary.strip():
+            return True
+        if ctx.recent_context and self._has_recent_material(ctx.recent_context[-1]):
+            return True
+        if ctx.silence_seconds < self._min_silence_s:
+            return False
+        if (
+            self._lore_material is not None
+            and self._lore_material.has_available_material()
+        ):
+            return True
+        return not self._silence_consumed
 
     def _limits_for(self, stage: SelfTalkStage) -> dict[str, Any]:
         default_questions = stage is SelfTalkStage.INVITE

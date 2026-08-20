@@ -5,6 +5,7 @@ import argparse
 import asyncio
 import hashlib
 import json
+import random
 import sys
 from collections import Counter
 from datetime import datetime, timezone
@@ -18,7 +19,8 @@ sys.path.insert(0, str(REPO_ROOT))
 from interfaces.animation import MoodState  # noqa: E402
 from interfaces.tts import TTSDeliveryMode, TTSDeliveryResult  # noqa: E402
 from orchestrator.config_loader import ConfigLoader  # noqa: E402
-from services.autonomy.material_provider import RuntimeContext  # noqa: E402
+from orchestrator.autonomy_engine import AutonomyConfig, AutonomyEngine  # noqa: E402
+from services.autonomy.material_provider import MaterialProvider, RuntimeContext  # noqa: E402
 from services.autonomy.self_talk_planner import SelfTalkPlanner  # noqa: E402
 from services.agent.agent_state import AgentState  # noqa: E402
 from services.agent.agenda_policy import AgendaPolicy  # noqa: E402
@@ -30,6 +32,7 @@ from services.agent.thread_detector import RuleThreadDetector  # noqa: E402
 from services.agent.topic_matcher import LexicalTopicMatcher  # noqa: E402
 from services.director.action_transaction import ActionTransactionManager  # noqa: E402
 from services.director.action_context import ActionContextBuilder  # noqa: E402
+from services.director.action_types import DirectorInput  # noqa: E402
 from services.director.chat_pulse import ChatPulse  # noqa: E402
 from services.director.decision_record import DecisionRecordManager  # noqa: E402
 from services.director.director import (  # noqa: E402
@@ -41,6 +44,14 @@ from services.director.director import (  # noqa: E402
 from services.director.director_loop import DirectorLoop  # noqa: E402
 from services.director.proactive_policy import ProactiveHostingPolicy  # noqa: E402
 from services.director.salience import SaliencePool  # noqa: E402
+from services.director.v2_shadow import (  # noqa: E402
+    DirectorV2Shadow,
+    DirectorV2ShadowConfig,
+    director_v2_snapshot_id,
+)
+from services.director.v2_takeover import DirectorV2Takeover  # noqa: E402
+from services.capability.registry import CapabilityRegistry  # noqa: E402
+from interfaces.director_v2 import DirectorV2Candidate, DirectorV2Context  # noqa: E402
 from services.emotion.classifier import EventClassifier  # noqa: E402
 from services.emotion.mood_style import MoodStyleTable  # noqa: E402
 from services.input.chat_router import ChatRouter  # noqa: E402
@@ -136,27 +147,6 @@ class _ReplayRunner:
         self.committed_self_talk.append(text)
 
 
-class _ReplayUrge:
-    def should_speak_now(self) -> bool:
-        return False
-
-
-class _ReplayAutonomy:
-    urge = _ReplayUrge()
-
-    def force_generate(self, _mood: MoodState, _context: Any) -> Any:
-        return SimpleNamespace(prompt_text="Giữ nhịp phòng live trong khoảng im lặng.")
-
-    def force_generate_for(self, category: str, _mood: MoodState, _context: Any) -> Any:
-        return SimpleNamespace(prompt_text=f"Mô phỏng proactive category: {category}")
-
-    def check_dedup(self, _text: str) -> bool:
-        return False
-
-    def on_self_spoke(self, _text: str) -> None:
-        return None
-
-
 def _director_from_config(
     loader: ConfigLoader,
     pool: SaliencePool,
@@ -164,6 +154,7 @@ def _director_from_config(
     *,
     duration_seconds: float,
     clock: Any,
+    proactive_policy: ProactiveHostingPolicy,
 ) -> Director:
     values = loader.get("director", "director", {}) or {}
     segment = Segment(
@@ -197,7 +188,7 @@ def _director_from_config(
         ask_follow_up_before_expiry_s=float(
             (values.get("arbiter") or {}).get("ask_follow_up_before_expiry_s", 20.0)
         ),
-        proactive_policy=ProactiveHostingPolicy.from_loader(loader, enabled=True),
+        proactive_policy=proactive_policy,
         clock=clock,
     )
 
@@ -254,6 +245,12 @@ async def simulate_replay(
     clock = {"now": clock_start}
     clock_fn = lambda: clock["now"]
     datetime_clock = lambda: datetime.fromtimestamp(clock["now"], tz=timezone.utc)
+    replay_seed = loader.get(
+        "evaluation", f"{replay_config}.random_seed", None,
+    )
+    if isinstance(replay_seed, bool) or not isinstance(replay_seed, int):
+        raise ValueError("youtube replay random_seed must be an int")
+    replay_rng = random.Random(replay_seed)
     topic_matcher = LexicalTopicMatcher.from_loader(loader)
     move_planner = ConversationMovePlanner.from_loader(loader)
     thread_detector = RuleThreadDetector.from_loader(loader, matcher=topic_matcher)
@@ -279,13 +276,22 @@ async def simulate_replay(
         [source], emotion, runner, pool=pool, pulse=pulse, agent_state=agent_state,
     )
     duration_seconds = source.result.duration_ms / 1000.0
+    proactive_policy = ProactiveHostingPolicy.from_loader(loader, enabled=True)
     director = _director_from_config(
         loader, pool, pulse, duration_seconds=duration_seconds, clock=clock_fn,
+        proactive_policy=proactive_policy,
     )
     transactions = _transaction_manager(loader, clock_fn)
     decisions = _decision_manager(loader, clock_fn)
     self_talk_planner = SelfTalkPlanner.from_loader(
         loader, mood_style=MoodStyleTable.from_loader(loader), enabled=True,
+    )
+    autonomy = AutonomyEngine(
+        AutonomyConfig.from_loader(loader),
+        MaterialProvider.from_loader(loader, rng=replay_rng),
+        clock=clock_fn,
+        rng=replay_rng,
+        mood_style=MoodStyleTable.from_loader(loader),
     )
 
     deliveries: list[dict[str, str]] = []
@@ -306,7 +312,7 @@ async def simulate_replay(
         pool,
         pulse,
         runner,
-        autonomy=_ReplayAutonomy(),
+        autonomy=autonomy,
         speak=deliver,
         clock=clock_fn,
         transaction_manager=transactions,
@@ -366,12 +372,155 @@ async def simulate_replay(
             "director", "director.speech_style.max_regenerations", 1,
         )),
     )
+
+    capability_enabled = loader.get(
+        "features", "features.capability_registry.enabled", False,
+    )
+    shadow_enabled = loader.get(
+        "features", "features.director_v2_shadow.enabled", False,
+    )
+    takeover_enabled = loader.get(
+        "features", "features.director_v2_takeover.enabled", False,
+    )
+    if not all(isinstance(value, bool) for value in (
+        capability_enabled, shadow_enabled, takeover_enabled,
+    )):
+        raise ValueError("Director V2 replay feature flags must be bool")
+
+    capability_registry = CapabilityRegistry.from_loader(
+        loader,
+        world_snapshot_provider=lambda: {},
+        self_snapshot_provider=lambda: {},
+        transaction_snapshot_provider=transactions.snapshot,
+        health_snapshot_provider=lambda: {"targets": {
+            "tts": {"health": "healthy"},
+            "input_router": {"health": "healthy"},
+            "local_wait": {"health": "healthy"},
+            "mock_external": {"health": "healthy"},
+            "avatar_adapter": {"health": "unhealthy"},
+            "obs_websocket": {"health": "unhealthy"},
+        }},
+        enabled=capability_enabled,
+        clock=datetime_clock,
+    )
+    for verifier_id in (
+        "speech_delivery", "local_wait", "input_reader", "avatar_state",
+        "mock_media", "obs_scene_state", "mock_call",
+    ):
+        capability_registry.register_verifier(verifier_id)
+    director_v2_config = DirectorV2ShadowConfig.from_loader(loader)
+
+    def director_v2_context() -> DirectorV2Context:
+        now = clock_fn()
+        candidates: list[DirectorV2Candidate] = []
+        for message in pool.top_cluster(
+            now, max_refs=director_v2_config.max_candidates_per_source,
+        ):
+            candidates.append(DirectorV2Candidate(
+                source="chat",
+                candidate_id=message.msg_id,
+                action_type="READ_CHAT",
+                capability_id="READ_CHAT",
+                score=pool.current_score(message, now),
+                evidence_refs=(f"chat:{message.msg_id}",),
+                is_donation=message.is_super,
+            ))
+        goal_snapshot = goal_manager.snapshot()
+        if goal_snapshot.active is not None:
+            goal = goal_snapshot.active
+            candidates.append(DirectorV2Candidate(
+                source="goal",
+                candidate_id=goal.goal_id,
+                action_type="FOLLOW_UP",
+                capability_id="FOLLOW_UP",
+                score=goal.priority,
+                evidence_refs=(f"goal:{goal.goal_id}",),
+            ))
+        agent_snapshot = agent_state.snapshot()
+        thread_choice = proactive_policy.choose_open_thread(
+            DirectorInput(
+                now=now,
+                agent_state=agent_snapshot,
+                goals=goal_snapshot,
+            ),
+            allowed_actions=set(director.current_segment().allowed_actions),
+        )
+        if thread_choice is not None and thread_choice.action is DirectorAction.FOLLOW_UP:
+            candidates.append(DirectorV2Candidate(
+                source="thread",
+                candidate_id=thread_choice.source_id,
+                action_type="FOLLOW_UP",
+                capability_id="FOLLOW_UP",
+                score=0.0,
+                evidence_refs=(f"thread:{thread_choice.source_id}",),
+            ))
+        urge_ready = autonomy.urge.should_speak_now()
+        self_talk_ready, _ = loop.self_talk_candidate_readiness(
+            now, urge_ready=urge_ready,
+        )
+        if self_talk_ready:
+            candidates.append(DirectorV2Candidate(
+                source="proactive",
+                candidate_id="urge",
+                action_type="SELF_TALK",
+                capability_id="SELF_TALK",
+                evidence_refs=("proactive:urge",),
+            ))
+        transaction_snapshot = transactions.snapshot()
+        transaction_conflict = any(
+            item.get("state") in {"reserved", "generated", "delivering", "delivered"}
+            for item in transaction_snapshot.get("recent", ())
+            if isinstance(item, dict)
+        )
+        capability_snapshot = capability_registry.snapshot()
+        capability_identity = [{
+            "capability_id": item["capability"]["capability_id"],
+            "action_type": item["capability"]["action_type"],
+            "available": item["availability"]["available"],
+            "reason_code": item["availability"]["reason_code"],
+            "mock_only": item["mock_only"],
+        } for item in capability_snapshot["capabilities"]]
+        self_identity = {
+            "active_goal_id": (
+                goal_snapshot.active.goal_id if goal_snapshot.active is not None else None
+            ),
+            "open_thread_ids": tuple(
+                thread.thread_id for thread in agent_snapshot.open_threads
+            ),
+            "transaction_conflict": transaction_conflict,
+        }
+        return DirectorV2Context(
+            created_at=now,
+            world_snapshot_id=director_v2_snapshot_id("world", {}),
+            self_snapshot_id=director_v2_snapshot_id("self", self_identity),
+            capability_snapshot_id=director_v2_snapshot_id(
+                "capabilities", capability_identity,
+            ),
+            candidates=tuple(candidates),
+            permission_hold=not capability_registry.enabled,
+            transaction_conflict=transaction_conflict,
+        )
+
+    director_v2_shadow = DirectorV2Shadow(
+        director_v2_config,
+        capability_registry=capability_registry,
+        context_provider=director_v2_context,
+        enabled=shadow_enabled,
+        clock=clock_fn,
+    )
+    director_v2_takeover = DirectorV2Takeover.from_loader(
+        loader, enabled=takeover_enabled, clock=clock_fn,
+    )
+    loop.configure_director_v2_takeover(
+        director_v2_shadow, director_v2_takeover,
+    )
     recent_context: list[str] = []
     activity = {"last": clock_start, "count": 0}
 
     def note_activity(event: Any) -> None:
         activity["last"] = clock["now"]
         activity["count"] += 1
+        autonomy.on_external_activity()
         text = " ".join(str(getattr(event, "content", "")).split())[:240]
         if text:
             recent_context.append(text)
@@ -387,6 +536,8 @@ async def simulate_replay(
     director.start(clock_start)
     await transactions.start()
     await decisions.start()
+    await capability_registry.start()
+    await director_v2_takeover.start()
     await self_talk_planner.start()
     await agent_state.start()
     await goal_manager.start()
@@ -406,10 +557,15 @@ async def simulate_replay(
     room_reaction_offsets_ms: list[int] = []
     delivery_offsets_ms: list[int] = []
     false_thread_commits = 0
+    next_autonomy_tick_ms = int(round(autonomy.cfg.tick_seconds * 1000.0))
 
     try:
         for tick_index in range(last_tick + 1):
             clock["now"] = clock_start + ((tick_index + 1) * tick_window_ms / 1000.0)
+            elapsed_ms = (tick_index + 1) * tick_window_ms
+            while next_autonomy_tick_ms <= elapsed_ms:
+                autonomy.tick(MoodState())
+                next_autonomy_tick_ms += int(round(autonomy.cfg.tick_seconds * 1000.0))
             incoming = by_tick.get(tick_index, [])
             if incoming:
                 nonempty_ticks += 1
@@ -423,6 +579,7 @@ async def simulate_replay(
                 for thread in agent_state.snapshot().open_threads
             }
             action = await loop.tick_once()
+            decision_snapshot = decisions.snapshot().get("current") or {}
             if len(deliveries) == deliveries_before:
                 false_thread_commits += sum(
                     thread.move_count > moves_before.get(thread.thread_id, 0)
@@ -443,7 +600,8 @@ async def simulate_replay(
                     room_reaction_offsets_ms.append(
                         (tick_index + 1) * tick_window_ms
                     )
-            reason_counts[expected.reason] += 1
+            actual_reason = str(decision_snapshot.get("reason") or expected.reason)
+            reason_counts[actual_reason] += 1
             selected = [
                 {
                     "event_id": ref.msg_id,
@@ -472,12 +630,17 @@ async def simulate_replay(
                         for event in incoming
                     ],
                     "action": action.value,
-                    "reason": expected.reason,
+                    "reason": actual_reason,
                     "read_mode": expected.read_mode.value if expected.read_mode else None,
                     "selected": selected,
                     "pool_after": pool.size(),
                     "runner_calls": runner.calls[calls_before:],
                     "deliveries": deliveries[deliveries_before:],
+                    "director_v2": {
+                        "proposal": director_v2_shadow.snapshot().get("current"),
+                        "selection": director_v2_takeover.snapshot().get("current"),
+                        "decision": decision_snapshot,
+                    },
                     "threads": [
                         {
                             "thread_id": thread.thread_id,
@@ -489,6 +652,8 @@ async def simulate_replay(
                     ],
                 })
     finally:
+        await director_v2_takeover.stop()
+        await capability_registry.stop()
         await goal_manager.stop()
         await agent_state.stop()
         await self_talk_planner.stop()
@@ -518,6 +683,7 @@ async def simulate_replay(
         "input_file": str(input_path.resolve()),
         "timing": {
             "tick_window_ms": tick_window_ms,
+            "random_seed": replay_seed,
             "duration_ms": result.duration_ms,
             "ticks_total": last_tick + 1,
             "ticks_with_chat": nonempty_ticks,
@@ -587,6 +753,11 @@ async def simulate_replay(
                 "maximum_gap_s": max(delivery_gaps_s) if delivery_gaps_s else None,
             },
             "metrics": loop.get_metrics(),
+            "director_v2": {
+                "shadow": director_v2_shadow.snapshot(),
+                "takeover": director_v2_takeover.snapshot(),
+                "capability_registry": capability_registry.get_metrics(),
+            },
         },
         "delivery": {
             "generated_responses": len(runner.calls),

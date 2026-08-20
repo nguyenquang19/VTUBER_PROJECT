@@ -215,6 +215,7 @@ class DirectorLoop:
         self._thread_focus_total = 0
         self._thread_boundary_clear_total = 0
         self._thread_forced_park_total = 0
+        self._self_talk_candidate_outcomes: dict[str, int] = {}
 
     def configure_director_v2_takeover(self, shadow: Any, selector: Any) -> None:
         """Attach the strict V2 ownership gate; DirectorLoop remains the driver."""
@@ -568,6 +569,22 @@ class DirectorLoop:
             self._build_director_input(current, bool(urge_ready)),
         )
 
+    def self_talk_candidate_readiness(
+        self, now: float | None = None, *, urge_ready: bool,
+    ) -> tuple[bool, str]:
+        """Build the live input and apply the same strict gate used at materialization."""
+        current = self._clock() if now is None else float(now)
+        value = self._build_director_input(current, bool(urge_ready))
+        if not value.urge_ready:
+            ready, reason = False, "urge_not_ready"
+        else:
+            ready, reason = self._director.self_talk_readiness(value)
+        key = "ready" if ready else reason
+        self._self_talk_candidate_outcomes[key] = (
+            self._self_talk_candidate_outcomes.get(key, 0) + 1
+        )
+        return ready, reason
+
     def _build_director_input(self, now: float, urge_ready: bool) -> DirectorInput:
         state = AgentStateSnapshot()
         goals = GoalSnapshot()
@@ -690,7 +707,14 @@ class DirectorLoop:
         if self._self_talk_planner is None or not self._self_talk_planner.enabled:
             return True, "legacy"
         try:
-            value = self._self_talk_planner.readiness(now)
+            runtime = self._runtime_ctx_fn() if self._runtime_ctx_fn else RuntimeContext()
+            context = SelfTalkContext(
+                silence_seconds=max(0.0, float(runtime.silence_seconds)),
+                chat_count_recent=max(0, int(runtime.chat_count_last_10min)),
+                recent_context=tuple(runtime.working_memory_recent[-3:]),
+                environment_summary=runtime.environment_summary,
+            )
+            value = self._self_talk_planner.readiness(now, context)
             return bool(value.ready), str(value.reason)
         except Exception:
             return False, "thought_readiness_failed"
@@ -2017,6 +2041,9 @@ class DirectorLoop:
             "director_thread_focus_total": self._thread_focus_total,
             "director_thread_boundary_clear_total": self._thread_boundary_clear_total,
             "director_thread_forced_park_total": self._thread_forced_park_total,
+            "director_self_talk_candidate_outcomes": dict(sorted(
+                self._self_talk_candidate_outcomes.items()
+            )),
             "director_speech_style_recent_count": self._speech_style.recent_count(),
             **planner_metrics,
         }

@@ -150,6 +150,15 @@ class LoreMaterialProvider:
     def has_reservation(self, material_id: str) -> bool:
         return self._pending is not None and self._pending[1].material_id == material_id
 
+    def has_available_material(self) -> bool:
+        """Read-only reserve precondition used by scheduling readiness."""
+        if not self._enabled or not self._materials:
+            return False
+        if self._pending is not None:
+            return True
+        recent = set(self._recent)
+        return any(item.material_id not in recent for item in self._materials)
+
     def set_enabled(self, enabled: bool) -> None:
         self._enabled = bool(enabled)
         if not self._enabled and self._pending is not None:

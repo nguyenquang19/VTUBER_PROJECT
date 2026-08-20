@@ -2420,6 +2420,29 @@ Ngày 20/08/2026:
 - strict V2 primary takeover targeted: 139 đạt; composition/config/documentation/compatibility impacted:
   204 đạt; deterministic materialization replay: đạt;
 - full offline `pytest tests -q`: 2.304 đạt, 0 lỗi trong 177,36 giây;
+- diagnostic YouTube replay qua strict V2 primary và llama.cpp thật trên corpus 60 event/15 viewer:
+  774 generation, 500 delivery/commit trong 1.241,949 giây; turn latency p50/p95
+  1.651,709/2.317,887 ms, TTFT p50/p95 788,347/950,075 ms và decode p50 37,733 token/s.
+  Bài chạy không đạt quality gate do fallback 5,94%, exact repetition 1,6%, opener công thức 33,8%,
+  câu hỏi 30,8% và ba output delivery nhầm ngữ cảnh danh tính bên thứ ba. Director V2 primary được chọn
+  7.224 tick, compatibility fallback 72 tick; transaction execute failure bằng 0 và toàn bộ 500 delivery
+  đều commit. Artifact gắn revision `553607cee3d2eec56ce543c505c007f2e9f3ef46` nhưng source đang dirty do
+  chính thay đổi harness/docs của task, nên chỉ là diagnostic evidence, chưa phải release evidence;
+- tuning FOLLOW_UP V2 primary: targeted 56 đạt, impacted Director/transaction/runtime/docs 282 đạt và
+  full offline regression 2.307 đạt. Hai deterministic replay cùng corpus/seed cho action, reason và
+  transaction counts giống nhau. Real-llama diagnostic giảm `FOLLOW_UP` 6.496 xuống 0, transaction
+  `released` 6.482 xuống 1.116, generation 774 xuống 286 và cadence delivery 2,741 xuống 0,976/phút;
+  quality gate vẫn không đạt do SELF_TALK/urge churn, primary fallback 5,35%, opener/câu hỏi còn cao,
+  một foreign-identity confusion và một context overflow. Artifact vẫn gắn cùng revision nhưng source
+  dirty do change đang review, nên không phải release evidence;
+- tuning strict SELF_TALK/urge readiness: targeted 84 đạt và full offline regression 2.310 đạt. Trên
+  cùng corpus/seed, deterministic preflight giảm SELF_TALK 4.193 xuống 123 và transaction `released`
+  4.201 xuống 131. Real-llama diagnostic giảm SELF_TALK 1.226 xuống 108, transaction `released` 1.116
+  xuống 14 và primary fallback 5,35% xuống 0,95%; 162/162 output đã commit đều được delivery, không có
+  cooldown violation, LLM error hoặc context overflow. Turn latency p50/p95 là 1.805,907/3.280,631 ms,
+  TTFT p50/p95 là 673,205/855,561 ms và decode p50 là 37,689 token/s. Scheduling/transaction gate đạt;
+  technical quality gate vẫn chưa đạt riêng do opener công thức 21,6% và câu hỏi kết thúc 22,22%.
+  Artifact gắn revision hiện tại nhưng source dirty do change đang review, nên chỉ là diagnostic evidence;
 - còn một cảnh báo deprecation giữa Starlette TestClient và `httpx`;
 - chưa chạy real-LLM acceptance, human review, live platform/audio/VTS/OBS/memory canary,
   backup/restore, security/PII hoặc rollback rehearsal; `llama-server` không được khởi động trong Phase 15.
@@ -2471,6 +2494,94 @@ Mỗi hành động mới cần ít nhất:
 Một bản phát hành phải có bằng chứng đã làm sạch cho đúng `system.app.version`, gồm kiểm thử đúng vùng, hồi quy ngoại tuyến, mô hình thật nếu có ảnh hưởng, kiểm thử chậm nếu đổi hàng chờ hoặc vòng đời, kiểm tra khói, kiểm tra trước phiên thật, phát lại nếu đổi hành vi và đánh giá con người nếu thay phong cách nói.
 
 Công cụ cổng phát hành chỉ kết luận đủ điều kiện hoặc bị chặn. Nó không tự tăng phiên bản, không tự xóa đường lui V1 và không thay người vận hành quyết định phát hành.
+
+### 24.6. Hợp đồng stress replay hội thoại YouTube cho V2 primary
+
+Stress replay dùng corpus YouTube đã crawl chỉ được coi là bằng chứng cho working tree hiện tại khi báo
+cáo gắn full Git SHA, trạng thái source lúc bắt đầu và cấu hình ownership thực tế. Khi
+`director_v2_takeover.ownership_mode=primary`, harness phải compose `DirectorV2Shadow`,
+`DirectorV2Takeover` và capability availability thật vào chính `DirectorLoop`; artifact cũ chỉ đi qua
+compatibility Director không được dùng để tuyên bố V2 primary đã stress-tested.
+
+Báo cáo tối thiểu phải giữ:
+
+- số input/event/viewer, thời lượng replay, throughput và kích thước pool cực đại;
+- latency mỗi turn, TTFT, decode tokens/giây với phân bố min/p50/p95/max;
+- số proposal/selection V2, primary selected, compatibility fallback, hard preemption và reason counts;
+- generated/delivered/committed, lỗi execute, fallback LLM, empty output và duplicate/repetition;
+- nhịp delivery/self-talk/room-reaction, độ dài trung bình, tỷ lệ câu hỏi và opener công thức;
+- cờ an toàn/persona/meta/identity trên cả candidate lẫn output đã delivery, cùng mẫu review người vận
+  hành được lấy đều trên toàn corpus.
+
+Replay phải deterministic ở cùng corpus, seed và config cho phần quyết định; llama.cpp vẫn có thể tạo
+khác biệt sampling nên chất lượng nội dung cần human review hoặc blind review riêng. Tình huống bất ngờ
+được đánh giá bằng failure/adversarial scenarios có evidence riêng; một corpus tự nhiên không chứa tình
+huống đó không được suy diễn là đã pass. Stress text/subtitle simulation không chứng minh TTS/audio,
+YouTube network, Discord đồng thời, OBS/VTS hay soak nhiều giờ.
+
+### 24.7. Hợp đồng tune nhịp FOLLOW_UP của V2 primary
+
+Director V2 primary không được biến sự tồn tại của một open thread thành `FOLLOW_UP` ở mọi tick. Candidate
+thread phải dùng cùng eligibility contract với `ProactiveHostingPolicy` đã sở hữu nhịp hội thoại:
+
+- proactive hosting phải đang bật, không có active goal và segment hiện tại phải cho phép `follow_up`;
+- chỉ thread `ACTIVE` được xét; `WAITING` và `PARKED` không phải candidate tự động;
+- nếu có nhiều thread hợp lệ, chỉ lấy thread cập nhật mới nhất, tie-break bằng `thread_id` để replay
+  deterministic;
+- source cooldown lấy từ `hosting.yaml::proactive_policy.source_cooldown_seconds`; trong cooldown không
+  tạo thread candidate giả rồi mới để transaction/generation từ chối;
+- cooldown tiếp tục chỉ được ghi nhận sau delivery thành công qua authoritative
+  `Director.mark_proactive_used`; failure không được báo như đã nói;
+- khi thread không hợp lệ hoặc đang cooldown, fallback `WAIT` và các source hợp lệ khác vẫn được chấm
+  bình thường; không đổi source weight, capability, materialization, transaction hay delivery contract.
+
+Thay đổi phải dùng một hàm eligibility dùng chung cho compatibility Director, composition runtime và
+deterministic replay để không tạo ba policy khác nhau. Quan sát tối thiểu gồm proactive candidate
+`selected/cooldown`, số `FOLLOW_UP` được chọn, transaction `released/committed`, delivery cadence và
+primary fallback ratio. Gate tune yêu cầu test unit cho status/goal/segment/cooldown/tie-break, integration
+cho delivery rồi cooldown, runtime composition guard và chạy lại replay cùng corpus/seed; mục tiêu đầu tiên
+là loại bỏ lựa chọn `FOLLOW_UP` theo tick và transaction churn tương ứng, chưa thay prompt, sampling hoặc
+context window trong cùng task.
+
+**Trạng thái ngày 20/08/2026:** contract đã triển khai bằng shared `choose_open_thread`, được dùng bởi
+compatibility policy, live composition và replay. Full real-llama stress loại toàn bộ 6.496 lựa chọn
+`v2_primary_thread`; transaction release giảm 82,8% và khoảng delivery trung bình tăng từ 21,869 lên
+61,653 giây. Hệ thống vẫn chưa đạt quality gate: candidate `proactive/urge` còn bỏ qua readiness/cooldown
+của self-talk nên tạo 1.226 lựa chọn SELF_TALK, 1.116 transaction release và làm primary fallback tăng
+lên 5,35%. Đây là task tune kế tiếp độc lập; prompt/context và sampling tiếp tục chưa đổi trong task này.
+
+### 24.8. Hợp đồng strict SELF_TALK/urge readiness và cooldown
+
+Director V2 primary chỉ được tạo candidate `SELF_TALK/urge` khi toàn bộ readiness cùng tick đều hợp lệ;
+`urge.should_speak_now=true` một mình không đủ để reserve transaction hoặc gọi planner/LLM. Readiness
+authoritative gồm:
+
+- segment hiện tại cho phép `self_talk`, không có safety hold và không có active goal đang sở hữu lượt;
+- cooldown sau self-talk thành công và deferred retry deadline của `Director` đều đã hết; các giá trị lấy
+  từ YAML hiện hành, không thêm delay hardcode;
+- `SelfTalkPlanner` không pending, không suspended, không trong chat-quiet/wait gate và có runtime material
+  thực sự: environment grounded, recent context đủ nghĩa, lore còn reserve được hoặc silence chưa consumed;
+- material check phải read-only: không reserve lore, không tạo plan, không consume urge/category và không
+  cập nhật last-spoke trước delivery;
+- live composition và deterministic replay phải gọi cùng readiness contract; materializer V2 revalidate
+  contract trên `DirectorInput` cùng tick để proposal stale/invalid fallback an toàn trước transaction;
+- generation/filter/delivery failure tiếp tục release transaction và dùng deferred retry hiện có, không
+  giả delivery thành công và không reset cooldown như đã nói.
+
+Metrics tối thiểu gồm số candidate `ready` và blocked theo reason (`cooldown`, `deferred`, `no_material`,
+`chat_quiet`, `thought_wait`, `safety`, `goal`, `segment`), action SELF_TALK, primary fallback,
+transaction `reserved/released/committed` và delivery cadence. Gate yêu cầu unit cho từng readiness reason,
+material peek không mutate, materializer revalidation, runtime/replay composition, integration delivery rồi
+cooldown, deterministic replay cùng corpus/seed, impacted Director/transaction regression và real-llama
+diagnostic. Task này không thay prompt, sampling, context window hoặc chất lượng câu; các mục đó chỉ được
+tune sau khi scheduling churn đã đóng.
+
+**Trạng thái ngày 20/08/2026:** contract đã triển khai thống nhất trong Director, V2 primary materializer,
+live composition và deterministic replay. Material availability peek không mutate state; candidate bị
+chặn trước transaction theo `urge_not_ready`, `no_material`, planner wait/deferred và cooldown, rồi được
+revalidate tại materialization. Full real-llama stress ghi nhận 108 SELF_TALK, 14 transaction release,
+0 execute failure, 0 cooldown violation và primary fallback 0,95%; scheduling churn đã đóng. Hai gate còn
+đỏ là opener công thức và câu hỏi kết thúc thuộc task tuning chất lượng lời riêng, không phải readiness.
 
 ---
 

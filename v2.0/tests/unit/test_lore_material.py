@@ -123,3 +123,18 @@ def test_disabling_provider_releases_pending_reservation() -> None:
     assert provider.has_reservation(material.material_id) is False
     assert provider.reserve() is None
     assert provider.get_metrics()["self_talk_lore_releases_total"] == 1
+
+
+def test_availability_peek_is_read_only_and_matches_reserve_precondition() -> None:
+    provider = LoreMaterialProvider((_material(1), _material(2)))
+    before = provider.get_metrics()
+
+    assert provider.has_available_material() is True
+    assert provider.get_metrics() == before
+    material = provider.reserve()
+    assert material is not None
+    assert provider.has_available_material() is True
+    assert provider.has_reservation(material.material_id) is True
+
+    provider.set_enabled(False)
+    assert provider.has_available_material() is False

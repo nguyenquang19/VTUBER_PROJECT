@@ -48,11 +48,14 @@ async def test_replay_simulator_batches_chat_and_uses_real_director(tmp_path: Pa
     assert report["timing"]["ticks_with_chat"] == 1
     first = report["trace"][0]
     assert first["incoming_count"] == 3
-    assert first["action"] == "read_chat"
+    assert first["action"] in {"read_chat", "continue_thread"}
+    assert first["director_v2"]["selection"]["accepted"] is True
+    assert first["director_v2"]["selection"]["decision_owner"] == "director_v2"
     assert first["selected"][0]["event_id"] == "mention"
     assert first["selected"][0]["kind"] == "mention"
     assert report["delivery"]["delivered_responses"] == 1
     assert report["delivery"]["transactions"]["committed"] == 1
+    assert report["director"]["metrics"]["director_v2_primary_selected_total"] >= 1
     assert report["thought_engine"]["metrics"]["self_talk_planner_enabled"] is True
     threads = report["conversation_threads"]
     assert threads["metrics"]["thread_opened_total"] >= 1
@@ -72,6 +75,8 @@ async def test_replay_simulator_runs_thought_engine_for_dead_air(tmp_path: Path)
     )
 
     assert report["director"]["self_talk_cadence"]["count"] >= 1
+    assert report["director"]["action_counts"].get("self_talk", 0) <= 1
+    assert report["delivery"]["transactions"].get("released", 0) == 0
     metrics = report["thought_engine"]["metrics"]
     assert metrics["self_talk_planner_plans_total"] >= 1
     assert metrics["self_talk_planner_commits_total"] >= 1
@@ -101,3 +106,22 @@ async def test_replay_never_delivers_self_talk_on_a_tick_with_new_chat(
         )
         for item in incoming_ticks
     )
+
+
+async def test_v2_primary_follow_up_obeys_open_thread_source_cooldown(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "thread-cooldown.live_chat.json"
+    source.write_text("\n".join([
+        _chat("question", "Mai nghĩ sao về cà phê?", 100),
+        _chat("late", "mình vẫn nghe đây", 45_000),
+    ]) + "\n", encoding="utf-8")
+    loader = ConfigLoader(REPO_ROOT / "config")
+    loader.load_all()
+
+    report = await simulate_replay(
+        source, loader=loader, tick_window_ms=1500, max_trace_items=100,
+    )
+
+    assert report["director"]["action_counts"].get("follow_up", 0) <= 1
+    assert report["delivery"]["transactions"].get("released", 0) <= 1

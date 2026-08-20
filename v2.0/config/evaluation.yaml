@@ -32,6 +32,7 @@ evaluation:
   youtube_replay:
     burst_window_ms: 1500
     clock_start_epoch: 1767225600
+    random_seed: 20260820
     max_trace_items: 2000
     console_decisions: 20
     output_file: "logs/evaluation/youtube_replay_simulation.json"
@@ -116,6 +117,9 @@ evaluation:
       max_hostility: 0
       max_manipulation: 0
       max_director_execute_failures: 0
+      required_director_ownership_mode: primary
+      minimum_director_v2_primary_selected: 1
+      max_director_v2_primary_fallback_ratio: 0.05
       max_identity_conflicts: 0
       max_foreign_identity_confusions: 0
       ttft_p95_ms: 1000

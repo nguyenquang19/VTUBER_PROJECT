@@ -4,7 +4,9 @@ from datetime import datetime, timedelta, timezone
 
 from orchestrator.metrics_collector import MetricsCollector
 from services.agent.goal_types import Goal, GoalKind, GoalSnapshot, GoalSource, GoalStatus
-from services.agent.types import AgentStateSnapshot, OpenThread, ThreadEvidence, ThreadKind
+from services.agent.types import (
+    AgentStateSnapshot, OpenThread, ThreadEvidence, ThreadKind, ThreadStatus,
+)
 from services.director.action_types import DirectorInput
 from services.director.director import DirectorAction
 from services.director.proactive_policy import (
@@ -87,6 +89,60 @@ def test_source_cooldown_and_metrics_prevent_immediate_replay() -> None:
     blocked = policy.choose(value, allowed_actions={"follow_up"}, silence_ready=False)
     assert blocked is not None and blocked.action is DirectorAction.WAIT
     assert metrics.proactive_candidate_snapshot()["open_thread:selected"] == 1
+
+
+def test_open_thread_choice_uses_active_latest_thread_with_stable_tie_break() -> None:
+    parked = OpenThread(
+        "thread-z", "parked", "parked", NOW, NOW + timedelta(seconds=2),
+        NOW + timedelta(minutes=5), status=ThreadStatus.PARKED,
+    )
+    first = OpenThread(
+        "thread-a", "first", "first", NOW, NOW + timedelta(seconds=1),
+        NOW + timedelta(minutes=5),
+    )
+    tied = OpenThread(
+        "thread-b", "tied", "tied", NOW, NOW + timedelta(seconds=1),
+        NOW + timedelta(minutes=5),
+    )
+    choice = _policy().choose_open_thread(
+        _input(AgentStateSnapshot(open_threads=(parked, first, tied))),
+        allowed_actions={"follow_up", "self_talk"},
+    )
+
+    assert choice is not None
+    assert choice.action is DirectorAction.FOLLOW_UP
+    assert choice.source_id == "thread-b"
+
+
+def test_open_thread_choice_respects_goal_segment_and_delivery_cooldown() -> None:
+    policy = _policy()
+    thread = OpenThread(
+        "thread-1", "story", "unfinished", NOW, NOW, NOW + timedelta(minutes=5),
+    )
+    state = AgentStateSnapshot(open_threads=(thread,))
+    fallback = policy.choose_open_thread(
+        _input(state), allowed_actions={"self_talk"},
+    )
+    assert fallback is not None and fallback.action is DirectorAction.SELF_TALK
+    assert policy.choose_open_thread(_input(state), allowed_actions=set()) is None
+
+    policy.mark_source_used("open_thread", "thread-1", 100.0)
+    blocked = policy.choose_open_thread(
+        _input(state), allowed_actions={"follow_up"},
+    )
+    assert blocked is not None and blocked.action is DirectorAction.WAIT
+    assert policy.get_metrics()["proactive_candidate_outcomes"] == {
+        "open_thread:cooldown": 1,
+        "open_thread:selected": 1,
+    }
+
+    goal = Goal(
+        "g1", GoalKind.OPERATOR_PINNED, GoalStatus.ACTIVE, 90, "operator task",
+        GoalSource.OPERATOR, NOW, NOW + timedelta(minutes=5), ("complete",),
+    )
+    assert policy.choose_open_thread(
+        _input(state, GoalSnapshot(active=goal)), allowed_actions={"follow_up"},
+    ) is None
 
 
 def test_silence_fallback_has_global_cooldown() -> None:

@@ -9,6 +9,7 @@ import re
 import sys
 import time
 from collections import Counter
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -21,11 +22,16 @@ from scripts.simulate_youtube_replay import simulate_replay  # noqa: E402
 from services.agent.conversation_context import ConversationContextComposer  # noqa: E402
 from services.llm.canned_response import CannedResponder  # noqa: E402
 from services.llm.llama_cpp_llm import LlamaCppLLMService  # noqa: E402
+from services.llm.process_manager import (  # noqa: E402
+    LlamaServerConfig,
+    LlamaServerProcessManager,
+)
 from services.llm.llm_turn import LLMTurnRunner  # noqa: E402
 from services.llm.prompt_manager import PromptManager  # noqa: E402
 from services.filter.regenerator import FilterRegenerator  # noqa: E402
 from services.filter.rule_filter import RuleFilter  # noqa: E402
 from services.director.speech_style import summarize_speech_style  # noqa: E402
+from services.evaluation.release_gate import inspect_source_state  # noqa: E402
 
 
 class _ReadOnlyAgentState:
@@ -305,6 +311,18 @@ def build_quality_report(
     )
     reasons = dict((replay.get("director") or {}).get("reason_counts") or {})
     director_metrics = dict((replay.get("director") or {}).get("metrics") or {})
+    director_v2 = dict((replay.get("director") or {}).get("director_v2") or {})
+    takeover = dict(director_v2.get("takeover") or {})
+    primary_selected = int(
+        director_metrics.get("director_v2_primary_selected_total") or 0
+    )
+    primary_fallback = int(
+        director_metrics.get("director_v2_primary_fallback_total") or 0
+    )
+    primary_attempts = primary_selected + primary_fallback
+    primary_fallback_ratio = (
+        primary_fallback / primary_attempts if primary_attempts else 1.0
+    )
     cadence = dict((replay.get("director") or {}).get("self_talk_cadence") or {})
     threads = dict(replay.get("conversation_threads") or {})
     delivery = delivery_summary
@@ -359,6 +377,14 @@ def build_quality_report(
         "no_director_execute_failure": int(
             director_metrics.get("director_execute_failed_total") or 0
         ) <= int(gates.get("max_director_execute_failures", 0)),
+        "director_v2_primary_mode": str(takeover.get("ownership_mode") or "")
+        == str(gates.get("required_director_ownership_mode", "primary")),
+        "director_v2_primary_exercised": primary_selected >= int(
+            gates.get("minimum_director_v2_primary_selected", 1)
+        ),
+        "director_v2_primary_fallback_ratio": primary_fallback_ratio <= float(
+            gates.get("max_director_v2_primary_fallback_ratio", 1.0)
+        ),
         "no_false_thread_commit": int(threads.get("false_commits") or 0) == 0,
         "all_committed_delivered": int(
             (delivery.get("transactions") or {}).get("committed") or 0
@@ -384,6 +410,11 @@ def build_quality_report(
             "candidate_flagged": {
                 key: len(value) for key, value in candidate_flagged.items()
             },
+            "director_v2_primary_selected": primary_selected,
+            "director_v2_primary_fallback": primary_fallback,
+            "director_v2_hard_preemption": int(
+                director_metrics.get("director_v2_hard_preemption_total") or 0
+            ),
         },
         "ratios": {
             "fallback": round(fallback_ratio, 4),
@@ -393,6 +424,7 @@ def build_quality_report(
             "distinct_1": diversity["distinct_1"],
             "distinct_2": diversity["distinct_2"],
             "avg_words": diversity["avg_words"],
+            "director_v2_primary_fallback": round(primary_fallback_ratio, 4),
         },
         "latency": {
             "turn_ms": _distribution(latencies),
@@ -568,6 +600,8 @@ async def _run(args: argparse.Namespace) -> int:
         return 0 if quality["technical_live_ready"] else 1
     if args.input is None:
         raise ValueError("input dataset is required unless --reanalyze-report is used")
+    source_state = inspect_source_state(REPO_ROOT)
+    started_at = datetime.now(timezone.utc)
     output = args.output or Path(str(policy.get(
         "output_file", "logs/evaluation/youtube_llm_stress.json",
     )))
@@ -579,11 +613,16 @@ async def _run(args: argparse.Namespace) -> int:
     if not checkpoint.is_absolute():
         checkpoint = REPO_ROOT / checkpoint
 
+    process_manager = LlamaServerProcessManager(
+        LlamaServerConfig.from_loader(loader),
+    )
+    await process_manager.start()
     service = LlamaCppLLMService.from_loader(loader)
     await service.start()
     health = await service.health_check()
     if not health.is_ok:
         await service.stop()
+        await process_manager.stop()
         raise RuntimeError("llama-server is not healthy on the configured endpoint")
     filter_service: RuleFilter | None = None
     regenerator: FilterRegenerator | None = None
@@ -639,6 +678,7 @@ async def _run(args: argparse.Namespace) -> int:
         if filter_service is not None:
             await filter_service.stop()
         await service.stop()
+        await process_manager.stop()
     if instrumented is None:
         raise RuntimeError("real LLM runner was not initialized")
     quality = build_quality_report(
@@ -656,6 +696,11 @@ async def _run(args: argparse.Namespace) -> int:
     report = {
         "schema_version": 1,
         "mode": "youtube_director_real_llama_cpp_stress",
+        "source_revision": source_state.revision,
+        "source_clean": source_state.clean,
+        "product_version": str(loader.get("system", "app.version", "")),
+        "started_at": started_at.isoformat(),
+        "completed_at": datetime.now(timezone.utc).isoformat(),
         "elapsed_seconds": round(time.perf_counter() - started, 3),
         "replay": replay,
         "llm": {

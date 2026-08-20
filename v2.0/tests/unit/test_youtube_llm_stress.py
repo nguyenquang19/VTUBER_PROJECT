@@ -10,6 +10,14 @@ def _replay(*, thread_missing: int = 0) -> dict:
         "director": {
             "reason_counts": {"thread_missing": thread_missing},
             "self_talk_cadence": {"gaps_below_configured_cooldown": 0},
+            "metrics": {
+                "director_v2_primary_selected_total": 2,
+                "director_v2_primary_fallback_total": 0,
+                "director_v2_hard_preemption_total": 0,
+            },
+            "director_v2": {
+                "takeover": {"ownership_mode": "primary"},
+            },
         },
         "delivery": {
             "generated_responses": 2,
@@ -56,6 +64,9 @@ def _policy() -> dict:
             "max_manipulation": 0,
             "max_identity_conflicts": 0,
             "max_foreign_identity_confusions": 0,
+            "required_director_ownership_mode": "primary",
+            "minimum_director_v2_primary_selected": 1,
+            "max_director_v2_primary_fallback_ratio": 0.05,
             "ttft_p95_ms": 1000,
             "turn_latency_p95_ms": 20000,
             "decode_tps_p50_min": 40,
@@ -81,6 +92,8 @@ def test_quality_report_passes_clean_real_outputs() -> None:
 
     assert report["technical_live_ready"] is True
     assert all(report["checks"].values())
+    assert report["counts"]["director_v2_primary_selected"] == 2
+    assert report["ratios"]["director_v2_primary_fallback"] == 0.0
     assert len(report["operator_review_sample"]) == 2
 
 

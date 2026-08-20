@@ -89,7 +89,8 @@ class DirectorV2DecisionMaterializer:
     ) -> DirectorDecision:
         if proposal.candidate_id != "urge":
             raise DirectorV2MaterializationError("proactive_evidence_missing")
-        if not value.urge_ready or not value.self_talk_ready or value.safety_hold:
+        ready, _ = self._director.self_talk_readiness(value)
+        if not value.urge_ready or not ready:
             raise DirectorV2MaterializationError("self_talk_not_ready")
         if "self_talk" not in segment.allowed_actions:
             raise DirectorV2MaterializationError("action_not_allowed")

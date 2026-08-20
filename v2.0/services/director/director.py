@@ -232,6 +232,27 @@ class Director:
             self._self_talk_deferred_until, float(until),
         )
 
+    def self_talk_readiness(
+        self, director_input: DirectorInput,
+    ) -> tuple[bool, str]:
+        """Authoritative cooldown/hold gate shared by compatibility and V2."""
+        if director_input.safety_hold:
+            return False, "safety_hold"
+        if director_input.goals.active is not None:
+            return False, "active_goal"
+        if "self_talk" not in self.current_segment().allowed_actions:
+            return False, "action_not_allowed"
+        if (
+            self._last_self_talk_ts is not None
+            and director_input.now - self._last_self_talk_ts < self._self_talk_cooldown
+        ):
+            return False, "self_talk_cooldown"
+        if director_input.now < self._self_talk_deferred_until:
+            return False, "thought_deferred"
+        if not director_input.self_talk_ready:
+            return False, director_input.self_talk_wait_reason
+        return True, "ready"
+
     def clear_self_talk_defer(self) -> None:
         """New external evidence may make a fresh thought possible immediately."""
         self._self_talk_deferred_until = 0.0
@@ -356,10 +377,7 @@ class Director:
                 )
 
         dead_air = float("inf") if self._last_speak_ts is None else now - self._last_speak_ts
-        self_talk_ready = (
-            self._last_self_talk_ts is None
-            or now - self._last_self_talk_ts >= self._self_talk_cooldown
-        ) and now >= self._self_talk_deferred_until and director_input.self_talk_ready
+        self_talk_ready, _ = self.self_talk_readiness(director_input)
         try:
             pulse_state = PulseState(director_input.pulse_state)
         except ValueError:
@@ -647,6 +665,15 @@ class Director:
     # ---------- introspection ----------
 
     def get_metrics(self) -> dict[str, Any]:
+        proactive_metrics: dict[str, Any] = {}
+        try:
+            getter = getattr(self._proactive_policy, "get_metrics", None)
+            if callable(getter):
+                value = getter()
+                if isinstance(value, dict):
+                    proactive_metrics = value
+        except Exception:
+            proactive_metrics = {}
         return {
             "director_segment": self.current_segment().name,
             "director_segment_idx": self._seg_idx,
@@ -660,6 +687,7 @@ class Director:
             "director_room_reaction_cooldown_seconds": self._room_reaction_cooldown,
             "director_last_room_reaction_ts": self._last_room_reaction_ts,
             "director_room_reaction_deferred_until": self._room_reaction_deferred_until,
+            **proactive_metrics,
         }
 
 

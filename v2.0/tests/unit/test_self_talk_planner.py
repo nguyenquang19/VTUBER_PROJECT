@@ -227,6 +227,22 @@ def test_silence_is_one_shot_until_real_chat_starts_a_new_episode() -> None:
     assert second and second.one_shot
 
 
+def test_context_readiness_blocks_consumed_or_missing_material_without_mutation() -> None:
+    planner = _planner()
+    assert planner.readiness(10.0, SelfTalkContext()).reason == "no_material"
+    first = planner.prepare(mood=MoodState(), now=30.0, context=_silence())
+    assert first is not None
+    assert planner.commit(first.plan_id, "Im lặng cũng là một nhịp nghỉ.", 30.0)
+    before = planner.snapshot()
+
+    blocked = planner.readiness(90.0, _silence())
+
+    assert blocked.ready is False and blocked.reason == "no_material"
+    assert planner.snapshot() == before
+    planner.on_chat(100.0)
+    assert planner.readiness(110.0, _silence()).ready is True
+
+
 def test_semantic_question_is_rejected_even_without_question_mark() -> None:
     planner = _planner()
     opened = planner.prepare(mood=MoodState(), now=30.0, context=_recent())
