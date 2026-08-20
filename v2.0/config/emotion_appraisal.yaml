@@ -28,7 +28,7 @@ appraisal:
   mai_self_error: {nguong: 6, bon_chon: 5}
   chat_neutral: {}                                            # fallback default
 
-  # ── C0 Task7: ChatPulse → mood (chat sôi đẩy vui/bồn_chồn) ──
+  # ChatPulse → mood: active chat increases vui and bon_chon.
   chat_hype: {vui: 6, bon_chon: 5}        # cả đám bùng (hype-spam) → phấn khích
   chat_lively: {vui: 4}                    # nhiều người bàn luận thật → vui nhẹ
 
@@ -74,7 +74,7 @@ cause_intents:
   operator_leave: "ông vừa rời đi"
   operator_sudden_shutdown: "ông tắt tớ đột ngột"
 
-# Cờ tone gắn category → thread qua Prompt + Filter (spec Mục 6.2)
+  # Category tone flags flow through prompt construction and output filtering.
 tone_flags:
   chat_genuine_sad_share: force_gentle_tone
   chat_sexual_advance: force_deflect

@@ -1,4 +1,4 @@
-"""Integration DoD Phase Autonomy v2 (spec AUTONOMY_ENGINE_REDESIGN.md Mục 4).
+"""Integration coverage for bounded AutonomyEngine behavior.
 
 5 test giả lập FakeClock (chạy nhanh, không cần thực tế 4h):
 1. Variance: 2h simulated → interval giữa các lần tự nói KHÔNG constant, stdev > 0

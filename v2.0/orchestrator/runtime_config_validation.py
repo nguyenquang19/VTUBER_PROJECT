@@ -3,12 +3,31 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from orchestrator.config_loader import ConfigError
+from orchestrator.credential_contract import (
+    validate_runtime_credential_contract,
+)
+
+
+def _strict_string_tuple(value: Any, field_name: str) -> tuple[str, ...]:
+    if not isinstance(value, (list, tuple)):
+        raise ConfigError(f"Runtime config không hợp lệ tại {field_name}: phải là list string")
+    if any(not isinstance(item, str) for item in value):
+        raise ConfigError(
+            f"Runtime config không hợp lệ tại {field_name}: item phải là string",
+        )
+    if any(not item or item != item.strip() for item in value):
+        raise ConfigError(
+            f"Runtime config không hợp lệ tại {field_name}: item phải trim và không rỗng",
+        )
+    return tuple(value)
 
 
 class RuntimeCriticalConfig(BaseModel):
+    model_config = ConfigDict(strict=True, frozen=True)
+
     log_dir: str = Field(min_length=1)
     events_file: str = Field(min_length=1)
     turns_file: str = Field(min_length=1)
@@ -93,6 +112,10 @@ class RuntimeCriticalConfig(BaseModel):
 def validate_runtime_config(loader: Any) -> RuntimeCriticalConfig:
     """Validate values whose failure after startup would corrupt operation."""
     try:
+        validate_runtime_credential_contract(loader)
+    except ValueError as exc:
+        raise ConfigError(f"Runtime credential config không hợp lệ: {exc}") from exc
+    try:
         return RuntimeCriticalConfig(
             log_dir=loader.get("logging", "jsonl.dir", "logs"),
             events_file=loader.get("logging", "jsonl.events_file", "events.jsonl"),
@@ -139,10 +162,10 @@ def validate_runtime_config(loader: Any) -> RuntimeCriticalConfig:
             director_speech_style_recent_window=loader.get(
                 "director", "director.speech_style.recent_window", 12,
             ),
-            director_speech_style_formula_openers=tuple(loader.get(
+            director_speech_style_formula_openers=_strict_string_tuple(loader.get(
                 "director", "director.speech_style.formula_openers",
                 ("mà", "trời ơi", "ủa", "ơ kìa"),
-            ) or ()),
+            ), "director_speech_style_formula_openers"),
             director_speech_style_max_formula_openers=loader.get(
                 "director", "director.speech_style.max_formula_openers", 2,
             ),
@@ -152,9 +175,9 @@ def validate_runtime_config(loader: Any) -> RuntimeCriticalConfig:
             director_speech_style_max_questions=loader.get(
                 "director", "director.speech_style.max_questions", 2,
             ),
-            director_speech_style_question_endings=tuple(loader.get(
+            director_speech_style_question_endings=_strict_string_tuple(loader.get(
                 "director", "director.speech_style.question_endings", ("nhỉ",),
-            ) or ()),
+            ), "director_speech_style_question_endings"),
             director_speech_style_max_sentences=loader.get(
                 "director", "director.speech_style.max_sentences", 2,
             ),
@@ -206,21 +229,21 @@ def validate_runtime_config(loader: Any) -> RuntimeCriticalConfig:
             self_talk_silence_allow_question=loader.get(
                 "self_talk", "self_talk.silence_allow_question", True,
             ),
-            self_talk_question_endings=tuple(loader.get(
+            self_talk_question_endings=_strict_string_tuple(loader.get(
                 "self_talk", "self_talk.question_endings", ("nhỉ",),
-            ) or ()),
-            self_talk_question_starters=tuple(loader.get(
+            ), "self_talk_question_endings"),
+            self_talk_question_starters=_strict_string_tuple(loader.get(
                 "self_talk", "self_talk.question_starters", ("ai",),
-            ) or ()),
-            self_talk_question_particles=tuple(loader.get(
+            ), "self_talk_question_starters"),
+            self_talk_question_particles=_strict_string_tuple(loader.get(
                 "self_talk", "self_talk.question_particles", ("nhỉ",),
-            ) or ()),
+            ), "self_talk_question_particles"),
             self_talk_max_previous_text_chars=loader.get(
                 "self_talk", "self_talk.max_previous_text_chars", 280,
             ),
-            self_talk_lore_sections=tuple(loader.get(
+            self_talk_lore_sections=_strict_string_tuple(loader.get(
                 "self_talk", "self_talk.lore_material.section_allowlist", ("Thích",),
-            ) or ()),
+            ), "self_talk_lore_sections"),
             self_talk_lore_max_anchor_chars=loader.get(
                 "self_talk", "self_talk.lore_material.max_anchor_chars", 280,
             ),

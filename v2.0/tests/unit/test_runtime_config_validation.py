@@ -139,6 +139,20 @@ def test_repository_runtime_config_is_valid() -> None:
             "self_talk_lore_no_repeat_last_n",
         ),
         ("system", "dashboard.port", 70000, "dashboard_port"),
+        ("system", "dashboard.port", "7860", "dashboard_port"),
+        ("director", "director.tick_seconds", "1.5", "director_tick_seconds"),
+        (
+            "self_talk", "self_talk.silence_allow_question", "false",
+            "self_talk_silence_allow_question",
+        ),
+        (
+            "self_talk", "self_talk.question_particles", "nhỉ",
+            "self_talk_question_particles",
+        ),
+        (
+            "director", "director.speech_style.formula_openers", ["mà", 1],
+            "director_speech_style_formula_openers",
+        ),
         ("system", "dashboard.gpu_metrics.timeout_s", 0, "gpu_metrics_timeout_s"),
         ("models", "tts.timeout_primary_s", 0, "tts_primary_timeout_s"),
         ("models", "tts.startup_timeout_s", 0, "tts_startup_timeout_s"),
@@ -157,6 +171,37 @@ def test_speech_style_budget_cannot_exceed_recent_window() -> None:
             ("director", "director.speech_style.recent_window"): 2,
             ("director", "director.speech_style.max_formula_openers"): 3,
         }))
+
+
+@pytest.mark.parametrize(
+    ("overrides", "field"),
+    [
+        (
+            {("chat_sources", "discord.token_env_var"): "discord-token"},
+            "discord.token_env_var",
+        ),
+        (
+            {("capabilities", "external_actions.obs.password_env"): "OBS-PASSWORD"},
+            "external_actions.obs.password_env",
+        ),
+        (
+            {("animation", "animation.token_file"): " vts_token.txt "},
+            "animation.token_file",
+        ),
+        (
+            {
+                ("chat_sources", "discord.token_env_var"): "SHARED_SECRET",
+                ("capabilities", "external_actions.obs.password_env"): "SHARED_SECRET",
+            },
+            "distinct",
+        ),
+    ],
+)
+def test_runtime_rejects_invalid_credential_references_before_composition(
+    overrides: dict[tuple[str, str], object], field: str,
+) -> None:
+    with pytest.raises(ConfigError, match=field):
+        validate_runtime_config(OverrideLoader(overrides))
 
 
 @pytest.mark.asyncio

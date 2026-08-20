@@ -1,4 +1,4 @@
-# filters.yaml — rule-based filter (ARCHITECTURE 8.3A, Phase 3)
+# Rule-based output filter configuration.
 #
 # Lọc OUTPUT của Mai (câu sắp nói) theo ranh giới persona Phần C + explicit/harmful.
 # N7 fail-open: filter lỗi → cho qua + log (VTuber thà nói câu chưa lọc còn hơn im).

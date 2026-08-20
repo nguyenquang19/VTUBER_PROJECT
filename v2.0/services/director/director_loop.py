@@ -179,7 +179,7 @@ class DirectorLoop:
         self._turns_self = 0
         self._transitions = 0
         self._chat_suppressed_total = 0
-        self._last_pulse_state: PulseState | None = None   # Task7 edge debounce
+        self._last_pulse_state: PulseState | None = None  # edge debounce
         self._pulse_mood_pushes = 0
         self._filter_context_quarantined_total = 0
         self._execute_failed_total = 0
@@ -290,12 +290,12 @@ class DirectorLoop:
     async def tick_once(self) -> DirectorAction:
         now = self._clock()
         self._pool.evict_stale(now)
-        # TASK 6: cập nhật baseline_tempo mỗi tick → accel phản ánh thật (không kẹt 1.0)
+        # Refresh baseline tempo each tick so acceleration cannot stick at 1.0.
         try:
             self._pulse.update_baseline(now)
         except Exception:
             pass
-        # TASK 7: ChatPulse → mood. Chỉ đẩy khi state CHUYỂN sang hype/lively (edge,
+        # ChatPulse nudges mood only on a transition into hype/lively (edge,
         # debounce — không spam mỗi tick).
         await self._maybe_push_pulse_mood(now)
         urge_ready = False
@@ -491,7 +491,7 @@ class DirectorLoop:
         return self._goal_arbitration_enabled
 
     async def _maybe_push_pulse_mood(self, now: float) -> None:
-        """Task7: khi pulse chuyển sang HYPE_SPAM/LIVELY (edge) → 1 EmotionEvent
+        """Emit one EmotionEvent on an edge into HYPE_SPAM or LIVELY.
         nudge mood (chat sôi → vui/bồn_chồn). Debounce theo state cũ."""
         if self._emotion is None:
             return
@@ -851,7 +851,7 @@ class DirectorLoop:
         self._clear_soft_continuations("room_reaction_delivered")
         self._room_reaction_dedup.record(str(getattr(parsed, "text", "")))
         self._director.mark_room_reaction(now)
-        # SUMMARY dọn backlog điểm thấp (Task 3); VIBE gỡ cụm đã react
+        # SUMMARY clears low-score backlog; VIBE removes the reacted cluster.
         if dec.read_mode == ReadMode.SUMMARY:
             self._pool.purge_below(self._director.summary_ceiling, now)
         else:

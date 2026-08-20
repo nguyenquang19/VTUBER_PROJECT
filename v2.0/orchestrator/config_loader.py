@@ -1,4 +1,4 @@
-"""Config loader với hot-reload (ARCHITECTURE Phase 0 task 3).
+"""Strict YAML configuration loader with hot reload.
 
 Load YAML từ `config/`, cho phép truy cập bằng dotted path, và tự reload
 khi file thay đổi trên disk (watchdog) — không cần restart process.
@@ -125,6 +125,10 @@ class ConfigLoader:
         if name not in CONFIG_FILES:
             raise ConfigError(f"Unknown config name: {name}")
         return self._dir / CONFIG_FILES[name]
+
+    def path_for(self, name: str) -> Path:
+        """Return the owned path for a registered config name."""
+        return self._path_for(name)
 
     def _read_yaml(self, path: Path) -> dict[str, Any]:
         with path.open("r", encoding="utf-8") as f:

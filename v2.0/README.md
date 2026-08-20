@@ -4,9 +4,10 @@
 >
 > **Inherited runtime release:** `1.4.3` (patch trên frozen baseline `1.0.0`, 2026-08-14).
 >
-> **Implementation status:** Phase 1–9 đã đóng gate kỹ thuật; takeover, local action adapters và OBS scene
-> executor đều mặc định tắt/chưa có live canary. Perception expansion và các release gate sau vẫn chưa
-> hoàn tất, nên chưa đủ điều kiện phát hành Mai `2.0.0`.
+> **Implementation status:** Phase 1–10 đã đóng gate kỹ thuật; controlled takeover,
+> speech/avatar action adapters, OBS scene action và OBS perception đều mặc định tắt/chưa có
+> live canary tương ứng. Phase 11–15 và release evidence vẫn chưa đóng gate, nên chưa đủ
+> điều kiện phát hành Mai `2.0.0`.
 >
 > Mọi thay đổi product được chấp nhận sau baseline phải tăng version và cập nhật `CHANGELOG.md`.
 
@@ -46,6 +47,11 @@ $env:DISCORD_BOT_TOKEN = "YOUR_TOKEN"
 $env:DISCORD_BOT_TOKEN = "YOUR_TOKEN"
 .\scripts\start_live.ps1 -Platform youtube -VideoId "VIDEO_ID" -WithDiscord
 ```
+
+Runtime không tự nạp `.env`. `DISCORD_BOT_TOKEN` chỉ bắt buộc cho phiên có Discord;
+`OBS_WEBSOCKET_PASSWORD` chỉ bắt buộc khi operator chủ động bật `obs_scene_executor`.
+Hai giá trị phải được PowerShell hoặc secret store truyền vào process, không ghi vào
+YAML, CLI argument, `.env.example` hoặc Git.
 
 Launcher mặc định bật TTS và dashboard. Thêm `-Memory` để bật semantic memory. Dashboard ở
 `http://127.0.0.1:7860`; dashboard cũ luôn còn tại `/legacy`. OBS có thể đọc subtitle fallback từ

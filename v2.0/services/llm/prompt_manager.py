@@ -1,4 +1,4 @@
-"""PromptManager — dựng messages cho LLM (ARCHITECTURE 8.2, 1.C).
+"""PromptManager for grounded language-model message construction.
 
 Trách nhiệm:
 - Ghép danh sách messages theo thứ tự: [persona system] + history + [user hiện tại].
@@ -151,7 +151,7 @@ class PromptManager:
         temperature: float | None = None,
         grounded_context: str | None = None,
     ) -> LLMRequest:
-        """Request có Context block (Phase 7.5.D, spec Mục 6.1).
+        """Build a request with the bounded grounded Context block.
 
         Chèn 1 system message sau persona chứa mood directive + tone flags + cause.
         `stage_direction` (Director): chỉ thị sân khấu ("gộp mấy tin cùng hỏi, đáp 1

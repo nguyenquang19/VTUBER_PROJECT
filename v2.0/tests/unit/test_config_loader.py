@@ -179,6 +179,12 @@ class TestReload:
         assert loader.name_for_path(Path("whatever/state_machine.yaml")) == "state_machine"
         assert loader.name_for_path(Path("whatever/random.yaml")) is None
 
+    def test_path_for_returns_owned_config_path(self, tmp_config_dir: Path) -> None:
+        loader = ConfigLoader(tmp_config_dir)
+        assert loader.path_for("features") == tmp_config_dir / "features.yaml"
+        with pytest.raises(ConfigError, match="Unknown config name"):
+            loader.path_for("unknown")
+
 
 class TestWatching:
     def test_watchdog_triggers_reload(self, tmp_config_dir: Path) -> None:

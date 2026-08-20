@@ -1,4 +1,4 @@
-"""RuleFilter — lọc output Mai bằng regex (ARCHITECTURE 8.3A, Phase 3 3.A).
+"""RuleFilter for deterministic regex-based output checks.
 
 Lọc câu Mai SẮP nói theo ranh giới persona Phần C + explicit/harmful. Pattern từ
 `config/filters.yaml` (N6). AI filter bỏ (E4B removed) → rule-only.

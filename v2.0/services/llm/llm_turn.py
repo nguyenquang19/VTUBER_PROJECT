@@ -306,7 +306,7 @@ class LLMTurnRunner:
         """Trả (parsed, level_used). level_used=0 primary, 1 canned.
 
         `user_text`: đưa vào PROMPT cho LLM (có thể là marker "[Mấy người hỏi...]").
-        TASK 5: `history_user_text` — text CHAT GỐC dùng để commit_turn + memory
+        `history_user_text` is the original chat text used for commit and memory
         (tránh nhiễm history/memory bằng chuỗi ngoặc prompt). None → dùng user_text.
         `commit_history=False` → KHÔNG commit history + KHÔNG extract memory
         (SUMMARY/VIBE không có tin cụ thể).

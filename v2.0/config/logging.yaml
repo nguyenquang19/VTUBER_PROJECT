@@ -1,4 +1,4 @@
-# logging.yaml — structlog + JSONL sink (ARCHITECTURE 9.3, 13.8)
+# Structured console and JSONL logging configuration.
 
 level: INFO                      # DEBUG | INFO | WARNING | ERROR
 
@@ -9,7 +9,7 @@ console:
 jsonl:
   enabled: true
   dir: "logs"
-  turns_file: "turns.jsonl"       # 1 dòng / turn hội thoại (schema ARCHITECTURE 9.3)
+  turns_file: "turns.jsonl"       # one schema-versioned record per conversation turn
   delivery_outcomes_file: "delivery_outcomes.jsonl"  # outcome sau delivery gate
   events_file: "events.jsonl"     # log hệ thống chung
 

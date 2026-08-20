@@ -1,4 +1,4 @@
-"""Versioned SQL migration runner (ARCHITECTURE 8.8.2).
+"""Versioned, transactional SQL migration runner.
 
 Đơn giản hơn Alembic, đủ cho solo dev (Appendix C).
 - Migration file: `NNN_description.sql`, chạy theo thứ tự version.

@@ -1,4 +1,4 @@
-"""OpenerTracker — chống lặp câu mở đầu (Aut.B, spec Mục 2.4 Bước 3).
+"""OpenerTracker preventing repeated opening phrases.
 
 Track N câu tự nói gần nhất → trích 3 từ mở đầu mỗi câu → format thành
 forbidden_list bơm vào prompt như constraint tường minh.

@@ -1,11 +1,10 @@
-"""Health monitor: periodic health check (ARCHITECTURE 13.2, 13.6).
+"""Periodic, failure-isolated health checks for registered services.
 
-Phase 0 (generic): đăng ký các Service, poll `health_check()` định kỳ, publish
-kết quả lên event bus + log khi trạng thái đổi. llama-server-specific monitor
-+ auto-recovery (13.7) để Phase 1.
+Service checks are polled on a bounded interval; state changes are published to
+the event bus and log. Backend-specific recovery remains outside this generic monitor.
 
-Interval từ config (13.6: mỗi 10s). Health check của 1 service lỗi/timeout →
-coi như UNHEALTHY, KHÔNG làm chết vòng lặp hay các service khác (N7 fail-safe).
+Interval comes from config. A failed or timed-out check becomes UNHEALTHY without
+stopping the loop or other service checks.
 """
 from __future__ import annotations
 

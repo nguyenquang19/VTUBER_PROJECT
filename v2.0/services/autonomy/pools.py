@@ -1,4 +1,4 @@
-"""RoundRobinPool — xoay vòng seed content, no-repeat window (Aut.B, spec Mục 2.4 Bước 1b).
+"""Round-robin seed-content pool with a bounded no-repeat window.
 
 MaterialProvider dùng để cấp seed (chủ đề/câu hỏi) cho LLM thay vì để LLM tự bịa.
 Đảm bảo đa dạng chủ đề bằng cách xoay vòng + không dùng lại N seed gần nhất.

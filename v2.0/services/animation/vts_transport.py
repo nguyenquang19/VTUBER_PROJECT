@@ -6,9 +6,18 @@ Service layer (vts_service.py) mới gọi lớp này; tự nó không biết g�
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
-import os
+from pathlib import Path
 from typing import Any
+
+from orchestrator.credential_contract import (
+    CredentialContractError,
+    read_optional_secret_file,
+    validate_secret_file_reference,
+    validate_secret_value,
+    write_secret_file_atomic,
+)
 
 
 API_NAME = "VTubeStudioPublicAPI"
@@ -29,6 +38,7 @@ class VTSTransport:
         plugin_developer: str,
         token_file: str,
     ) -> None:
+        token_file = validate_secret_file_reference(token_file, "token_file")
         self._url = f"ws://{host}:{port}"
         self._plugin_name = plugin_name
         self._plugin_developer = plugin_developer
@@ -55,8 +65,13 @@ class VTSTransport:
             self._ws = await websockets.connect(self._url)
         except Exception as e:
             raise VTSTransportError(f"không nối được VTS ở {self._url}: {e}") from e
-        await self._authenticate()
-        await self.reload_hotkeys()
+        try:
+            await self._authenticate()
+            await self.reload_hotkeys()
+        except BaseException:
+            with contextlib.suppress(BaseException):
+                await self.close()
+            raise
 
     async def close(self) -> None:
         if self._ws is not None:
@@ -66,20 +81,25 @@ class VTSTransport:
                 self._ws = None
 
     async def _authenticate(self) -> None:
-        if os.path.exists(self._token_file):
-            with open(self._token_file, "r", encoding="utf-8") as f:
-                self._token = f.read().strip() or None
+        try:
+            self._token = read_optional_secret_file(self._token_file)
+        except CredentialContractError as exc:
+            raise VTSTransportError(exc.reason_code) from exc
 
         if not self._token:
             resp = await self._send("token", "AuthenticationTokenRequest", {
                 "pluginName": self._plugin_name,
                 "pluginDeveloper": self._plugin_developer,
             })
-            self._token = resp.get("data", {}).get("authenticationToken")
-            if not self._token:
-                raise VTSTransportError(f"VTS từ chối cấp token: {resp.get('data')}")
-            with open(self._token_file, "w", encoding="utf-8") as f:
-                f.write(self._token)
+            try:
+                self._token = validate_secret_value(
+                    resp.get("data", {}).get("authenticationToken"),
+                    source="vts_authentication_token",
+                )
+                write_secret_file_atomic(self._token_file, self._token)
+            except CredentialContractError as exc:
+                self._token = None
+                raise VTSTransportError(exc.reason_code) from exc
 
         resp = await self._send("auth", "AuthenticationRequest", {
             "pluginName": self._plugin_name,
@@ -88,9 +108,9 @@ class VTSTransport:
         })
         if not resp.get("data", {}).get("authenticated"):
             self._token = None
-            if os.path.exists(self._token_file):
-                os.remove(self._token_file)
-            raise VTSTransportError(f"auth thất bại: {resp.get('data')}")
+            with contextlib.suppress(OSError):
+                Path(self._token_file).unlink(missing_ok=True)
+            raise VTSTransportError("vts_authentication_failed")
 
     async def reload_hotkeys(self) -> dict[str, str]:
         resp = await self._send("get_hotkeys", "HotkeysInCurrentModelRequest")
@@ -118,10 +138,20 @@ class VTSTransport:
         }
         if data is not None:
             payload["data"] = data
-        async with self._lock:
-            await self._ws.send(json.dumps(payload))
-            raw = await self._ws.recv()
-        resp = json.loads(raw)
+        try:
+            async with self._lock:
+                await self._ws.send(json.dumps(payload))
+                raw = await self._ws.recv()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            raise VTSTransportError("vts_transport_error") from None
+        try:
+            resp = json.loads(raw)
+        except (TypeError, json.JSONDecodeError):
+            raise VTSTransportError("vts_invalid_response") from None
+        if not isinstance(resp, dict):
+            raise VTSTransportError("vts_invalid_response")
         if resp.get("messageType") == "APIError":
-            raise VTSTransportError(f"VTS APIError: {resp.get('data')}")
+            raise VTSTransportError("vts_api_error")
         return resp

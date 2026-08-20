@@ -33,7 +33,11 @@ def _print_token(t: str) -> None:
 async def main() -> None:
     args = _parse_args()
     from orchestrator.config_loader import ConfigLoader
-    from orchestrator.stream_runtime import StreamRuntimeConfig, build_stream_runtime
+    from orchestrator.stream_runtime import (
+        StreamRuntimeConfig,
+        build_stream_runtime,
+        run_stream_runtime,
+    )
     from services.input.discord_chat import DiscordChatService
 
     loader = ConfigLoader(REPO_ROOT / "config")
@@ -66,13 +70,11 @@ async def main() -> None:
     print("Mai đang online. Ctrl+C để stop.")
     print("=" * 60 + "\n")
 
-    await rt.start()
     try:
-        await rt.wait_until_stopped()
+        await run_stream_runtime(rt)
     except (KeyboardInterrupt, asyncio.CancelledError):
         print("\n🛑 Đang tắt...")
     finally:
-        await rt.stop()
         print("👋 Bye.")
 
 

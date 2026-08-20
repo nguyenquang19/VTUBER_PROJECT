@@ -1,7 +1,7 @@
-"""SemanticMemoryService — impl MemoryService, wire embedder + store (Phase 7.D).
+"""SemanticMemoryService joining the configured embedder and vector store.
 
-DoD Phase 7: query <150ms P95, timeout → fallback (7.E) trả working-only.
-Đây là service PRIMARY của memory chain — timeout hard 150ms trên query,
+Query latency is bounded at 150 ms; timeout falls back to working-only memory.
+This is the primary service in the memory chain; its query timeout
 fail-safe N7 trả list rỗng khi timeout (KHÔNG raise, KHÔNG giết pipeline).
 
 Write không áp timeout (chậm không ảnh hưởng UX — write async background trong turn).

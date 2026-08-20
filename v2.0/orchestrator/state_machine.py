@@ -1,13 +1,8 @@
-"""Conversation state machine: 5 state / 9 transition (ARCHITECTURE 7.10).
+"""Conversation state machine with five states and nine transitions.
 
 N1 YAGNI: đúng 5 state, 9 transition. Không LISTENING (gộp vào THINKING),
 không INTERRUPTED (dùng flag `last_turn_interrupted`), không ERROR
 (llm_fail transition thẳng THINKING → COOLDOWN + fallback).
-
-Phase 0 scope: state + transition + log + metric hook + cooldown timer.
-CHƯA làm (Phase 2): enforce interrupt policy (7.9.3), deadlock watchdog (7.10.4).
-Config cho 2 thứ đó đã có sẵn trong `config/state_machine.yaml` để Phase 2
-không phải sửa 2 chỗ.
 
 Action thật (load context, start LLM, start TTS...) do caller đăng ký qua
 `set_action()` — state machine không gọi thẳng service nào (N8).
@@ -50,7 +45,7 @@ ACTION_NAMES = (
 
 @dataclass(frozen=True)
 class StateTransition:
-    """1 dòng trong state_transitions của turn log (ARCHITECTURE 9.3)."""
+    """One schema-stable transition record in a turn log."""
 
     from_state: str
     to_state: str
@@ -152,7 +147,7 @@ class ConversationStateMachine:
         self._actions[name] = hook
 
     def set_queue_predicate(self, predicate: QueuePredicate) -> None:
-        """Trigger Manager (Phase 2) cấp hàm kiểm tra queue còn trigger không."""
+        """Register the TriggerManager predicate for pending work."""
         self._has_queued_trigger = predicate
 
     async def _run_action(self, name: str, event: Any) -> None:
@@ -175,7 +170,7 @@ class ConversationStateMachine:
     # ---------- conditions ----------
 
     async def is_valid_trigger(self, event: Any = None) -> bool:
-        """IDLE → THINKING chỉ khi có trigger thật. Phase 2 sẽ siết thêm."""
+        """Compatibility condition; callers provide an already validated trigger."""
         return True
 
     async def has_queued_trigger(self, event: Any = None) -> bool:
@@ -237,7 +232,7 @@ class ConversationStateMachine:
         key = (from_state, self.state)
         self._transition_counts[key] = self._transition_counts.get(key, 0) + 1
 
-        # DoD Phase 0: "State transitions log được"
+        # Every accepted transition is observable in the turn log.
         self._log.info(
             "state_change",
             from_state=from_state,

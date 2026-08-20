@@ -185,7 +185,7 @@ class Director:
 
     @property
     def summary_ceiling(self) -> float:
-        """Ngưỡng điểm cho SUMMARY — DirectorLoop dùng để purge backlog thấp (Task 3)."""
+        """SUMMARY score threshold used by DirectorLoop to purge low backlog."""
         return self._summary_ceiling
 
     @property

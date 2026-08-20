@@ -1,12 +1,12 @@
-# triggers.yaml — 4 trigger type (ARCHITECTURE 10.4, 7.9.1)
+# Four bounded trigger types used by the current runtime.
 #
 # N1 YAGNI: đúng 4 type. KHÔNG thêm donation/subscribe/question/keyword/
 # continuation/scheduled/operator_voice_interrupt — add khi log thực tế cần.
 # priority khớp đúng code mẫu 7.9.1.
 #
-# MVP scope (docs/MAI_V2_SYSTEM_SPEC.md): voice input skip. `operator_voice` giữ
-# nguyên type + priority, nhưng nguồn là operator TEXT từ dashboard
-# (EventSource.DASHBOARD), không phải voice. Wire STT sau ở Phase 5.
+# Voice input is deferred by the current scope. `operator_voice` keeps its type
+# and priority but currently comes from operator text on the dashboard
+# (`EventSource.DASHBOARD`), not from a microphone.
 
 triggers:
   priorities:

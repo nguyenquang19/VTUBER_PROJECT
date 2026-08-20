@@ -1,4 +1,4 @@
-"""Token overlap dedup — post-check bắt câu lặp còn sót (Aut.B, spec Mục 2.4 Bước 5).
+"""Token-overlap post-check for repeated generated material.
 
 Không dùng embedding — token Jaccard overlap đủ cho MVP (N1 YAGNI).
 Composer (Aut.C) gọi is_too_similar sau generate; nếu True → regenerate 1 lần,

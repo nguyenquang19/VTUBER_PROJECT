@@ -1,12 +1,11 @@
-"""Fallback Manager skeleton (ARCHITECTURE 8.7.7, Phase 0 task 9).
+"""Bounded, ordered fallback-chain executor.
 
 N1: 2 level mỗi chain, KHÔNG circuit breaker (add sau khi thấy fail lặp lại).
 N7 fail-safe: chạy hết chain, level cuối fail → raise AllFallbacksFailedError
 để caller quyết (thường level cuối là canned/subtitle nên hiếm khi raise).
 
-Phase 0 scope: cơ chế execute chain + timeout per level + log. Các service
-level thật (PrimaryLLM, CannedResponse, ...) do Phase 1/4 đăng ký qua
-register_chain(). Skeleton không hardcode service nào (N8).
+Each level has its own timeout and logging. Concrete services such as PrimaryLLM
+and CannedResponse are injected through `register_chain()`; no service is hardcoded.
 """
 from __future__ import annotations
 

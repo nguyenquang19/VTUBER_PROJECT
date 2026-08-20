@@ -14,10 +14,15 @@ from __future__ import annotations
 import asyncio
 import os
 from datetime import datetime
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, Mapping
 
 from interfaces.base import HealthStatus
 from interfaces.input import EventSource, InputEvent, InputService
+from orchestrator.credential_contract import (
+    CredentialContractError,
+    require_environment_secret,
+    validate_environment_reference,
+)
 from orchestrator.logger import get_logger
 
 
@@ -35,13 +40,17 @@ class DiscordChatService(InputService):
         queue_maxsize: int = 500,
         client: Any = None,        # inject discord.Client giả cho test
         ignore_bots: bool = True,
+        environ: Mapping[str, str] | None = None,
     ) -> None:
-        self.token_env_var = token_env_var
+        self.token_env_var = validate_environment_reference(
+            token_env_var, "discord.token_env_var",
+        )
         self.channel_ids: set[int] = set(channel_ids or [])
         self.queue_maxsize = queue_maxsize
         self.ignore_bots = ignore_bots
 
         self._client = client
+        self._environ = os.environ if environ is None else environ
         self._client_task: asyncio.Task | None = None
         self._queue: asyncio.Queue = asyncio.Queue(maxsize=queue_maxsize)
         self._running = False
@@ -50,15 +59,16 @@ class DiscordChatService(InputService):
         self._events_total = 0
         self._events_dropped_channel = 0   # message ở channel khác channel_ids
         self._events_dropped_full = 0      # queue full
+        self._credential_failures: dict[str, int] = {}
         self._last_event_ts: datetime | None = None
 
     @classmethod
     def from_loader(cls, loader, client: Any = None) -> "DiscordChatService":
         raw_ids = loader.get("chat_sources", "discord.channel_ids", []) or []
         return cls(
-            token_env_var=str(loader.get(
+            token_env_var=loader.get(
                 "chat_sources", "discord.token_env_var", "DISCORD_BOT_TOKEN",
-            )),
+            ),
             channel_ids=[int(x) for x in raw_ids],
             queue_maxsize=int(loader.get("chat_sources", "discord.queue_maxsize", 500)),
             client=client,
@@ -68,11 +78,18 @@ class DiscordChatService(InputService):
 
     async def start(self) -> None:
         if self._client is None:
-            token = os.environ.get(self.token_env_var, "").strip()
-            if not token:
-                raise DiscordChatError(
-                    f"env var {self.token_env_var} rỗng — set token bot Discord"
+            try:
+                token = require_environment_secret(
+                    self._environ, self.token_env_var,
                 )
+            except CredentialContractError as exc:
+                self._credential_failures[exc.reason_code] = (
+                    self._credential_failures.get(exc.reason_code, 0) + 1
+                )
+                raise DiscordChatError(
+                    f"Discord credential {exc.reason_code} in env var {self.token_env_var}"
+                ) from exc
+            self._client = self._create_real_client()
             # Chạy bot ở background task (client.start() blocking cho tới close)
             self._client_task = asyncio.create_task(
                 self._run_client(token), name="discord_bot",
@@ -91,7 +108,7 @@ class DiscordChatService(InputService):
                 if callable(close):
                     await close()
             except Exception as e:  # pragma: no cover
-                self._log.warning("discord_close_failed", error=str(e))
+                self._log.warning("discord_close_failed", error=type(e).__name__)
         if self._client_task is not None and not self._client_task.done():
             self._client_task.cancel()
             try:
@@ -116,6 +133,7 @@ class DiscordChatService(InputService):
             "discord_events_total": self._events_total,
             "discord_events_dropped_channel": self._events_dropped_channel,
             "discord_events_dropped_full": self._events_dropped_full,
+            "discord_credential_failures": dict(sorted(self._credential_failures.items())),
             "discord_queue_size": self._queue.qsize(),
             "discord_last_event_ts": self._last_event_ts.isoformat() if self._last_event_ts else None,
         }
@@ -141,7 +159,7 @@ class DiscordChatService(InputService):
         except asyncio.CancelledError:
             raise
         except Exception as e:
-            self._log.error("discord_client_crashed", error=str(e))
+            self._log.error("discord_client_crashed", error=type(e).__name__)
 
     # ---------- Message ingestion ----------
 

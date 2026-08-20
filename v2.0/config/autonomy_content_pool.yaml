@@ -1,4 +1,4 @@
-# Content pool cho Autonomy Engine v2 (spec Mục 2.4 Bước 1b)
+# Grounded content pool for the Autonomy Engine.
 # LLM KHÔNG tự bịa chủ đề — nhận seed từ pool xoay vòng. Việc "đa dạng" chuyển
 # từ trách nhiệm LLM (không kiểm soát) sang config (kiểm soát, N6).
 #
@@ -123,12 +123,12 @@ pool_policy:
   no_repeat_last_n: 20          # A2: 8 → 20. 1 seed dùng rồi thì 20 lần tự nói tiếp không lặp
   reshuffle_when_exhausted: true
 
-# Dedup post-check (spec Mục 2.4 Bước 5)
+# Post-generation duplicate bounds.
 dedup:
   window: 5                      # so với 5 câu tự nói gần nhất
   token_overlap_threshold: 0.6   # Jaccard > 0.6 = coi là lặp
 
-# Anti-repeat opener (spec Mục 2.4 Bước 3)
+# Opening-phrase anti-repeat bounds.
 opener_tracker:
   window: 5                      # nhớ 5 câu mở gần nhất
   words_per_opener: 3            # 3 từ đầu mỗi câu

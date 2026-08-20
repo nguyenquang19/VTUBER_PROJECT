@@ -1,8 +1,8 @@
-"""Logger: structlog console + JSONL sink (ARCHITECTURE 9.3, Phase 0 task 4).
+"""Structured console logger with JSONL sinks.
 
 Hai stream tách biệt:
 - `events.jsonl`  — log hệ thống chung (state transition, toggle, error)
-- `turns.jsonl`   — 1 dòng / turn hội thoại, schema ARCHITECTURE 9.3
+- `turns.jsonl`   — one schema-versioned record per conversation turn
 
 Log rotation theo size (13.8), config từ `config/logging.yaml`.
 """

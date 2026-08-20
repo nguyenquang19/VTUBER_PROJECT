@@ -1,4 +1,4 @@
-"""MaterialProvider — cấp dữ kiện thật cho mỗi category (Aut.B, spec Mục 2.4 Bước 1).
+"""MaterialProvider supplying grounded facts for each autonomy category.
 
 Vấn đề bản gốc: prompt_hint là mô tả trừu tượng → LLM tự bịa mỗi lần → hội tụ
 về vài pattern quen. Fix: mỗi category có nguồn dữ kiện cụ thể (số/pool/memory).

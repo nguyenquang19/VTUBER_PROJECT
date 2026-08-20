@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from orchestrator.config_loader import ConfigLoader
+from orchestrator.config_loader import ConfigError, ConfigLoader
 from orchestrator.features import (
     CoreFeatureError,
     Feature,
@@ -20,6 +20,32 @@ from orchestrator.features import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def write_feature_config(
+    root: Path,
+    features: dict[str, object],
+    *,
+    total_mb: object = 1000,
+) -> ConfigLoader:
+    (root / "system.yaml").write_text(
+        yaml.safe_dump({
+            "resources": {
+                "vram_total_mb": total_mb,
+                "vram_reserved_mb": 0,
+                "vram_buffer_mb": 0,
+            },
+            "features": {"core": ["llm_main"]},
+        }, sort_keys=False),
+        encoding="utf-8",
+    )
+    (root / "features.yaml").write_text(
+        yaml.safe_dump({"features": features}, sort_keys=False),
+        encoding="utf-8",
+    )
+    loader = ConfigLoader(root)
+    loader.load_all()
+    return loader
 
 
 def make_feature(fid: str, **kw) -> Feature:
@@ -56,6 +82,10 @@ class TestRegistryBasics:
 
     async def test_default_status_disabled(self, mgr: FeatureManager) -> None:
         assert await mgr.get_status("a") is FeatureStatus.DISABLED
+
+    def test_duplicate_registration_is_rejected(self, mgr: FeatureManager) -> None:
+        with pytest.raises(ValueError, match="feature id trùng"):
+            mgr.register(make_feature("a"))
 
     async def test_production_registers_director_chat_gate(self) -> None:
         loader = ConfigLoader(REPO_ROOT / "config")
@@ -123,6 +153,10 @@ class TestDependencyCheck:
         r = await mgr.enable("b")
         assert r.ok is True
 
+    async def test_core_dependency_is_always_satisfied(self, mgr: FeatureManager) -> None:
+        mgr.register(make_feature("core_child", depends_on=["llm_main"]))
+        assert (await mgr.enable("core_child")).ok is True
+
     async def test_disable_blocked_when_dependent_still_on(self, mgr: FeatureManager) -> None:
         await mgr.enable("a")
         await mgr.enable("b")
@@ -163,6 +197,15 @@ class TestConflictCheck:
         await mgr.enable("x")
         await mgr.disable("x")
         assert (await mgr.enable("y")).ok is True
+
+    async def test_reverse_declared_conflict_is_enforced(self) -> None:
+        manager = FeatureManager(vram_budget_mb=1000)
+        manager.register(make_feature("a"))
+        manager.register(make_feature("b", conflicts_with=["a"]))
+        await manager.enable("b")
+        result = await manager.enable("a")
+        assert result.ok is False
+        assert "b" in result.reason
 
 
 class TestResourceCheck:
@@ -308,12 +351,16 @@ class TestPersistence:
     async def test_persist_writes_yaml(self, tmp_path: Path) -> None:
         path = tmp_path / "features.yaml"
         m = FeatureManager(vram_budget_mb=1000, persist_path=path)
-        m.register(make_feature("a", vram_cost_mb=100))
+        m.register(make_feature(
+            "a", vram_cost_mb=100, name="Feature A", description="kept metadata",
+        ))
         await m.enable("a")
 
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
         assert data["features"]["a"]["enabled"] is True
         assert data["features"]["a"]["vram_cost_mb"] == 100
+        assert data["features"]["a"]["name"] == "Feature A"
+        assert data["features"]["a"]["description"] == "kept metadata"
 
     async def test_persist_reflects_disable(self, tmp_path: Path) -> None:
         path = tmp_path / "features.yaml"
@@ -334,6 +381,61 @@ class TestPersistence:
         r = await m.enable("heavy")
         assert r.ok is False
         assert not path.exists()
+
+    async def test_existing_yaml_preserves_comment_metadata_and_custom_key(
+        self, tmp_path: Path,
+    ) -> None:
+        path = tmp_path / "features.yaml"
+        original = (
+            "features:\n"
+            "  demo:\n"
+            "    enabled: false  # operator state\n"
+            "    vram_cost_mb: 0\n"
+            "    latency_impact_ms: 0\n"
+            "    category: test\n"
+            "    depends_on: []\n"
+            "    conflicts_with: []\n"
+            "    name: Demo feature\n"
+            "    description: Keep me\n"
+            "    custom_key: custom-value\n"
+        )
+        path.write_bytes(original.replace("\n", "\r\n").encode("utf-8"))
+        manager = FeatureManager(vram_budget_mb=1000, persist_path=path)
+        manager.register(make_feature(
+            "demo", name="Demo feature", description="Keep me",
+        ))
+
+        assert (await manager.enable("demo")).ok is True
+        rendered = path.read_text(encoding="utf-8")
+        assert "enabled: true  # operator state" in rendered
+        assert "name: Demo feature" in rendered
+        assert "description: Keep me" in rendered
+        assert "custom_key: custom-value" in rendered
+        raw = path.read_bytes()
+        assert b"\n" not in raw.replace(b"\r\n", b"")
+
+    async def test_persist_failure_rolls_back_status_and_handler(
+        self, tmp_path: Path,
+    ) -> None:
+        path = tmp_path / "features.yaml"
+        path.mkdir()
+        manager = FeatureManager(vram_budget_mb=1000, persist_path=path)
+        manager.register(make_feature("demo"))
+        calls: list[str] = []
+
+        async def enable() -> None:
+            calls.append("enable")
+
+        async def disable() -> None:
+            calls.append("disable")
+
+        manager.attach_handlers("demo", enable=enable, disable=disable)
+        result = await manager.enable("demo")
+
+        assert result.ok is False
+        assert "persistence lỗi" in result.reason
+        assert await manager.get_status("demo") is FeatureStatus.DISABLED
+        assert calls == ["enable", "disable"]
 
 
 class TestFromConfig:
@@ -405,3 +507,116 @@ class TestFromConfig:
             f = m._features[fid]
             for dep in f.depends_on:
                 assert dep in enabled, f"{fid} bật nhưng dependency {dep} tắt"
+
+    async def test_persisted_toggle_survives_restart_without_rewriting_yaml(
+        self, tmp_path: Path,
+    ) -> None:
+        (tmp_path / "system.yaml").write_text(
+            "resources:\n"
+            "  vram_total_mb: 1000\n"
+            "  vram_reserved_mb: 0\n"
+            "  vram_buffer_mb: 0\n"
+            "features:\n"
+            "  core: [llm_main]\n",
+            encoding="utf-8",
+        )
+        feature_path = tmp_path / "features.yaml"
+        feature_path.write_text(
+            "features:\n"
+            "  demo:\n"
+            "    enabled: false  # survives restart\n"
+            "    vram_cost_mb: 0\n"
+            "    latency_impact_ms: 0\n"
+            "    category: test\n"
+            "    depends_on: []\n"
+            "    conflicts_with: []\n"
+            "    name: Demo feature\n"
+            "    description: Restart contract\n",
+            encoding="utf-8",
+        )
+        loader = ConfigLoader(tmp_path)
+        loader.load_all()
+        manager = FeatureManager.from_config(loader, persist=True)
+
+        assert manager._persist_path == feature_path
+        assert (await manager.enable("demo", user="dashboard")).ok is True
+        assert "enabled: true  # survives restart" in feature_path.read_text(encoding="utf-8")
+
+        restarted_loader = ConfigLoader(tmp_path)
+        restarted_loader.load_all()
+        restarted = FeatureManager.from_config(restarted_loader)
+        assert await restarted.get_status("demo") is FeatureStatus.ENABLED
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("enabled", "false"),
+            ("vram_cost_mb", "0"),
+            ("latency_impact_ms", True),
+            ("depends_on", "llm_main"),
+            ("conflicts_with", [1]),
+            ("category", 1),
+        ],
+    )
+    def test_rejects_feature_values_with_wrong_types(
+        self, tmp_path: Path, field: str, value: object,
+    ) -> None:
+        spec: dict[str, object] = {
+            "enabled": False,
+            "vram_cost_mb": 0,
+            "latency_impact_ms": 0,
+            "category": "test",
+            "depends_on": [],
+            "conflicts_with": [],
+        }
+        spec[field] = value
+        loader = write_feature_config(tmp_path, {"demo": spec})
+        with pytest.raises(ConfigError, match=f"features.demo.{field}"):
+            FeatureManager.from_config(loader)
+
+    def test_rejects_string_resource_budget(self, tmp_path: Path) -> None:
+        loader = write_feature_config(tmp_path, {}, total_mb="1000")
+        with pytest.raises(ConfigError, match="vram_total_mb"):
+            FeatureManager.from_config(loader)
+
+    def test_rejects_enabled_feature_with_disabled_dependency(self, tmp_path: Path) -> None:
+        base = {
+            "vram_cost_mb": 0,
+            "latency_impact_ms": 0,
+            "category": "test",
+            "conflicts_with": [],
+        }
+        loader = write_feature_config(tmp_path, {
+            "base": {**base, "enabled": False, "depends_on": []},
+            "child": {**base, "enabled": True, "depends_on": ["base"]},
+        })
+        with pytest.raises(ConfigError, match="dependency tắt"):
+            FeatureManager.from_config(loader)
+
+    def test_rejects_unknown_dependency(self, tmp_path: Path) -> None:
+        loader = write_feature_config(tmp_path, {
+            "demo": {
+                "enabled": False,
+                "vram_cost_mb": 0,
+                "latency_impact_ms": 0,
+                "category": "test",
+                "depends_on": ["missing"],
+                "conflicts_with": [],
+            },
+        })
+        with pytest.raises(ConfigError, match="không tồn tại"):
+            FeatureManager.from_config(loader)
+
+    def test_rejects_initial_enabled_set_over_budget(self, tmp_path: Path) -> None:
+        loader = write_feature_config(tmp_path, {
+            "heavy": {
+                "enabled": True,
+                "vram_cost_mb": 1001,
+                "latency_impact_ms": 0,
+                "category": "test",
+                "depends_on": [],
+                "conflicts_with": [],
+            },
+        })
+        with pytest.raises(ConfigError, match="vượt budget"):
+            FeatureManager.from_config(loader)

@@ -183,7 +183,7 @@ class SaliencePool:
     def purge_below(self, score_ceiling: float, now: float) -> int:
         """Xoá mọi tin có current_score < ceiling. Trả số tin xoá.
 
-        TASK 3: sau khi Mai nói 1 câu SUMMARY (chat trôi nhanh), dọn luôn backlog
+        After Mai speaks a SUMMARY for fast chat, clear the remaining low-score backlog
         điểm thấp để tick sau không lặp lại 'chat trôi nhanh quá'."""
         low = [k for k, m in self._items.items() if self.current_score(m, now) < score_ceiling]
         for k in low:

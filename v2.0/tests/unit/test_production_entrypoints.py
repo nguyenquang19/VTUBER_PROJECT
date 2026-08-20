@@ -63,3 +63,4 @@ def test_canonical_launcher_dispatches_only_platform_stream_entrypoints() -> Non
         source = (REPO_ROOT / "scripts" / name).read_text(encoding="utf-8")
         assert "from orchestrator.stream_runtime import" in source
         assert "build_stream_runtime(" in source
+        assert "run_stream_runtime(rt)" in source

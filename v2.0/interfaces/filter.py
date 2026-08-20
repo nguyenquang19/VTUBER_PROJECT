@@ -1,7 +1,7 @@
-"""Filter interface (ARCHITECTURE 7.5).
+"""Output-filter service contract.
 
-N7: filter fail-open — lỗi thì cho qua + log, không block. Implementation
-`RuleFilter` ở Phase 3 (spec 8.3A).
+The boundary is fail-open: an internal filter failure is logged without blocking
+the turn. `services.filter.rule_filter.RuleFilter` is the production implementation.
 """
 from __future__ import annotations
 

@@ -7,8 +7,8 @@ Nguồn dữ liệu: sau khi LLMTurnRunner hoàn tất 1 turn (user input + Mai 
   - Importance dựa heuristic (mood intensity + độ dài)
   - Tags từ mood + trigger type
 
-N1 YAGNI: KHÔNG dùng LLM extract fact (chậm, đắt); chỉ regex + length heuristic
-đủ cho MVP. Nâng cấp sau nếu callback rate < 80% (DoD Phase 7).
+The extractor intentionally uses regex and length heuristics instead of another
+LLM call so background persistence stays deterministic and bounded.
 """
 from __future__ import annotations
 

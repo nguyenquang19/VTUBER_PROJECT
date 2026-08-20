@@ -1,4 +1,4 @@
-"""CLI input mode cho Mai (ARCHITECTURE 11.2, milestone 1.E + wire 4.E).
+"""Local CLI entrypoint for the complete text and optional TTS stack.
 
 Chạy full stack:
 - Phase 1: PromptManager + LlamaCppLLMService + parser + LLM fallback (canned)
@@ -92,7 +92,7 @@ def _on_sentence(sent: str) -> None:
         _TurnCtx.t_first_dispatch = time.perf_counter()
     _TurnCtx.seq += 1
     seq = _TurnCtx.seq
-    # Pipeline.speak có async lock nội tại → task 2 chờ task 1 xong synth mới bắt
+    # Pipeline.speak serializes synthesis through its internal async lock.
     # đầu. Player vẫn phát song song, nên câu 1 audio chảy trong khi câu 2 synth.
     task = _TurnCtx.loop.create_task(
         _speak_and_log(_TurnCtx.pipeline, f"{_TurnCtx.req_id}#s{seq}", sent)

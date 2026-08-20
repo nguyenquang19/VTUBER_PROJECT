@@ -1,4 +1,4 @@
-"""Metrics collector: prometheus_client (ARCHITECTURE 5.3, Phase 0 task 10).
+"""Prometheus metrics collector for runtime services.
 
 GPU/VRAM production metrics are sampled from nvidia-smi; unavailable data is
 reported explicitly and is never replaced with synthetic values.

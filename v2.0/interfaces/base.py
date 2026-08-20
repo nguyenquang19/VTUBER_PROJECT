@@ -1,7 +1,6 @@
-"""Base interface cho mọi service (ARCHITECTURE 7.1).
+"""Shared lifecycle and health contract for runtime services.
 
-`HealthStatus` được spec reference ở 7.1 nhưng không định nghĩa — define ở đây
-theo mức tối giản đủ dùng cho health_monitor + dashboard (P6 simplicity).
+`HealthStatus` is the minimal shared view consumed by the health monitor and dashboard.
 """
 from __future__ import annotations
 
@@ -59,7 +58,7 @@ class HealthStatus(BaseModel):
 
 
 class Service(ABC):
-    """Base class cho tất cả service modules (ARCHITECTURE 7.1)."""
+    """Base class for lifecycle-managed service modules."""
 
     #: id ổn định, dùng trong log / metric label / health report
     service_id: str = "unnamed"

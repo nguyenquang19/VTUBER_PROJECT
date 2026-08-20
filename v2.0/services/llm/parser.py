@@ -1,4 +1,4 @@
-"""Parser output LLM (ARCHITECTURE 7.4/8.2, config/prompts/persona_system.txt Phần B, milestone 1.D).
+"""Parser for the structured output described by the production persona prompt.
 
 **A1 (docs/MAI_V2_SYSTEM_SPEC.md):** persona đã BỎ yêu cầu mood block —
 Mai chỉ nói thoại. Parser giữ khả năng strip mood block DEFENSIVE (nếu LLM lỡ

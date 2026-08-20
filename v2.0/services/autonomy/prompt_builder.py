@@ -1,4 +1,4 @@
-"""Prompt builder cho Autonomy Engine v2 (Aut.C, spec Mục 2.3 + 2.4 Bước 2).
+"""Grounded prompt builder for the Autonomy Engine.
 
 Render per-category slot-fill prompt. Composer gọi `render_prompt(category,
 material, mood, forbidden_openers, hint)` → text để inject vào messages qua

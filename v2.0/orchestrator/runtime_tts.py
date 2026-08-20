@@ -68,7 +68,13 @@ async def build_tts_runtime_stack(
             if not health.is_ok:
                 raise RuntimeError(health.message or "subtitle health gate failed")
             subtitle = candidate
+        except asyncio.CancelledError:
+            with contextlib.suppress(BaseException):
+                await asyncio.wait_for(candidate.stop(), timeout=health_timeout_s)
+            raise
         except Exception as exc:
+            with contextlib.suppress(BaseException):
+                await asyncio.wait_for(candidate.stop(), timeout=health_timeout_s)
             subtitle_error = f"{type(exc).__name__}: {exc}"
             log.warning("subtitle_startup_gate_failed", error=subtitle_error)
 
@@ -82,6 +88,16 @@ async def build_tts_runtime_stack(
             raise RuntimeError(health.message or "TTS health gate failed")
         player = player_factory(int(getattr(primary, "sample_rate", 48000)))
         await asyncio.wait_for(player.start(), timeout=health_timeout_s)
+    except asyncio.CancelledError:
+        if player is not None:
+            with contextlib.suppress(BaseException):
+                await asyncio.wait_for(player.stop(), timeout=health_timeout_s)
+        with contextlib.suppress(BaseException):
+            await asyncio.wait_for(primary.stop(), timeout=health_timeout_s)
+        if subtitle is not None:
+            with contextlib.suppress(BaseException):
+                await asyncio.wait_for(subtitle.stop(), timeout=health_timeout_s)
+        raise
     except Exception as exc:
         reason = "startup_timeout" if isinstance(exc, asyncio.TimeoutError) else type(exc).__name__
         degraded_reason = f"{reason}: {exc}".rstrip()
@@ -91,9 +107,9 @@ async def build_tts_runtime_stack(
             subtitle_available=subtitle is not None,
         )
         if player is not None:
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(BaseException):
                 await asyncio.wait_for(player.stop(), timeout=health_timeout_s)
-        with contextlib.suppress(Exception):
+        with contextlib.suppress(BaseException):
             await asyncio.wait_for(primary.stop(), timeout=health_timeout_s)
         primary = None
         player = None

@@ -57,7 +57,7 @@ class VTSAnimationService(AnimationService):
             port=int(cfg.get("port", 8001)),
             plugin_name=str(cfg.get("plugin_name", "Mai")),
             plugin_developer=str(cfg.get("plugin_developer", "Duc")),
-            token_file=str(cfg.get("token_file", "vts_token.txt")),
+            token_file=cfg.get("token_file", "vts_token.txt"),
         )
         return cls(
             transport,

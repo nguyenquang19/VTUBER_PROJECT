@@ -386,3 +386,80 @@ async def test_local_action_adapters_are_composed_with_independent_feature_lifec
     finally:
         await runtime.stop()
     assert boundary.snapshot()["running"] is False
+
+
+@pytest.mark.asyncio
+async def test_late_composition_failure_rolls_back_llm_process_and_dashboard(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fake_llm = ScriptedStreamLLM([])
+    process_events: list[str] = []
+    dashboard_events: list[str] = []
+
+    monkeypatch.setattr(
+        stream_runtime_module,
+        "LlamaCppLLMService",
+        SimpleNamespace(from_loader=lambda _loader: fake_llm),
+    )
+    monkeypatch.setattr(
+        stream_runtime_module,
+        "setup_from_config",
+        lambda _loader, metrics=None: None,
+    )
+    monkeypatch.setattr(stream_runtime_module, "_make_pref_logger", lambda _loader: None)
+
+    class FakeProcessManager:
+        def __init__(self, _config: Any) -> None:
+            return None
+
+        async def start(self) -> None:
+            process_events.append("start")
+
+        async def stop(self) -> None:
+            process_events.append("stop")
+
+    class FakeDashboard:
+        async def serve(self) -> None:
+            await asyncio.Event().wait()
+
+        async def shutdown(self) -> None:
+            dashboard_events.append("shutdown")
+
+    dashboard = FakeDashboard()
+
+    def fake_start_dashboard(**_kwargs: Any):
+        task = asyncio.create_task(dashboard.serve(), name="test_dashboard")
+        return task, {"task": task, "server": dashboard}, dashboard
+
+    def fail_after_dashboard(**_kwargs: Any) -> None:
+        raise LookupError("late composition failure")
+
+    monkeypatch.setattr(
+        stream_runtime_module,
+        "LlamaServerProcessManager",
+        FakeProcessManager,
+    )
+    monkeypatch.setattr(stream_runtime_module, "start_dashboard", fake_start_dashboard)
+    monkeypatch.setattr(
+        stream_runtime_module,
+        "configure_shutdown_coordinator",
+        fail_after_dashboard,
+    )
+
+    with pytest.raises(LookupError, match="late composition failure"):
+        await stream_runtime_module.build_stream_runtime(
+            loader=_loader(tmp_path, filter_enabled=False),
+            sources=[FakeInputService()],
+            cfg=StreamRuntimeConfig(
+                enable_tts=False,
+                enable_memory=False,
+                enable_autonomy=False,
+                enable_dashboard=True,
+            ),
+        )
+
+    assert fake_llm.started is True
+    assert fake_llm.stopped is True
+    assert process_events == ["start", "stop"]
+    assert dashboard_events == ["shutdown"]

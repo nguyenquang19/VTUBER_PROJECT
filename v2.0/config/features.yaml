@@ -1,4 +1,4 @@
-# features.yaml — feature toggle state, persist ở đây (ARCHITECTURE 4.3, 4.5)
+# Persistent feature-toggle state and dependency metadata.
 #
 # Core features (không toggle được) KHÔNG liệt kê ở đây:
 #   input_chat, llm_main, parser_output, context_builder,

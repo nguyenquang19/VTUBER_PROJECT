@@ -1,4 +1,4 @@
-# state_machine.yaml — 5 state / 9 transition (ARCHITECTURE 10.5, 7.10)
+# Five-state, nine-transition conversation state machine.
 #
 # N1 YAGNI: đúng 5 state, 9 transition. KHÔNG thêm LISTENING / INTERRUPTED /
 # ERROR — xem 7.10.1 để biết khi nào mới tách.
@@ -8,8 +8,7 @@ state_machine:
 
   cooldown_ms: 500
 
-  # Interrupt policy — Phase 2 mới dùng (7.9.3). Để sẵn value ở đây để Phase 2
-  # không phải sửa 2 chỗ; Phase 0 chỉ đọc, chưa enforce.
+  # TriggerManager enforces this policy while speech is active.
   interrupt_policy:
     operator_text:
       allow_after_ms: 2000       # sau 2s speaking mới cho interrupt
@@ -18,8 +17,7 @@ state_machine:
     chat_normal:
       allow_after_ms: 999999
 
-  # Deadlock watchdog — Phase 2 mới implement (7.10.4). Threshold khớp
-  # system.yaml conversation.max_state_duration.
+  # Deadlock watchdog bounds; kept aligned with conversation duration limits.
   auto_recovery:
     stuck_state_check_interval_seconds: 1
     max_time_in_state_seconds:

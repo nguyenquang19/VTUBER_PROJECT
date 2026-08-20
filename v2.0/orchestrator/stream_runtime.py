@@ -68,6 +68,66 @@ from services.agent.types import (
 
 
 SpeakFn = Callable[[str, str], Awaitable[Any]]
+CleanupFn = Callable[[], Awaitable[None]]
+
+
+class _StartupRollback:
+    """LIFO cleanup for resources owned by an incomplete composition."""
+
+    def __init__(self) -> None:
+        self._callbacks: list[tuple[str, CleanupFn]] = []
+        self._log = get_logger("stream_runtime")
+
+    def push(self, name: str, callback: CleanupFn) -> None:
+        self._callbacks.append((name, callback))
+
+    def release(self) -> None:
+        self._callbacks.clear()
+
+    async def rollback(self) -> None:
+        while self._callbacks:
+            name, callback = self._callbacks.pop()
+            try:
+                await callback()
+            except BaseException as exc:
+                self._log.warning(
+                    "startup_rollback_step_failed",
+                    resource=name,
+                    error=type(exc).__name__,
+                )
+
+
+async def _start_owned_resource(
+    rollback: _StartupRollback,
+    name: str,
+    service: Any,
+) -> None:
+    """Start one owned service and clean even a partially failed start."""
+    try:
+        await service.start()
+    except BaseException:
+        try:
+            await service.stop()
+        except BaseException as cleanup_exc:
+            get_logger("stream_runtime").warning(
+                "startup_partial_resource_cleanup_failed",
+                resource=name,
+                error=type(cleanup_exc).__name__,
+            )
+        raise
+    rollback.push(name, service.stop)
+
+
+async def _stop_dashboard_handle(server: Any, task: asyncio.Task[Any] | None) -> None:
+    try:
+        if server is not None and hasattr(server, "shutdown"):
+            with contextlib.suppress(Exception):
+                await server.shutdown()
+    finally:
+        if task is not None and not task.done():
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await task
 
 
 @dataclass
@@ -91,6 +151,7 @@ class StreamRuntime:
         chat_router: ChatRouter,
         autonomy: AutonomyEngine | None,
         tts_svc: Any = None,
+        subtitle_svc: Any = None,
         audio_player: Any = None,
         tts_pipeline: Any = None,
         memory: Any = None,
@@ -138,6 +199,7 @@ class StreamRuntime:
         self._router = chat_router
         self._autonomy = autonomy
         self._tts_svc = tts_svc
+        self._subtitle_svc = subtitle_svc
         self._audio_player = audio_player
         self._tts_pipeline = tts_pipeline
         self._memory = memory
@@ -173,6 +235,7 @@ class StreamRuntime:
         self._llama_process_manager = llama_process_manager
         self._dashboard_ref = dashboard_ref
         self._shutdown_coordinator = shutdown_coordinator
+        self._shutdown_coordinator_started = False
         self._control_plane = control_plane
         self._emergency_controller = emergency_controller
         self._incident_log = incident_log
@@ -190,73 +253,110 @@ class StreamRuntime:
     async def start(self) -> None:
         if self._running:
             return
-        if self._capability_registry is not None:
-            await self._capability_registry.start()
-        if self._action_mock_loop is not None:
-            await self._action_mock_loop.start()
-        if self._action_adapter_boundary is not None:
-            await self._action_adapter_boundary.start()
-        if self._external_executor_registry is not None:
-            await self._external_executor_registry.start()
-        if self._external_action_loop is not None:
-            await self._external_action_loop.start()
-        if self._embodiment_policy is not None:
-            await self._embodiment_policy.start()
-        if self._self_model is not None:
-            await self._self_model.start()
-        if self._world_model is not None:
-            await self._world_model.start()
-        if self._perception_ingress is not None:
-            await self._perception_ingress.start()
-        for adapter in self._perception_adapters:
-            await adapter.start()
-        if self._director_v2_shadow is not None:
-            await self._director_v2_shadow.start()
-        if self._director_v2_takeover is not None:
-            await self._director_v2_takeover.start()
-        if self._agent_state is not None:
-            await self._agent_state.start()
-        if self._goal_manager is not None:
-            await self._goal_manager.start()
-        if self._goal_proposal is not None:
-            await self._goal_proposal.start()
-        if self._thread_extractor is not None:
-            await self._thread_extractor.start()
-        if self._conversation_context is not None:
-            await self._conversation_context.start()
-        if self._repair_policy is not None:
-            await self._repair_policy.start()
-        if self._behavior_library is not None:
-            await self._behavior_library.start()
-        if self._relationship_manager is not None:
-            await self._relationship_manager.start()
-        if self._control_plane is not None:
-            await self._control_plane.start()
-        if self._emergency_controller is not None:
-            await self._emergency_controller.start()
-        if self._incident_log is not None:
-            await self._incident_log.start()
-        await self._router.start()
-        self._running = True
-        # C0.4: DirectorLoop cầm nhịp (thay autonomy loop cũ). Fallback: autonomy loop
-        # nếu không có director (backward compat / test).
-        if self._director_loop is not None:
-            await self._director_loop.start()
-        elif self.cfg.enable_autonomy and self._autonomy is not None:
-            self._autonomy_task = asyncio.create_task(
-                self._autonomy_loop(), name="autonomy_tick",
+        self._stop_event.clear()
+        self._shutdown_coordinator_started = False
+        try:
+            if self._capability_registry is not None:
+                await self._capability_registry.start()
+            if self._action_mock_loop is not None:
+                await self._action_mock_loop.start()
+            if self._action_adapter_boundary is not None:
+                await self._action_adapter_boundary.start()
+            if self._external_executor_registry is not None:
+                await self._external_executor_registry.start()
+            if self._external_action_loop is not None:
+                await self._external_action_loop.start()
+            if self._embodiment_policy is not None:
+                await self._embodiment_policy.start()
+            if self._self_model is not None:
+                await self._self_model.start()
+            if self._world_model is not None:
+                await self._world_model.start()
+            if self._perception_ingress is not None:
+                await self._perception_ingress.start()
+            for adapter in self._perception_adapters:
+                await adapter.start()
+            if self._director_v2_shadow is not None:
+                await self._director_v2_shadow.start()
+            if self._director_v2_takeover is not None:
+                await self._director_v2_takeover.start()
+            if self._agent_state is not None:
+                await self._agent_state.start()
+            if self._goal_manager is not None:
+                await self._goal_manager.start()
+            if self._goal_proposal is not None:
+                await self._goal_proposal.start()
+            if self._thread_extractor is not None:
+                await self._thread_extractor.start()
+            if self._conversation_context is not None:
+                await self._conversation_context.start()
+            if self._repair_policy is not None:
+                await self._repair_policy.start()
+            if self._behavior_library is not None:
+                await self._behavior_library.start()
+            if self._relationship_manager is not None:
+                await self._relationship_manager.start()
+            if self._control_plane is not None:
+                await self._control_plane.start()
+            if self._emergency_controller is not None:
+                await self._emergency_controller.start()
+            if self._incident_log is not None:
+                await self._incident_log.start()
+            await self._router.start()
+            self._running = True
+            # C0.4: DirectorLoop cầm nhịp (thay autonomy loop cũ). Fallback: autonomy loop
+            # nếu không có director (backward compat / test).
+            if self._director_loop is not None:
+                await self._director_loop.start()
+            elif self.cfg.enable_autonomy and self._autonomy is not None:
+                self._autonomy_task = asyncio.create_task(
+                    self._autonomy_loop(), name="autonomy_tick",
+                )
+            self._record_environment_observation()
+            if self._health_supervisor is not None:
+                await self._health_supervisor.start()
+            if self._shutdown_coordinator is not None:
+                await self._shutdown_coordinator.start()
+                self._shutdown_coordinator_started = True
+            self._log.info(
+                "stream_runtime_ready",
+                tts=self.cfg.enable_tts, memory=self.cfg.enable_memory,
+                director=self._director_loop is not None,
+                autonomy=self.cfg.enable_autonomy and self._autonomy is not None,
             )
-        self._record_environment_observation()
-        if self._health_supervisor is not None:
-            await self._health_supervisor.start()
-        if self._shutdown_coordinator is not None:
-            await self._shutdown_coordinator.start()
-        self._log.info(
-            "stream_runtime_ready",
-            tts=self.cfg.enable_tts, memory=self.cfg.enable_memory,
-            director=self._director_loop is not None,
-            autonomy=self.cfg.enable_autonomy and self._autonomy is not None,
+        except BaseException as exc:
+            self._running = False
+            self._stop_event.set()
+            self._log.error(
+                "stream_runtime_start_failed",
+                error=type(exc).__name__,
+            )
+            await self._cleanup_after_start_failure()
+            raise
+
+    async def _cleanup_after_start_failure(self) -> None:
+        await self._run_shutdown_steps(
+            event="stream_runtime_start_cleanup_failed",
+            include_base_exceptions=True,
         )
+
+    async def _run_shutdown_steps(
+        self,
+        *,
+        event: str,
+        include_base_exceptions: bool,
+    ) -> None:
+        for name, callback in self.shutdown_steps():
+            try:
+                await callback()
+            except BaseException as exc:
+                if not include_base_exceptions and not isinstance(exc, Exception):
+                    raise
+                self._log.warning(
+                    event,
+                    step=name,
+                    error=type(exc).__name__,
+                )
 
     async def stop(self) -> None:
         self._running = False
@@ -292,11 +392,15 @@ class StreamRuntime:
 
     async def _stop_speech(self) -> None:
         # TTS
-        if self._tts_pipeline is not None:
+        if self._audio_player is not None:
             with contextlib.suppress(Exception):
                 await self._audio_player.stop()
+        if self._tts_svc is not None:
             with contextlib.suppress(Exception):
                 await self._tts_svc.stop()
+        if self._subtitle_svc is not None:
+            with contextlib.suppress(Exception):
+                await self._subtitle_svc.stop()
 
     async def _stop_supporting_services(self) -> None:
         # Memory
@@ -385,14 +489,10 @@ class StreamRuntime:
                 await self._agent_state.stop()
 
     async def _stop_all_components(self) -> None:
-        await self._stop_recovery()
-        await self._stop_driver()
-        await self._stop_input()
-        await self._stop_speech()
-        await self._stop_dashboard()
-        await self._stop_supporting_services()
-        await self._stop_llm()
-        await self._stop_agent_state()
+        await self._run_shutdown_steps(
+            event="stream_runtime_stop_step_failed",
+            include_base_exceptions=False,
+        )
 
     def set_shutdown_coordinator(self, coordinator: Any) -> None:
         self._shutdown_coordinator = coordinator
@@ -782,7 +882,51 @@ async def build_stream_runtime(
     sources: list[InputService],
     cfg: StreamRuntimeConfig,
 ) -> StreamRuntime:
-    """Build đầy đủ stack theo flags. Raise nếu llama-server không chạy."""
+    """Build the owned stack transactionally and preserve the root failure."""
+    rollback = _StartupRollback()
+    try:
+        runtime = await _compose_stream_runtime(
+            loader=loader,
+            sources=sources,
+            cfg=cfg,
+            rollback=rollback,
+        )
+    except BaseException:
+        await rollback.rollback()
+        raise
+    rollback.release()
+    return runtime
+
+
+async def run_stream_runtime(runtime: StreamRuntime) -> None:
+    """Run one composed runtime and always invoke its idempotent cleanup."""
+    failed = False
+    try:
+        await runtime.start()
+        await runtime.wait_until_stopped()
+    except BaseException:
+        failed = True
+        raise
+    finally:
+        try:
+            await runtime.stop()
+        except BaseException as cleanup_exc:
+            if not failed:
+                raise
+            get_logger("stream_runtime").warning(
+                "stream_runtime_launcher_cleanup_failed",
+                error=type(cleanup_exc).__name__,
+            )
+
+
+async def _compose_stream_runtime(
+    *,
+    loader: Any,
+    sources: list[InputService],
+    cfg: StreamRuntimeConfig,
+    rollback: _StartupRollback,
+) -> StreamRuntime:
+    """Compose the full stack; public wrapper owns rollback on failure."""
     from orchestrator.runtime_config_validation import validate_runtime_config
 
     validate_runtime_config(loader)
@@ -796,7 +940,7 @@ async def build_stream_runtime(
     # B0: setup structlog + JSONL sinks (turns.jsonl để baseline eval)
     turn_logger = setup_from_config(loader, metrics=metrics)
     pref_logger = _make_pref_logger(loader)   # T2: DPO pairs sink
-    feature_manager = FeatureManager.from_config(loader)
+    feature_manager = FeatureManager.from_config(loader, persist=True)
 
     # M1: one shared grounded working state for every stream producer.
     from services.agent.agent_state import AgentState
@@ -941,14 +1085,13 @@ async def build_stream_runtime(
         llama_process_manager = LlamaServerProcessManager(
             LlamaServerConfig.from_loader(loader),
         )
-        await llama_process_manager.start()
+        await _start_owned_resource(
+            rollback, "llama_process_manager", llama_process_manager,
+        )
     llm_svc = LlamaCppLLMService.from_loader(loader)
-    await llm_svc.start()
+    await _start_owned_resource(rollback, "llm_service", llm_svc)
     health = await llm_svc.health_check()
     if not health.is_ok:
-        await llm_svc.stop()
-        if llama_process_manager is not None:
-            await llama_process_manager.stop()
         raise RuntimeError(f"llama-server chưa chạy: {health.message}")
 
     from services.agent.goal_proposal import GoalProposalGenerator
@@ -1047,7 +1190,7 @@ async def build_stream_runtime(
         )
         filter_enabled = filter_status in (FeatureStatus.ENABLED, FeatureStatus.DEGRADED)
         if filter_enabled:
-            await filter_svc.start()
+            await _start_owned_resource(rollback, "rule_filter", filter_svc)
 
     # ─── Emotion ───
     # A1: drift_detector đã bỏ (Kênh B tắt, LLM không tự report mood)
@@ -1076,7 +1219,7 @@ async def build_stream_runtime(
         semantic = SemanticMemoryService(store=store, embedder=embedder)
         working = WorkingMemoryService.from_loader(loader)
         memory = MemoryFallbackManager(primary=semantic, fallback=working)
-        await memory.start()
+        await _start_owned_resource(rollback, "memory", memory)
         memory_extractor = MemoryExtractor()
         emotion.set_memory_service(memory)
     relationship_manager.set_memory_service(memory)
@@ -1170,6 +1313,7 @@ async def build_stream_runtime(
 
     # ─── TTS (optional) ───
     tts_svc = None
+    subtitle_svc = None
     audio_player = None
     tts_pipeline = None
     speak_callback: SpeakFn | None = None
@@ -1179,8 +1323,15 @@ async def build_stream_runtime(
 
         tts_stack = await _build_tts_runtime_stack(loader, metrics)
         tts_svc = tts_stack.primary
+        subtitle_svc = tts_stack.subtitle
         audio_player = tts_stack.player
         tts_pipeline = tts_stack.pipeline
+        if subtitle_svc is not None:
+            rollback.push("tts_subtitle", subtitle_svc.stop)
+        if tts_svc is not None:
+            rollback.push("tts_primary", tts_svc.stop)
+        if audio_player is not None:
+            rollback.push("tts_audio_player", audio_player.stop)
 
         async def _speak(req_id: str, text: str) -> TTSDeliveryResult:
             return await tts_pipeline.speak(req_id, text)
@@ -1430,7 +1581,7 @@ async def build_stream_runtime(
         get_logger("stream_runtime").warning("animation_smooth_feature_missing")
         animation_enabled = False
     animation = VTSAnimationService.from_loader(loader, enabled=animation_enabled)
-    await animation.start()
+    await _start_owned_resource(rollback, "vts_animation", animation)
     from services.animation.embodiment_policy import EmbodimentPolicy
     try:
         embodiment_status = await feature_manager.get_status("embodiment_policy")
@@ -1521,7 +1672,7 @@ async def build_stream_runtime(
         is_enabled=lambda: action_adapter_boundary.avatar_enabled,
     )
 
-    # TASK 4: director tick TÁCH khỏi autonomy (autonomy 5s làm chat chờ lâu).
+    # Director ticks are separate from the slower autonomy loop to avoid chat latency.
     director_tick = float(loader.get("director", "director.tick_seconds", 1.5))
     room_reaction = loader.get("director", "director.room_reaction", {}) or {}
     speech_dedup = loader.get("director", "director.speech_dedup", {}) or {}
@@ -2112,6 +2263,11 @@ async def build_stream_runtime(
         control_plane=control_plane,
         incident_log=incident_log,
     )
+    if dashboard_task is not None:
+        async def _rollback_dashboard() -> None:
+            await _stop_dashboard_handle(dashboard_server, dashboard_task)
+
+        rollback.push("dashboard", _rollback_dashboard)
 
     health_supervisor = build_health_supervisor(
         enabled=operations_enabled,
@@ -2150,7 +2306,8 @@ async def build_stream_runtime(
     rt = StreamRuntime(
         loader=loader, llm_svc=llm_svc, runner=runner, emotion=emotion,
         chat_router=router, autonomy=autonomy,
-        tts_svc=tts_svc, audio_player=audio_player, tts_pipeline=tts_pipeline,
+        tts_svc=tts_svc, subtitle_svc=subtitle_svc,
+        audio_player=audio_player, tts_pipeline=tts_pipeline,
         memory=memory, feature_manager=feature_manager,
         filter_svc=filter_svc, regenerator=regenerator,
         metrics=metrics, dashboard_task=dashboard_task,

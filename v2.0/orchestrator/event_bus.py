@@ -1,4 +1,4 @@
-"""Event bus nội bộ: asyncio queue pub/sub (ARCHITECTURE 8.1, Phase 0 task 5).
+"""Internal asyncio queue pub/sub event bus.
 
 Fan-out: mỗi subscriber có queue riêng, publish copy vào tất cả queue của topic.
 Queue có bound — đầy thì drop theo `overflow_policy` chứ không block producer

@@ -1,4 +1,4 @@
-"""llama-server process lifecycle (ARCHITECTURE 8.2, Phase 1 task 1).
+"""Owned llama-server process lifecycle.
 
 v2.3: 1 instance duy nhất (main, port 8080) — bỏ E4B.
 

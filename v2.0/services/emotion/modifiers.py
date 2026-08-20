@@ -1,4 +1,4 @@
-"""ModifierEngine — 3 modifier nhân hệ số target (Phase 7.5.B, spec Mục 4.1).
+"""ModifierEngine applying three bounded factors to emotion targets.
 
 Modifier KHÔNG sinh target riêng — nhân/cộng lên target của category khác. Áp
 TRƯỚC khi đưa vào MoodEngine.apply_appraisal.

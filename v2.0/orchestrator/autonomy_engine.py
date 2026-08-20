@@ -1,7 +1,7 @@
-"""AutonomyEngine v2: Urge + CategorySelector + AutonomyEngine composer (Aut.A + C).
+"""AutonomyEngine v2: urge, category selection and bounded composition.
 
-Spec: docs/AUTONOMY_ENGINE_REDESIGN.md — thay hard `silence > 60s` bằng urge
-accumulator probabilistic + category selector có mood coupling + no-repeat.
+The engine replaces a hard silence threshold with a probabilistic urge accumulator,
+mood-coupled category selection and no-repeat bounds documented in the System Spec.
 
 AutonomyEngine (composer) compose 5 phần: Urge + Selector + MaterialProvider
 + OpenerTracker + DedupBuffer. Caller (Aut.D wire) tick loop + gọi maybe_generate.

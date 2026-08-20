@@ -1,16 +1,13 @@
-"""Trigger Manager (ARCHITECTURE 7.9.2 + 7.9.3, Phase 0 task 8 + Phase 2 2.A).
+"""Bounded trigger classification, prioritization and interrupt policy.
 
-Phase 0 scope: classify 4 type, priority queue, spam detection, rate limit
-chat_normal, ambient threshold. Số liệu từ `config/triggers.yaml` (N6).
+The manager classifies four types, owns the priority queue, detects spam, rate-limits
+normal chat and applies the ambient threshold from `config/triggers.yaml`.
 
-Phase 2 (2.A): Interrupt policy enforcement (7.9.3) — khi Mai đang SPEAKING mà có
-trigger mới, quyết định INTERRUPT_CURRENT / QUEUE theo type + elapsed speaking time.
-Đọc `state_machine.yaml` interrupt_policy (N6). Không gọi thẳng state machine — nhận
-speaking-context qua provider inject (N8).
+When Mai is speaking, a new trigger is classified as INTERRUPT_CURRENT or QUEUE from
+its type and elapsed speaking time. The manager reads `state_machine.yaml` and receives
+speaking context through an injected provider instead of calling the state machine.
 
-CHƯA làm (Phase 2 sau):
-- Ambient content generation (7.9.4) — 2.C (cần LLM)
-- Viewer profile / priority boost (đã YAGNI-out ở 7.9.2)
+Ambient content generation and viewer-profile priority boosts are not owned by this class.
 """
 from __future__ import annotations
 

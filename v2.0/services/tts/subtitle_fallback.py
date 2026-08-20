@@ -1,4 +1,4 @@
-"""SubtitleFallbackService — Level 2 của TTS chain (ARCHITECTURE 8.7.3, 4.C).
+"""SubtitleFallbackService, the terminal delivery level of the TTS chain.
 
 TTS primary (VieNeu-TTS) fail/timeout → rơi xuống đây. KHÔNG phát audio, chỉ đẩy text
 ra như "subtitle event" để overlay hiển thị. Trả 1 AudioChunk final (empty audio)

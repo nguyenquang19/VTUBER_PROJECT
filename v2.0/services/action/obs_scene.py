@@ -24,6 +24,11 @@ from interfaces.external_executor import (
     RollbackResult,
     RollbackStatus,
 )
+from orchestrator.credential_contract import (
+    CredentialContractError,
+    require_environment_secret,
+    validate_environment_reference,
+)
 
 
 T = TypeVar("T")
@@ -94,7 +99,7 @@ class OBSSceneConfig:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "host", _required_text(self.host, "host"))
-        object.__setattr__(self, "password_env", _required_text(
+        object.__setattr__(self, "password_env", validate_environment_reference(
             self.password_env, "password_env",
         ))
         if isinstance(self.port, bool) or not isinstance(self.port, int) or not 1 <= self.port <= 65535:
@@ -300,9 +305,18 @@ class OBSWebSocketTransport(OBSSceneTransportService):
         salt = raw.get("salt")
         if not isinstance(challenge, str) or not challenge or not isinstance(salt, str) or not salt:
             raise OBSProtocolError("obs_invalid_authentication")
-        password = self._environ.get(self._config.password_env)
-        if not isinstance(password, str) or not password:
-            raise OBSProtocolError("obs_credentials_missing")
+        try:
+            password = require_environment_secret(
+                self._environ, self._config.password_env,
+            )
+        except CredentialContractError as exc:
+            reason = (
+                "obs_credentials_missing"
+                if exc.reason_code == "credential_missing"
+                else "obs_credentials_invalid"
+            )
+            self._record(reason)
+            raise OBSProtocolError(reason) from exc
         secret = base64.b64encode(
             hashlib.sha256((password + salt).encode("utf-8")).digest(),
         ).decode("ascii")

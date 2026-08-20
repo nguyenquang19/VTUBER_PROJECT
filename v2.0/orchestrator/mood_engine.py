@@ -1,4 +1,4 @@
-"""MoodEngine — target-based spring-damper 2 kênh (Phase 7.5.A, spec Mục 5).
+"""MoodEngine using bounded target-based spring-damper dynamics.
 
 Tầng 3 của Emotion Simulation. Nhận `mood_target` (Tầng 2 appraisal, tin cao)
 và `llm_mood_hint` (Tầng 4 self-report, tin thấp) → cập nhật position mượt qua

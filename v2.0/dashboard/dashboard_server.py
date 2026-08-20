@@ -1,7 +1,7 @@
 """Dashboard server: FastAPI + WebSocket operator surface.
 
 System GPU/VRAM values come from bounded nvidia-smi sampling.
-Frontend: HTML + Vanilla JS + Chart.js (6.1). Alpine.js để Phase 6.
+Frontend uses HTML, Vanilla JS and Chart.js.
 
 Dependency-injected (FeatureManager, state machine, trigger manager, metrics,
 emergency stop) để test bằng FastAPI TestClient không cần chạy thật.

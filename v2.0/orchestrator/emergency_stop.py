@@ -1,4 +1,4 @@
-"""Emergency stop hotkey Ctrl+Shift+X (ARCHITECTURE, Phase 0 task 12).
+"""Emergency stop hotkey Ctrl+Shift+X.
 
 Windows: `keyboard` lib cần chạy Python với quyền Administrator để hook phím
 toàn cục (CLAUDE.md Section 2). Nếu không có quyền / import fail → degrade:

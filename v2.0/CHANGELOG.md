@@ -5,23 +5,61 @@ Mọi thay đổi product sau baseline dùng Semantic Versioning. Product versio
 
 ## [Unreleased]
 
+### Fixed
+
+- Feature toggle từ dashboard persist atomic vào `config/features.yaml`, giữ nguyên metadata/comment;
+  restart nạp lại trạng thái đã ghi và persistence failure rollback thay vì báo success trong RAM.
+- Feature config và runtime-critical config fail-closed với scalar sai kiểu, dependency/conflict sai,
+  initial enabled set không hợp lệ hoặc resource budget vượt giới hạn.
+- Startup composition rollback các resource đã mở theo thứ tự ngược; runtime startup failure
+  chạy cleanup an toàn, giữ exception gốc và launcher luôn `stop()` trong `finally`.
+- Credential/environment boundary dùng chung strict env-reference và secret-state, không trim/coerce
+  secret, không lộ giá trị trong preflight/error và chỉ yêu cầu credential khi consumer bật.
+- Discord live path tạo real client sau credential gate; OBS/VTS auth failure có reason/metric
+  sanitized, VTS token file được Git ignore, đọc strict và ghi atomic.
+
 ### Documentation
 
 - Hợp nhất tài liệu runtime/component/phase vào `docs/MAI_V2_SYSTEM_SPEC.md`.
 - Tách `docs/V1_BASELINE.md` thành baseline lịch sử bất biến; inventory feature hiện tại chỉ thuộc
   System Spec.
 - Thu gọn `docs/` còn mục lục, hai tài liệu canonical và thư mục evidence máy đọc.
-- Thêm documentation guard cho version, baseline/current feature inventory, config registry, link và
-  các giới hạn V2 quan trọng.
+- Thêm documentation guard cho version, baseline/current feature inventory, config registry, link,
+  phase closure, release limit và evidence kiểm thử hiện hành.
+- Loại character draft/checklist/tuning plan không được runtime tham chiếu; chuẩn hóa comment/docstring
+  về invariant hiện tại thay cho nhãn công việc hoặc lời hứa triển khai đã lỗi thời.
 
-Không đổi behavior runtime hoặc product version. Chỉ tăng version khi change được duyệt như một release.
+### V2 migration
+
+- Đóng gate kỹ thuật Phase 1–10: compatibility contracts, World/Self shadow, capability registry,
+  mock action loop, Director V2 shadow/takeover, speech/avatar adapters, OBS scene action và canonical
+  perception ingress.
+- Giữ controlled takeover, speech/avatar action adapters, OBS scene action và OBS perception mặc định
+  tắt cho tới khi có rollout plan, live canary và rollback evidence tương ứng.
+- Phase 11–15 chưa đóng gate; code thành phần có sẵn không được coi là release evidence.
+
+Những thay đổi trên chưa phải release product. Version tiếp tục là `1.4.3`; chỉ tăng version khi
+change được duyệt như một release.
 
 ### Environment
 
 - Thêm `scripts/bootstrap_environment.ps1`: cài Python `3.11.15` bằng `uv`, dựng staging, cài
   `requirements.lock.txt`, chạy `pip check` và chỉ thay `venv` sau khi toàn bộ đạt.
 - Sửa `scripts/check_environment.ps1` để tự xác định project root đúng trên Windows PowerShell 5.
-- Full offline regression bằng `v2.0\venv`: 1.900 đạt, 5 deselected, 0 lỗi.
+- Môi trường hiện tại khớp 125 dependency trong lock; `pip check` và environment checker đạt.
+
+### Verification
+
+- Phase 10 targeted: 29 đạt; impacted Phase 2–4/runtime: 246 đạt; documentation guard: 9 đạt.
+- Feature persistence/strict config targeted: 129 đạt; impacted dashboard/Director/runtime: 173 đạt.
+- Startup rollback/cleanup targeted: 29 đạt, gồm composition failure, partial start,
+  cancellation, cleanup failure, TTS sink và launcher lifecycle.
+- Credential/environment targeted: 116 đạt; impacted composition, external action, perception,
+  animation và release preflight: 100 đạt.
+- Comment/document cleanup targeted: 255 đạt; documentation guard hiện tại: 11 đạt.
+- Full offline `pytest tests -q`: 2.148 đạt, 0 lỗi; còn một cảnh báo deprecation giữa
+  Starlette TestClient và `httpx`.
+- Chưa có live/LLM acceptance, audio/VTS/OBS canary hoặc canary takeover cho release `2.0.0`.
 
 ## [1.4.3] — 2026-08-14
 

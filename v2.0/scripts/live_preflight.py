@@ -17,6 +17,11 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
 from orchestrator.config_loader import ConfigLoader  # noqa: E402
+from orchestrator.credential_contract import (  # noqa: E402
+    RuntimeCredentialReferences,
+    inspect_environment_secret,
+    validate_runtime_credential_contract,
+)
 
 
 @dataclass(frozen=True)
@@ -77,6 +82,23 @@ def run_preflight(
             f"Python {'.'.join(str(part) for part in version)} (requires 3.11+)",
         ),
     ]
+    credential_references: RuntimeCredentialReferences | None
+    try:
+        credential_references = validate_runtime_credential_contract(loader)
+    except ValueError as exc:
+        credential_references = None
+        checks.append(PreflightCheck(
+            "credential_contract",
+            False,
+            f"credential references invalid: {exc}",
+        ))
+    else:
+        checks.append(PreflightCheck(
+            "credential_contract",
+            True,
+            "credential environment variables and VTS token file valid: "
+            f"{credential_references.discord_token}, {credential_references.obs_password}",
+        ))
 
     binary = _resolve_path(str(loader.get("models", "llm_main.binary", "")), repo_root)
     model = _resolve_path(str(loader.get("models", "llm_main.model_path", "")), repo_root)
@@ -133,12 +155,22 @@ def run_preflight(
 
     needs_discord = normalized_platform == "discord" or with_discord
     if needs_discord:
-        token_var = str(loader.get("chat_sources", "discord.token_env_var", "DISCORD_BOT_TOKEN"))
         channel_ids = list(loader.get("chat_sources", "discord.channel_ids", []))
+        if credential_references is None:
+            discord_present = False
+            discord_detail = "Discord credential unavailable: invalid credential contract"
+        else:
+            discord = inspect_environment_secret(
+                env, credential_references.discord_token,
+            )
+            discord_present = discord.present
+            discord_detail = (
+                f"Discord credential {discord.state.value} in environment variable "
+                f"{discord.reference}"
+            )
         checks.extend([
             PreflightCheck(
-                "discord_token", bool(env.get(token_var, "").strip()),
-                f"Discord token present in environment variable {token_var}",
+                "discord_token", discord_present, discord_detail,
             ),
             PreflightCheck(
                 "discord_channels", bool(channel_ids),
@@ -146,6 +178,23 @@ def run_preflight(
                 blocking=False,
             ),
         ])
+
+    obs_enabled = loader.get(
+        "features", "features.obs_scene_executor.enabled", False,
+    ) is True
+    if obs_enabled:
+        if credential_references is None:
+            obs_present = False
+            obs_detail = "OBS credential unavailable: invalid credential contract"
+        else:
+            obs = inspect_environment_secret(
+                env, credential_references.obs_password,
+            )
+            obs_present = obs.present
+            obs_detail = (
+                f"OBS credential {obs.state.value} in environment variable {obs.reference}"
+            )
+        checks.append(PreflightCheck("obs_password", obs_present, obs_detail))
 
     if check_server_health:
         checks.append(_health_check(

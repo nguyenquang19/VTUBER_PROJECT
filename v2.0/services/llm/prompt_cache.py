@@ -1,4 +1,4 @@
-"""PromptCache — quản lý persona prefix cố định (ARCHITECTURE 8.2, 1.C).
+"""PromptCache for the stable persona prefix.
 
 Spec gốc 8.2/10.3 nói cache persona qua file `--prompt-cache`. NHƯNG flag đó là
 của llama-cli, KHÔNG phải llama-server (xem process_manager 1.A + docs/MAI_V2_SYSTEM_SPEC.md). Caching

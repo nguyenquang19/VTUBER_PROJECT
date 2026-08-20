@@ -1,4 +1,4 @@
-# models.yaml — cấu hình model (ARCHITECTURE 10.3)
+# Model, TTS, STT and embedding configuration.
 # Số liệu latency đã điền từ Pre-flight Day 1 + Day 2 (docs/MAI_V2_SYSTEM_SPEC.md)
 
 llm_main:
@@ -64,7 +64,7 @@ llm_generation:
   ambient_max_tokens: 96        # self-talk mặc định 1-2 câu
   directed_max_tokens: 128      # continue-thread/follow-up có thêm chút dư địa
 
-# LLM fallback chain 2 tầng (ARCHITECTURE 8.7.1 — N1: đúng 2 level, bỏ E4B).
+# LLM fallback is intentionally limited to primary and canned-response levels.
 # Level 1 = Gemma 12B (timeout_primary_s). Level 2 = canned theo mood (timeout_canned_s).
 llm_canned:
   # Đây là timeout TOÀN lượt generation, không chỉ TTFT. Với trần 500 tokens và
@@ -97,8 +97,8 @@ llm_canned:
     ttft_p95_ms: 1000
     decode_tps_min: 35         # conservative full-session p50 gate; raw min vẫn được report
 
-  # Day 1 finding: llama-server stream qua delta.reasoning_content thay vì delta.content
-  # Phase 1 parser phải handle cả 2 field. Xem docs/MAI_V2_SYSTEM_SPEC.md.
+  # llama-server may stream through delta.reasoning_content instead of delta.content;
+  # the parser accepts both fields.
   stream_content_fields:
     - "content"
     - "reasoning_content"
@@ -136,13 +136,13 @@ tts:
   timeout_subtitle_s: 0.5
 
 tts_fallback:
-  provider: subtitle_overlay     # ARCHITECTURE 8.7.3 — không có TTS backup, dùng subtitle
+  provider: subtitle_overlay     # subtitle fallback; no second TTS engine
   enabled: true
   output_file: ".\\logs\\live\\subtitle.txt"
   require_delivery: true        # Chỉ commit khi subtitle thật sự tới ít nhất một sink
 
-# STT deferred — xem docs/MAI_V2_SYSTEM_SPEC.md (user scope decision, MVP chat-only).
-# Giữ block config để Phase 5 wire sau; interfaces/stt.py có stub trả "".
+# STT remains deferred by the chat-only scope. This block is inert while disabled;
+# interfaces/stt.py provides the no-op contract used by the current runtime.
 stt:
   enabled: false
   provider: faster_whisper
@@ -158,7 +158,7 @@ stt_fallback:
   device: cpu
 
 embedding:
-  enabled: true                  # Phase 7 (bật 2026-08 khi làm 7.C)
+  enabled: true                  # semantic-memory embedding backend
   provider: sentence_transformers
   model: BAAI/bge-m3
   device: cpu                    # CPU only, không đụng VRAM llama+VieNeu

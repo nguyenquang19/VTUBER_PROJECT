@@ -12,6 +12,29 @@ from orchestrator.config_loader import CONFIG_FILES
 ROOT = Path(__file__).resolve().parents[2]
 PRODUCT_VERSION = "1.4.3"
 CANONICAL_DOCS = ("V1_BASELINE.md", "MAI_V2_SYSTEM_SPEC.md")
+ROOT_MARKDOWN_ALLOWLIST = {
+    "AGENTS.md",
+    "CHANGELOG.md",
+    "MAI_V2_MASTER_IMPLEMENTATION_BLUEPRINT_v2.0.md",
+    "README.md",
+}
+IMPLEMENTATION_ROOTS = (
+    "config",
+    "dashboard",
+    "interfaces",
+    "orchestrator",
+    "scripts",
+    "services",
+)
+COMMENT_SUFFIXES = {".ps1", ".py", ".yaml", ".yml"}
+STALE_WORK_COMMENT = re.compile(
+    r"(?i:\bTASK\s*\d+\b|CHƯA làm\s*\(Phase|"
+    r"Phase\s+\d+(?:\.\d+)?\s+(?:sẽ|mới|sau)\b|"
+    r"để Phase\s+\d+|khi Phase\s+[\d.]+.*xong|"
+    r"Wire STT sau|Alpine\.js để Phase|auto-recovery.*để Phase|"
+    r"AUTONOMY_ENGINE_REDESIGN\.md)|\bARCHITECTURE\b|"
+    r"\bspec Mục\b|\bmilestone\s*\d+"
+)
 FROZEN_V1_ENABLED = {
     "filter_rule",
     "tts_streaming",
@@ -181,8 +204,32 @@ def test_document_index_links_only_canonical_documents() -> None:
     assert numbered == [], f"duplicate numbered docs remain: {numbered}"
 
 
-def test_system_spec_keeps_critical_wip_limits_explicit() -> None:
+def test_no_auxiliary_markdown_or_root_lore_draft_remains() -> None:
+    root_markdown = {path.name for path in ROOT.glob("*.md")}
+    assert root_markdown == ROOT_MARKDOWN_ALLOWLIST
+    docs_markdown = {path.name for path in (ROOT / "docs").glob("*.md")}
+    assert docs_markdown == {"README.md", *CANONICAL_DOCS}
+    assert not (ROOT / "MAI_LORE_DRAFT.txt").exists()
+
+
+def test_implementation_comments_do_not_restore_stale_work_promises() -> None:
+    stale: list[str] = []
+    for root_name in IMPLEMENTATION_ROOTS:
+        for path in (ROOT / root_name).rglob("*"):
+            if not path.is_file() or path.suffix.lower() not in COMMENT_SUFFIXES:
+                continue
+            for line_number, line in enumerate(
+                path.read_text(encoding="utf-8").splitlines(),
+                start=1,
+            ):
+                if STALE_WORK_COMMENT.search(line):
+                    stale.append(f"{path.relative_to(ROOT)}:{line_number}: {line.strip()}")
+    assert stale == [], "stale implementation work comments returned:\n" + "\n".join(stale)
+
+
+def test_canonical_docs_keep_current_phase_and_release_limits_explicit() -> None:
     spec = (ROOT / "docs" / "MAI_V2_SYSTEM_SPEC.md").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
     required = (
         "production flag vẫn tắt, chưa có live rollout/canary",
         "Feature `obs_scene_executor` vẫn mặc định `enabled=false`",
@@ -191,7 +238,25 @@ def test_system_spec_keeps_critical_wip_limits_explicit() -> None:
         "commit rồi mới project Mô hình Thế giới",
         "Vòng tự chủ khép kín | Chưa đạt",
         "`v2.0\\venv` hiện dùng CPython `3.11.15`",
-        "full offline `pytest -m \"not slow and not llm\"`: 1.999 đạt",
+        "Phase 10 đã đóng canonical perception ingress",
+        "Phase 11 trở đi chưa đóng gate",
+        "full offline `pytest tests -q`: 2.148 đạt, 0 lỗi",
+        "Dashboard toggle thành công phải persist",
+        "RuntimeCriticalConfig` không nhận chuỗi thay cho",
+        "Khởi động là một giao dịch hai tầng",
+        "Repository không tự nạp `.env`",
     )
     for statement in required:
         assert statement in spec, f"critical implementation limit disappeared: {statement}"
+
+    assert "Phase 1–10 đã đóng gate kỹ thuật" in readme
+    forbidden = (
+        "Phase 1–9 đã đóng gate kỹ thuật",
+        "Perception expansion và các release gate sau vẫn chưa hoàn tất",
+        "WIP chưa commit",
+        "Working tree còn thay đổi Phase 14",
+        "full offline `pytest -m \"not slow and not llm\"`: 1.999 đạt",
+    )
+    combined = readme + "\n" + spec
+    for statement in forbidden:
+        assert statement not in combined, f"stale implementation claim returned: {statement}"

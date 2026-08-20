@@ -10,6 +10,7 @@ animation:
   port: 8001
   plugin_name: "Mai"
   plugin_developer: "Duc"
+  # Credential local do VTS cấp; adapter đọc strict/ghi atomic. File mặc định bị Git ignore.
   token_file: "vts_token.txt"
 
   # Chỉ trigger lại khi chiều mood trội ĐỔI (chống spam 1 hotkey mỗi lượt).

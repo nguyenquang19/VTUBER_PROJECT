@@ -1,7 +1,7 @@
-"""TTS interface (ARCHITECTURE 7.6).
+"""Text-to-speech service contract.
 
 Implementation production là `VieNeuTtsService`; local baseline TTFA sau voice cache khoảng 308 ms.
-Fallback là subtitle overlay, không phải TTS engine thứ 2 (spec 8.7.3).
+Fallback là subtitle overlay, không phải TTS engine thứ hai.
 """
 from __future__ import annotations
 

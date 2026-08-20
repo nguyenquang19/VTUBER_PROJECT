@@ -5,7 +5,7 @@ Spec EMOTION_SIMULATION Mục 5: mọi event → classifier → appraisal → mo
 chạy liên tục ngay cả khi không có event.
 
 Buffer per-tick: nếu nhiều event fire trong cùng 1 tick window (spam, donation
-mass) → gom targets rồi saturate 1 lần → tránh overshoot (spec Mục 5.4).
+mass) → combine targets and saturate once to avoid overshoot.
 
 Cờ tone (force_gentle_tone/force_deflect) lưu ở `_active_flags` sau khi event
 có flag; Prompt/Filter (7.5.D) đọc → gọi `clear_tone_flags()` sau khi xử.

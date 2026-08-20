@@ -1,6 +1,6 @@
-"""Soak test 100+ turn trên model thật (ARCHITECTURE 11.2 DoD, milestone 1.F).
+"""Run a 100+ turn soak against the real model backend.
 
-Chạy N turn qua full stack Phase 1 (prompt→LLM→parse→fallback), giữ history, in
+Chạy N turn qua full prompt→LLM→parse→fallback stack, giữ history, in
 progress từng lượt + BÁO CÁO cuối: parse rate, TTFT p50/p95, decode, fallback, crash.
 
 Tuỳ chọn --dashboard: serve dashboard CÙNG process (chung MetricsCollector) → xem

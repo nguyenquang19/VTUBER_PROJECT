@@ -1,4 +1,4 @@
-"""LlamaCppLLMService — streaming qua llama-server (ARCHITECTURE 8.2, 1.B).
+"""LlamaCppLLMService streaming through the llama.cpp server.
 
 Cách gọi ĐÃ CHỐT (xem docs/MAI_V2_SYSTEM_SPEC.md + memory reference-llm-model):
 

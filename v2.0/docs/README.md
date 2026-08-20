@@ -35,8 +35,12 @@ Phải báo conflict trước khi sửa; không âm thầm chọn tài liệu th
 ## Quy tắc giữ tài liệu sạch
 
 - Không tạo thêm tài liệu theo phase, milestone, component hoặc bản audit riêng.
+- Không giữ draft, checklist giao việc hoặc tuning plan ở repository root; nội dung còn giá trị phải
+  được gộp vào một trong ba nguồn chính thức hoặc cấu hình/prompt runtime do code thực sự đọc.
 - Sửa behavior hiện tại thì cập nhật `MAI_V2_SYSTEM_SPEC.md` trong cùng change.
 - Sửa scope/thứ tự tương lai thì cập nhật blueprint, không đưa kế hoạch vào System Spec như production.
 - Không sửa capability inventory lịch sử trong `V1_BASELINE.md`.
 - Evidence JSON tiếp tục nằm trong `docs/baselines/`; không sao chép số liệu vào nhiều tài liệu.
+- Comment/docstring trong code và YAML chỉ giải thích invariant, ownership, failure semantics hoặc lý do
+  hiện tại; không dùng lời hứa triển khai tương lai hay nhãn công việc đã hoàn tất làm tài liệu runtime.
 - Link, version, feature inventory và config inventory phải qua documentation guard.

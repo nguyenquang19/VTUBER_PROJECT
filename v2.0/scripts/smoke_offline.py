@@ -23,6 +23,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from dashboard.dashboard_server import DashboardServer
 from orchestrator.config_loader import ConfigLoader
+from orchestrator.credential_contract import validate_environment_reference
 from orchestrator.metrics_collector import MetricsCollector
 from orchestrator.stream_runtime import StreamRuntime, StreamRuntimeConfig
 from services.input.discord_chat import DiscordChatService
@@ -131,11 +132,15 @@ async def check_youtube_config(loader: ConfigLoader) -> SmokeResult:
 
 async def check_discord_config(loader: ConfigLoader) -> SmokeResult:
     enabled = bool(loader.get("chat_sources", "discord.enabled", False))
-    token_env_var = str(loader.get("chat_sources", "discord.token_env_var", "")).strip()
+    try:
+        token_env_var = validate_environment_reference(
+            loader.get("chat_sources", "discord.token_env_var", ""),
+            "discord.token_env_var",
+        )
+    except ValueError as exc:
+        return SmokeResult("discord_config", SmokeStatus.FAIL, str(exc))
     raw_ids = loader.get("chat_sources", "discord.channel_ids", []) or []
     queue_maxsize = int(loader.get("chat_sources", "discord.queue_maxsize", 0))
-    if not token_env_var:
-        return SmokeResult("discord_config", SmokeStatus.FAIL, "token_env_var must not be empty")
     if queue_maxsize <= 0:
         return SmokeResult("discord_config", SmokeStatus.FAIL, "queue_maxsize must be > 0")
     try:

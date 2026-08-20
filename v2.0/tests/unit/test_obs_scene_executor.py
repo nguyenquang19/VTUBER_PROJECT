@@ -127,6 +127,8 @@ def test_yaml_declares_disabled_obs_feature_and_strict_config() -> None:
         ("request_timeout_s", float("nan")),
         ("retry_backoff_s", -1),
         ("password_env", " OBS_PASSWORD "),
+        ("password_env", "obs_password"),
+        ("password_env", "OBS-PASSWORD"),
     ],
 )
 def test_obs_config_rejects_coercion_and_invalid_bounds(field: str, value: object) -> None:
@@ -219,6 +221,20 @@ def test_obs_authentication_requires_environment_secret_without_exposing_it() ->
     )._authentication({"challenge": "challenge", "salt": "salt"})
     assert authenticated
     assert "top-secret" not in authenticated
+
+
+def test_obs_authentication_rejects_malformed_secret_without_exposing_it() -> None:
+    secret = " top-secret "
+    transport = OBSWebSocketTransport(
+        _config(), environ={"OBS_WEBSOCKET_PASSWORD": secret},
+    )
+    with pytest.raises(OBSProtocolError) as invalid:
+        transport._authentication({"challenge": "challenge", "salt": "salt"})
+    assert invalid.value.reason_code == "obs_credentials_invalid"
+    assert secret not in str(invalid.value)
+    assert transport.get_metrics()["obs_transport_outcomes"] == {
+        "obs_credentials_invalid": 1,
+    }
 
 
 def test_scene_validation_rejects_control_char_before_obs_io() -> None:

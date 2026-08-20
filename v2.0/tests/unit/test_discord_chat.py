@@ -191,5 +191,44 @@ class TestTokenValidation:
         """Nếu KHÔNG inject client → tự create real client cần token env."""
         monkeypatch.delenv("DISCORD_BOT_TOKEN", raising=False)
         svc = DiscordChatService(client=None, token_env_var="DISCORD_BOT_TOKEN")
-        with pytest.raises(DiscordChatError, match="rỗng"):
+        with pytest.raises(DiscordChatError, match="credential_missing"):
             await svc.start()
+
+    async def test_malformed_token_is_not_trimmed_or_exposed(self) -> None:
+        secret = " raw-secret "
+        svc = DiscordChatService(
+            client=None,
+            token_env_var="DISCORD_BOT_TOKEN",
+            environ={"DISCORD_BOT_TOKEN": secret},
+        )
+        with pytest.raises(DiscordChatError, match="credential_invalid") as raised:
+            await svc.start()
+        assert secret not in str(raised.value)
+        assert svc.get_metrics()["discord_credential_failures"] == {
+            "credential_invalid": 1,
+        }
+
+    async def test_real_client_factory_receives_exact_valid_token(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        secret = "exact-token"
+        client = FakeClient()
+        captured: list[str] = []
+
+        async def capture_start(token: str) -> None:
+            captured.append(token)
+            await asyncio.Future()
+
+        client.start = capture_start  # type: ignore[method-assign]
+        svc = DiscordChatService(
+            client=None,
+            token_env_var="DISCORD_BOT_TOKEN",
+            environ={"DISCORD_BOT_TOKEN": secret},
+        )
+        monkeypatch.setattr(svc, "_create_real_client", lambda: client)
+
+        await svc.start()
+        await asyncio.sleep(0)
+        await svc.stop()
+
+        assert captured == [secret]

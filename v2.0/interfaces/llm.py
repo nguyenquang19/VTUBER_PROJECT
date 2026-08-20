@@ -1,7 +1,7 @@
-"""LLM interface (ARCHITECTURE 7.4).
+"""Streaming language-model service contract.
 
-Interface không đổi dù backend là llama.cpp hay gì khác (P3 interface-based).
-Implementation `LlamaCppLLMService` sẽ ở `services/llm/` (Phase 1, spec 8.2).
+The production implementation is `services.llm.llama_cpp_llm.LlamaCppLLMService`
+backed by llama.cpp.
 """
 from __future__ import annotations
 

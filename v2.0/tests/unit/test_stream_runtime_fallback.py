@@ -5,6 +5,8 @@ import asyncio
 from types import SimpleNamespace
 from typing import Any, Awaitable, Callable
 
+import pytest
+
 from interfaces.base import HealthStatus
 from interfaces.tts import TTSDeliveryMode, TTSDeliveryResult
 from orchestrator.metrics_collector import MetricsCollector
@@ -195,6 +197,42 @@ class _UnhealthyPrimary(_SlowPrimary):
         return HealthStatus.unhealthy("tts", "voice not enrolled")
 
 
+class _TrackingSubtitle(SubtitleFallbackService):
+    def __init__(self, *, healthy: bool = True) -> None:
+        super().__init__(output_file="subtitle.txt", require_delivery=True)
+        self.healthy = healthy
+        self.stopped = False
+
+    async def stop(self) -> None:
+        self.stopped = True
+
+    async def health_check(self) -> HealthStatus:
+        if self.healthy:
+            return HealthStatus.healthy(self.service_id)
+        return HealthStatus.unhealthy(self.service_id, "subtitle unavailable")
+
+
+class _HealthyPrimary(_SlowPrimary):
+    async def start(self) -> None:
+        return None
+
+
+class _CancelledPrimary(_HealthyPrimary):
+    async def start(self) -> None:
+        raise asyncio.CancelledError
+
+
+class _Player:
+    def __init__(self) -> None:
+        self.stopped = False
+
+    async def start(self) -> None:
+        return None
+
+    async def stop(self) -> None:
+        self.stopped = True
+
+
 async def test_tts_startup_timeout_keeps_subtitle_only_delivery(tmp_path) -> None:
     primary = _SlowPrimary()
     overlay = tmp_path / "subtitle.txt"
@@ -239,3 +277,37 @@ async def test_unhealthy_tts_startup_gate_keeps_subtitle_only_delivery(tmp_path)
     assert result.delivered is True
     assert result.mode is TTSDeliveryMode.SUBTITLE
     assert primary.stopped is True
+
+
+async def test_unhealthy_subtitle_candidate_is_cleaned_before_primary_mode() -> None:
+    subtitle = _TrackingSubtitle(healthy=False)
+    primary = _HealthyPrimary()
+    player = _Player()
+
+    stack = await _build_tts_runtime_stack(
+        _TTSLoader(startup_timeout_s=0.1),
+        MetricsCollector(),
+        primary_factory=lambda _loader: primary,
+        subtitle_factory=lambda _loader: subtitle,
+        player_factory=lambda _sample_rate: player,
+    )
+
+    assert stack.primary is primary
+    assert stack.subtitle is None
+    assert subtitle.stopped is True
+
+
+async def test_cancelled_tts_startup_cleans_primary_and_started_subtitle() -> None:
+    subtitle = _TrackingSubtitle()
+    primary = _CancelledPrimary()
+
+    with pytest.raises(asyncio.CancelledError):
+        await _build_tts_runtime_stack(
+            _TTSLoader(startup_timeout_s=0.1),
+            MetricsCollector(),
+            primary_factory=lambda _loader: primary,
+            subtitle_factory=lambda _loader: subtitle,
+        )
+
+    assert primary.stopped is True
+    assert subtitle.stopped is True

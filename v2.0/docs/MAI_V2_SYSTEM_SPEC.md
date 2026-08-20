@@ -60,6 +60,7 @@ Trạng thái phát hành khách quan:
 | Director V2 takeover Phase 7 | Đã đóng gate kỹ thuật: accepted agreement tạo executable decision ownership V2; mọi lỗi trả exact legacy; production flag vẫn tắt |
 | Speech/avatar action adapters Phase 8 | Đã đóng gate kỹ thuật: local typed boundary, authoritative TTS verification, bounded idempotency và runtime composition; production flags vẫn tắt |
 | External OBS scene action Phase 9 | Đã đóng gate kỹ thuật: typed transport/executor/verifier, strict transaction, bounded retry/idempotency, conditional rollback và runtime composition; production flag vẫn tắt, chưa có live canary |
+| Canonical perception expansion Phase 10 | Đã đóng gate kỹ thuật: Chat/System qua canonical ingress, OBS read-only compose dùng chung transport; OBS flag vẫn tắt, chưa có live canary |
 | Vòng tự chủ khép kín | Chưa đạt |
 | Release readiness | Chưa đạt: Mức 0 về môi trường/repository/credential đã hoàn tất, nhưng release evidence và các gate V2 chưa đủ |
 
@@ -86,8 +87,8 @@ Các cột dưới đây độc lập với nhau. “Có mã” không thay th�
 | Goals và short intentions | Có | Partial | Unit | Không |
 | Memory và ContextSelector V2 | Có | Partial | Unit/integration | Không như V2 release |
 | Embodiment Policy | Có | Partial/shadow | Unit | Không |
-| Human-like calibration và trajectory | WIP chưa commit | Chưa xác minh composition | Test WIP, chưa có human evidence | Không |
-| Product `2.0.0` release gates | WIP chưa commit | Chưa đủ evidence độc lập | Test WIP | Không |
+| Human-like calibration và trajectory | Có mã tiền V2 từ implementation cũ | Chưa audit/compose theo gate Phase 14 | Có test thành phần; chưa có human evidence Phase 14 | Không |
+| Product `2.0.0` release gates | Có tooling/evidence release kế thừa | Chưa audit theo gate Phase 15 và chưa đủ evidence độc lập | Có test thành phần; gate Phase 15 chưa chạy | Không |
 
 Ma trận chỉ được nâng trạng thái khi có đường code tương ứng, test phù hợp và evidence máy đọc hoặc vận
 hành. Blueprint tiếp tục giữ scope/phase order; bảng này chỉ mô tả working tree ngày 20/08/2026.
@@ -452,7 +453,8 @@ V2 được đưa vào theo từng lớp, có cờ bật/tắt và chế độ q
 ### 8.5. Bộ kiểm thử rộng
 
 Bộ kiểm thử bao phủ nhiều subsystem và các bài targeted cho lõi V2 đang xanh. Ngày 20/08/2026, sau
-closure Phase 8, full offline regression bằng `v2.0\venv` đạt 2.028 bài và 0 lỗi.
+closure Phase 10 và strict feature/config hardening, full offline regression bằng `v2.0\venv` đạt
+2.148 bài và 0 lỗi sau khi thêm documentation/comment hygiene guard.
 Kết quả này chứng minh đường offline hiện có đang xanh; nó không thay thế live/LLM acceptance hoặc chứng
 minh các capability chưa compose đã production.
 
@@ -537,13 +539,16 @@ Một lần phát lại ghi nhận 778 sự kiện đầu vào, 1.003 giao dịc
 
 ### 9.9. Điểm ghép chính quá lớn — mức trung bình
 
-Tệp điều phối khởi động dài khoảng 1.790 dòng và vòng điều phối dài khoảng 1.633 dòng.
+Tệp điều phối khởi động dài 2.217 dòng và vòng điều phối dài 1.632 dòng theo
+working tree sau closure Phase 10.
 
 **Hậu quả:** khó đọc, khó cô lập trách nhiệm, dễ phát sinh lỗi khi thêm một phần V2 mới.
 
 ### 9.10. Kiểu dữ liệu và bắt lỗi còn rộng — mức trung bình
 
-Có khoảng 1.141 chỗ dùng kiểu quá rộng và khoảng 257 chỗ bắt mọi ngoại lệ. Một phần là chủ ý để hệ thống không sập khi phát sóng, nhưng mật độ cao làm giảm khả năng phát hiện lỗi thiết kế.
+Quét tĩnh sau closure Phase 10 ghi nhận khoảng 1.103 lần xuất hiện `Any` và 414 vị trí
+`except Exception`/suppress ngoại lệ rộng trong code runtime. Một phần là chủ ý để hệ thống không
+sập khi phát sóng, nhưng mật độ cao làm giảm khả năng phát hiện lỗi thiết kế.
 
 **Hậu quả:** lỗi có thể bị nuốt, hợp đồng giữa các phần kém rõ và việc sửa đổi tốn nhiều công sức hơn.
 
@@ -581,15 +586,22 @@ chỉ được cấp qua environment/secret store khi chạy và không được
 `v2.0/models`; runtime artifact không được đưa trở lại snapshot; kho vận hành ngoài repository không được
 Git theo dõi; credential thật không được lưu trong source snapshot.
 
-### 9.14. Tài liệu chính đã hợp nhất; WIP vẫn phải tách phase — mức trung bình
+### 9.14. Tài liệu chính đã hợp nhất; code tiền V2 không thay thế closure gate — mức trung bình
 
 Ba nguồn chính thức hiện là `docs/V1_BASELINE.md`, tài liệu này và blueprint. Ma trận Mục 1.1 tách rõ
 “có mã”, “đã ghép”, “đã test” và “đã phát hành”. Product version vẫn đúng là `1.4.3`; việc changelog
 chưa có release mới là chủ ý, không phải thiếu đồng bộ.
 
-Working tree còn thay đổi Phase 14, Phase 15 và quality/replay chưa commit. Chúng không phải release
-evidence và không được gộp vào một lần duyệt. Khi hoàn tất từng phase, chỉ cập nhật tài liệu này cho
-behavior thực tế và blueprint cho trạng thái gate; không tạo lại tài liệu phase riêng.
+Sau closure Phase 10, `main` không coi code goals/context/embodiment/calibration/release tooling đã có
+từ implementation generation trước là evidence đóng Phase 11–15. Mỗi phase vẫn phải được audit theo
+blueprint, cập nhật tài liệu này trước khi sửa code, chạy gate riêng và được user duyệt; không tạo
+lại tài liệu phase riêng.
+
+Repository root và `docs/` không giữ character draft, checklist giao việc hoặc tuning plan song song.
+Nội dung còn giá trị phải thuộc một trong ba nguồn chính thức hoặc tệp cấu hình/prompt được runtime đọc.
+README và `.env.example` chỉ làm entrypoint/inventory. Comment/docstring trong implementation chỉ mô tả
+invariant, ownership, failure semantics hoặc lý do hiện tại; lời hứa triển khai tương lai và nhãn công
+việc đã hoàn tất chỉ thuộc blueprint, System Spec hoặc Changelog.
 
 **Rủi ro còn lại:** nếu WIP được commit chung hoặc prose được nâng trạng thái trước test/evidence, người
 đọc vẫn có thể nhầm mã thử nghiệm với capability production.
@@ -1594,7 +1606,14 @@ Hàng chờ sự kiện, nhóm tin nổi bật, quyết định, giao dịch, y�
 
 ### 19.1. Nguyên tắc
 
-`orchestrator/config_loader.py` đọc YAML theo tên logic và nạp lại nguyên khối. YAML mới lỗi thì cấu hình cũ được giữ. Ngưỡng, thời gian chờ, dung lượng và trọng số sản xuất phải nằm trong YAML, không ghi cứng trong mã.
+`orchestrator/config_loader.py` đọc YAML theo tên logic và nạp lại nguyên khối. YAML mới lỗi thì cấu hình cũ
+được giữ. Ngưỡng, thời gian chờ, dung lượng và trọng số sản xuất phải nằm trong YAML, không ghi cứng
+trong mã.
+
+Hai boundary dùng chung phải fail-closed về kiểu. `RuntimeCriticalConfig` không nhận chuỗi thay cho
+số/boolean; `FeatureManager.from_config` không dùng `bool(...)`, `int(...)` hoặc stringify để hợp thức
+hóa YAML sai. Feature ID, metadata, dependency, conflict, resource budget và enabled state phải đúng
+shape/type trước khi runtime compose service.
 
 ### 19.2. Bản đồ cấu hình
 
@@ -1655,6 +1674,11 @@ strict controlled ownership nhưng mặc định tắt và chưa có live rollou
 canary.
 Trạng thái bật/tắt không được dùng riêng để suy ra mức production.
 
+Dashboard toggle thành công phải persist vào đúng `config/features.yaml` qua atomic replace và chỉ
+đổi scalar `enabled`; metadata, key không thuộc runtime và comment/formatting hiện có phải được giữ.
+Restart phải đọc lại trạng thái đã persist. Nếu ghi thất bại, toggle trả failure, khôi phục
+trạng thái/handler trước đó và không được báo thành công chỉ trong RAM.
+
 ### 19.5. Hồ sơ cấu hình nên chuẩn hóa
 
 | Hồ sơ | Mục đích | Đặc điểm |
@@ -1667,7 +1691,10 @@ Trạng thái bật/tắt không được dùng riêng để suy ra mức produc
 
 ### 19.6. Quy trình đổi cấu hình
 
-Xác định tệp sở hữu → thay một nhóm giá trị phục vụ cùng giả thuyết → kiểm tra kiểu và khoảng → chạy kiểm thử liên quan → phát lại nếu đổi quyết định hoặc câu nói → so sánh chỉ số → ghi giá trị quay lui.
+Xác định tệp sở hữu → thay một nhóm giá trị phục vụ cùng giả thuyết → kiểm tra kiểu và
+khoảng bằng strict boundary → chạy kiểm thử liên quan → phát lại nếu đổi quyết định hoặc câu nói →
+so sánh chỉ số → ghi giá trị quay lui. Không dùng chuỗi `"false"`, `"7860"` hoặc giá trị truthy
+tương tự để thay cho scalar YAML đúng kiểu.
 
 ---
 
@@ -1779,6 +1806,11 @@ $env:DISCORD_BOT_TOKEN = "YOUR_TOKEN"
 
 Thêm `-Memory` để ghép ký ức ngữ nghĩa. `-NoTts` và `-NoDashboard` chỉ dùng để cô lập lỗi, không đại diện cấu hình phát sóng đầy đủ.
 
+Runtime chỉ nhận credential từ environment của process do PowerShell hoặc secret store truyền
+vào. Repository không tự nạp `.env`; `.env.example` chỉ là inventory tên biến không chứa
+giá trị thật. Endpoint, port, path, timeout và cờ feature tiếp tục thuộc YAML, không được
+ghi đè bằng environment variable không có consumer.
+
 ### 21.4. Thứ tự khởi động bên trong
 
 1. Chạy kiểm tra tĩnh trước phiên.
@@ -1790,6 +1822,13 @@ Thêm `-Memory` để ghép ký ức ngữ nghĩa. `-NoTts` và `-NoDashboard` c
 7. Khởi động dịch vụ trạng thái, nguồn tin, Director, sức khỏe và bảng điều khiển.
 
 Nếu giọng nói lỗi nhưng tệp phụ đề hoạt động, hệ thống có thể chạy suy giảm. Nếu cả hai nơi nhận đều không hoạt động, quá trình ghép phải dừng sớm.
+
+Khởi động là một giao dịch hai tầng:
+
+- Trong lúc ghép, composition root chỉ đăng ký resource mà nó đã thực sự khởi động và sở hữu. Nếu một bước sau đó lỗi hoặc bị hủy, các resource đã đăng ký phải rollback theo thứ tự ngược. Lỗi cleanup chỉ được ghi nhận; không được che lỗi khởi động gốc.
+- Sau khi ghép xong, `StreamRuntime.start()` khởi động các service còn lại. Nếu chuỗi này dừng giữa chừng, runtime phải đặt trạng thái về stopped và chạy trực tiếp các bước tắt an toàn; không gọi shutdown coordinator chưa khởi động xong.
+
+Rollback/cleanup là best-effort và idempotent: launcher vẫn gọi `stop()` trong `finally`, kể cả khi `start()` ném lỗi. Hệ thống chỉ dừng tiến trình `llama-server` do chính runtime khởi động; không dừng tiến trình bên ngoài.
 
 ### 21.5. Kiểm tra trước khi phát
 
@@ -1806,6 +1845,8 @@ Nếu giọng nói lỗi nhưng tệp phụ đề hoạt động, hệ thống c
 Dùng `Ctrl+C` và chờ tắt mềm: tạm dừng phục hồi → dừng Director → dừng nguồn tin → hủy tổng hợp và hàng chờ âm thanh → đóng bảng điều khiển → dừng dịch vụ phụ và tiến trình mô hình do Mai sở hữu → lưu ảnh chụp cuối và đẩy hết nhật ký.
 
 Không đóng cưỡng bức toàn bộ tiến trình Python và không dừng một `llama-server` do người vận hành khác khởi động.
+
+Các failure test bắt buộc phải bao phủ lỗi ghép sau khi đã mở resource, lỗi/cancellation giữa chuỗi `StreamRuntime.start()`, cleanup lỗi nhưng vẫn giữ exception gốc và launcher luôn chạy `stop()` khi startup thất bại.
 
 ### 21.7. Sau phiên
 
@@ -1858,9 +1899,26 @@ Nội dung nền tảng, đầu ra mô hình, yêu cầu bảng điều khiển,
 
 ### 23.2. Khóa và thông tin nhạy cảm
 
-- Mã Discord chỉ đọc từ biến môi trường.
-- Không ghi khóa vào YAML, nhật ký, ảnh chụp, bằng chứng hoặc lịch sử lệnh chia sẻ.
-- `.env.example` chỉ chứa tên biến và giá trị mẫu.
+- Process-environment credential mặc định chỉ gồm `DISCORD_BOT_TOKEN` và
+  `OBS_WEBSOCKET_PASSWORD`. Operator có thể đổi tên tham chiếu trong YAML, nhưng tên
+  phải là `UPPER_SNAKE_CASE`, không khoảng trắng và hai consumer không được trỏ
+  vào cùng một biến.
+- `DISCORD_BOT_TOKEN` chỉ bắt buộc khi chạy Discord primary hoặc `-WithDiscord`;
+  `OBS_WEBSOCKET_PASSWORD` chỉ bắt buộc khi `obs_scene_executor` được bật. Credential
+  optional có thể vắng mặt khi consumer tắt.
+- Giá trị credential phải là chuỗi không rỗng, không có khoảng trắng đầu/cuối hoặc
+  ký tự điều khiển. Boundary không `strip()`, coerce hoặc ghi lại secret; malformed value
+  fail-closed bằng reason code đã sanitize.
+- Chỉ tên biến và trạng thái `present`/`missing`/`invalid` được phép vào preflight,
+  exception, metric hoặc log. Giá trị credential không được ghi vào YAML, CLI argument,
+  nhật ký, snapshot, evidence, shell history chia sẻ hoặc Git.
+- `.env.example` là inventory documentation-only, không phải file cấu hình runtime và không
+  được runtime tự nạp. `.env` vẫn bị Git ignore như một lớp phòng vệ nếu operator
+  dùng tooling bên ngoài.
+- VTube Studio authentication token là credential local do adapter nhận/cấp và lưu tại
+  `config/animation.yaml::animation.token_file`; nó không phải environment variable. Tệp mặc
+  định `vts_token.txt` phải bị Git ignore, đọc strict không trim, ghi atomic và mọi lỗi
+  VTS chỉ được ném/log bằng reason đã sanitize.
 - Nếu khóa từng xuất hiện trong tệp lưu trữ, phải thu hồi và tạo khóa mới trước khi chỉ xóa tệp.
 - Bản lưu `ver/v1.0` hiện có dấu hiệu chứa `.env`; cần xử lý như nguy cơ thật.
 
@@ -1918,13 +1976,13 @@ Ngày 20/08/2026:
 - CPython `3.11.15`, 125 dependency từ lock và `pip check`: đạt;
 - `scripts/check_environment.ps1 -SkipLlamaHealth`: 9 đạt, 0 lỗi, 1 bỏ qua;
 - regression của environment checker: 6 đạt;
-- Phase 7 targeted: 79 đạt; impacted Director/transaction/runtime: 220 đạt;
-- full offline `pytest -m "not slow and not llm"`: 1.999 đạt, 5 deselected, 0 lỗi;
-- Phase 8 targeted: 163 đạt; impacted Director/TTS/animation/runtime: 306 đạt;
-- full offline `pytest tests -q`: 2.028 đạt, 0 lỗi;
+- Phase 10 targeted: 29 đạt; impacted Phase 2–4/runtime: 246 đạt; documentation guard: 9 đạt;
+- feature persistence/strict config targeted: 129 đạt; impacted dashboard/Director/runtime: 173 đạt;
+- comment/document cleanup targeted: 255 đạt; documentation guard hiện tại: 11 đạt;
+- full offline `pytest tests -q`: 2.148 đạt, 0 lỗi;
 - còn một cảnh báo deprecation giữa Starlette TestClient và `httpx`;
-- chưa chạy live/LLM acceptance, audio/VTS canary hoặc canary takeover; `llama-server` không được khởi
-  động trong phase này.
+- chưa chạy live/LLM acceptance, audio/VTS/OBS canary hoặc canary takeover; `llama-server` không được
+  khởi động trong Phase 10.
 
 Kết quả cũ dùng Python 3.12 thay thế chỉ còn giá trị chẩn đoán lịch sử, không phải release evidence hiện tại.
 

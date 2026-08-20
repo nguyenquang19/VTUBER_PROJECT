@@ -1,4 +1,4 @@
-"""Feature registry + toggle manager (ARCHITECTURE 4.2-4.5, Phase 0 task 2).
+"""Feature registry, dependency validation and persistent toggle manager.
 
 Toggle rules (4.4):
   1. atomic — enable/disable thành công hoàn toàn hoặc không đổi gì
@@ -16,6 +16,8 @@ Persistence: state `enabled` ghi lại `config/features.yaml` (4.5).
 from __future__ import annotations
 
 import asyncio
+import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -24,10 +26,57 @@ from typing import Any, Awaitable, Callable
 
 import yaml
 
+from orchestrator.config_loader import ConfigError
 from orchestrator.logger import get_logger
 
 Handler = Callable[[], Awaitable[None]]
 HealthCheck = Callable[[], Awaitable[bool]]
+
+_FEATURE_ID_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+_FEATURE_HEADER_RE = re.compile(r"^  ([a-z][a-z0-9_]*):[ \t]*(?:#.*?)?(?:\r?\n)?$")
+_ENABLED_LINE_RE = re.compile(
+    r"^(    enabled:[ \t]*)(true|false)([ \t]*(?:#.*?)?)(\r?\n)?$",
+)
+
+
+def _strict_int(value: Any, field_name: str, *, minimum: int | None = None) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ConfigError(f"{field_name} phải là integer thật")
+    if minimum is not None and value < minimum:
+        raise ConfigError(f"{field_name} phải >= {minimum}")
+    return value
+
+
+def _strict_text(
+    value: Any,
+    field_name: str,
+    *,
+    allow_empty: bool = False,
+) -> str:
+    if not isinstance(value, str):
+        raise ConfigError(f"{field_name} phải là string")
+    if value != value.strip() or (not allow_empty and not value):
+        raise ConfigError(f"{field_name} phải là string đã trim và không rỗng")
+    return value
+
+
+def _strict_feature_id(value: Any, field_name: str) -> str:
+    feature_id = _strict_text(value, field_name)
+    if _FEATURE_ID_RE.fullmatch(feature_id) is None:
+        raise ConfigError(f"{field_name} không đúng feature id format")
+    return feature_id
+
+
+def _strict_id_list(value: Any, field_name: str) -> list[str]:
+    if not isinstance(value, list):
+        raise ConfigError(f"{field_name} phải là list")
+    out = [
+        _strict_feature_id(item, f"{field_name}[{index}]")
+        for index, item in enumerate(value)
+    ]
+    if len(set(out)) != len(out):
+        raise ConfigError(f"{field_name} không được chứa id trùng")
+    return out
 
 
 class FeatureStatus(str, Enum):
@@ -97,7 +146,7 @@ class UnknownFeatureError(KeyError):
 
 
 class CoreFeatureError(Exception):
-    """Feature core không toggle được (ARCHITECTURE 4.3)."""
+    """Raised when an operator attempts to toggle a core feature."""
 
 
 class FeatureManager:
@@ -119,40 +168,147 @@ class FeatureManager:
     # ---------- construction ----------
 
     @classmethod
-    def from_config(cls, loader) -> FeatureManager:
-        """Build từ config/features.yaml + budget VRAM ở config/system.yaml."""
-        total = int(loader.get("system", "resources.vram_total_mb", 0))
-        reserved = int(loader.get("system", "resources.vram_reserved_mb", 0))
-        buffer = int(loader.get("system", "resources.vram_buffer_mb", 0))
-        budget = max(0, total - reserved - buffer)
-        core_ids = tuple(loader.get("system", "features.core", []) or ())
+    def from_config(cls, loader, *, persist: bool = False) -> FeatureManager:
+        """Build from strict YAML; production composition opts into persistence."""
+        total = _strict_int(
+            loader.get("system", "resources.vram_total_mb", 0),
+            "system.resources.vram_total_mb",
+            minimum=0,
+        )
+        reserved = _strict_int(
+            loader.get("system", "resources.vram_reserved_mb", 0),
+            "system.resources.vram_reserved_mb",
+            minimum=0,
+        )
+        buffer = _strict_int(
+            loader.get("system", "resources.vram_buffer_mb", 0),
+            "system.resources.vram_buffer_mb",
+            minimum=0,
+        )
+        if reserved + buffer > total:
+            raise ConfigError("system.resources reserved + buffer vượt vram_total_mb")
+        budget = total - reserved - buffer
 
-        mgr = cls(vram_budget_mb=budget, core_feature_ids=core_ids)
+        raw_core = loader.get("system", "features.core", [])
+        core_ids = tuple(_strict_id_list(raw_core, "system.features.core"))
 
-        for fid, spec in (loader.section("features").get("features") or {}).items():
-            spec = spec or {}
+        section = loader.section("features")
+        raw_features = section.get("features")
+        if not isinstance(raw_features, Mapping):
+            raise ConfigError("features.yaml::features phải là mapping")
+
+        persist_path: Path | None = None
+        if persist:
+            path_for = getattr(loader, "path_for", None)
+            if not callable(path_for):
+                raise ConfigError("config loader không cung cấp path_for cho feature persistence")
+            persist_path = path_for("features")
+
+        mgr = cls(
+            vram_budget_mb=budget,
+            core_feature_ids=core_ids,
+            persist_path=persist_path,
+        )
+
+        for raw_feature_id, raw_spec in raw_features.items():
+            feature_id = _strict_feature_id(raw_feature_id, "features.<id>")
+            if not isinstance(raw_spec, Mapping):
+                raise ConfigError(f"features.{feature_id} phải là mapping")
+            if "enabled" not in raw_spec or not isinstance(raw_spec["enabled"], bool):
+                raise ConfigError(f"features.{feature_id}.enabled phải là boolean thật")
+            enabled = raw_spec["enabled"]
+            name = _strict_text(
+                raw_spec.get("name", feature_id),
+                f"features.{feature_id}.name",
+            )
+            description = _strict_text(
+                raw_spec.get("description", ""),
+                f"features.{feature_id}.description",
+                allow_empty=True,
+            )
+            category = _strict_text(
+                raw_spec.get("category", "uncategorized"),
+                f"features.{feature_id}.category",
+            )
             mgr.register(
                 Feature(
-                    id=fid,
-                    name=spec.get("name", fid),
-                    description=spec.get("description", ""),
-                    category=spec.get("category", "uncategorized"),
-                    default_enabled=bool(spec.get("enabled", False)),
-                    depends_on=list(spec.get("depends_on", []) or []),
-                    conflicts_with=list(spec.get("conflicts_with", []) or []),
-                    vram_cost_mb=int(spec.get("vram_cost_mb", 0)),
-                    latency_impact_ms=int(spec.get("latency_impact_ms", 0)),
+                    id=feature_id,
+                    name=name,
+                    description=description,
+                    category=category,
+                    default_enabled=enabled,
+                    depends_on=_strict_id_list(
+                        raw_spec.get("depends_on", []),
+                        f"features.{feature_id}.depends_on",
+                    ),
+                    conflicts_with=_strict_id_list(
+                        raw_spec.get("conflicts_with", []),
+                        f"features.{feature_id}.conflicts_with",
+                    ),
+                    vram_cost_mb=_strict_int(
+                        raw_spec.get("vram_cost_mb", 0),
+                        f"features.{feature_id}.vram_cost_mb",
+                    ),
+                    latency_impact_ms=_strict_int(
+                        raw_spec.get("latency_impact_ms", 0),
+                        f"features.{feature_id}.latency_impact_ms",
+                    ),
                     current_status=(
-                        FeatureStatus.ENABLED
-                        if spec.get("enabled", False)
-                        else FeatureStatus.DISABLED
+                        FeatureStatus.ENABLED if enabled else FeatureStatus.DISABLED
                     ),
                 )
             )
+        mgr._validate_initial_config()
         return mgr
 
     def register(self, feature: Feature) -> None:
+        if feature.id in self._features:
+            raise ValueError(f"feature id trùng: {feature.id}")
         self._features[feature.id] = feature
+
+    def _validate_initial_config(self) -> None:
+        known = set(self._features) | self._core_ids
+        for feature in self._features.values():
+            references = feature.depends_on + feature.conflicts_with
+            unknown = sorted(set(references) - known)
+            if unknown:
+                raise ConfigError(
+                    f"features.{feature.id} tham chiếu id không tồn tại: {', '.join(unknown)}",
+                )
+            if feature.id in references:
+                raise ConfigError(f"features.{feature.id} không được tự tham chiếu")
+            overlap = sorted(set(feature.depends_on) & set(feature.conflicts_with))
+            if overlap:
+                raise ConfigError(
+                    f"features.{feature.id} vừa depend vừa conflict: {', '.join(overlap)}",
+                )
+            if not feature.is_enabled:
+                continue
+            missing = sorted(
+                dependency
+                for dependency in feature.depends_on
+                if dependency not in self._core_ids
+                and not self._features[dependency].is_enabled
+            )
+            if missing:
+                raise ConfigError(
+                    f"features.{feature.id} enabled nhưng dependency tắt: {', '.join(missing)}",
+                )
+            active_conflicts = sorted(
+                conflict
+                for conflict in feature.conflicts_with
+                if conflict in self._core_ids or self._features[conflict].is_enabled
+            )
+            if active_conflicts:
+                raise ConfigError(
+                    f"features.{feature.id} enabled nhưng conflict đang bật: "
+                    f"{', '.join(active_conflicts)}",
+                )
+        if self.used_vram_mb() > self._vram_budget_mb:
+            raise ConfigError(
+                f"features enabled dùng {self.used_vram_mb()}MB vượt budget "
+                f"{self._vram_budget_mb}MB",
+            )
 
     def attach_handlers(
         self,
@@ -266,19 +422,27 @@ class FeatureManager:
             # 3. dependency check
             missing = [
                 d for d in f.depends_on
-                if d not in self._features or not self._features[d].is_enabled
+                if d not in self._core_ids
+                and (d not in self._features or not self._features[d].is_enabled)
             ]
             if missing:
                 return self._reject(f, user, "enable", f"thiếu dependency: {', '.join(missing)}")
 
             # 4. conflict check
-            active_conflicts = [
+            active_conflicts = {
                 c for c in f.conflicts_with
-                if c in self._features and self._features[c].is_enabled
-            ]
+                if c in self._core_ids
+                or (c in self._features and self._features[c].is_enabled)
+            }
+            active_conflicts.update(
+                other.id
+                for other in self._features.values()
+                if other.is_enabled and feature_id in other.conflicts_with
+            )
             if active_conflicts:
                 return self._reject(
-                    f, user, "enable", f"xung đột với: {', '.join(active_conflicts)}"
+                    f, user, "enable",
+                    f"xung đột với: {', '.join(sorted(active_conflicts))}",
                 )
 
             # 5. resource check
@@ -296,7 +460,16 @@ class FeatureManager:
                     f.current_status = previous  # rollback
                     return self._reject(f, user, "enable", f"handler lỗi: {e}", FeatureStatus.ERROR)
 
-            self._persist()
+            persist_failure = await self._persist_transition(
+                f,
+                previous=previous,
+                user=user,
+                action="enable",
+                rollback_handler=f.disable_handler,
+                side_effect_ran=f.enable_handler is not None,
+            )
+            if persist_failure is not None:
+                return persist_failure
             self._log_toggle(f, user, "enable", ok=True)
             return ToggleResult.success(feature_id, f.current_status)
 
@@ -331,9 +504,48 @@ class FeatureManager:
                         f, user, "disable", f"handler lỗi: {e}", FeatureStatus.ERROR
                     )
 
-            self._persist()
+            persist_failure = await self._persist_transition(
+                f,
+                previous=previous,
+                user=user,
+                action="disable",
+                rollback_handler=f.enable_handler,
+                side_effect_ran=f.disable_handler is not None,
+            )
+            if persist_failure is not None:
+                return persist_failure
             self._log_toggle(f, user, "disable", ok=True)
             return ToggleResult.success(feature_id, f.current_status)
+
+    async def _persist_transition(
+        self,
+        f: Feature,
+        *,
+        previous: FeatureStatus,
+        user: str,
+        action: str,
+        rollback_handler: Handler | None,
+        side_effect_ran: bool,
+    ) -> ToggleResult | None:
+        try:
+            self._persist()
+        except Exception as exc:
+            f.current_status = previous
+            rollback_error = ""
+            if side_effect_ran:
+                if rollback_handler is None:
+                    rollback_error = "missing inverse handler"
+                else:
+                    try:
+                        await rollback_handler()
+                    except Exception as rollback_exc:
+                        rollback_error = str(rollback_exc)
+            reason = f"persistence lỗi: {exc}"
+            if rollback_error:
+                f.current_status = FeatureStatus.ERROR
+                reason = f"{reason}; rollback handler lỗi: {rollback_error}"
+            return self._reject(f, user, action, reason)
+        return None
 
     def _reject(
         self,
@@ -385,6 +597,23 @@ class FeatureManager:
     def _persist(self) -> None:
         if self._persist_path is None:
             return
+        rendered = (
+            self._render_existing_config(self._persist_path)
+            if self._persist_path.exists()
+            else self._render_new_config()
+        )
+        tmp = self._persist_path.with_suffix(self._persist_path.suffix + ".tmp")
+        try:
+            tmp.write_bytes(rendered.encode("utf-8"))
+            tmp.replace(self._persist_path)  # atomic trên cùng volume
+        except Exception:
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise
+
+    def _render_new_config(self) -> str:
         payload: dict[str, Any] = {"features": {}}
         for fid in sorted(self._features):
             f = self._features[fid]
@@ -395,9 +624,56 @@ class FeatureManager:
                 "category": f.category,
                 "depends_on": f.depends_on,
                 "conflicts_with": f.conflicts_with,
+                "name": f.name,
+                "description": f.description,
             }
-        tmp = self._persist_path.with_suffix(self._persist_path.suffix + ".tmp")
-        tmp.write_text(
-            yaml.safe_dump(payload, allow_unicode=True, sort_keys=False), encoding="utf-8"
-        )
-        tmp.replace(self._persist_path)  # atomic trên cùng volume
+        return yaml.safe_dump(payload, allow_unicode=True, sort_keys=False)
+
+    def _render_existing_config(self, path: Path) -> str:
+        text = path.read_bytes().decode("utf-8")
+        parsed = yaml.safe_load(text)
+        if not isinstance(parsed, Mapping) or not isinstance(parsed.get("features"), Mapping):
+            raise ConfigError("features.yaml::features phải là mapping khi persist")
+        disk_ids = set(parsed["features"])
+        runtime_ids = set(self._features)
+        if disk_ids != runtime_ids:
+            missing = sorted(runtime_ids - disk_ids)
+            extra = sorted(disk_ids - runtime_ids)
+            raise ConfigError(
+                "feature inventory thay đổi trong lúc chạy; "
+                f"missing={missing}, extra={extra}",
+            )
+
+        lines = text.splitlines(keepends=True)
+        current_feature: str | None = None
+        updated: set[str] = set()
+        for index, line in enumerate(lines):
+            header = _FEATURE_HEADER_RE.fullmatch(line)
+            if header is not None:
+                current_feature = header.group(1)
+                continue
+            enabled_line = _ENABLED_LINE_RE.fullmatch(line)
+            if enabled_line is None or current_feature not in self._features:
+                continue
+            if current_feature in updated:
+                raise ConfigError(
+                    f"features.{current_feature}.enabled xuất hiện nhiều lần",
+                )
+            value = "true" if self._features[current_feature].is_enabled else "false"
+            newline = enabled_line.group(4) or ""
+            lines[index] = (
+                f"{enabled_line.group(1)}{value}{enabled_line.group(3)}{newline}"
+            )
+            updated.add(current_feature)
+
+        missing_enabled = sorted(runtime_ids - updated)
+        if missing_enabled:
+            raise ConfigError(
+                "feature không có scalar enabled để persist: "
+                f"{', '.join(missing_enabled)}",
+            )
+        rendered = "".join(lines)
+        validated = yaml.safe_load(rendered)
+        if not isinstance(validated, Mapping):
+            raise ConfigError("features.yaml render không còn là mapping")
+        return rendered

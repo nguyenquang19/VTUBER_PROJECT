@@ -1,4 +1,4 @@
-"""Turn orchestrator — glue trigger ↔ state machine (ARCHITECTURE 7.9/7.10, 2.E).
+"""Turn orchestrator joining trigger decisions to the conversation state machine.
 
 Nối TriggerManager + ConversationStateMachine + StateWatchdog thành vòng turn-taking:
 
@@ -7,8 +7,8 @@ Nối TriggerManager + ConversationStateMachine + StateWatchdog thành vòng tur
       trigger_received (→THINKING) → think() → first_token (→SPEAKING) → speak
       → tts_complete (→COOLDOWN) → mark_spoke → cooldown (→IDLE)
 
-Phase 2 chưa có TTS thật (Phase 4) → `speak` là sleep mô phỏng, `think` inject được
-(fake trong test, LLMTurnRunner thật khi wire ở main). N8: chỉ dùng API công khai.
+`think` and `speak` are injected public-boundary callbacks, so tests may use fakes
+while the composition root supplies the current runtime implementations.
 """
 from __future__ import annotations
 

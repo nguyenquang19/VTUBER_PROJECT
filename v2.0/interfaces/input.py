@@ -1,4 +1,4 @@
-"""Input interface (ARCHITECTURE 7.2)."""
+"""Typed input-source service contract."""
 from __future__ import annotations
 
 from abc import abstractmethod

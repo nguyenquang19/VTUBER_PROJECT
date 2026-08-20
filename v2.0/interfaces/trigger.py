@@ -1,6 +1,6 @@
-"""Trigger & turn-taking interface (ARCHITECTURE 7.9.5).
+"""Trigger and turn-taking service contract.
 
-N1 YAGNI: đúng 4 trigger type (7.9.1), không thêm donation/subscribe/question/...
+The current boundary is intentionally limited to four trigger types.
 """
 from __future__ import annotations
 

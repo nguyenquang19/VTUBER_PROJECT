@@ -1,4 +1,4 @@
-"""Deadlock watchdog cho state machine (ARCHITECTURE 7.10.4, Phase 2 2.B).
+"""Deadlock watchdog for bounded conversation-state recovery.
 
 Poll định kỳ; nếu state ở quá `max_time_in_state` (config state_machine.yaml
 auto_recovery) → coi là deadlock → emergency_stop + (tuỳ chọn) recover về IDLE.

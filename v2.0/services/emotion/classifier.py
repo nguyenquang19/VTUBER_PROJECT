@@ -140,7 +140,7 @@ class EventClassifier:
             return "stream_start"
         if ptype == "stream_end":
             return "stream_end"
-        # C0 Task7: ChatPulse edge → mood nudge (Director đẩy vào)
+        # Director-provided ChatPulse edge becomes a bounded mood nudge.
         if ptype in ("chat_hype", "chat_lively"):
             return ptype
         return "chat_neutral"

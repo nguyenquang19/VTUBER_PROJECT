@@ -1,8 +1,7 @@
-"""STT interface (ARCHITECTURE 7.3).
+"""Speech-to-text service contract.
 
 Voice input bị defer theo scope decision (xem `docs/MAI_V2_SYSTEM_SPEC.md`).
-`NullSTTService` là stub để Phase 0-4 chạy được mà không cần STT thật;
-Phase 5 sẽ thêm implementation faster-whisper cạnh nó, không breaking.
+`NullSTTService` giữ boundary no-op để runtime chat-only không cần STT thật.
 """
 from __future__ import annotations
 

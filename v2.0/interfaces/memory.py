@@ -1,7 +1,7 @@
-"""Memory interface (ARCHITECTURE 7.8).
+"""Working and semantic memory service contract.
 
-Implementation working memory (deque) + semantic (sqlite-vec) ở Phase 7.
-Memory timeout → fallback working-only, soft fail (spec 8.7.6).
+The implementation uses bounded deque working memory and sqlite-vec semantic memory.
+Semantic timeout falls back to working-only memory without failing the turn.
 """
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-# Autonomy Engine v2 config (spec AUTONOMY_ENGINE_REDESIGN.md)
+# Autonomy Engine configuration; canonical behavior is documented in the System Spec.
 # Đây là engine "tự nói" — thay hardcode silence>60s bằng urge accumulator
 # probabilistic + category-based, có biến thiên, không lộ pattern hằng số.
 
@@ -18,7 +18,7 @@ autonomy:
     decay_after_speak: 8.0      # trong self_cooldown, urge giảm mỗi tick
     self_cooldown_seconds: 45   # sau tự nói, cooldown riêng (khác last_speak chung)
 
-    # Mood modifier (dùng mood v1 self-report, khi Phase 7.5 xong đổi nguồn)
+    # Mood modifiers applied to the current injected mood snapshot.
     bon_chon_weight: 0.6        # bon_chon càng cao urge tăng nhanh
     buon_dampen: 0.4            # buon cao → urge chậm lại
     nguong_dampen: 0.5          # nguong cao → ngại nói → chậm

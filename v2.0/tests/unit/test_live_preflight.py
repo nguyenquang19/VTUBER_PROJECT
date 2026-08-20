@@ -82,6 +82,64 @@ def test_discord_preflight_requires_token_but_never_exposes_it(tmp_path: Path) -
     assert secret not in str(ready)
 
 
+def test_discord_preflight_rejects_malformed_secret_without_trimming(
+    tmp_path: Path,
+) -> None:
+    secret = " raw-secret "
+    report = run_preflight(
+        _loader(tmp_path), platform_name="discord", check_server_health=False,
+        repo_root=tmp_path, environ={"DISCORD_BOT_TOKEN": secret},
+        os_name="Windows", python_version=(3, 11, 0), now_utc=NOW,
+    )
+    check = next(item for item in report["checks"] if item["name"] == "discord_token")
+    assert report["ready"] is False
+    assert check["passed"] is False
+    assert "invalid" in check["detail"]
+    assert secret not in str(report)
+
+
+def test_obs_credential_is_required_only_when_feature_is_enabled(tmp_path: Path) -> None:
+    loader = _loader(tmp_path)
+    loader._data["features"]["features"]["obs_scene_executor"] = {"enabled": True}
+
+    missing = run_preflight(
+        loader, platform_name="youtube", video_id="x", check_server_health=False,
+        repo_root=tmp_path, environ={}, os_name="Windows",
+        python_version=(3, 11, 0), now_utc=NOW,
+    )
+    assert missing["ready"] is False
+    assert next(
+        item for item in missing["checks"] if item["name"] == "obs_password"
+    )["passed"] is False
+
+    secret = "obs-secret"
+    ready = run_preflight(
+        loader, platform_name="youtube", video_id="x", check_server_health=False,
+        repo_root=tmp_path, environ={"OBS_WEBSOCKET_PASSWORD": secret},
+        os_name="Windows", python_version=(3, 11, 0), now_utc=NOW,
+    )
+    assert ready["ready"] is True
+    assert secret not in str(ready)
+
+
+def test_invalid_credential_reference_fails_preflight_without_reading_secret(
+    tmp_path: Path,
+) -> None:
+    loader = _loader(tmp_path)
+    loader._data["chat_sources"]["discord"]["token_env_var"] = "bad-name"
+    report = run_preflight(
+        loader, platform_name="youtube", video_id="x", check_server_health=False,
+        repo_root=tmp_path, environ={"bad-name": "raw-secret"}, os_name="Windows",
+        python_version=(3, 11, 0), now_utc=NOW,
+    )
+    check = next(
+        item for item in report["checks"] if item["name"] == "credential_contract"
+    )
+    assert report["ready"] is False
+    assert check["passed"] is False
+    assert "raw-secret" not in str(report)
+
+
 def test_preflight_fails_when_transaction_contract_is_disabled(tmp_path: Path) -> None:
     loader = _loader(tmp_path)
     loader._data["features"]["features"]["action_transactions"]["enabled"] = False

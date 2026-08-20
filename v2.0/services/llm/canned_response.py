@@ -1,4 +1,4 @@
-"""Canned response — Level 2 của LLM fallback chain (ARCHITECTURE 8.7.1, 1.E).
+"""Canned-response terminal level for the LLM fallback chain.
 
 Khi Gemma 12B fail (timeout/crash), Mai vẫn phải "nói được gì đó" để không đứng
 hình. Chọn 1 câu canned theo dominant mood gần nhất (nếu có), không thì "default".
