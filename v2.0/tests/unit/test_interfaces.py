@@ -303,16 +303,47 @@ class TestMemoryModels:
         e = MemoryEntry(entry_id="m1", content="user thích mèo", timestamp=datetime.now(timezone.utc))
         assert e.tier is MemoryTier.WORKING
         assert e.importance == 0.5
-        assert e.tags == []
+        assert e.tags == ()
 
     def test_importance_bounded(self) -> None:
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValueError):
             MemoryEntry(
                 entry_id="m1", content="x", timestamp=datetime.now(timezone.utc), importance=1.5
             )
 
     def test_three_tiers(self) -> None:
         assert {t.value for t in MemoryTier} == {"working", "session", "persistent"}
+
+    def test_entry_is_deeply_immutable_and_utc_strict(self) -> None:
+        with pytest.raises(ValueError, match="timezone-aware"):
+            MemoryEntry(entry_id="m1", content="x", timestamp=datetime.now())
+        with pytest.raises(ValueError, match="tuple"):
+            MemoryEntry(
+                entry_id="m1", content="x", timestamp=datetime.now(timezone.utc),
+                tags=["legacy"],  # type: ignore[arg-type]
+            )
+        entry = MemoryEntry(
+            entry_id="m1", content="x", timestamp=datetime.now(timezone.utc),
+            metadata={"nested": {"values": ["a", "b"]}},
+        )
+        assert entry.metadata["nested"]["values"] == ("a", "b")
+        with pytest.raises(TypeError):
+            entry.metadata["new"] = "value"  # type: ignore[index]
+
+    def test_success_memory_requires_authoritative_verification(self) -> None:
+        with pytest.raises(ValueError, match="verified"):
+            MemoryEntry(
+                entry_id="m1", content="guest joined", timestamp=datetime.now(timezone.utc),
+                metadata={"action_status": "succeeded", "provenance": "action_result"},
+            )
+        entry = MemoryEntry(
+            entry_id="m2", content="guest joined", timestamp=datetime.now(timezone.utc),
+            metadata={
+                "action_status": "succeeded", "verified": True,
+                "outcome_id": "outcome-1", "provenance": "action_result",
+            },
+        )
+        assert entry.metadata["verified"] is True
 
 
 class TestStreamingSignatures:

@@ -18,7 +18,7 @@ import json
 import sqlite3
 import struct
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
@@ -92,16 +92,20 @@ class SqliteVecStore:
         viewer_id: str | None = None,
         session_id: str | None = None,
     ) -> None:
-        """Insert entry + embedding. Idempotent (REPLACE nếu trùng entry_id)."""
-        ts = timestamp or datetime.now()
+        """Insert entry + embedding once; a repeated entry_id is a no-op."""
+        if self.fetch_by_id(entry_id) is not None:
+            return
+        ts = timestamp or datetime.now(timezone.utc)
+        if ts.tzinfo is None or ts.utcoffset() is None:
+            ts = ts.replace(tzinfo=timezone.utc)
         tags_json = json.dumps(list(tags) if tags else [], ensure_ascii=False)
-        meta_json = json.dumps(metadata or {}, ensure_ascii=False)
+        meta_json = json.dumps(_json_plain(metadata or {}), ensure_ascii=False)
         emb_blob = _encode_vec(embedding)
 
         try:
             self._conn.execute(
                 """
-                INSERT OR REPLACE INTO memory_entries
+                INSERT INTO memory_entries
                     (entry_id, content, timestamp, tier, importance,
                      tags_json, metadata_json, viewer_id, session_id)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -248,7 +252,7 @@ def _row_to_entry(row: tuple | None) -> StoredEntry | None:
     return StoredEntry(
         entry_id=entry_id,
         content=content,
-        timestamp=datetime.fromisoformat(ts),
+        timestamp=_legacy_utc(datetime.fromisoformat(ts)),
         tier=tier,
         importance=float(importance) if importance is not None else 0.5,
         tags=json.loads(tags_json) if tags_json else [],
@@ -256,3 +260,18 @@ def _row_to_entry(row: tuple | None) -> StoredEntry | None:
         viewer_id=viewer_id,
         session_id=session_id,
     )
+
+
+def _legacy_utc(value: datetime) -> datetime:
+    """Read pre-Phase-12 naive rows as UTC without rewriting frozen data."""
+    if value.tzinfo is None or value.utcoffset() is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _json_plain(value: Any) -> Any:
+    if isinstance(value, dict) or hasattr(value, "items"):
+        return {str(key): _json_plain(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_plain(item) for item in value]
+    return value

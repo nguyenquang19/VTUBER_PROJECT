@@ -22,6 +22,7 @@ from typing import Any
 from interfaces.base import HealthStatus
 from interfaces.memory import MemoryEntry, MemoryService, MemoryTier
 from orchestrator.logger import get_logger
+from services.memory.config import validate_memory_query
 
 
 class MemoryFallbackManager(MemoryService):
@@ -31,14 +32,19 @@ class MemoryFallbackManager(MemoryService):
         self,
         primary: MemoryService,     # SemanticMemoryService (7.D)
         fallback: MemoryService,    # WorkingMemoryService (7.E)
+        max_query_top_k: int = 20,
     ) -> None:
         self._primary = primary
         self._fallback = fallback
+        if isinstance(max_query_top_k, bool) or not isinstance(max_query_top_k, int) or max_query_top_k <= 0:
+            raise ValueError("memory max_query_top_k must be a positive integer")
+        self._max_query_top_k = max_query_top_k
         self._log = get_logger("memory_fallback")
 
         self._queries_primary_hit = 0
         self._queries_fallback_hit = 0
         self._writes_partial = 0     # semantic fail nhưng working thành công
+        self._query_rejected = 0
 
     async def start(self) -> None:
         await self._primary.start()
@@ -62,6 +68,7 @@ class MemoryFallbackManager(MemoryService):
             "memory_fb_primary_hit": self._queries_primary_hit,
             "memory_fb_fallback_hit": self._queries_fallback_hit,
             "memory_fb_writes_partial": self._writes_partial,
+            "memory_fb_query_rejected": self._query_rejected,
             **self._primary.get_metrics(),
             **self._fallback.get_metrics(),
         }
@@ -115,6 +122,13 @@ class MemoryFallbackManager(MemoryService):
         viewer_id: str | None = None,
     ) -> list[MemoryEntry]:
         """Semantic first, empty → working. Semantic timeout đã trả [] ở 7.D."""
+        try:
+            query_text, top_k, tier, viewer_id = validate_memory_query(
+                query_text, top_k, tier, viewer_id, max_top_k=self._max_query_top_k,
+            )
+        except ValueError:
+            self._query_rejected += 1
+            raise
         try:
             results = await self._primary.query(query_text, top_k, tier, viewer_id)
         except Exception as e:

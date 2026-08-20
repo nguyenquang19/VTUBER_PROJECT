@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -60,7 +60,7 @@ class FakeStore:
         self.inserts.append((entry_id, content, embedding, kw))
         self._entries[entry_id] = StoredEntry(
             entry_id=entry_id, content=content,
-            timestamp=kw.get("timestamp", datetime.now()),
+            timestamp=kw.get("timestamp", datetime.now(timezone.utc)),
             tier=kw.get("tier", "persistent"),
             importance=kw.get("importance", 0.5),
             tags=list(kw.get("tags", [])),
@@ -68,6 +68,9 @@ class FakeStore:
             viewer_id=kw.get("viewer_id"),
             session_id=kw.get("session_id"),
         )
+
+    def fetch_by_id(self, entry_id):
+        return self._entries.get(entry_id)
 
     def query_knn(self, embedding, top_k, tier=None, viewer_id=None):
         self.knn_calls.append((embedding, top_k, tier, viewer_id))
@@ -95,7 +98,7 @@ def make_entry(content: str = "hello", tier: MemoryTier = MemoryTier.PERSISTENT,
     kw = dict(
         entry_id=new_entry_id(),
         content=content,
-        timestamp=datetime.now(),
+        timestamp=datetime.now(timezone.utc),
         tier=tier,
     )
     kw.update(over)
@@ -105,7 +108,7 @@ def make_entry(content: str = "hello", tier: MemoryTier = MemoryTier.PERSISTENT,
 def make_stored(entry_id: str = "m1", content: str = "c1", **over) -> StoredEntry:
     kw = dict(
         entry_id=entry_id, content=content,
-        timestamp=datetime.now(),
+        timestamp=datetime.now(timezone.utc),
         tier="persistent", importance=0.5,
         tags=[], metadata={},
         viewer_id=None, session_id=None,
@@ -158,6 +161,20 @@ class TestWrite:
         await svc.write(make_entry())
         await svc.write(make_entry())
         assert svc.get_metrics()["memory_writes_total"] == 2
+
+    async def test_duplicate_is_idempotent_and_collision_is_rejected(self) -> None:
+        svc = SemanticMemoryService(store=FakeStore(), embedder=FakeEmbedder())
+        entry = make_entry("same")
+        await svc.write(entry)
+        await svc.write(entry)
+        assert len(svc._store.inserts) == 1
+        assert svc.get_metrics()["memory_duplicates_total"] == 1
+        collision = MemoryEntry(
+            entry_id=entry.entry_id, content="different", timestamp=entry.timestamp,
+            tier=entry.tier,
+        )
+        with pytest.raises(ValueError, match="collision"):
+            await svc.write(collision)
 
     async def test_write_error_raises(self) -> None:
         svc = SemanticMemoryService(

@@ -1,7 +1,7 @@
 """Test MemoryFallbackManager — Phase 7.E chain semantic → working."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -49,7 +49,7 @@ class FakePrimary(MemoryService):
 
 def make_entry(id_: str, tier: MemoryTier = MemoryTier.PERSISTENT) -> MemoryEntry:
     return MemoryEntry(
-        entry_id=id_, content=f"c-{id_}", timestamp=datetime.now(), tier=tier,
+        entry_id=id_, content=f"c-{id_}", timestamp=datetime.now(timezone.utc), tier=tier,
     )
 
 
@@ -131,11 +131,11 @@ class TestQueryFallback:
     async def test_viewer_id_forwarded_to_both_tiers(self, working) -> None:
         p = FakePrimary(query_returns=[])
         # working có 2 entries khác viewer
-        from datetime import datetime as _dt
+        from datetime import datetime as _dt, timezone as _tz
         from interfaces.memory import MemoryEntry
-        e_a = MemoryEntry(entry_id="a", content="c-a", timestamp=_dt.now(),
+        e_a = MemoryEntry(entry_id="a", content="c-a", timestamp=_dt.now(_tz.utc),
                           tier=MemoryTier.WORKING, metadata={"viewer_id": "v_a"})
-        e_b = MemoryEntry(entry_id="b", content="c-b", timestamp=_dt.now(),
+        e_b = MemoryEntry(entry_id="b", content="c-b", timestamp=_dt.now(_tz.utc),
                           tier=MemoryTier.WORKING, metadata={"viewer_id": "v_b"})
         await working.write(e_a); await working.write(e_b)
         fb = MemoryFallbackManager(primary=p, fallback=working)

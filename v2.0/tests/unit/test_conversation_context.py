@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from services.agent.conversation_context import (
     ConversationContextComposer, ConversationContextConfig,
 )
@@ -98,3 +100,13 @@ def test_repair_instruction_is_rendered_inside_grounded_context() -> None:
     )
     assert "Repair policy [missing_evidence" in context
     assert "not certain" in context
+
+
+def test_context_config_rejects_coercion_and_invalid_selector_budget() -> None:
+    with pytest.raises(ValueError, match="positive integer"):
+        ConversationContextConfig(max_chars="1400")  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="cover"):
+        ConversationContextConfig(max_chars=1400, selector_max_chars=1000)
+    composer = ConversationContextComposer(ConversationContextConfig())
+    with pytest.raises(ValueError, match="boolean"):
+        composer.set_selector_enabled(1)  # type: ignore[arg-type]

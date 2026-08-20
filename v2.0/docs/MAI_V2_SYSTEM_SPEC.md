@@ -39,7 +39,8 @@ giới, mô hình bản thân, năng lực, lựa chọn hành động và khung
 khác nhau, nhưng chưa nối liền thành một đường đi production duy nhất. Controlled takeover, speech/avatar
 adapters, OBS scene action và Perception Phase 10 đều đã compose nhưng production flag vẫn tắt, chưa có live rollout/canary
 evidence cho các capability liên quan. Phase 9/10 không trao external action hoặc raw
-observation cho Director. Phase 11 đã đóng goal/short-intention lifecycle; Phase 12 trở đi chưa đóng gate.
+observation cho Director. Phase 11 đã đóng goal/short-intention lifecycle; Phase 12 đã đóng strict
+Memory/ContextSelector contract nhưng feature production vẫn tắt; Phase 13 trở đi chưa đóng gate.
 
 Vì vậy, cách mô tả chính xác nhất là:
 
@@ -85,7 +86,7 @@ Các cột dưới đây độc lập với nhau. “Có mã” không thay th�
 | External OBS scene executor | Có | Compose tại `StreamRuntime`, chỉ callable qua typed boundary khi feature/permission/health đạt | Unit, transaction integration, deterministic fake-OBS replay và full offline regression | Không; mặc định tắt, chưa live canary |
 | Perception expansion | Có | Chat/System qua canonical ingress; OBS read-only compose nhưng mặc định tắt | Unit, negative-path, runtime composition, deterministic replay và full offline regression | Không; OBS chưa live canary |
 | Goals và short intentions | Có | Có, qua GoalManager/Director/Self/dashboard | Unit, integration, replay và full offline regression | Không |
-| Memory và ContextSelector V2 | Có | Partial | Unit/integration | Không như V2 release |
+| Memory và ContextSelector V2 | Có | Strict bounded read-only composition khi bật; mặc định tắt | Unit, integration, replay và full offline regression | Không; chưa live semantic-memory canary |
 | Embodiment Policy | Có | Partial/shadow | Unit | Không |
 | Human-like calibration và trajectory | Có mã tiền V2 từ implementation cũ | Chưa audit/compose theo gate Phase 14 | Có test thành phần; chưa có human evidence Phase 14 | Không |
 | Product `2.0.0` release gates | Có tooling/evidence release kế thừa | Chưa audit theo gate Phase 15 và chưa đủ evidence độc lập | Có test thành phần; gate Phase 15 chưa chạy | Không |
@@ -458,8 +459,7 @@ V2 được đưa vào theo từng lớp, có cờ bật/tắt và chế độ q
 ### 8.5. Bộ kiểm thử rộng
 
 Bộ kiểm thử bao phủ nhiều subsystem và các bài targeted cho lõi V2 đang xanh. Ngày 20/08/2026, sau
-closure Phase 10 và strict feature/config hardening, full offline regression bằng `v2.0\venv` đạt
-2.188 bài và 0 lỗi sau closure Phase 11.
+closure Phase 12, full offline regression bằng `v2.0\venv` đạt 2.207 bài và 0 lỗi.
 Kết quả này chứng minh đường offline hiện có đang xanh; nó không thay thế live/LLM acceptance hoặc chứng
 minh các capability chưa compose đã production.
 
@@ -601,8 +601,8 @@ Ba nguồn chính thức hiện là `docs/V1_BASELINE.md`, tài liệu này và 
 “có mã”, “đã ghép”, “đã test” và “đã phát hành”. Product version vẫn đúng là `1.4.3`; việc changelog
 chưa có release mới là chủ ý, không phải thiếu đồng bộ.
 
-Sau closure Phase 10, `main` không coi code goals/context/embodiment/calibration/release tooling đã có
-từ implementation generation trước là evidence đóng Phase 12–15. Mỗi phase vẫn phải được audit theo
+Sau closure Phase 12, `main` không coi code embodiment/calibration/release tooling đã có từ
+implementation generation trước là evidence đóng Phase 13–15. Mỗi phase vẫn phải được audit theo
 blueprint, cập nhật tài liệu này trước khi sửa code, chạy gate riêng và được user duyệt; không tạo
 lại tài liệu phase riêng.
 
@@ -814,13 +814,12 @@ Không nên đổi nhãn sản phẩm thành V2 chỉ vì các lớp hoặc tài
 Nếu nguồn lực có hạn, nên làm đúng thứ tự này:
 
 1. giữ Phase 7 mặc định tắt cho tới khi có kế hoạch rollout/canary và rollback evidence;
-2. giữ Phase 11 goal/short-intention contract trong regression khi mở consumer mới;
-3. thực hiện Phase 12: ghép Memory và ContextSelector bounded/grounded;
-4. thực hiện Phase 13: ghép Embodiment Policy với delivery state thật;
-5. thực hiện Phase 14: trajectory replay, observability hardening và human-like calibration;
-6. chỉ sau đó thực hiện Phase 15 release gate, live/canary, security và rollback rehearsal;
-7. giữ Phase 8/9/10 production flags tắt tới khi có audio/VTS/OBS canary tương ứng;
-8. giảm nợ bảo trì mà không đổi thứ tự phase hoặc thêm logic V3.
+2. giữ Phase 11 goal/short-intention và Phase 12 Memory/ContextSelector trong regression;
+3. thực hiện Phase 13: ghép Embodiment Policy với delivery state thật;
+4. thực hiện Phase 14: trajectory replay, observability hardening và human-like calibration;
+5. chỉ sau đó thực hiện Phase 15 release gate, live/canary, security và rollback rehearsal;
+6. giữ Phase 8/9/10/12 production flags tắt tới khi có audio/VTS/OBS/memory canary tương ứng;
+7. giảm nợ bảo trì mà không đổi thứ tự phase hoặc thêm logic V3.
 
 Thứ tự này ưu tiên độ tin cậy trước, quyền quyết định thật sau, rồi mới mở rộng hành động và tối ưu kiến trúc.
 
@@ -1631,6 +1630,90 @@ Targeted Phase 11 đạt 160 test; full offline `pytest tests -q` đạt 2.188 t
 Replay cùng goal/event/outcome tạo cùng lifecycle snapshot. Documentation guard đạt 11 test;
 `compileall` và diff check đều đạt. Product version vẫn `1.4.3` vì đây chưa phải release acceptance.
 
+#### 17.2.12. Closure contract Memory và ContextSelector Phase 12
+
+Phase 12 chuẩn hóa memory chain và bounded context selector đã có; không tạo pipeline context, store,
+planner hoặc tài liệu component thứ hai. `MemoryFallbackManager` tiếp tục là facade duy nhất của semantic
+và working memory trong live runtime. World Model sở hữu current external truth; Memory chỉ sở hữu past
+event/turn đã được chấp nhận; Relationship Manager sở hữu relationship state; ContextSelector chỉ đọc
+snapshot qua interface và không commit hay sửa bất kỳ source state nào.
+
+Gate Phase 12 yêu cầu:
+
+- `MemoryEntry`, tier, metadata và collection qua interface phải strict, immutable sâu, UTC-aware và
+  bounded. ID/content/tag/viewer/session/provenance/outcome ref phải là chuỗi không rỗng đúng vai trò;
+  importance/confidence phải hữu hạn trong range; timestamp naive, bool-as-number, numeric string,
+  mapping/list sai shape, value không serialize được hoặc metadata vượt bound phải bị từ chối thay vì
+  stringify/coerce. Snapshot/query result không được cho caller sửa state owner.
+- Memory write chỉ được đánh dấu action/speech success khi có delivery/action outcome authoritative đã
+  verified. Failed, cancelled, timeout hoặc unknown outcome có thể được giữ như failure evidence nhưng
+  không được đổi thành success, tạo success callback hoặc làm World/Self/Goal advance. Deferred speech
+  chỉ extract/write sau delivery success; duplicate outcome/entry ID phải idempotent. Raw generation,
+  proposal, reservation và executor attempt không phải success memory.
+- Working memory phải bounded theo YAML và eviction deterministic. Semantic query phải có timeout,
+  `top_k`, text/viewer/tier validation và fallback rõ; primary timeout/error/empty không làm chết turn.
+  Fallback chỉ trả đúng viewer scope, không cross-leak; merge/export/forget phải deterministic và privacy
+  deletion tiếp tục strict trên cả hai tier. Query/write/forget shape sai phải fail-safe hoặc fail-fast
+  đúng interface, không âm thầm mở scope viewer.
+- ContextSelector phải chọn bounded context từ World, Self, Memory, Relationship, Goal, current
+  ShortIntention, Capabilities, Thread và operator constraints. Mỗi source chỉ đi qua public immutable
+  snapshot/service contract; thiếu, exception hoặc malformed source bị loại và ghi metric, không dùng
+  private mutable state hay bịa fallback fact. Feature tắt phải giữ nguyên compatibility renderer và
+  không query Memory/World/Self/Capability mới.
+- Current truth luôn lấy từ World Model. Selector phải lập tập **toàn bộ** fresh World path trước khi áp
+  render budget; past memory trùng path đó bị suppress kể cả World item không còn chỗ hiển thị. State
+  hết TTL không được coi là fresh. World và Memory line giữ source/provenance, confidence, evidence/outcome
+  ref và UTC timestamp; unknown/missing fields phải biểu diễn uncertainty hoặc bỏ item, không nâng thành
+  fact chắc chắn.
+- Selection và truncation phải deterministic, query-aware và bounded theo per-source count,
+  per-item chars, total chars và timeout trong YAML. Ưu tiên safety/operator constraints, fresh World,
+  current Goal/Intention/Thread rồi mới past Memory. Không dump raw snapshot, full transcript, embedding,
+  prompt history, chain-of-thought, credential hoặc metadata tùy ý vào prompt; truncation không được cắt
+  mất nhãn source/outcome khiến failure nhìn như success.
+- `ConversationContextConfig`, working/semantic/extractor limits và memory query/write bounds phải đọc
+  strict từ canonical YAML. Missing key, unknown key, bool-as-int, numeric string, NaN/Infinity, invalid
+  timeout/range/capacity hoặc feature dependency sai phải fail-fast khi composition; composition root phải
+  thực sự dùng cùng config đã validate, không dựng service bằng default constructor bỏ qua YAML.
+- Background memory write phải được runtime/runner sở hữu, bounded và cleanup khi stop/cancel; task lỗi
+  phải được observe và ghi metric, không tạo warning task thất lạc hoặc ghi tiếp sau khi owner shutdown.
+  Memory/metric/dashboard failure không được làm hỏng core turn, transaction hay V1 fallback.
+- Metrics tối thiểu phải có accepted/rejected/duplicate/failed write, semantic hit/timeout/error,
+  working fallback/eviction, viewer-scope rejection, selector render/source item/drop/error, World conflict
+  suppression, prompt chars/truncation và pending background write. Label phải bounded, không chứa raw
+  viewer ID, content, query, credential hoặc event ID cardinality cao.
+- Phase 12 không tự bật `memory_semantic`, `context_selector`, `agent_context` hoặc production action
+  flags; không đổi Director ownership, không đưa Memory vào action authority và không xóa compatibility
+  renderer/V1 fallback. Rollback bằng tắt `context_selector` hoặc chạy launcher không `-Memory` phải giữ
+  conversation path hoạt động và không xóa dữ liệu đã persist.
+
+Gate kiểm thử gồm strict/deep-immutable Memory contract + YAML, working bound/eviction, semantic timeout
+và fallback, duplicate/idempotent write, verified-success/failure provenance, viewer isolation/export/
+forget, complete fresh-World precedence, stale/uncertain source, Goal/Intention/Relationship/Capability/
+Thread/operator projection, deterministic selection/truncation, malformed-source and metric isolation,
+FeatureManager enable/disable/rollback, background task cleanup và compatibility renderer negative
+boundary. Integration phải chứng minh failed/unknown action không tạo success memory, fresh World không bị
+past memory override dù vượt render budget, cùng snapshot/query tạo cùng context và shutdown không để
+pending memory write. Impacted Phase 1/2/3/4/5/7/10/11, Director/runtime, privacy, documentation guard và
+full offline regression phải tiếp tục xanh.
+
+**Trạng thái Phase 12:** đạt closure gate kỹ thuật ngày 20/08/2026. `MemoryEntry` hiện strict,
+deep-immutable và UTC-aware; runtime bounds thuộc `system.yaml`, semantic/working/extractor cùng đọc một
+`MemoryRuntimeConfig` và composition root không còn dựng semantic service bằng default bỏ qua YAML.
+Legacy SQLite timestamp naive được chuẩn hóa UTC tại reader boundary mà không rewrite dữ liệu cũ.
+
+Verified delivery mới schedule dialogue memory; action success metadata thiếu verified provenance/outcome
+ref bị từ chối. Background write có capacity, owner task, observed failure metrics và cancellation trước khi
+memory service đóng. ContextSelector đọc World/Self/Memory/Relationship/Goal/current Intention/
+Capabilities/Thread/operator constraints; toàn bộ fresh World path chặn conflicting past memory trước
+render budget, stale World không được nâng thành current truth và line truncation không cắt mất nhãn
+provenance/outcome. Compatibility renderer không query source mới khi feature tắt.
+
+Targeted Phase 12 đạt 267 test; deterministic context/lifecycle replay đạt; full offline
+`pytest tests -q` đạt 2.207 test, 0 lỗi trong 150,27 giây. Documentation guard, `compileall` và diff check
+đạt. `memory_semantic`, `context_selector` và `agent_context` vẫn mặc định tắt; chưa chạy live BGE-M3/
+SQLite latency/callback canary nên closure kỹ thuật không phải production rollout. Product version vẫn
+`1.4.3` vì đây chưa phải release acceptance.
+
 ### 17.3. Chuỗi mã để lần theo một lượt
 
 ```mermaid
@@ -2076,7 +2159,8 @@ Ngày 20/08/2026:
 - feature persistence/strict config targeted: 129 đạt; impacted dashboard/Director/runtime: 173 đạt;
 - comment/document cleanup targeted: 255 đạt; documentation guard hiện tại: 11 đạt;
 - Phase 11 goal/short-intention targeted: 160 đạt; deterministic lifecycle replay: đạt;
-- full offline `pytest tests -q`: 2.188 đạt, 0 lỗi trong 150,83 giây;
+- Phase 12 Memory/ContextSelector targeted: 267 đạt; deterministic bounded-context replay: đạt;
+- full offline `pytest tests -q`: 2.207 đạt, 0 lỗi trong 150,27 giây;
 - còn một cảnh báo deprecation giữa Starlette TestClient và `httpx`;
 - chưa chạy live/LLM acceptance, audio/VTS/OBS canary hoặc canary takeover; `llama-server` không được
   khởi động trong Phase 10.

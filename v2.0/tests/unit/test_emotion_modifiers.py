@@ -1,7 +1,7 @@
 """Test ModifierEngine — Phase 7.5.B (3 modifier nhân hệ số target)."""
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -41,9 +41,9 @@ def past_entry(cat: str, days_ago: int = 1) -> MemoryEntry:
     return MemoryEntry(
         entry_id=f"e-{cat}-{days_ago}",
         content=f"past {cat}",
-        timestamp=datetime.now() - timedelta(days=days_ago),
+        timestamp=datetime.now(timezone.utc) - timedelta(days=days_ago),
         tier=MemoryTier.PERSISTENT,
-        tags=[cat],
+        tags=(cat,),
     )
 
 

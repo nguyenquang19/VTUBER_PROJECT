@@ -1,7 +1,7 @@
 """Test MemoryExtractor — Phase 7.F.1."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pytest
 
@@ -10,7 +10,10 @@ from services.memory.extractor import MemoryExtractor, TurnData
 
 
 def make_turn(user="hello world dài đủ chữ", mai="chào cậu xin chào cậu ơi", **over):
-    kw = dict(user_input=user, mai_output=mai)
+    kw = dict(
+        user_input=user, mai_output=mai, delivery_verified=True,
+        outcome_id="delivery-1",
+    )
     kw.update(over)
     return TurnData(**kw)
 
@@ -103,7 +106,7 @@ class TestContentComposition:
 
     def test_timestamp_from_turn(self) -> None:
         ex = MemoryExtractor()
-        ts = datetime(2026, 1, 1, 12, 0, 0)
+        ts = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
         e = ex.extract(make_turn(timestamp=ts))
         assert e.timestamp == ts
 
@@ -113,3 +116,7 @@ class TestEntryId:
         ex = MemoryExtractor()
         ids = {ex.extract(make_turn()).entry_id for _ in range(20)}
         assert len(ids) == 20  # tất cả unique
+
+    def test_unverified_delivery_is_not_extracted(self) -> None:
+        ex = MemoryExtractor()
+        assert ex.extract(make_turn(delivery_verified=False)) is None

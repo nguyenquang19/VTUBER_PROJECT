@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Callable, Mapping
 
 from interfaces.agent import ContextSelectorService, ConversationContextService
@@ -26,26 +26,37 @@ class ConversationContextConfig:
     world_items: int = 4
     capability_items: int = 3
 
+    def __post_init__(self) -> None:
+        for name in (
+            "max_chars", "evidence_items", "item_max_chars", "selector_max_chars",
+            "memory_items", "world_items", "capability_items",
+        ):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                raise ValueError(f"conversation.{name} must be a positive integer")
+        if self.max_chars < 400 or self.evidence_items != 3:
+            raise ValueError("conversation context needs max_chars>=400 and exactly 3 evidence items")
+        if self.selector_max_chars < self.max_chars:
+            raise ValueError("context selector max_chars must cover compatibility context")
+
     @classmethod
     def from_loader(cls, loader: Any) -> "ConversationContextConfig":
         prefix = "context."
         selector = loader.get("conversation", "context_selector", {}) or {}
         if not isinstance(selector, Mapping):
             raise ValueError("context_selector must be a mapping")
-        value = cls(
-            max_chars=int(loader.get("conversation", prefix + "max_chars", 1400)),
-            evidence_items=int(loader.get("conversation", prefix + "evidence_items", 3)),
-            item_max_chars=int(loader.get("conversation", prefix + "item_max_chars", 220)),
-            selector_max_chars=int(selector.get("max_chars", 1800)),
-            memory_items=int(selector.get("memory_items", 3)),
-            world_items=int(selector.get("world_items", 4)),
-            capability_items=int(selector.get("capability_items", 3)),
+        expected = {"max_chars", "memory_items", "world_items", "capability_items"}
+        if set(selector) != expected:
+            raise ValueError("context_selector keys must match the canonical inventory")
+        return cls(
+            max_chars=loader.get("conversation", prefix + "max_chars", None),
+            evidence_items=loader.get("conversation", prefix + "evidence_items", None),
+            item_max_chars=loader.get("conversation", prefix + "item_max_chars", None),
+            selector_max_chars=selector.get("max_chars"),
+            memory_items=selector.get("memory_items"),
+            world_items=selector.get("world_items"),
+            capability_items=selector.get("capability_items"),
         )
-        if value.max_chars < 400 or value.evidence_items != 3 or value.item_max_chars <= 0:
-            raise ValueError("conversation context needs max_chars>=400 and exactly 3 evidence items")
-        if min(value.selector_max_chars, value.memory_items, value.world_items, value.capability_items) <= 0:
-            raise ValueError("context selector limits must be positive")
-        return value
 
 
 class ConversationContextComposer(ConversationContextService, ContextSelectorService):
@@ -63,7 +74,9 @@ class ConversationContextComposer(ConversationContextService, ContextSelectorSer
         self_snapshot_provider: Callable[[], Any] | None = None,
         capability_snapshot_provider: Callable[[], Any] | None = None,
         memory_provider: Callable[[], Any] | None = None,
+        operator_constraints_provider: Callable[[], Any] | None = None,
         selector_enabled: bool = False,
+        clock: Callable[[], datetime] | None = None,
     ) -> None:
         self.config = config
         self._goal_provider = goal_provider
@@ -74,7 +87,11 @@ class ConversationContextComposer(ConversationContextService, ContextSelectorSer
         self._self_snapshot_provider = self_snapshot_provider
         self._capability_snapshot_provider = capability_snapshot_provider
         self._memory_provider = memory_provider
-        self._selector_enabled = bool(selector_enabled)
+        self._operator_constraints_provider = operator_constraints_provider
+        if not isinstance(selector_enabled, bool):
+            raise ValueError("selector_enabled must be boolean")
+        self._selector_enabled = selector_enabled
+        self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._running = False
         self._renders = 0
         self._last_chars = 0
@@ -83,6 +100,9 @@ class ConversationContextComposer(ConversationContextService, ContextSelectorSer
         self._world_items_total = 0
         self._memory_errors = 0
         self._world_overrides = 0
+        self._source_errors = 0
+        self._items_dropped = 0
+        self._truncations = 0
 
     @classmethod
     def from_loader(cls, loader: Any, **kwargs: Any) -> "ConversationContextComposer":
@@ -93,7 +113,9 @@ class ConversationContextComposer(ConversationContextService, ContextSelectorSer
         return self._selector_enabled
 
     def set_selector_enabled(self, enabled: bool) -> None:
-        self._selector_enabled = bool(enabled)
+        if not isinstance(enabled, bool):
+            raise ValueError("context selector enabled state must be boolean")
+        self._selector_enabled = enabled
 
     async def start(self) -> None:
         self._running = True
@@ -115,6 +137,9 @@ class ConversationContextComposer(ConversationContextService, ContextSelectorSer
             "conversation_context_selector_world_items_total": self._world_items_total,
             "conversation_context_selector_memory_errors_total": self._memory_errors,
             "conversation_context_selector_world_override_total": self._world_overrides,
+            "conversation_context_selector_source_errors_total": self._source_errors,
+            "conversation_context_selector_items_dropped_total": self._items_dropped,
+            "conversation_context_selector_truncations_total": self._truncations,
         }
 
     def render(
@@ -129,14 +154,16 @@ class ConversationContextComposer(ConversationContextService, ContextSelectorSer
         """Read bounded public snapshots and memory without changing any domain state."""
         if not self._selector_enabled:
             return self._render(state, query, viewer_id=viewer_id)
-        world = self._safe_snapshot(self._world_snapshot_provider)
-        self_snapshot = self._safe_snapshot(self._self_snapshot_provider)
-        capabilities = self._safe_snapshot(self._capability_snapshot_provider)
+        operator = self._source_snapshot(self._operator_constraints_provider)
+        world = self._source_snapshot(self._world_snapshot_provider)
+        self_snapshot = self._source_snapshot(self._self_snapshot_provider)
+        capabilities = self._source_snapshot(self._capability_snapshot_provider)
         memory = await self._query_memory(query, viewer_id)
         world_lines, world_paths = self._world_lines(world)
         memory_lines = self._memory_lines(memory, world_paths)
         capability_lines = self._capability_lines(capabilities)
         self_lines = self._self_lines(self_snapshot)
+        operator_lines = self._operator_lines(operator)
         self._selector_renders += 1
         self._world_items_total += len(world_lines)
         self._memory_items_total += len(memory_lines)
@@ -144,7 +171,8 @@ class ConversationContextComposer(ConversationContextService, ContextSelectorSer
             state,
             query,
             viewer_id=viewer_id,
-            selector_lines=(*world_lines, *self_lines, *capability_lines, *memory_lines),
+            selector_lines=(*operator_lines, *world_lines, *self_lines, *capability_lines),
+            memory_lines=memory_lines,
         )
 
     def _render(
@@ -154,6 +182,7 @@ class ConversationContextComposer(ConversationContextService, ContextSelectorSer
         *,
         viewer_id: str | None,
         selector_lines: tuple[str, ...] = (),
+        memory_lines: tuple[str, ...] = (),
     ) -> str:
         goals = self._safe_goals()
         lines = ["[Conversation continuity — grounded facts only; repair instead of guessing]"]
@@ -181,8 +210,12 @@ class ConversationContextComposer(ConversationContextService, ContextSelectorSer
         if state.session_recap and state.session_recap.items:
             recap = " | ".join(f"{item.source_event_id}: {item.summary}" for item in state.session_recap.items[-2:])
             lines.append(f"Bounded recap: {_compact(recap, self.config.item_max_chars * 2)}")
+        lines.extend(memory_lines)
         max_chars = self.config.selector_max_chars if selector_lines else self.config.max_chars
-        context = _fit_lines(lines, max_chars)
+        context, dropped = _fit_lines(lines, max_chars)
+        if dropped:
+            self._truncations += 1
+            self._items_dropped += dropped
         self._renders += 1
         self._last_chars = len(context)
         if self._metrics is not None and hasattr(self._metrics, "observe_context_chars"):
@@ -193,7 +226,7 @@ class ConversationContextComposer(ConversationContextService, ContextSelectorSer
         return context
 
     async def _query_memory(self, query: str, viewer_id: str | None) -> tuple[MemoryEntry, ...]:
-        memory = self._safe_snapshot(self._memory_provider)
+        memory = self._source_snapshot(self._memory_provider)
         if memory is None or not hasattr(memory, "query"):
             return ()
         try:
@@ -203,28 +236,37 @@ class ConversationContextComposer(ConversationContextService, ContextSelectorSer
             self._memory_errors += 1
             return ()
 
-    @staticmethod
-    def _safe_snapshot(provider: Callable[[], Any] | None) -> Any:
+    def _source_snapshot(self, provider: Callable[[], Any] | None) -> Any:
         if provider is None:
             return None
         try:
             return provider()
         except Exception:
+            self._source_errors += 1
             return None
 
     def _world_lines(self, snapshot: Any) -> tuple[tuple[str, ...], frozenset[str]]:
         lines: list[str] = []
         paths: set[str] = set()
+        now = _utc(self._clock())
         for domain in _WORLD_DOMAINS:
             values = getattr(snapshot, domain, {}) if snapshot is not None else {}
             if not isinstance(values, Mapping):
                 continue
             for key in sorted(values):
-                if len(lines) >= self.config.world_items:
-                    return tuple(lines), frozenset(paths)
                 state = values[key]
                 path = f"{domain}.{key}"
+                expires_at = getattr(state, "expires_at", None)
+                if expires_at is not None:
+                    try:
+                        if _utc(expires_at) <= now:
+                            continue
+                    except ValueError:
+                        self._source_errors += 1
+                        continue
                 paths.add(path)
+                if len(lines) >= self.config.world_items:
+                    continue
                 source = _text(getattr(state, "source", None), "unknown")
                 confidence = _text(getattr(state, "confidence", None), "unknown")
                 evidence = ",".join(getattr(state, "evidence_refs", ()) or ()) or "none"
@@ -233,6 +275,21 @@ class ConversationContextComposer(ConversationContextService, ContextSelectorSer
                 lines.append(f"Current world [{path}; source={source}; confidence={confidence}; updated_at={updated}; evidence={evidence}]: {value}")
         return tuple(lines), frozenset(paths)
 
+    def _operator_lines(self, snapshot: Any) -> tuple[str, ...]:
+        if snapshot is None:
+            return ()
+        if not isinstance(snapshot, Mapping):
+            self._source_errors += 1
+            return ()
+        paused = snapshot.get("paused")
+        emergency = snapshot.get("emergency")
+        if not isinstance(paused, bool) or not isinstance(emergency, bool):
+            self._source_errors += 1
+            return ()
+        reason = snapshot.get("reason")
+        clean_reason = _compact(reason, self.config.item_max_chars) if isinstance(reason, str) else "none"
+        return (f"Operator constraints [paused={paused}; emergency={emergency}; reason={clean_reason}]",)
+
     def _self_lines(self, snapshot: Any) -> tuple[str, ...]:
         if snapshot is None:
             return ()
@@ -240,7 +297,9 @@ class ConversationContextComposer(ConversationContextService, ContextSelectorSer
             f"busy={bool(getattr(snapshot, 'busy', False))}",
             f"degraded={bool(getattr(snapshot, 'degraded', False))}",
         ]
-        for key in ("current_topic", "active_goal_id", "focused_thread_id"):
+        for key in (
+            "current_topic", "active_goal_id", "current_intention_id", "focused_thread_id",
+        ):
             value = getattr(snapshot, key, None)
             if value:
                 values.append(f"{key}={_compact(str(value), self.config.item_max_chars)}")
@@ -272,11 +331,14 @@ class ConversationContextComposer(ConversationContextService, ContextSelectorSer
                 self._world_overrides += 1
                 continue
             status = str(metadata.get("action_status") or "unknown").strip().casefold()
-            outcome = "success" if status in {"success", "delivered"} else status
+            if status in {"success", "succeeded", "delivered"} and metadata.get("verified") is not True:
+                self._source_errors += 1
+                continue
+            outcome = "success" if status in {"success", "succeeded", "delivered"} else status
             provenance = _text(metadata.get("provenance"), "memory")
             confidence = _text(metadata.get("confidence"), "unknown")
             lines.append(
-                f"Past memory [{entry.entry_id}; tier={entry.tier.value}; provenance={provenance}; "
+                f"Past memory (past evidence, never current truth) [{entry.entry_id}; tier={entry.tier.value}; provenance={provenance}; "
                 f"confidence={confidence}; outcome={outcome}; timestamp={_timestamp(entry.timestamp)}]: "
                 f"{_compact(entry.content, self.config.item_max_chars)}"
             )
@@ -318,7 +380,12 @@ class ConversationContextComposer(ConversationContextService, ContextSelectorSer
         if goals.active is None:
             return "Active goal: none recorded"
         goal = goals.active
-        return f"Active goal [{goal.goal_id}; kind={goal.kind.value}]: {_compact(goal.reason, self.config.item_max_chars)}"
+        intention = goals.current_intention
+        intention_text = (
+            f"; intention={intention.intention_id}; step={intention.step_index + 1}/{intention.step_count}"
+            if intention is not None and intention.goal_id == goal.goal_id else "; intention=none"
+        )
+        return f"Active goal [{goal.goal_id}; kind={goal.kind.value}{intention_text}]: {_compact(goal.reason, self.config.item_max_chars)}"
 
     def _select_evidence(self, events: tuple[GroundedEvent, ...], query: str) -> tuple[GroundedEvent, ...]:
         query_terms = _terms(query)
@@ -352,14 +419,21 @@ def _timestamp(value: Any) -> str:
     return value.isoformat() if isinstance(value, datetime) else "unknown"
 
 
-def _fit_lines(lines: list[str], max_chars: int) -> str:
+def _fit_lines(lines: list[str], max_chars: int) -> tuple[str, int]:
     result: list[str] = []
     remaining = max_chars
-    for line in lines:
+    dropped = 0
+    for index, line in enumerate(lines):
         separator = 1 if result else 0
-        if remaining <= separator:
+        if remaining <= separator or len(line) > remaining - separator:
+            dropped += len(lines) - index
             break
-        fitted = line[: remaining - separator]
-        result.append(fitted)
-        remaining -= len(fitted) + separator
-    return "\n".join(result)
+        result.append(line)
+        remaining -= len(line) + separator
+    return "\n".join(result), dropped
+
+
+def _utc(value: datetime) -> datetime:
+    if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError("context selector time must be timezone-aware")
+    return value.astimezone(timezone.utc)

@@ -15,10 +15,11 @@ from __future__ import annotations
 import re
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from interfaces.memory import MemoryEntry, MemoryTier
+from services.memory.config import MemoryRuntimeConfig
 
 # Regex bắt "preference statement" từ user — signal PERSISTENT tier.
 # Ví dụ: "tôi thích cà phê", "mai nhớ nhé, tôi tên An", "tớ ghét mưa"
@@ -38,7 +39,7 @@ _PREFERENCE_RE = re.compile("|".join(_PREFERENCE_PATTERNS), re.IGNORECASE)
 _MIN_CONTENT_CHARS = 15
 
 
-@dataclass
+@dataclass(frozen=True)
 class TurnData:
     """Payload từ LLMTurnRunner — extractor không phụ thuộc runner class."""
 
@@ -50,6 +51,27 @@ class TurnData:
     session_id: str | None = None
     trigger_type: str | None = None
     timestamp: datetime | None = None
+    delivery_verified: bool = False
+    outcome_id: str | None = None
+
+    def __post_init__(self) -> None:
+        for name in ("user_input", "mai_output"):
+            if not isinstance(getattr(self, name), str):
+                raise ValueError(f"memory turn {name} must be a string")
+        for name in ("mood_dominant", "viewer_id", "session_id", "trigger_type", "outcome_id"):
+            value = getattr(self, name)
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise ValueError(f"memory turn {name} must be a non-empty string")
+        if self.mood_intensity is not None and (
+            isinstance(self.mood_intensity, bool)
+            or not isinstance(self.mood_intensity, int)
+            or not 0 <= self.mood_intensity <= 10
+        ):
+            raise ValueError("memory turn mood_intensity must be an integer from 0 to 10")
+        if not isinstance(self.delivery_verified, bool):
+            raise ValueError("memory turn delivery_verified must be boolean")
+        if self.timestamp is not None:
+            _utc(self.timestamp)
 
 
 class MemoryExtractor:
@@ -61,11 +83,33 @@ class MemoryExtractor:
         promote_intensity: int = 7,
     ) -> None:
         """`promote_intensity`: mood ≥ 7 → tag high_intensity + importance boost."""
+        if isinstance(min_chars, bool) or not isinstance(min_chars, int) or min_chars <= 0:
+            raise ValueError("memory extractor min_chars must be a positive integer")
+        if (
+            isinstance(promote_intensity, bool)
+            or not isinstance(promote_intensity, int)
+            or not 0 <= promote_intensity <= 10
+        ):
+            raise ValueError("memory extractor promote_intensity must be from 0 to 10")
         self.min_chars = min_chars
         self.promote_intensity = promote_intensity
 
+    @classmethod
+    def from_loader(cls, loader: Any) -> "MemoryExtractor":
+        config = MemoryRuntimeConfig.from_loader(loader)
+        return cls(
+            min_chars=config.extractor_min_chars,
+            promote_intensity=config.extractor_promote_intensity,
+        )
+
     def extract(self, turn: TurnData) -> MemoryEntry | None:
         """Trả 1 MemoryEntry để write, hoặc None nếu turn không đáng lưu."""
+        if not isinstance(turn, TurnData):
+            raise ValueError("memory extractor requires TurnData")
+        if turn.delivery_verified is not True:
+            return None
+        if not isinstance(turn.outcome_id, str) or not turn.outcome_id.strip():
+            return None
         # 1. Skip câu quá ngắn (greeting only)
         if len(turn.user_input.strip()) < self.min_chars and len(turn.mai_output.strip()) < self.min_chars:
             return None
@@ -105,14 +149,17 @@ class MemoryExtractor:
             metadata["mood_dominant"] = turn.mood_dominant
         if turn.mood_intensity is not None:
             metadata["mood_intensity"] = turn.mood_intensity
+        metadata["provenance"] = "verified_delivery"
+        metadata["verified"] = True
+        metadata["outcome_id"] = turn.outcome_id.strip()
 
         return MemoryEntry(
             entry_id=uuid.uuid4().hex,
             content=content,
-            timestamp=turn.timestamp or datetime.now(),
+            timestamp=_utc(turn.timestamp or datetime.now(timezone.utc)),
             tier=tier,
             importance=importance,
-            tags=tags,
+            tags=tuple(tags),
             metadata=metadata,
         )
 
@@ -126,3 +173,9 @@ class MemoryExtractor:
         if not m:
             return f"User: {u}"
         return f"User: {u} | Mai: {m}"
+
+
+def _utc(value: datetime) -> datetime:
+    if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError("memory turn timestamp must be timezone-aware")
+    return value.astimezone(timezone.utc)

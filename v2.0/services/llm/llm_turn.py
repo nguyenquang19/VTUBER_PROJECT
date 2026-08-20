@@ -14,6 +14,7 @@ N8: dùng lại FallbackManager generic, không tự viết vòng retry.
 from __future__ import annotations
 
 import inspect
+import asyncio
 import re
 import time
 import uuid
@@ -124,6 +125,7 @@ class LLMTurnRunner:
         conversation_context_renderer: Any = None,
         data_contract_versions: dict[str, str] | None = None,
         pending_delivery_max: int = 256,
+        pending_memory_writes_max: int = 64,
         chat_max_tokens: int | None = None,
         ambient_max_tokens: int | None = None,
         directed_max_tokens: int | None = None,
@@ -155,6 +157,16 @@ class LLMTurnRunner:
         self._last_rejected_text: str | None = None
         self._memory_writes_scheduled = 0
         self._memory_writes_skipped = 0
+        self._memory_writes_failed = 0
+        self._memory_writes_completed = 0
+        if (
+            isinstance(pending_memory_writes_max, bool)
+            or not isinstance(pending_memory_writes_max, int)
+            or pending_memory_writes_max <= 0
+        ):
+            raise ValueError("pending_memory_writes_max must be a positive integer")
+        self._pending_memory_writes_max = pending_memory_writes_max
+        self._memory_write_tasks: set[asyncio.Task[None]] = set()
         self._pending_delivery_max = max(1, int(pending_delivery_max))
         self._chat_max_tokens = _positive_optional(chat_max_tokens)
         self._ambient_max_tokens = _positive_optional(ambient_max_tokens)
@@ -248,6 +260,9 @@ class LLMTurnRunner:
             pending_delivery_max=int(loader.get(
                 "director", "director.transactions.max_recent", 256,
             )),
+            pending_memory_writes_max=loader.get(
+                "system", "memory.pending_writes_max", None,
+            ),
             chat_max_tokens=loader.get(
                 "models", "llm_generation.chat_max_tokens", None,
             ),
@@ -346,6 +361,7 @@ class LLMTurnRunner:
         if commit_history and not defer_delivery_commit:
             self._schedule_memory_write(
                 hist_text, parsed, viewer_id, effective_session_id, trigger_type,
+                outcome_id=request_id,
             )
 
         # B0 + T1: transcript sink làm giàu (SFT record)
@@ -554,6 +570,7 @@ class LLMTurnRunner:
                 pending.viewer_id,
                 pending.session_id,
                 pending.trigger_type,
+                outcome_id=request_id,
             )
         self._record_speech_event(
             request_id=request_id,
@@ -725,6 +742,8 @@ class LLMTurnRunner:
         viewer_id: str | None,
         session_id: str | None,
         trigger_type: str | None,
+        *,
+        outcome_id: str,
     ) -> None:
         if self._memory is None or self._memory_extractor is None:
             return
@@ -740,22 +759,60 @@ class LLMTurnRunner:
             viewer_id=viewer_id,
             session_id=session_id,
             trigger_type=trigger_type,
+            delivery_verified=True,
+            outcome_id=outcome_id,
         )
         entry = self._memory_extractor.extract(turn)
         if entry is None:
             self._memory_writes_skipped += 1
             return
-        # asyncio.create_task = fire-and-forget; nếu write lỗi, N7 fail-safe (memory
-        # service log warning, không giết turn). Không await ở đây.
+        if len(self._memory_write_tasks) >= self._pending_memory_writes_max:
+            self._memory_writes_skipped += 1
+            return
         try:
-            import asyncio
-            asyncio.get_running_loop().create_task(
+            task = asyncio.get_running_loop().create_task(
                 self._memory.write(entry), name=f"memory_write_{entry.entry_id[:8]}"
             )
+            self._memory_write_tasks.add(task)
+            task.add_done_callback(self._memory_write_done)
             self._memory_writes_scheduled += 1
         except RuntimeError:
             # không có event loop (test sync) → skip
             self._memory_writes_skipped += 1
+
+    def _memory_write_done(self, task: asyncio.Task[None]) -> None:
+        self._memory_write_tasks.discard(task)
+        if task.cancelled():
+            self._memory_writes_skipped += 1
+            return
+        try:
+            task.result()
+        except Exception as exc:
+            self._memory_writes_failed += 1
+            get_logger("llm_turn").warning(
+                "memory_background_write_failed", error=type(exc).__name__,
+            )
+        else:
+            self._memory_writes_completed += 1
+
+    async def close_memory_writes(self) -> None:
+        """Cancel and observe every write owned by this runner before memory closes."""
+        tasks = tuple(self._memory_write_tasks)
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        self._memory_write_tasks.clear()
+
+    def memory_write_metrics(self) -> dict[str, int]:
+        return {
+            "memory_background_writes_scheduled": self._memory_writes_scheduled,
+            "memory_background_writes_completed": self._memory_writes_completed,
+            "memory_background_writes_failed": self._memory_writes_failed,
+            "memory_background_writes_skipped": self._memory_writes_skipped,
+            "memory_background_writes_pending": len(self._memory_write_tasks),
+        }
 
     def _log_turn(
         self,

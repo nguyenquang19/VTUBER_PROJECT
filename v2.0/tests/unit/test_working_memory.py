@@ -1,7 +1,7 @@
 """Test WorkingMemoryService — Phase 7.E (deque 20, in-memory, no DB)."""
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -16,7 +16,7 @@ def make_entry(idx: int, tier: MemoryTier = MemoryTier.WORKING) -> MemoryEntry:
     return MemoryEntry(
         entry_id=f"m{idx}",
         content=f"content {idx}",
-        timestamp=datetime.now() + timedelta(seconds=idx),
+        timestamp=datetime.now(timezone.utc) + timedelta(seconds=idx),
         tier=tier,
     )
 
@@ -53,6 +53,20 @@ class TestWrite:
         assert [e.entry_id for e in snap] == ["m2", "m3", "m4"]
         assert svc.get_metrics()["working_evictions_total"] == 2
 
+    async def test_duplicate_is_idempotent_and_collision_is_rejected(self) -> None:
+        svc = WorkingMemoryService(maxlen=3)
+        entry = make_entry(1)
+        await svc.write(entry)
+        await svc.write(entry)
+        assert len(svc.snapshot()) == 1
+        assert svc.get_metrics()["working_duplicates_total"] == 1
+        collision = MemoryEntry(
+            entry_id=entry.entry_id, content="different",
+            timestamp=entry.timestamp,
+        )
+        with pytest.raises(ValueError, match="collision"):
+            await svc.write(collision)
+
 
 class TestQuery:
     async def test_returns_most_recent_first(self) -> None:
@@ -84,9 +98,9 @@ class TestQuery:
     async def test_filter_by_viewer_id(self) -> None:
         svc = WorkingMemoryService(maxlen=10)
         e0 = make_entry(0)
-        e1 = make_entry(1); e1.metadata["viewer_id"] = "v_a"
-        e2 = make_entry(2); e2.metadata["viewer_id"] = "v_b"
-        e3 = make_entry(3); e3.metadata["viewer_id"] = "v_a"
+        e1 = MemoryEntry(entry_id="m1", content="content 1", timestamp=datetime.now(timezone.utc), metadata={"viewer_id": "v_a"})
+        e2 = MemoryEntry(entry_id="m2", content="content 2", timestamp=datetime.now(timezone.utc), metadata={"viewer_id": "v_b"})
+        e3 = MemoryEntry(entry_id="m3", content="content 3", timestamp=datetime.now(timezone.utc), metadata={"viewer_id": "v_a"})
         for e in (e0, e1, e2, e3):
             await svc.write(e)
         results = await svc.query("q", top_k=5, viewer_id="v_a")

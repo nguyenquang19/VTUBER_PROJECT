@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -95,7 +95,7 @@ def make_entry(content: str, tier: MemoryTier = MemoryTier.PERSISTENT,
     return MemoryEntry(
         entry_id=new_entry_id(),
         content=content,
-        timestamp=datetime.now(),
+        timestamp=datetime.now(timezone.utc),
         tier=tier,
         importance=importance,
         metadata=meta,

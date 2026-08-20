@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import time
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from interfaces.memory import MemoryTier
@@ -178,7 +178,7 @@ class ModifierEngine:
                     "operator_sudden_shutdown", top_k=10,
                     tier=MemoryTier.PERSISTENT,
                 )
-                cutoff = datetime.now() - self._shutdown_window
+                cutoff = datetime.now(timezone.utc) - self._shutdown_window
                 recent = [e for e in past if e.timestamp >= cutoff and
                           "operator_sudden_shutdown" in e.tags]
                 if len(recent) >= self._shutdown_threshold:

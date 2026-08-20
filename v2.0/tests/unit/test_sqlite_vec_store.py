@@ -75,14 +75,14 @@ class TestInsertAndFetch:
     def test_fetch_nonexistent_returns_none(self, store: SqliteVecStore) -> None:
         assert store.fetch_by_id("nope") is None
 
-    def test_insert_replaces_on_conflict(self, store: SqliteVecStore) -> None:
+    def test_insert_is_idempotent_on_conflict(self, store: SqliteVecStore) -> None:
         store.insert("m1", "v1", fake_vec(0.1))
         store.insert("m1", "v2 updated", fake_vec(0.2), importance=0.9)
         e = store.fetch_by_id("m1")
         assert e is not None
-        assert e.content == "v2 updated"
-        assert e.importance == 0.9
-        # vector cũng phải bị thay (nếu không sẽ có duplicate row trong vec0)
+        assert e.content == "v1"
+        assert e.importance == 0.5
+        # idempotency key giữ bản ghi đầu tiên và không tạo duplicate vector.
         results = store.query_knn(fake_vec(0.2), top_k=5)
         ids = [r.entry_id for r in results]
         assert ids.count("m1") == 1

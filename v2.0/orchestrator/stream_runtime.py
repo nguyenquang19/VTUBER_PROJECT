@@ -421,6 +421,8 @@ class StreamRuntime:
 
     async def _stop_supporting_services(self) -> None:
         # Memory
+        with contextlib.suppress(Exception):
+            await self._runner.close_memory_writes()
         if self._memory is not None:
             with contextlib.suppress(Exception):
                 await self._memory.stop()
@@ -782,6 +784,14 @@ class StreamRuntime:
             m.update(self._autonomy.get_metrics())
         if self._filler is not None:
             m.update(self._filler.get_metrics())
+        with contextlib.suppress(Exception):
+            m.update(self._runner.memory_write_metrics())
+        if self._memory is not None:
+            with contextlib.suppress(Exception):
+                m.update(self._memory.get_metrics())
+        if self._conversation_context is not None:
+            with contextlib.suppress(Exception):
+                m.update(self._conversation_context.get_metrics())
         if self._director_loop is not None:
             with contextlib.suppress(Exception):
                 m.update(self._director_loop.get_metrics())
@@ -1172,6 +1182,21 @@ async def _compose_stream_runtime(
     from services.agent.conversation_context import ConversationContextComposer
     from services.agent.repair_policy import ConversationRepairPolicy
     repair_policy = ConversationRepairPolicy.from_loader(loader, metrics=metrics)
+
+    def _operator_context_snapshot() -> dict[str, Any]:
+        control = control_plane.snapshot()
+        emergency = emergency_controller.snapshot()
+        paused = control.get("paused")
+        latched = emergency.get("latched")
+        if not isinstance(paused, bool) or not isinstance(latched, bool):
+            raise ValueError("operator constraint snapshot is malformed")
+        reason = emergency.get("reason") if latched else control.get("pause_reason")
+        return {
+            "paused": paused,
+            "emergency": latched,
+            "reason": reason if isinstance(reason, str) else "",
+        }
+
     conversation_context = ConversationContextComposer.from_loader(
         loader, goal_provider=goal_manager.snapshot, metrics=metrics,
         repair_policy=repair_policy, relationship_context=relationship_manager,
@@ -1179,6 +1204,7 @@ async def _compose_stream_runtime(
         self_snapshot_provider=lambda: self_model.snapshot(),
         capability_snapshot_provider=lambda: capability_registry.snapshot(),
         memory_provider=lambda: memory,
+        operator_constraints_provider=_operator_context_snapshot,
         selector_enabled=context_selector_enabled,
     )
     try:
@@ -1228,6 +1254,7 @@ async def _compose_stream_runtime(
         from services.memory.embedder import BgeM3Embedder
         from services.memory.extractor import MemoryExtractor
         from services.memory.memory_fallback import MemoryFallbackManager
+        from services.memory.config import MemoryRuntimeConfig
         from services.memory.semantic_memory import SemanticMemoryService
         from services.memory.sqlite_vec_store import SqliteVecStore
         from services.memory.working_memory import WorkingMemoryService
@@ -1236,11 +1263,15 @@ async def _compose_stream_runtime(
         MigrationRunner.from_config(loader).initialize()
         store = SqliteVecStore(db_path=db_path)
         embedder = BgeM3Embedder.from_loader(loader)
-        semantic = SemanticMemoryService(store=store, embedder=embedder)
+        memory_config = MemoryRuntimeConfig.from_loader(loader)
+        semantic = SemanticMemoryService.from_loader(loader, store=store, embedder=embedder)
         working = WorkingMemoryService.from_loader(loader)
-        memory = MemoryFallbackManager(primary=semantic, fallback=working)
+        memory = MemoryFallbackManager(
+            primary=semantic, fallback=working,
+            max_query_top_k=memory_config.max_query_top_k,
+        )
         await _start_owned_resource(rollback, "memory", memory)
-        memory_extractor = MemoryExtractor()
+        memory_extractor = MemoryExtractor.from_loader(loader)
         emotion.set_memory_service(memory)
     relationship_manager.set_memory_service(memory)
 

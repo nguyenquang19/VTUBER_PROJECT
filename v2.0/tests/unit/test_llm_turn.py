@@ -12,6 +12,7 @@ from services.llm.canned_response import CannedResponder
 from services.llm.llm_turn import LLMTurnRunner
 from services.llm.prompt_cache import PromptCache
 from services.llm.prompt_manager import PromptManager
+from services.memory.extractor import MemoryExtractor
 
 VALID = ["Chào cậu.", "\n\n[vui:5 buon:0 buc:0 bon_chon:0 nguong:0]", "\nlý do: x\ncòn nữa: không"]
 
@@ -154,6 +155,59 @@ class TestPrimarySuccess:
         await runner.run_turn("failed", "chào", defer_delivery_commit=True)
         assert runner.finalize_delivery("failed", False) is True
         assert pm.history() == []
+
+    async def test_memory_is_written_only_after_verified_delivery(self) -> None:
+        class Memory:
+            def __init__(self) -> None:
+                self.entries = []
+
+            async def write(self, entry) -> None:
+                self.entries.append(entry)
+
+        memory = Memory()
+        runner, _pm, *_ = make_runner(FakeLLM(VALID))
+        runner._memory = memory
+        runner._memory_extractor = MemoryExtractor()
+        await runner.run_turn("verified", "câu đủ dài để ghi nhớ", defer_delivery_commit=True)
+        assert memory.entries == []
+        assert runner.finalize_delivery("verified", True) is True
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        assert len(memory.entries) == 1
+        assert memory.entries[0].metadata["verified"] is True
+        assert memory.entries[0].metadata["outcome_id"] == "verified"
+        assert runner.memory_write_metrics()["memory_background_writes_pending"] == 0
+
+    async def test_failed_delivery_never_schedules_success_memory(self) -> None:
+        class Memory:
+            async def write(self, entry) -> None:
+                raise AssertionError("failed delivery must not write memory")
+
+        runner, _pm, *_ = make_runner(FakeLLM(VALID))
+        runner._memory = Memory()
+        runner._memory_extractor = MemoryExtractor()
+        await runner.run_turn("failed-memory", "câu đủ dài để ghi nhớ", defer_delivery_commit=True)
+        assert runner.finalize_delivery("failed-memory", False) is True
+        await asyncio.sleep(0)
+        assert runner.memory_write_metrics()["memory_background_writes_scheduled"] == 0
+
+    async def test_memory_write_tasks_are_bounded_and_cancelled_on_close(self) -> None:
+        blocker = asyncio.Event()
+
+        class SlowMemory:
+            async def write(self, entry) -> None:
+                await blocker.wait()
+
+        runner, _pm, *_ = make_runner(FakeLLM(VALID))
+        runner._memory = SlowMemory()
+        runner._memory_extractor = MemoryExtractor()
+        runner._pending_memory_writes_max = 1
+        await runner.run_turn("slow", "câu đủ dài để ghi nhớ", defer_delivery_commit=True)
+        assert runner.finalize_delivery("slow", True) is True
+        await asyncio.sleep(0)
+        assert runner.memory_write_metrics()["memory_background_writes_pending"] == 1
+        await runner.close_memory_writes()
+        assert runner.memory_write_metrics()["memory_background_writes_pending"] == 0
 
 
 class TestFallbackToCanned:
