@@ -63,6 +63,14 @@ class TestRecorders:
         assert 'mai_human_like_reviews_total{outcome="finalized"} 1.0' in text
         assert 'mai_trajectory_records_total{outcome="replay_match"} 1.0' in text
 
+    def test_phase15_closed_loop_canary_outcomes_are_observable(self) -> None:
+        m = fresh()
+        m.record_closed_loop_canary("passed")
+        assert m.closed_loop_canary_snapshot() == {"passed": 1}
+        assert 'mai_closed_loop_canary_total{outcome="passed"} 1.0' in (
+            m.prometheus_text().decode()
+        )
+
 
 class TestGpuMetrics:
     def test_nvidia_csv_updates_real_snapshot(self) -> None:

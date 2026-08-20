@@ -16,6 +16,46 @@ live_preflight:
   max_age_s: 300.0
   max_future_skew_s: 30.0
 
+release_readiness:
+  schema_version: 2
+  target_version: "2.0.0"
+  artifact_max_age_s: 86400.0
+  max_future_skew_s: 30.0
+  max_artifacts: 16
+  max_label_chars: 160
+  required_test_groups: [targeted, offline, llm, slow, smoke]
+  required_preflight_checks:
+    - windows
+    - python
+    - credential_contract
+    - llama_binary
+    - llm_model
+    - tts_reference
+    - transactions
+    - decision_records
+    - subtitle_fallback
+    - subtitle_path
+    - platform
+    - llama_health
+  correctness_zero_counters:
+    - unauthorized_executed_actions
+    - unavailable_capability_executed
+    - duplicate_committed_actions
+    - false_committed_world_states
+    - transaction_inconsistencies
+  human_quality:
+    min_pairs: 20
+    minimum_previous_build_delta: 0.0001
+    max_ai_smell_rate_increase: 0.0
+    minimum_character_delta: 0.0
+
+closed_loop_canary:
+  schema_version: 1
+  allowed_actions: [SWITCH_SCENE]
+  execution_timeout_s: 15.0
+  max_recent: 16
+  max_label_chars: 160
+
 shutdown:
   timeout_s: 15.0
   snapshot_file: "logs/operations/last_runtime_snapshot.json"

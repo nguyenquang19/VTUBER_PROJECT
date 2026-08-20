@@ -146,6 +146,7 @@ class DashboardServer:
         decision_records: Any = None,      # M10.3: versioned Director decision view
         trajectory_records: Any = None,    # Phase 14: sanitized structured trajectories
         human_like_calibration: Any = None,  # Phase 14: counters only, no sealed manifest
+        closed_loop_canary: Any = None,  # Phase 15: read-only sanitized evidence
         self_talk_planner: Any = None,     # cause-first thought state, read-only
         control_plane: Any = None,          # M9: pause/resume/action queue/audit
         snapshot_provider: Any = None,      # M9: standalone read-only provider
@@ -187,6 +188,7 @@ class DashboardServer:
         self.decision_records = decision_records
         self.trajectory_records = trajectory_records
         self.human_like_calibration = human_like_calibration
+        self.closed_loop_canary = closed_loop_canary
         self.self_talk_planner = self_talk_planner
         self.control_plane = control_plane
         self.snapshot_provider = snapshot_provider
@@ -409,6 +411,9 @@ class DashboardServer:
         if self.human_like_calibration is not None:
             with contextlib.suppress(Exception):
                 snap["human_like_calibration"] = self.human_like_calibration.snapshot()
+        if self.closed_loop_canary is not None:
+            with contextlib.suppress(Exception):
+                snap["closed_loop_canary"] = self.closed_loop_canary.snapshot()
         if self.health_supervisor is not None:
             with contextlib.suppress(Exception):
                 snap["health_supervisor"] = self.health_supervisor.snapshot()

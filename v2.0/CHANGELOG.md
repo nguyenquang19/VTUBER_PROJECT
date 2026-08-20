@@ -36,7 +36,10 @@ Mọi thay đổi product sau baseline dùng Semantic Versioning. Product versio
   perception ingress.
 - Giữ controlled takeover, speech/avatar action adapters, OBS scene action và OBS perception mặc định
   tắt cho tới khi có rollout plan, live canary và rollback evidence tương ứng.
-- Phase 11–15 chưa đóng gate; code thành phần có sẵn không được coi là release evidence.
+- Phase 11–14 đã đóng gate kỹ thuật; Phase 15 và external live/human/rollback evidence chưa đóng.
+- Phase 15 strict tooling đã triển khai: fixed source-bound verification, release artifact hash/freshness
+  guard, operator-only closed-loop canary, MAI-HLC release projection và hashed operations rehearsal.
+  Release gate vẫn mở cho tới khi có real-LLM/human/live/security/rollback evidence trên clean revision.
 
 Những thay đổi trên chưa phải release product. Version tiếp tục là `1.4.3`; chỉ tăng version khi
 change được duyệt như một release.
@@ -57,7 +60,8 @@ change được duyệt như một release.
 - Credential/environment targeted: 116 đạt; impacted composition, external action, perception,
   animation và release preflight: 100 đạt.
 - Comment/document cleanup targeted: 255 đạt; documentation guard hiện tại: 11 đạt.
-- Full offline `pytest tests -q`: 2.148 đạt, 0 lỗi; còn một cảnh báo deprecation giữa
+- Phase 15 documentation/release/canary targeted: 65 đạt; canary/lifecycle impacted và fake-OBS: 14 đạt.
+- Full offline `pytest tests -q`: 2.288 đạt, 0 lỗi; còn một cảnh báo deprecation giữa
   Starlette TestClient và `httpx`.
 - Chưa có live/LLM acceptance, audio/VTS/OBS canary hoặc canary takeover cho release `2.0.0`.
 

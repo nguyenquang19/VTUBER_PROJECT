@@ -91,7 +91,7 @@ Các cột dưới đây độc lập với nhau. “Có mã” không thay th�
 | Memory và ContextSelector V2 | Có | Strict bounded read-only composition khi bật; mặc định tắt | Unit, integration, replay và full offline regression | Không; chưa live semantic-memory canary |
 | Embodiment Policy | Có | LOW/MID/HIGH strict arbitration đã compose; mặc định tắt | Unit, integration, deterministic replay và full offline regression | Không; chưa live VTS canary |
 | Human-like calibration và trajectory | Có | Trajectory đã compose read-only theo Director V2; MAI-HLC là workflow offline tách sealed manifest | Unit, integration, deterministic replay, tamper/negative paths và full offline regression; chưa có human review evidence thật | Không; hai feature mặc định tắt |
-| Product `2.0.0` release gates | Có tooling/evidence release kế thừa | Chưa audit theo gate Phase 15 và chưa đủ evidence độc lập | Có test thành phần; gate Phase 15 chưa chạy | Không |
+| Product `2.0.0` release gates | Có strict tooling source-bound, fixed runner và canary/operations aggregator | Contract kỹ thuật đã triển khai; chưa có closed-loop/live/human/operations bundle hiện hành | Full regression xanh; external Gate D/E và release-commit verification chưa hoàn tất | Không |
 
 Ma trận chỉ được nâng trạng thái khi có đường code tương ứng, test phù hợp và evidence máy đọc hoặc vận
 hành. Blueprint tiếp tục giữ scope/phase order; bảng này chỉ mô tả working tree ngày 20/08/2026.
@@ -412,14 +412,14 @@ Hiện hệ thống chưa có bộ thực thi thật cho ví dụ này. Vì vậ
 | Bộ điều phối V2 quan sát | Đã có | So sánh được với luồng cũ |
 | Tiếp quản có kiểm soát | Đã đóng gate kỹ thuật, chưa rollout production | V2 sở hữu decision khi strict agreement pass; cờ mặc định tắt và fallback V1 còn nguyên |
 | Chuyển đổi giọng nói và nhân vật | Đã đóng gate kỹ thuật, chưa rollout production | Speech dùng verified local action boundary khi bật; intentional avatar route đã compose; hai cờ vẫn tắt |
-| Khung thực thi bên ngoài | Có khung | Danh sách bộ thực thi thật còn trống |
+| Khung thực thi bên ngoài | Có OBS scene executor thật | Các external action khác chưa có executor production |
 | Nhận thức mở rộng | Có nền | Cần gắn với nguồn tín hiệu thật |
 | Mục tiêu và ý định ngắn | Có một phần | Liên kết vào trạng thái bản thân còn thiếu |
 | Chọn ký ức theo ngữ cảnh | Đã có nền | Cần đo chất lượng khi chạy thật |
 | Chính sách hiện thân | Đã có nền | Cần nối với thiết bị và trạng thái thật |
 | Ghi hành trình quyết định | Đã đóng gate kỹ thuật | Đã compose bounded/read-only theo Director V2; feature mặc định tắt |
-| Cổng đánh giá V2 | MAI-HLC strict đã có; release gate còn thiếu | Blind artifact/commitment đã fail closed; chưa có human review thật và Phase 15 evidence verification |
-| Vòng tự chủ khép kín | Chưa có | Chưa nối quan sát, quyết định, hành động thật và phản hồi thành một vòng |
+| Cổng đánh giá V2 | MAI-HLC và strict release tooling đã có | Blind artifact/commitment, source/hash/freshness gate đã fail closed; chưa có human review thật và Phase 15 external evidence bundle |
+| Vòng tự chủ khép kín | Có operator-only canary kỹ thuật | Fake-OBS integration đã đạt; chưa có live canary và không có autonomous production trigger |
 
 Đường V2 đang chạy thực tế có thể tóm tắt như sau:
 
@@ -1846,6 +1846,64 @@ triển khai; targeted/impacted đạt 471 test, deterministic Director replay �
 `pytest tests -q` đạt 2.267 test, 0 lỗi. Hai feature vẫn mặc định tắt; chưa chạy human review thật hoặc
 live/canary, không có automatic release decision và product version vẫn `1.4.3`.
 
+#### 17.2.15. Strict release evidence và closed-loop canary contract Phase 15
+
+Phase 15 không được nâng release readiness từ file tồn tại, số test tự khai hoặc preflight cấu hình. Release
+bundle phải phân biệt `configuration_ready`, `canary_passed`, `eligible_for_version_bump` và
+`release_ready`; chỉ trạng thái cuối sau version-bump verification mới là release acceptance. Target version
+là `2.0.0`, còn `config/system.yaml::app.version` tiếp tục là `1.4.3` cho tới khi Gate A–E đạt.
+
+Mọi artifact Phase 15 phải là JSON object strict, không duplicate/unknown key, có marker/schema, UTC
+timestamp còn fresh, `sanitized=true`, current/target product version và full Git source revision. Release
+builder tự tính SHA-256 từng file; digest, source revision hoặc version mismatch phải fail closed. Verification
+artifact chỉ hợp lệ khi do allowlisted runner thực sự chạy exact test groups; command text và positive count
+do người dùng tự điền không phải evidence. Worktree bẩn, source revision không phải HEAD hoặc artifact cũ
+không được tuyên bố release-ready.
+
+Artifact source-bound mặc định ghi atomic vào `logs/operations/` đã Git-ignore và được đính kèm vào CI/release
+record; không commit ngược artifact vào source tree vì thao tác đó làm đổi revision mà artifact đang chứng minh.
+`docs/baselines/` chỉ giữ evidence lịch sử không tự nhận là current-revision release acceptance.
+
+Gate A bắt buộc năm correctness counters bằng `0`: unauthorized executed action, unavailable capability
+executed, duplicate committed action, false committed world state và transaction inconsistency. Bounded
+state/queue phải có test group riêng đạt. Gate C yêu cầu targeted, offline, real `llama.cpp`, slow/bounded và
+smoke groups đều chạy trên cùng revision, không lỗi; kết quả cũ cùng product version nhưng khác revision
+không được tái dùng.
+
+Closed-loop canary là operator-triggered feature mặc định tắt. Nó chỉ nhận typed `ActionRequest` thuộc
+allowlist, yêu cầu Director V2 proposal cùng action/capability, chạy existing verified external transaction,
+đòi authoritative verified result, World snapshot thay đổi, capability được re-evaluate và next Director V2
+proposal được quan sát. Canary không thêm autonomous trigger, không bypass permission/health/emergency,
+không retry side effect ngoài transaction contract và không biến rollback thành success. Artifact chỉ giữ
+ID, reason code, status và snapshot references; release bundle tự tính digest file. Không giữ scene
+credential, raw prompt/chat, action argument value hoặc chain-of-thought.
+
+Gate D chỉ nhận finalized MAI-HLC artifact đã persist/reveal hợp lệ, candidate aggregate tốt hơn previous,
+AI Smell không tăng, Character không giảm và core correctness không collapse. Human score không được tự
+sinh hoặc thay bằng metric tự động. Gate E cần current-revision evidence cho required preflight checks,
+backup/restore verification, deny-by-default permission, secrets/PII scan, emergency stop, graceful shutdown,
+live canary và rollback rehearsal. Platform preflight chỉ chứng minh cấu hình; nó không thay live canary.
+
+Release evidence output phải nêu riêng Gate A–E và mọi reason fail; thiếu artifact luôn là `not_ready`.
+Gate F chỉ được thực hiện sau khi A–E đạt: owner duyệt version bump, cập nhật Changelog/Applies-to, chạy lại
+verification trên release commit rồi mới archive/tag. Director/dashboard/V1 fallback không bị xóa trong
+implementation change này và không được retire chỉ vì canary pass.
+
+Gate kiểm thử gồm strict config/interface/schema, duplicate/tamper/stale/source/version/dirty-tree negative
+paths, fixed runner execution/parse failure, preflight required-check completeness, canary disabled/
+permission/proposal/action/result/world/next-decision failure isolation, metric/dashboard read-only,
+deterministic fake-OBS replay, V1 regression và full offline suite. Live YouTube/Discord, audio/VTS/OBS,
+human review, backup/restore và rollback rehearsal vẫn là external evidence bắt buộc sau commit.
+
+**Trạng thái Phase 15:** contract và implementation kỹ thuật đạt ngày 20/08/2026: strict config/interface,
+fixed verification runner, source/hash/freshness-bound release builder, operator-only closed-loop canary,
+MAI-HLC release projection, hashed operations rehearsal aggregator, lifecycle/metric/dashboard read-only và
+fake-OBS integration đã triển khai. Targeted documentation/release/canary đạt 65 test; canary/lifecycle
+impacted đạt 14 test; full offline `pytest tests -q` đạt 2.288 test, 0 lỗi. Phase 15 chưa đóng release gate:
+chưa có real-LLM, human review, live platform/audio/VTS/OBS/memory, backup/restore, security/PII và rollback
+artifacts trên clean release revision. Feature vẫn mặc định tắt, product version vẫn `1.4.3`, không có
+release evidence `2.0.0` hợp lệ và chưa được retire fallback.
+
 ### 17.3. Chuỗi mã để lần theo một lượt
 
 ```mermaid
@@ -1967,7 +2025,7 @@ Một chức năng chỉ thực sự hoạt động khi đã được khai báo,
   `memory_semantic`, `memory_hierarchical`, `qc_persona`, `agent_context`, `context_selector`,
   `goal_proposals`, `thread_extraction`, `speculative_decoding`, `turn_taking_predictor`,
   `director_v2_takeover`, `obs_scene_executor`, `obs_perception_adapter`, `trajectory_records`,
-  `human_like_calibration`.
+  `human_like_calibration`, `closed_loop_canary`.
 
 Trong đó `speech_action_adapter` và `avatar_action_adapter` đã được ghép vào local typed action boundary
 và composition root nhưng vẫn mặc định tắt, chưa có live audio/VTS canary. `director_v2_takeover` đã có
@@ -2232,7 +2290,8 @@ Nội dung nền tảng, đầu ra mô hình, yêu cầu bảng điều khiển,
   định `vts_token.txt` phải bị Git ignore, đọc strict không trim, ghi atomic và mọi lỗi
   VTS chỉ được ném/log bằng reason đã sanitize.
 - Nếu khóa từng xuất hiện trong tệp lưu trữ, phải thu hồi và tạo khóa mới trước khi chỉ xóa tệp.
-- Bản lưu `ver/v1.0` hiện có dấu hiệu chứa `.env`; cần xử lý như nguy cơ thật.
+- Snapshot `ver/v1.0` đã được làm sạch `.env`; Discord credential cũ đã được owner xác nhận reset ngày
+  19/08/2026. Mọi lần archive/restore sau vẫn phải quét lại vì bản sao vận hành cũ không phải source of truth.
 
 ### 23.3. Danh tính người xem
 
@@ -2295,10 +2354,11 @@ Ngày 20/08/2026:
 - Phase 12 Memory/ContextSelector targeted: 267 đạt; deterministic bounded-context replay: đạt;
 - Phase 13 Embodiment Policy targeted: 381 đạt; deterministic arbitration replay: đạt;
 - Phase 14 calibration/trajectory targeted và impacted: 471 đạt; deterministic Director replay: đạt;
-- full offline `pytest tests -q`: 2.267 đạt, 0 lỗi;
+- Phase 15 documentation/release/canary targeted: 65 đạt; canary/lifecycle impacted và fake-OBS: 14 đạt;
+- full offline `pytest tests -q`: 2.288 đạt, 0 lỗi;
 - còn một cảnh báo deprecation giữa Starlette TestClient và `httpx`;
-- chưa chạy live/LLM acceptance, audio/VTS/OBS canary hoặc canary takeover; `llama-server` không được
-  khởi động trong Phase 10.
+- chưa chạy real-LLM acceptance, human review, live platform/audio/VTS/OBS/memory canary,
+  backup/restore, security/PII hoặc rollback rehearsal; `llama-server` không được khởi động trong Phase 15.
 
 Kết quả cũ dùng Python 3.12 thay thế chỉ còn giá trị chẩn đoán lịch sử, không phải release evidence hiện tại.
 

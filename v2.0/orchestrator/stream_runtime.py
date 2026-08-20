@@ -25,6 +25,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from interfaces.action_execution import ActionRequest, ActionResult
@@ -178,6 +179,7 @@ class StreamRuntime:
         director_v2_takeover: Any = None,
         trajectory_records: Any = None,
         human_like_calibration: Any = None,
+        closed_loop_canary: Any = None,
         goal_manager: Any = None,
         goal_proposal: Any = None,
         thread_extractor: Any = None,
@@ -228,6 +230,7 @@ class StreamRuntime:
         self._director_v2_takeover = director_v2_takeover
         self._trajectory_records = trajectory_records
         self._human_like_calibration = human_like_calibration
+        self._closed_loop_canary = closed_loop_canary
         self._goal_manager = goal_manager
         self._goal_proposal = goal_proposal
         self._thread_extractor = thread_extractor
@@ -289,6 +292,8 @@ class StreamRuntime:
                 await self._trajectory_records.start()
             if self._director_v2_shadow is not None:
                 await self._director_v2_shadow.start()
+            if self._closed_loop_canary is not None:
+                await self._closed_loop_canary.start()
             if self._director_v2_takeover is not None:
                 await self._director_v2_takeover.start()
             if self._agent_state is not None:
@@ -475,6 +480,9 @@ class StreamRuntime:
                 await self._llama_process_manager.stop()
 
     async def _stop_agent_state(self) -> None:
+        if self._closed_loop_canary is not None:
+            with contextlib.suppress(Exception):
+                await self._closed_loop_canary.stop()
         if self._director_v2_takeover is not None:
             with contextlib.suppress(Exception):
                 await self._director_v2_takeover.stop()
@@ -548,6 +556,12 @@ class StreamRuntime:
         if self._external_action_loop is None:
             raise RuntimeError("external action boundary is unavailable")
         return await self._external_action_loop.execute(request)
+
+    async def run_closed_loop_canary(self, request: ActionRequest) -> Any:
+        """Run one explicit operator canary; never called by the autonomous Director."""
+        if self._closed_loop_canary is None:
+            raise RuntimeError("closed-loop canary is unavailable")
+        return await self._closed_loop_canary.run(request)
 
     async def execute_avatar_action(self, request: ActionRequest) -> ActionResult:
         """Invoke one typed HIGH gesture without exposing the speech delivery adapter."""
@@ -2350,6 +2364,32 @@ async def _compose_stream_runtime(
         context_provider=_director_v2_context, metrics=metrics, enabled=director_v2_enabled,
     )
     attach_set_enabled_feature(feature_manager, "director_v2_shadow", director_v2_shadow)
+    from services.evaluation.closed_loop_canary import ClosedLoopCanary
+    from services.evaluation.release_gate import ReleaseReadinessConfig, inspect_source_state
+    try:
+        canary_status = await feature_manager.get_status("closed_loop_canary")
+        canary_enabled = canary_status in (
+            FeatureStatus.ENABLED, FeatureStatus.DEGRADED,
+        )
+    except KeyError:
+        get_logger("stream_runtime").warning("closed_loop_canary_feature_missing")
+        canary_enabled = False
+    release_readiness = ReleaseReadinessConfig.from_loader(loader)
+    closed_loop_canary = ClosedLoopCanary.from_loader(
+        loader,
+        current_product_version=str(loader.get("system", "app.version", "")),
+        target_product_version=release_readiness.target_version,
+        context_provider=_director_v2_context,
+        proposal_provider=director_v2_shadow.propose,
+        action_executor=external_action_loop.execute,
+        source_state_provider=lambda: inspect_source_state(
+            Path(__file__).resolve().parents[1],
+        ),
+        trajectory_records=trajectory_records,
+        metrics=metrics,
+        enabled=canary_enabled,
+    )
+    attach_set_enabled_feature(feature_manager, "closed_loop_canary", closed_loop_canary)
     from services.director.v2_takeover import DirectorV2Takeover
     try:
         director_v2_takeover_status = await feature_manager.get_status("director_v2_takeover")
@@ -2399,6 +2439,7 @@ async def _compose_stream_runtime(
         decision_records=decision_records,
         trajectory_records=trajectory_records,
         human_like_calibration=human_like_calibration,
+        closed_loop_canary=closed_loop_canary,
         self_talk_planner=self_talk_planner,
         control_plane=control_plane,
         incident_log=incident_log,
@@ -2463,6 +2504,7 @@ async def _compose_stream_runtime(
         director_v2_takeover=director_v2_takeover,
         trajectory_records=trajectory_records,
         human_like_calibration=human_like_calibration,
+        closed_loop_canary=closed_loop_canary,
         cfg=cfg,
         goal_manager=goal_manager,
         goal_proposal=goal_proposal,

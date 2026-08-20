@@ -1,10 +1,16 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
-from scripts.run_human_like_review import main
+from orchestrator.config_loader import ConfigLoader
+from scripts.run_human_like_review import build_human_release_evidence, main
 from services.evaluation.human_like import DIMENSIONS
+from services.evaluation.release_gate import SourceState
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _input() -> dict:
@@ -78,3 +84,14 @@ def test_cli_builds_pending_blind_artifact_then_finalizes_persisted_scores(
     assert final["status"] == "review_complete"
     assert final["previous_build_delta"] == 1.0
     assert final["automatic_release_decision"] is False
+    loader = ConfigLoader(REPO_ROOT / "config")
+    loader.load_all()
+    evidence = build_human_release_evidence(
+        final, review_digest="a" * 64, loader=loader,
+        source_state=SourceState("b" * 40, True),
+        now_utc=datetime(2026, 8, 20, tzinfo=timezone.utc),
+    )
+    assert evidence["marker"] == "mai_human_quality_evidence"
+    assert evidence["reviewed_pairs"] == 20
+    assert evidence["candidate"]["character_average"] == 5.0
+    assert evidence["status"] == "passed"

@@ -305,6 +305,13 @@ class MetricsCollector:
             registry=self.registry,
         )
         self._trajectory_records: dict[str, int] = {}
+        self.closed_loop_canary_total_c = Counter(
+            "mai_closed_loop_canary_total",
+            "Operator-triggered closed-loop canary outcomes",
+            ["outcome"],
+            registry=self.registry,
+        )
+        self._closed_loop_canary: dict[str, int] = {}
         self.health_supervisor_actions_total_c = Counter(
             "mai_health_supervisor_actions_total",
             "Bounded health supervisor observations and recovery actions",
@@ -548,6 +555,14 @@ class MetricsCollector:
 
     def trajectory_snapshot(self) -> dict[str, int]:
         return dict(sorted(self._trajectory_records.items()))
+
+    def record_closed_loop_canary(self, outcome: str) -> None:
+        key = str(outcome)
+        self._closed_loop_canary[key] = self._closed_loop_canary.get(key, 0) + 1
+        self.closed_loop_canary_total_c.labels(outcome=key).inc()
+
+    def closed_loop_canary_snapshot(self) -> dict[str, int]:
+        return dict(sorted(self._closed_loop_canary.items()))
 
     def record_action_transaction(self, state: str) -> None:
         key = str(state)

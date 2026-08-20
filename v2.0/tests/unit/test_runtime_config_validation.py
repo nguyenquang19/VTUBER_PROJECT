@@ -50,6 +50,38 @@ HUMAN_LIKE_CONFIG = {
     },
     "ai_smell_tags": ["assistant_register"],
 }
+RELEASE_READINESS_CONFIG = {
+    "schema_version": 2,
+    "target_version": "2.0.0",
+    "artifact_max_age_s": 86400.0,
+    "max_future_skew_s": 30.0,
+    "max_artifacts": 16,
+    "max_label_chars": 160,
+    "required_test_groups": ["targeted", "offline", "llm", "slow", "smoke"],
+    "required_preflight_checks": [
+        "windows", "python", "credential_contract", "llama_binary", "llm_model",
+        "tts_reference", "transactions", "decision_records", "subtitle_fallback",
+        "subtitle_path", "platform", "llama_health",
+    ],
+    "correctness_zero_counters": [
+        "unauthorized_executed_actions", "unavailable_capability_executed",
+        "duplicate_committed_actions", "false_committed_world_states",
+        "transaction_inconsistencies",
+    ],
+    "human_quality": {
+        "min_pairs": 20,
+        "minimum_previous_build_delta": 0.0001,
+        "max_ai_smell_rate_increase": 0.0,
+        "minimum_character_delta": 0.0,
+    },
+}
+CLOSED_LOOP_CANARY_CONFIG = {
+    "schema_version": 1,
+    "allowed_actions": ["SWITCH_SCENE"],
+    "execution_timeout_s": 15.0,
+    "max_recent": 16,
+    "max_label_chars": 160,
+}
 
 
 class OverrideLoader:
@@ -63,6 +95,10 @@ class OverrideLoader:
             return self._overrides.get((name, key), dict(TRAJECTORY_CONFIG))
         if (name, key) == ("evaluation", "evaluation.human_like"):
             return self._overrides.get((name, key), dict(HUMAN_LIKE_CONFIG))
+        if (name, key) == ("operations", "release_readiness"):
+            return self._overrides.get((name, key), dict(RELEASE_READINESS_CONFIG))
+        if (name, key) == ("operations", "closed_loop_canary"):
+            return self._overrides.get((name, key), dict(CLOSED_LOOP_CANARY_CONFIG))
         return self._overrides.get((name, key), default)
 
 
@@ -252,6 +288,28 @@ def test_phase14_config_fails_before_service_composition(
 ) -> None:
     with pytest.raises(ConfigError, match=message):
         validate_runtime_config(OverrideLoader({(name, key): value}))
+
+
+@pytest.mark.parametrize(
+    ("key", "value", "message"),
+    [
+        (
+            "release_readiness",
+            {**RELEASE_READINESS_CONFIG, "target_version": "v2"},
+            "target_version must be strict semantic version",
+        ),
+        (
+            "closed_loop_canary",
+            {**CLOSED_LOOP_CANARY_CONFIG, "allowed_actions": ["SWITCH_SCENE", "SWITCH_SCENE"]},
+            "allowed_actions must be unique",
+        ),
+    ],
+)
+def test_phase15_config_fails_before_service_composition(
+    key: str, value: object, message: str,
+) -> None:
+    with pytest.raises(ConfigError, match=message):
+        validate_runtime_config(OverrideLoader({("operations", key): value}))
 
 
 @pytest.mark.parametrize(

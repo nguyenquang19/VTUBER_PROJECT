@@ -41,6 +41,7 @@ from interfaces.operations import (
     OperationsSnapshotService, OperatorControlService, SoakMonitorService,
     ShutdownCoordinatorService,
 )
+from interfaces.release_readiness import ClosedLoopCanaryService
 from interfaces.stt import NullSTTService, STTService, TranscriptChunk
 from interfaces.tts import AudioChunk, TTSRequest, TTSService
 from interfaces.trajectory import TrajectoryRecordService
@@ -154,6 +155,8 @@ class TestServiceContract:
             (TrajectoryRecordService, "record_no_action"),
             (TrajectoryRecordService, "replay"),
             (TrajectoryRecordService, "snapshot"),
+            (ClosedLoopCanaryService, "run"),
+            (ClosedLoopCanaryService, "snapshot"),
         ],
     )
     def test_interface_declares_spec_method(self, iface, method) -> None:

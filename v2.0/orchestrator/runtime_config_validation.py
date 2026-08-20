@@ -18,7 +18,9 @@ from orchestrator.credential_contract import (
 )
 from services.animation.embodiment_policy import EmbodimentPolicyConfig
 from services.director.trajectory import TrajectoryConfig
+from services.evaluation.closed_loop_canary import ClosedLoopCanaryConfig
 from services.evaluation.human_like import HumanLikeConfig
+from services.evaluation.release_gate import ReleaseReadinessConfig
 
 
 def _strict_string_tuple(value: Any, field_name: str) -> tuple[str, ...]:
@@ -141,8 +143,10 @@ def validate_runtime_config(loader: Any) -> RuntimeCriticalConfig:
     try:
         TrajectoryConfig.from_loader(loader)
         HumanLikeConfig.from_loader(loader)
+        ClosedLoopCanaryConfig.from_loader(loader)
+        ReleaseReadinessConfig.from_loader(loader)
     except ValueError as exc:
-        raise ConfigError(f"Runtime Phase 14 config không hợp lệ: {exc}") from exc
+        raise ConfigError(f"Runtime Phase 14/15 config không hợp lệ: {exc}") from exc
     try:
         return RuntimeCriticalConfig(
             log_dir=loader.get("logging", "jsonl.dir", "logs"),
