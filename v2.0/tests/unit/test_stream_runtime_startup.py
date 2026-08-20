@@ -52,6 +52,7 @@ def _runtime(
     llm: Any,
     director: Any = None,
     capability: Any = None,
+    embodiment: Any = None,
     health_supervisor: Any = None,
     shutdown_coordinator: Any = None,
 ) -> StreamRuntime:
@@ -64,6 +65,7 @@ def _runtime(
         autonomy=None,
         director_loop=director,
         capability_registry=capability,
+        embodiment_policy=embodiment,
         health_supervisor=health_supervisor,
         shutdown_coordinator=shutdown_coordinator,
         metrics=object(),
@@ -77,11 +79,13 @@ async def test_runtime_start_failure_cleans_started_components_and_resets_state(
     router = _Service("router", events)
     director = _Service("director", events, start_error=RuntimeError("director boom"))
     llm = _Service("llm", events)
+    embodiment = _Service("embodiment", events)
     runtime = _runtime(
         router=router,
         llm=llm,
         director=director,
         capability=capability,
+        embodiment=embodiment,
     )
 
     with pytest.raises(RuntimeError, match="director boom"):
@@ -92,6 +96,7 @@ async def test_runtime_start_failure_cleans_started_components_and_resets_state(
     assert router.stop_calls == 1
     assert director.stop_calls == 1
     assert capability.stop_calls == 1
+    assert embodiment.stop_calls == 1
     assert llm.stop_calls == 1
 
 

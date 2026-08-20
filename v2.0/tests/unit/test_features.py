@@ -450,6 +450,17 @@ class TestFromConfig:
         assert "ambient_talk" in ids
         assert "input_voice" in ids
 
+    async def test_avatar_adapter_requires_strict_embodiment_policy(self) -> None:
+        loader = ConfigLoader(REPO_ROOT / "config")
+        loader.load_all()
+        manager = FeatureManager.from_config(loader)
+        features = {item.id: item for item in await manager.list_features()}
+        assert features["avatar_action_adapter"].depends_on == [
+            "animation_smooth", "embodiment_policy",
+        ]
+        assert await manager.get_status("avatar_action_adapter") is FeatureStatus.DISABLED
+        assert await manager.get_status("embodiment_policy") is FeatureStatus.DISABLED
+
     def test_core_ids_from_system_yaml(self) -> None:
         loader = ConfigLoader(REPO_ROOT / "config")
         loader.load_all()

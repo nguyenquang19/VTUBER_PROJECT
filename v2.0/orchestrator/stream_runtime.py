@@ -535,6 +535,16 @@ class StreamRuntime:
             raise RuntimeError("external action boundary is unavailable")
         return await self._external_action_loop.execute(request)
 
+    async def execute_avatar_action(self, request: ActionRequest) -> ActionResult:
+        """Invoke one typed HIGH gesture without exposing the speech delivery adapter."""
+        if not isinstance(request, ActionRequest):
+            raise ValueError("request must be ActionRequest")
+        if request.action_type != "AVATAR_GESTURE" or request.capability_id != "AVATAR_GESTURE":
+            raise ValueError("only AVATAR_GESTURE is accepted at the avatar boundary")
+        if self._action_adapter_boundary is None:
+            raise RuntimeError("avatar action boundary is unavailable")
+        return await self._action_adapter_boundary.execute(request)
+
     def operations_snapshot(self) -> dict[str, Any]:
         return {
             "runtime": {
@@ -561,6 +571,10 @@ class StreamRuntime:
             "local_action_adapters": (
                 self._action_adapter_boundary.snapshot()
                 if self._action_adapter_boundary is not None else None
+            ),
+            "embodiment": (
+                self._embodiment_policy.snapshot().to_dict()
+                if self._embodiment_policy is not None else None
             ),
             "external_executors": (
                 self._external_executor_registry.snapshot()
@@ -824,6 +838,9 @@ class StreamRuntime:
         if self._action_adapter_boundary is not None:
             with contextlib.suppress(Exception):
                 m.update(self._action_adapter_boundary.get_metrics())
+        if self._embodiment_policy is not None:
+            with contextlib.suppress(Exception):
+                m.update(self._embodiment_policy.get_metrics())
         if self._external_executor_registry is not None:
             with contextlib.suppress(Exception):
                 m.update(self._external_executor_registry.get_metrics())
@@ -1644,7 +1661,7 @@ async def _compose_stream_runtime(
         loader, animation=animation, metrics=metrics, enabled=embodiment_enabled,
     )
 
-    # Phase 8: local typed action boundary. It owns execute/verify and bounded
+    # Local typed action boundary owns execute/verify and bounded
     # duplicate suppression only; DirectorLoop remains the business transaction owner.
     from services.action.legacy_adapters import (
         ActionAdapterConfig,
@@ -1701,6 +1718,7 @@ async def _compose_stream_runtime(
         avatar_gesture_authority,
         enabled=avatar_adapter_enabled,
         metrics=metrics,
+        policy=embodiment_policy,
     )
     action_adapter_boundary = LocalActionAdapterBoundary(
         action_adapter_config,
@@ -1809,10 +1827,10 @@ async def _compose_stream_runtime(
     )
 
     async def _enable_embodiment_policy() -> None:
-        embodiment_policy.set_enabled(True)
+        await embodiment_policy.set_enabled(True)
 
     async def _disable_embodiment_policy() -> None:
-        embodiment_policy.set_enabled(False)
+        await embodiment_policy.set_enabled(False)
 
     async def _embodiment_policy_health() -> bool:
         return (await embodiment_policy.health_check()).is_ok

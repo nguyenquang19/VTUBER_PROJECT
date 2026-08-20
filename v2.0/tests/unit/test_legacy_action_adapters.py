@@ -8,8 +8,15 @@ from typing import Any
 
 import pytest
 
+from interfaces.animation import (
+    AnimationService,
+    EmbodimentPolicyService,
+    EmbodimentSnapshot,
+    IntentionalGestureOutcome,
+)
+from interfaces.base import HealthStatus
 from interfaces.compatibility import ActionRequest, ActionResult, ActionStatus
-from interfaces.tts import TTSDeliveryMode, TTSDeliveryResult
+from interfaces.tts import AudioChunk, TTSDeliveryMode, TTSDeliveryResult
 from services.action.legacy_adapters import (
     ActionAdapterConfig,
     AvatarGestureAuthority,
@@ -40,14 +47,96 @@ def _request(action_type: str, **arguments: object) -> ActionRequest:
     )
 
 
-class _Animation:
+class _Animation(AnimationService):
+    service_id = "test_animation"
+
     def __init__(self, acknowledgement: object) -> None:
+        self.enabled = True
+        self.running = True
         self.acknowledgement = acknowledgement
         self.calls: list[str] = []
+
+    async def start(self) -> None:
+        self.running = True
+
+    async def stop(self) -> None:
+        self.running = False
+
+    async def health_check(self) -> HealthStatus:
+        return HealthStatus.healthy(self.service_id)
+
+    def get_metrics(self) -> dict[str, object]:
+        return {}
+
+    async def express(self, command: object) -> None:
+        return
 
     async def trigger_intentional_gesture(self, gesture_id: str) -> object:
         self.calls.append(gesture_id)
         return self.acknowledgement
+
+    def is_intentional_gesture_allowed(self, gesture_id: str) -> bool:
+        return gesture_id == "wave"
+
+    async def sync_with_audio(self, audio_chunk: AudioChunk) -> None:
+        return
+
+
+class _Policy(EmbodimentPolicyService):
+    service_id = "test_embodiment_policy"
+    enabled = True
+
+    def __init__(self) -> None:
+        self.active: str | None = None
+        self.finished: list[
+            tuple[str, IntentionalGestureOutcome, str | None]
+        ] = []
+
+    async def start(self) -> None:
+        return
+
+    async def stop(self) -> None:
+        self.active = None
+
+    async def health_check(self) -> HealthStatus:
+        return HealthStatus.healthy(self.service_id)
+
+    def get_metrics(self) -> dict[str, object]:
+        return {}
+
+    async def apply_mid(self, delivery_id: str, mood: object) -> bool:
+        return True
+
+    async def begin_intentional(
+        self, action_id: str, gesture_id: str, evidence_refs: tuple[str, ...],
+    ) -> bool:
+        if self.active is not None or gesture_id != "wave" or not evidence_refs:
+            return False
+        self.active = action_id
+        return True
+
+    async def finish_intentional(
+        self,
+        action_id: str,
+        outcome: IntentionalGestureOutcome,
+        verification_source: str | None = None,
+    ) -> bool:
+        if self.active != action_id:
+            return False
+        self.active = None
+        self.finished.append((action_id, outcome, verification_source))
+        return True
+
+    def snapshot(self) -> EmbodimentSnapshot:
+        return EmbodimentSnapshot(
+            running=True,
+            enabled=True,
+            active_level=None,
+            active_action_id=None,
+            active_gesture_id=None,
+            counts={},
+            recent=(),
+        )
 
 
 def _local_boundary(
@@ -62,6 +151,7 @@ def _local_boundary(
 ) -> LocalActionAdapterBoundary:
     authority = SpeechDeliveryAuthority(max_records)
     avatar_authority = AvatarGestureAuthority(max_records)
+    active_policy = policy if policy is not None else _Policy()
     return LocalActionAdapterBoundary(
         ActionAdapterConfig(1.0, max_records, 4),
         speech_executor=SpeechDeliveryExecutor(
@@ -72,10 +162,11 @@ def _local_boundary(
         ),
         avatar_executor=AvatarGestureExecutor(
             animation or _Animation(False), avatar_authority, enabled=avatar_enabled,
-            metrics=metrics, policy=policy,
+            metrics=metrics, policy=active_policy,
         ),
         avatar_verifier=AvatarGestureVerifier(
             avatar_authority, enabled=avatar_enabled, metrics=metrics,
+            policy=active_policy,
         ),
         metrics=metrics,
     )
@@ -272,6 +363,18 @@ async def test_avatar_requires_strict_ack_and_deduplicates() -> None:
 
 
 @pytest.mark.asyncio
+async def test_avatar_adapter_fails_closed_when_embodiment_policy_is_disabled() -> None:
+    animation = _Animation(True)
+    policy = _Policy()
+    policy.enabled = False
+    boundary = _local_boundary(None, animation=animation, policy=policy)
+    await boundary.start()
+    result = await boundary.execute(_request("AVATAR_GESTURE", gesture_id="wave"))
+    assert result.error_code == "embodiment_policy_unavailable"
+    assert animation.calls == []
+
+
+@pytest.mark.asyncio
 async def test_avatar_verifier_rejects_forged_result_without_vts_authority() -> None:
     authority = AvatarGestureAuthority(4)
     verifier = AvatarGestureVerifier(authority, enabled=True)
@@ -291,21 +394,6 @@ async def test_avatar_verifier_rejects_forged_result_without_vts_authority() -> 
     assert (await verifier.verify(request, forged)).verified is False
 
 
-class _Policy:
-    enabled = True
-
-    def __init__(self) -> None:
-        self.finished: list[tuple[str, bool]] = []
-
-    async def begin_intentional(
-        self, _action_id: str, _gesture_id: str, _evidence: tuple[str, ...],
-    ) -> bool:
-        return True
-
-    async def finish_intentional(self, action_id: str, succeeded: bool) -> None:
-        self.finished.append((action_id, succeeded))
-
-
 @pytest.mark.asyncio
 async def test_avatar_policy_lease_finishes_on_failure() -> None:
     policy = _Policy()
@@ -315,7 +403,9 @@ async def test_avatar_policy_lease_finishes_on_failure() -> None:
     await boundary.start()
     result = await boundary.execute(_request("AVATAR_GESTURE", gesture_id="wave"))
     assert result.error_code == "vts_not_acknowledged"
-    assert policy.finished == [("action:AVATAR_GESTURE", False)]
+    assert policy.finished == [(
+        "action:AVATAR_GESTURE", IntentionalGestureOutcome.FAILED, None,
+    )]
 
 
 class _BrokenMetrics:
@@ -380,6 +470,8 @@ async def test_vts_intentional_gesture_is_allowlisted_and_fail_safe() -> None:
         _Transport(), mood_hotkeys={}, intentional_gesture_hotkeys={"wave": "Wave"},
     )
     await service.start()
+    assert service.is_intentional_gesture_allowed("wave") is True
+    assert service.is_intentional_gesture_allowed(" wave ") is False
     assert await service.trigger_intentional_gesture("wave") is True
     assert await service.trigger_intentional_gesture("unknown") is False
     await service.stop()
@@ -392,3 +484,9 @@ async def test_vts_intentional_gesture_is_allowlisted_and_fail_safe() -> None:
     await untyped.start()
     assert await untyped.trigger_intentional_gesture("wave") is False
     assert untyped.get_metrics()["animation_errors_total"] == 1
+
+    with pytest.raises(ValueError, match="allowlist entries"):
+        VTSAnimationService(
+            _Transport(), mood_hotkeys={},
+            intentional_gesture_hotkeys={" wave ": "Wave"},
+        )

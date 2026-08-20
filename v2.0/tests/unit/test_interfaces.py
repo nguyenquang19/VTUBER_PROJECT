@@ -7,12 +7,20 @@ method đúng như spec để implementation phase sau không lệch.
 from __future__ import annotations
 
 import inspect
+from dataclasses import FrozenInstanceError
 from datetime import datetime, timezone
 
 import pytest
 from pydantic import ValidationError
 
-from interfaces.animation import AnimationCommand, AnimationService, MoodState
+from interfaces.animation import (
+    AnimationCommand,
+    AnimationService,
+    EmbodimentLevel,
+    EmbodimentRecord,
+    EmbodimentSnapshot,
+    MoodState,
+)
 from interfaces.action_execution import LocalActionBoundaryService
 from interfaces.agent import (
     AgentStateService, EventLedgerService, GoalManagerService, GoalProposalService,
@@ -70,6 +78,8 @@ class TestServiceContract:
             (TTSService, "synthesize_stream"),
             (TTSService, "cancel"),
             (AnimationService, "express"),
+            (AnimationService, "trigger_intentional_gesture"),
+            (AnimationService, "is_intentional_gesture_allowed"),
             (AnimationService, "sync_with_audio"),
             (LocalActionBoundaryService, "execute"),
             (LocalActionBoundaryService, "snapshot"),
@@ -296,6 +306,40 @@ class TestMoodState:
         cmd = AnimationCommand(command_type="idle")
         assert cmd.mood is None
         assert cmd.intensity == 0.5
+
+    def test_animation_contracts_are_strict_and_frozen(self) -> None:
+        with pytest.raises(ValidationError):
+            MoodState(vui="5")  # type: ignore[arg-type]
+        mood = MoodState(vui=5)
+        with pytest.raises(ValidationError):
+            mood.vui = 6
+        with pytest.raises(ValidationError):
+            AnimationCommand(command_type=" idle ")
+
+    def test_embodiment_snapshot_is_deeply_immutable(self) -> None:
+        record = EmbodimentRecord(
+            sequence=1,
+            level=EmbodimentLevel.HIGH,
+            outcome="high_verified",
+            action_id="action-1",
+            gesture_id="wave",
+            evidence_refs=("event-1",),
+            verification_source="vts_api_ack",
+        )
+        snapshot = EmbodimentSnapshot(
+            running=True,
+            enabled=True,
+            active_level=None,
+            active_action_id=None,
+            active_gesture_id=None,
+            counts={"high_verified": 1},
+            recent=(record,),
+        )
+        with pytest.raises(TypeError):
+            snapshot.counts["high_verified"] = 2  # type: ignore[index]
+        with pytest.raises(FrozenInstanceError):
+            record.outcome = "changed"  # type: ignore[misc]
+        assert snapshot.to_dict()["recent"][0]["verification_source"] == "vts_api_ack"
 
 
 class TestMemoryModels:

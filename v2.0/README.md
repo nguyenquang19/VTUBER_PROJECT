@@ -4,9 +4,9 @@
 >
 > **Inherited runtime release:** `1.4.3` (patch trên frozen baseline `1.0.0`, 2026-08-14).
 >
-> **Implementation status:** Phase 1–12 đã đóng gate kỹ thuật; controlled takeover,
+> **Implementation status:** Phase 1–13 đã đóng gate kỹ thuật; controlled takeover,
 > speech/avatar action adapters, OBS scene action và OBS perception đều mặc định tắt/chưa có
-> live canary tương ứng. Phase 13–15 và release evidence vẫn chưa đóng gate, nên chưa đủ
+> live canary tương ứng. Phase 14–15 và release evidence vẫn chưa đóng gate, nên chưa đủ
 > điều kiện phát hành Mai `2.0.0`.
 >
 > Mọi thay đổi product được chấp nhận sau baseline phải tăng version và cập nhật `CHANGELOG.md`.

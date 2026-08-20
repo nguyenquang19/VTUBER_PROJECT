@@ -193,11 +193,14 @@ async def test_goal_delivery_without_short_intention_fails_before_side_effect() 
 class EmbodimentStub:
     enabled = True
 
-    def __init__(self) -> None:
+    def __init__(self, *, cancel: bool = False) -> None:
+        self.cancel = cancel
         self.calls: list[tuple[str, MoodState]] = []
 
     async def apply_mid(self, delivery_id: str, mood: MoodState) -> bool:
         self.calls.append((delivery_id, mood))
+        if self.cancel:
+            raise asyncio.CancelledError
         return True
 
 
@@ -216,6 +219,25 @@ async def test_delivery_uses_embodiment_policy_only_after_confirmed_delivery() -
     assert await boundary.deliver("req-embodiment", SimpleNamespace(text="xin chào"), "read_chat", [])
     assert policy.calls == [("req-embodiment", MoodState(vui=4))]
     assert animation.commands == []
+
+
+@pytest.mark.asyncio
+async def test_cosmetic_cancellation_after_delivery_does_not_reverse_success() -> None:
+    runner = RunnerStub()
+
+    async def speak(_request_id: str, _text: str) -> Any:
+        return SimpleNamespace(delivered=True, mode="audio")
+
+    boundary = make_boundary(
+        runner,
+        speak=speak,
+        animation=AnimationStub(),
+        embodiment_policy=EmbodimentStub(cancel=True),
+    )
+    assert await boundary.deliver(
+        "req-embodiment-cancel", SimpleNamespace(text="xin chào"), "read_chat", [],
+    ) is True
+    assert runner.finalized == [("req-embodiment-cancel", True)]
 
 
 class ActionBoundaryStub:

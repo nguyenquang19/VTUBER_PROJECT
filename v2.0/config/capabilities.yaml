@@ -71,10 +71,10 @@ capabilities:
     verifier_id: avatar_state
     risk_level: low
     required_permissions: [avatar.gesture]
-    parameter_schema: {}
+    parameter_schema: {gesture_id: string}
     transaction_policy: none
     self_equals: {avatar_state.connected: true}
-    conflict_actions: []
+    conflict_actions: [AVATAR_GESTURE]
   PLAY_MUSIC:
     action_type: PLAY_MUSIC
     description: Mock-only media start declaration.
@@ -147,7 +147,7 @@ mock_action:
   max_connected_guests: 8
   max_verification_evidence_refs: 8
 
-# Phase 8 local adapters do not own business transactions. These bounds cover
+# Local adapters do not own business transactions. These bounds cover
 # only execute/verify timeout, duplicate suppression and non-PII evidence.
 action_adapters:
   execution_timeout_s: 120.0

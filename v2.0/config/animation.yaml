@@ -28,9 +28,13 @@ animation:
   # Intentional actions only. Empty by default: no Director action can trigger VTS
   # until an operator explicitly allowlists a gesture ID and matching VTS hotkey.
   intentional_gesture_hotkeys: {}
-  # Phase 13: all policy bounds; feature embodiment_policy remains off by default.
+  # All policy bounds; feature embodiment_policy remains off by default.
   embodiment:
     mid_cooldown_s: 2.0
+    mid_timeout_s: 1.0
     intentional_cooldown_s: 3.0
+    intentional_lease_ttl_s: 120.0
     max_evidence_refs: 4
     max_recent_records: 32
+    max_id_chars: 160
+    max_gesture_id_chars: 64

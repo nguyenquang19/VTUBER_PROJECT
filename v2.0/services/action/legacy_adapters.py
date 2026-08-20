@@ -1,4 +1,4 @@
-"""Strict Phase 8 adapters around existing speech and VTube Studio boundaries."""
+"""Strict adapters around existing speech and VTube Studio boundaries."""
 from __future__ import annotations
 
 import asyncio
@@ -16,6 +16,7 @@ from interfaces.action_execution import (
     LocalActionBoundaryService,
     VerificationResult,
 )
+from interfaces.animation import EmbodimentPolicyService, IntentionalGestureOutcome
 from interfaces.base import HealthStatus
 from interfaces.compatibility import ActionRequest, ActionResult, ActionStatus
 from interfaces.tts import TTSDeliveryMode, TTSDeliveryResult
@@ -421,30 +422,40 @@ class AvatarGestureExecutor(_ToggleableActionService, ActionExecutor):
             )
         gesture_id = request.arguments["gesture_id"]
         evidence_refs = request.evidence_refs
-        policy_started = False
+        if (
+            not isinstance(self._policy, EmbodimentPolicyService)
+            or getattr(self._policy, "enabled", None) is not True
+        ):
+            self._record("policy_unavailable")
+            return _result(
+                request, started_at=started_at, status=ActionStatus.REJECTED,
+                error_code="embodiment_policy_unavailable",
+                data={"gesture_id": gesture_id, "evidence_refs": evidence_refs},
+            )
+        try:
+            granted = await self._policy.begin_intentional(
+                request.action_id, gesture_id, evidence_refs,
+            )
+        except asyncio.CancelledError:
+            self._record("cancelled")
+            raise
+        except Exception:
+            granted = False
+        if granted is not True:
+            self._record("policy_rejected")
+            return _result(
+                request, started_at=started_at, status=ActionStatus.REJECTED,
+                error_code="embodiment_policy_rejected",
+                data={"gesture_id": gesture_id, "evidence_refs": evidence_refs},
+            )
         acknowledged = False
-        if self._policy is not None and getattr(self._policy, "enabled", None) is True:
-            try:
-                granted = await self._policy.begin_intentional(
-                    request.action_id, gesture_id, evidence_refs,
-                )
-            except asyncio.CancelledError:
-                self._record("cancelled")
-                raise
-            except Exception:
-                granted = False
-            if granted is not True:
-                self._record("policy_rejected")
-                return _result(
-                    request, started_at=started_at, status=ActionStatus.REJECTED,
-                    error_code="embodiment_policy_rejected",
-                    data={"gesture_id": gesture_id, "evidence_refs": evidence_refs},
-                )
-            policy_started = True
         try:
             trigger = getattr(self._animation, "trigger_intentional_gesture", None)
             if not callable(trigger):
                 self._record("adapter_missing")
+                await self._finish_policy(
+                    request.action_id, IntentionalGestureOutcome.FAILED,
+                )
                 return _result(
                     request, started_at=started_at, status=ActionStatus.FAILED,
                     error_code="avatar_adapter_missing",
@@ -458,17 +469,16 @@ class AvatarGestureExecutor(_ToggleableActionService, ActionExecutor):
                 self._record("ack_untyped")
         except asyncio.CancelledError:
             self._record("cancelled")
+            await self._finish_policy(
+                request.action_id, IntentionalGestureOutcome.CANCELLED,
+            )
             raise
         except Exception:
             self._record("trigger_exception")
-        finally:
-            if policy_started:
-                try:
-                    await self._policy.finish_intentional(request.action_id, acknowledged)
-                except asyncio.CancelledError:
-                    raise
-                except Exception:
-                    self._record("policy_finish_failed")
+        if not acknowledged:
+            await self._finish_policy(
+                request.action_id, IntentionalGestureOutcome.FAILED,
+            )
         data = {
             "gesture_id": gesture_id,
             "vts_acknowledged": acknowledged,
@@ -480,6 +490,22 @@ class AvatarGestureExecutor(_ToggleableActionService, ActionExecutor):
             status=ActionStatus.SUCCESS if acknowledged else ActionStatus.FAILED,
             error_code=None if acknowledged else "vts_not_acknowledged", data=data,
         )
+
+    async def _finish_policy(
+        self,
+        action_id: str,
+        outcome: IntentionalGestureOutcome,
+        verification_source: str | None = None,
+    ) -> bool:
+        try:
+            return await self._policy.finish_intentional(
+                action_id, outcome, verification_source,
+            ) is True
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            self._record("policy_finish_failed")
+            return False
 
 
 class AvatarGestureVerifier(_ToggleableActionService, ActionVerifier):
@@ -493,17 +519,19 @@ class AvatarGestureVerifier(_ToggleableActionService, ActionVerifier):
         *,
         enabled: bool = False,
         metrics: Any = None,
+        policy: Any = None,
     ) -> None:
         if not isinstance(authority, AvatarGestureAuthority):
             raise ValueError("authority must be AvatarGestureAuthority")
         super().__init__(enabled=enabled, metrics=metrics)
         self._authority = authority
+        self._policy = policy
 
     async def verify(self, request: ActionRequest, result: ActionResult) -> VerificationResult:
         if not isinstance(request, ActionRequest) or not isinstance(result, ActionResult):
             raise ValueError("request and result must be typed action contracts")
         authority_record = self._authority.get(request.action_id)
-        verified = (
+        authority_verified = (
             self._running
             and self.enabled
             and _avatar_request_error(request) is None
@@ -511,13 +539,47 @@ class AvatarGestureVerifier(_ToggleableActionService, ActionVerifier):
             and result.status is ActionStatus.SUCCESS
             and authority_record == (request.arguments.get("gesture_id"), True)
         )
+        verified = authority_verified
+        policy_reason = "vts_not_acknowledged"
+        if isinstance(self._policy, EmbodimentPolicyService):
+            try:
+                finished = await self._policy.finish_intentional(
+                    request.action_id,
+                    (
+                        IntentionalGestureOutcome.VERIFIED
+                        if verified else IntentionalGestureOutcome.FAILED
+                    ),
+                    "vts_api_ack" if verified else None,
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                finished = False
+            if finished is not True:
+                verified = False
+                policy_reason = "embodiment_policy_finalize_failed"
+        else:
+            verified = False
+            policy_reason = "embodiment_policy_unavailable"
         self._record("verified" if verified else "unverified")
         return VerificationResult(
             verified=verified,
             source="vts_api_ack",
-            reason_code="vts_acknowledged" if verified else "vts_not_acknowledged",
+            reason_code="vts_acknowledged" if verified else policy_reason,
             evidence_refs=(request.arguments["gesture_id"],) if verified else (),
         )
+
+    async def abort_intentional(
+        self, action_id: str, outcome: IntentionalGestureOutcome,
+    ) -> None:
+        if not isinstance(self._policy, EmbodimentPolicyService):
+            return
+        try:
+            await self._policy.finish_intentional(action_id, outcome)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            self._record("policy_finish_failed")
 
 
 @dataclass(frozen=True)
@@ -527,7 +589,7 @@ class _IdempotencyRecord:
 
 
 class LocalActionAdapterBoundary(LocalActionBoundaryService):
-    """Route and verify local Phase 8 side effects without committing business state."""
+    """Route and verify local side effects without committing business state."""
 
     service_id = "local_action_adapter_boundary"
 
@@ -705,15 +767,24 @@ class LocalActionAdapterBoundary(LocalActionBoundaryService):
                 verifier.verify(request, result), timeout=self._config.execution_timeout_s,
             )
         except asyncio.CancelledError:
+            await self._abort_avatar_policy(
+                request, IntentionalGestureOutcome.CANCELLED,
+            )
             self._record("cancelled")
             raise
         except asyncio.TimeoutError:
+            await self._abort_avatar_policy(
+                request, IntentionalGestureOutcome.TIMEOUT,
+            )
             self._record("verification_timeout")
             return _result(
                 request, started_at=started_at, status=ActionStatus.FAILED,
                 error_code="verification_timeout",
             )
         except Exception:
+            await self._abort_avatar_policy(
+                request, IntentionalGestureOutcome.FAILED,
+            )
             self._record("verification_exception")
             return _result(
                 request, started_at=started_at, status=ActionStatus.FAILED,
@@ -753,6 +824,13 @@ class LocalActionAdapterBoundary(LocalActionBoundaryService):
         if action_type in _SPEECH_ACTIONS:
             return self._speech_executor, self._speech_verifier
         return self._avatar_executor, self._avatar_verifier
+
+    async def _abort_avatar_policy(
+        self, request: ActionRequest, outcome: IntentionalGestureOutcome,
+    ) -> None:
+        if request.action_type != "AVATAR_GESTURE":
+            return
+        await self._avatar_verifier.abort_intentional(request.action_id, outcome)
 
     def _services(self) -> tuple[_ToggleableActionService, ...]:
         return (

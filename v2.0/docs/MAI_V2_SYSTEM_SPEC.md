@@ -40,7 +40,8 @@ khác nhau, nhưng chưa nối liền thành một đường đi production duy 
 adapters, OBS scene action và Perception Phase 10 đều đã compose nhưng production flag vẫn tắt, chưa có live rollout/canary
 evidence cho các capability liên quan. Phase 9/10 không trao external action hoặc raw
 observation cho Director. Phase 11 đã đóng goal/short-intention lifecycle; Phase 12 đã đóng strict
-Memory/ContextSelector contract nhưng feature production vẫn tắt; Phase 13 trở đi chưa đóng gate.
+Memory/ContextSelector contract nhưng feature production vẫn tắt; Phase 13 đã đóng strict Embodiment
+Policy contract nhưng feature production vẫn tắt; Phase 14 trở đi chưa đóng gate.
 
 Vì vậy, cách mô tả chính xác nhất là:
 
@@ -87,7 +88,7 @@ Các cột dưới đây độc lập với nhau. “Có mã” không thay th�
 | Perception expansion | Có | Chat/System qua canonical ingress; OBS read-only compose nhưng mặc định tắt | Unit, negative-path, runtime composition, deterministic replay và full offline regression | Không; OBS chưa live canary |
 | Goals và short intentions | Có | Có, qua GoalManager/Director/Self/dashboard | Unit, integration, replay và full offline regression | Không |
 | Memory và ContextSelector V2 | Có | Strict bounded read-only composition khi bật; mặc định tắt | Unit, integration, replay và full offline regression | Không; chưa live semantic-memory canary |
-| Embodiment Policy | Có | Partial/shadow | Unit | Không |
+| Embodiment Policy | Có | LOW/MID/HIGH strict arbitration đã compose; mặc định tắt | Unit, integration, deterministic replay và full offline regression | Không; chưa live VTS canary |
 | Human-like calibration và trajectory | Có mã tiền V2 từ implementation cũ | Chưa audit/compose theo gate Phase 14 | Có test thành phần; chưa có human evidence Phase 14 | Không |
 | Product `2.0.0` release gates | Có tooling/evidence release kế thừa | Chưa audit theo gate Phase 15 và chưa đủ evidence độc lập | Có test thành phần; gate Phase 15 chưa chạy | Không |
 
@@ -459,7 +460,7 @@ V2 được đưa vào theo từng lớp, có cờ bật/tắt và chế độ q
 ### 8.5. Bộ kiểm thử rộng
 
 Bộ kiểm thử bao phủ nhiều subsystem và các bài targeted cho lõi V2 đang xanh. Ngày 20/08/2026, sau
-closure Phase 12, full offline regression bằng `v2.0\venv` đạt 2.207 bài và 0 lỗi.
+closure Phase 13, full offline regression bằng `v2.0\venv` đạt 2.235 bài và 0 lỗi.
 Kết quả này chứng minh đường offline hiện có đang xanh; nó không thay thế live/LLM acceptance hoặc chứng
 minh các capability chưa compose đã production.
 
@@ -601,8 +602,8 @@ Ba nguồn chính thức hiện là `docs/V1_BASELINE.md`, tài liệu này và 
 “có mã”, “đã ghép”, “đã test” và “đã phát hành”. Product version vẫn đúng là `1.4.3`; việc changelog
 chưa có release mới là chủ ý, không phải thiếu đồng bộ.
 
-Sau closure Phase 12, `main` không coi code embodiment/calibration/release tooling đã có từ
-implementation generation trước là evidence đóng Phase 13–15. Mỗi phase vẫn phải được audit theo
+Sau closure Phase 13, `main` không coi code calibration/release tooling đã có từ implementation
+generation trước là evidence đóng Phase 14–15. Mỗi phase vẫn phải được audit theo
 blueprint, cập nhật tài liệu này trước khi sửa code, chạy gate riêng và được user duyệt; không tạo
 lại tài liệu phase riêng.
 
@@ -814,12 +815,12 @@ Không nên đổi nhãn sản phẩm thành V2 chỉ vì các lớp hoặc tài
 Nếu nguồn lực có hạn, nên làm đúng thứ tự này:
 
 1. giữ Phase 7 mặc định tắt cho tới khi có kế hoạch rollout/canary và rollback evidence;
-2. giữ Phase 11 goal/short-intention và Phase 12 Memory/ContextSelector trong regression;
-3. thực hiện Phase 13: ghép Embodiment Policy với delivery state thật;
-4. thực hiện Phase 14: trajectory replay, observability hardening và human-like calibration;
-5. chỉ sau đó thực hiện Phase 15 release gate, live/canary, security và rollback rehearsal;
-6. giữ Phase 8/9/10/12 production flags tắt tới khi có audio/VTS/OBS/memory canary tương ứng;
-7. giảm nợ bảo trì mà không đổi thứ tự phase hoặc thêm logic V3.
+2. giữ Phase 11 goal/short-intention, Phase 12 Memory/ContextSelector và Phase 13 Embodiment Policy
+   trong regression;
+3. thực hiện Phase 14: trajectory replay, observability hardening và human-like calibration;
+4. chỉ sau đó thực hiện Phase 15 release gate, live/canary, security và rollback rehearsal;
+5. giữ Phase 8/9/10/12/13 production flags tắt tới khi có audio/VTS/OBS/memory canary tương ứng;
+6. giảm nợ bảo trì mà không đổi thứ tự phase hoặc thêm logic V3.
 
 Thứ tự này ưu tiên độ tin cậy trước, quyền quyết định thật sau, rồi mới mở rộng hành động và tối ưu kiến trúc.
 
@@ -1714,6 +1715,75 @@ Targeted Phase 12 đạt 267 test; deterministic context/lifecycle replay đạt
 SQLite latency/callback canary nên closure kỹ thuật không phải production rollout. Product version vẫn
 `1.4.3` vì đây chưa phải release acceptance.
 
+#### 17.2.13. Strict Embodiment Policy contract Phase 13
+
+Phase 13 chỉ hợp nhất arbitration quanh VTube Studio adapter và local typed action boundary đã có;
+không tạo animation engine, perception source, planner hoặc Director ownership thứ hai. Ba tầng có owner
+không chồng lấn:
+
+- LOW gồm blink, idle và lip-sync do model/avatar/audio path tự động sở hữu. LOW không đọc mood để tạo
+  fact, không tạo `ActionRequest`, transaction, evidence hoặc success record.
+- MID gồm mood/posture/gaze cosmetic sau confirmed speech delivery. `DirectorDeliveryBoundary` chỉ gọi
+  `EmbodimentPolicy.apply_mid` sau authoritative delivery success. Mood chỉ chọn style; không được tạo
+  fact, cause, hard priority, intention hoặc intentional gesture. MID fail/cancel phải cleanup lease và
+  không được đổi delivery/business outcome đã xác nhận.
+- HIGH là intentional gesture và chỉ đi qua typed `ActionRequest` `AVATAR_GESTURE`. Request phải có
+  `gesture_id` strict thuộc operator allowlist, evidence ref không rỗng và bounded. HIGH không được suy ra
+  từ mood dominant, keyword hoặc raw LLM text; một thời điểm chỉ có một HIGH lease và MID/HIGH chặn nhau.
+
+Gate Phase 13 yêu cầu:
+
+- `EmbodimentPolicyConfig`, command/record/snapshot public và mọi ID/evidence phải strict, deterministic,
+  bounded, deep-immutable ở read boundary và không chứa raw speech/chat/credential. Timeout, cooldown,
+  lease TTL, ID length, evidence/record bound nằm trong `animation.yaml`; thiếu key, key thừa,
+  bool/string coercion,
+  NaN/Infinity hoặc giá trị ngoài miền phải fail startup.
+- Policy chỉ được cấp HIGH lease khi service running/enabled, downstream animation usable, gesture
+  allowlisted và evidence hợp lệ. Lease stale phải expire deterministic; disable/stop/cancel/timeout/
+  executor failure/verifier failure đều release đúng một lần. Không acknowledgement, exception, non-bool
+  acknowledgement hoặc VTS disconnected phải fail safe và không làm chết speech/runtime.
+- VTS API acknowledgement chỉ là authority input của `AvatarGestureVerifier`; executor không được tự ghi
+  `high_verified`. Chỉ `VerificationResult.verified=true` đúng action/gesture/evidence mới kết thúc HIGH
+  bằng verified record. Visual playback completion nằm ngoài khả năng VTS hotkey API và không được tuyên
+  bố là đã quan sát.
+- `avatar_action_adapter` khi bật phải phụ thuộc `embodiment_policy` và `animation_smooth`; policy disabled
+  hoặc unavailable phải fail closed thay vì bypass arbitration. `AVATAR_GESTURE` declaration phải công bố
+  `gesture_id: string`, self/health/permission precondition và conflict với intentional gesture khác.
+- Snapshot/metric operator phải hiển thị running/enabled, active level/lease, bounded recent outcomes và
+  counter reject/fail/verified. Metric, log, snapshot hoặc downstream cosmetic failure không được ném lỗi
+  ngược vào core turn. Snapshot không được cấp mutable alias tới state nội bộ.
+- Rollback bằng tắt `embodiment_policy` phải đưa MID về exact automatic expression path hiện hành cho lượt
+  sau; HIGH adapter không được chạy nếu policy không active. Phase 13 không đổi `director_v2_takeover`,
+  không tự bật production flag và không coi unit test là live VTS readiness.
+
+Gate kiểm thử gồm strict config/interface/snapshot, LOW negative boundary, MID post-delivery/cooldown/
+conflict/cancel/failure isolation, HIGH allowlist/evidence/single lease/TTL/cooldown, executor timeout,
+authoritative verification, duplicate/idempotency, disable/stop cleanup, VTS degraded/non-bool ack,
+FeatureManager dependency/rollback, composition lifecycle, operator snapshot/metrics và exact disabled
+fallback. Integration/replay phải chứng minh cùng delivery/action/evidence tạo cùng arbitration outcome,
+không intentional overlap, failed/unknown action không tạo verified embodiment record và speech commit
+không phụ thuộc cosmetic success. Impacted Phase 1/3/4/5/7/8/11/12, Director/runtime, documentation guard
+và full offline regression phải tiếp tục xanh.
+
+**Trạng thái Phase 13:** đạt closure gate kỹ thuật ngày 20/08/2026. Command, record và snapshot
+embodiment hiện strict/frozen; config policy fail startup với coercion, key thừa/thiếu, giá trị không hữu
+hạn hoặc ngoài bound. LOW tiếp tục automatic và không tạo action; MID chỉ chạy sau confirmed delivery,
+chặn HIGH, cleanup cancellation/disable và không đảo ngược speech success; HIGH bắt buộc policy running,
+VTS allowlist, bounded evidence, single lease và timeout/TTL/cooldown từ YAML.
+
+`AvatarGestureExecutor` chỉ giữ VTS acknowledgement làm authority input; `high_verified` chỉ được ghi sau
+`AvatarGestureVerifier` thành công. Timeout, cancellation, non-bool/no acknowledgement, degraded VTS,
+disable/stop và verifier failure đều release lease mà không tạo verified record. Runtime expose boundary
+`execute_avatar_action` chỉ cho typed HIGH gesture, đưa policy vào lifecycle/snapshot/metrics và buộc
+`avatar_action_adapter` phụ thuộc `animation_smooth` + `embodiment_policy`. Rollback policy tắt giữ exact
+automatic expression path cho lượt sau và intentional adapter fail closed.
+
+Targeted Phase 13 đạt 381 test; deterministic arbitration replay đạt; full offline
+`pytest tests -q` đạt 2.235 test, 0 lỗi trong 149,02 giây. Các cờ `embodiment_policy` và
+`avatar_action_adapter` tiếp tục mặc định tắt; chưa chạy live VTS visual/audio canary nên closure kỹ thuật
+không phải production rollout. VTS API acknowledgement chỉ chứng minh hotkey request được nhận, không
+chứng minh animation đã phát xong. Product version vẫn `1.4.3` vì đây chưa phải release acceptance.
+
 ### 17.3. Chuỗi mã để lần theo một lượt
 
 ```mermaid
@@ -2160,7 +2230,8 @@ Ngày 20/08/2026:
 - comment/document cleanup targeted: 255 đạt; documentation guard hiện tại: 11 đạt;
 - Phase 11 goal/short-intention targeted: 160 đạt; deterministic lifecycle replay: đạt;
 - Phase 12 Memory/ContextSelector targeted: 267 đạt; deterministic bounded-context replay: đạt;
-- full offline `pytest tests -q`: 2.207 đạt, 0 lỗi trong 150,27 giây;
+- Phase 13 Embodiment Policy targeted: 381 đạt; deterministic arbitration replay: đạt;
+- full offline `pytest tests -q`: 2.235 đạt, 0 lỗi trong 149,02 giây;
 - còn một cảnh báo deprecation giữa Starlette TestClient và `httpx`;
 - chưa chạy live/LLM acceptance, audio/VTS/OBS canary hoặc canary takeover; `llama-server` không được
   khởi động trong Phase 10.

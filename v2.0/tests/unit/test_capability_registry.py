@@ -245,6 +245,12 @@ def test_capability_declaration_is_deeply_immutable_and_inventory_is_exact() -> 
     assert scene.capability.verifier_id == "obs_scene_state"
     assert dict(scene.capability.parameter_schema) == {"scene_name": "string"}
     assert scene.mock_only is False
+    avatar = next(
+        item for item in config.definitions
+        if item.capability.capability_id == "AVATAR_GESTURE"
+    )
+    assert dict(avatar.capability.parameter_schema) == {"gesture_id": "string"}
+    assert avatar.conflict_actions == ("AVATAR_GESTURE",)
 
 
 def test_capability_registry_uses_executor_id_provider_and_strict_boolean_health() -> None:

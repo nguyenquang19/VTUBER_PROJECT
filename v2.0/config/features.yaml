@@ -96,10 +96,10 @@ features:
     vram_cost_mb: 0
     latency_impact_ms: 0
     category: action
-    depends_on: ["animation_smooth"]
+    depends_on: ["animation_smooth", "embodiment_policy"]
     conflicts_with: []
     name: Avatar action adapter
-    description: Typed intentional VTS gesture adapter; automatic mood expression is unchanged.
+    description: Typed intentional VTS gesture adapter; requires strict embodiment arbitration.
 
   obs_scene_executor:
     enabled: false

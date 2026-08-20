@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import shutil
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, AsyncIterator
@@ -12,6 +13,7 @@ import yaml
 
 import orchestrator.stream_runtime as stream_runtime_module
 from interfaces.base import HealthStatus
+from interfaces.compatibility import ActionRequest
 from interfaces.input import InputEvent, InputService
 from interfaces.llm import LLMRequest, LLMToken
 from orchestrator.config_loader import ConfigLoader
@@ -366,6 +368,15 @@ async def test_local_action_adapters_are_composed_with_independent_feature_lifec
     }
     assert runtime._external_executor_registry.executor_for("speech_delivery") is None
     assert "speech_delivery" not in runtime._action_mock_loop._executors
+    assert runtime.operations_snapshot()["embodiment"] == {
+        "running": False,
+        "enabled": False,
+        "active_level": None,
+        "active_action_id": None,
+        "active_gesture_id": None,
+        "counts": {},
+        "recent": [],
+    }
 
     await runtime.start()
     try:
@@ -380,6 +391,9 @@ async def test_local_action_adapters_are_composed_with_independent_feature_lifec
         assert perception["adapters"]["obs_perception_adapter"][
             "obs_perception_enabled"
         ] is False
+        avatar_rejected = await runtime._feature_manager.enable("avatar_action_adapter")
+        assert avatar_rejected.ok is False
+        assert "embodiment_policy" in avatar_rejected.reason
         enabled = await runtime._feature_manager.enable("speech_action_adapter")
         assert enabled.ok is True
         assert boundary.speech_enabled is True
@@ -387,9 +401,28 @@ async def test_local_action_adapters_are_composed_with_independent_feature_lifec
         assert disabled.ok is True
         assert boundary.speech_enabled is False
         assert runtime.operations_snapshot()["local_action_adapters"]["running"] is True
+        assert runtime.operations_snapshot()["embodiment"]["running"] is True
+        assert runtime.operations_snapshot()["embodiment"]["enabled"] is False
+        assert runtime.get_metrics()["embodiment_policy_running"] is True
+        avatar_result = await runtime.execute_avatar_action(ActionRequest(
+            schema_version=1,
+            action_id="avatar-disabled",
+            capability_id="AVATAR_GESTURE",
+            action_type="AVATAR_GESTURE",
+            target=None,
+            arguments={"gesture_id": "wave"},
+            intention_id=None,
+            evidence_refs=("event-1",),
+            idempotency_key="avatar-disabled",
+            priority=0.0,
+            requested_at=datetime(2026, 8, 20, tzinfo=timezone.utc),
+            transaction_policy="none",
+        ))
+        assert avatar_result.error_code == "adapter_disabled"
     finally:
         await runtime.stop()
     assert boundary.snapshot()["running"] is False
+    assert runtime.operations_snapshot()["embodiment"]["running"] is False
 
 
 @pytest.mark.asyncio

@@ -5,6 +5,7 @@ Business commit/release remains in :mod:`services.director.director_loop`.
 """
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable
 
@@ -132,7 +133,7 @@ class DirectorDeliveryBoundary:
                 )
                 return False
         else:
-            # Exact compatibility path when Phase 8 speech adaptation is disabled.
+            # Exact compatibility path when typed speech adaptation is disabled.
             if self._speak is None:
                 self.finalize_runner_delivery(request_id, False)
                 self._log.warning("director_delivery_sink_missing", request_id=request_id)
@@ -167,6 +168,8 @@ class DirectorDeliveryBoundary:
         if self._embodiment_policy is not None and bool(getattr(self._embodiment_policy, "enabled", False)):
             try:
                 await self._embodiment_policy.apply_mid(request_id, self._mood_provider())
+            except asyncio.CancelledError:
+                self._log.warning("embodiment_mid_cancelled_after_delivery")
             except Exception as exc:  # pragma: no cover - defensive
                 self._log.warning("embodiment_mid_failed", error=str(exc))
         elif self._animation is not None:
@@ -174,6 +177,8 @@ class DirectorDeliveryBoundary:
                 await self._animation.express(
                     AnimationCommand(command_type="express", mood=self._mood_provider()),
                 )
+            except asyncio.CancelledError:
+                self._log.warning("animation_express_cancelled_after_delivery")
             except Exception as exc:  # pragma: no cover - defensive
                 self._log.warning("animation_express_failed", error=str(exc))
         return True

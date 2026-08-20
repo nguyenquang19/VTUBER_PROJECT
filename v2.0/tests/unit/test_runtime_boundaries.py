@@ -48,6 +48,7 @@ def test_stream_runtime_composition_uses_public_boundaries() -> None:
     assert "router.add_activity_listener(_on_input_activity)" in source
     assert "director_loop.set_runtime_context_provider(rt.runtime_context)" in source
     assert "async def execute_external_action" in source
+    assert "async def execute_avatar_action" in source
     assert "router.add_activity_listener(chat_perception_adapter.observe_input)" in source
     assert "router.add_activity_listener(system_perception_adapter.observe_input)" in source
     assert "agent_state.add_event_listener(system_perception_adapter.observe_grounded)" in source

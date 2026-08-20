@@ -12,6 +12,16 @@ from orchestrator.stream_runtime import StreamRuntimeConfig, build_stream_runtim
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+EMBODIMENT_CONFIG = {
+    "mid_cooldown_s": 2.0,
+    "mid_timeout_s": 1.0,
+    "intentional_cooldown_s": 3.0,
+    "intentional_lease_ttl_s": 120.0,
+    "max_evidence_refs": 4,
+    "max_recent_records": 32,
+    "max_id_chars": 160,
+    "max_gesture_id_chars": 64,
+}
 
 
 class OverrideLoader:
@@ -19,6 +29,8 @@ class OverrideLoader:
         self._overrides = overrides
 
     def get(self, name: str, key: str, default=None):
+        if (name, key) == ("animation", "animation.embodiment"):
+            return self._overrides.get((name, key), dict(EMBODIMENT_CONFIG))
         return self._overrides.get((name, key), default)
 
 
@@ -179,6 +191,23 @@ def test_speech_style_budget_cannot_exceed_recent_window() -> None:
         validate_runtime_config(OverrideLoader({
             ("director", "director.speech_style.recent_window"): 2,
             ("director", "director.speech_style.max_formula_openers"): 3,
+        }))
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        None,
+        {**EMBODIMENT_CONFIG, "extra": 1},
+        {key: item for key, item in EMBODIMENT_CONFIG.items() if key != "max_id_chars"},
+        {**EMBODIMENT_CONFIG, "intentional_lease_ttl_s": "120"},
+        {**EMBODIMENT_CONFIG, "max_recent_records": True},
+    ],
+)
+def test_runtime_rejects_invalid_embodiment_config_before_composition(value: object) -> None:
+    with pytest.raises(ConfigError, match="Runtime embodiment config"):
+        validate_runtime_config(OverrideLoader({
+            ("animation", "animation.embodiment"): value,
         }))
 
 

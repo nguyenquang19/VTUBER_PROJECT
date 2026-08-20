@@ -16,6 +16,7 @@ from orchestrator.config_loader import ConfigError
 from orchestrator.credential_contract import (
     validate_runtime_credential_contract,
 )
+from services.animation.embodiment_policy import EmbodimentPolicyConfig
 
 
 def _strict_string_tuple(value: Any, field_name: str) -> tuple[str, ...]:
@@ -131,6 +132,10 @@ def validate_runtime_config(loader: Any) -> RuntimeCriticalConfig:
         validate_runtime_credential_contract(loader)
     except ValueError as exc:
         raise ConfigError(f"Runtime credential config không hợp lệ: {exc}") from exc
+    try:
+        EmbodimentPolicyConfig.from_loader(loader)
+    except ValueError as exc:
+        raise ConfigError(f"Runtime embodiment config không hợp lệ: {exc}") from exc
     try:
         return RuntimeCriticalConfig(
             log_dir=loader.get("logging", "jsonl.dir", "logs"),

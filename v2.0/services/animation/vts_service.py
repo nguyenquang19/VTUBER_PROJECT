@@ -14,7 +14,7 @@ prototype. Nguồn cảm xúc duy nhất là MoodState.dominant() do Mai cấp.
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Mapping
 
 from interfaces.animation import AnimationCommand, AnimationService, MoodState
 from interfaces.base import HealthStatus
@@ -37,7 +37,9 @@ class VTSAnimationService(AnimationService):
     ) -> None:
         self._transport = transport
         self._mood_hotkeys = {str(k): str(v) for k, v in (mood_hotkeys or {}).items()}
-        self._intentional_gesture_hotkeys = {str(k): str(v) for k, v in (intentional_gesture_hotkeys or {}).items()}
+        self._intentional_gesture_hotkeys = self._strict_intentional_allowlist(
+            intentional_gesture_hotkeys,
+        )
         self._retrigger_same = bool(retrigger_on_same_mood)
         self.enabled = bool(enabled)
         self._running = False
@@ -147,7 +149,14 @@ class VTSAnimationService(AnimationService):
 
     async def trigger_intentional_gesture(self, gesture_id: str) -> bool:
         """Trigger only an operator-allowlisted VTS hotkey; fail safe otherwise."""
-        key = str(gesture_id).strip()
+        if (
+            not isinstance(gesture_id, str)
+            or not gesture_id
+            or gesture_id != gesture_id.strip()
+        ):
+            self._skipped_total += 1
+            return False
+        key = gesture_id
         hotkey = self._intentional_gesture_hotkeys.get(key)
         if not self.enabled or not self._running or not self._transport.connected or not hotkey:
             self._skipped_total += 1
@@ -169,6 +178,15 @@ class VTSAnimationService(AnimationService):
         else:
             self._skipped_total += 1
         return acknowledged
+
+    def is_intentional_gesture_allowed(self, gesture_id: str) -> bool:
+        return (
+            isinstance(gesture_id, str)
+            and bool(gesture_id)
+            and gesture_id == gesture_id.strip()
+            and gesture_id in self._intentional_gesture_hotkeys
+        )
+
     async def sync_with_audio(self, audio_chunk: AudioChunk) -> None:
         """Lip-sync trong VTS lấy từ audio input (Voicemeeter), KHÔNG qua API.
 
@@ -176,3 +194,25 @@ class VTSAnimationService(AnimationService):
         miệng do model tự xử theo tín hiệu âm thanh, không phải side-effect runtime.
         """
         return
+
+    @staticmethod
+    def _strict_intentional_allowlist(
+        value: Mapping[str, str] | None,
+    ) -> dict[str, str]:
+        if value is None:
+            return {}
+        if not isinstance(value, Mapping):
+            raise ValueError("intentional_gesture_hotkeys must be a mapping")
+        result: dict[str, str] = {}
+        for gesture_id, hotkey in value.items():
+            if (
+                not isinstance(gesture_id, str)
+                or not gesture_id
+                or gesture_id != gesture_id.strip()
+                or not isinstance(hotkey, str)
+                or not hotkey
+                or hotkey != hotkey.strip()
+            ):
+                raise ValueError("intentional gesture allowlist entries must be trimmed strings")
+            result[gesture_id] = hotkey
+        return result

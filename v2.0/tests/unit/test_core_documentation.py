@@ -239,8 +239,9 @@ def test_canonical_docs_keep_current_phase_and_release_limits_explicit() -> None
         "Vòng tự chủ khép kín | Chưa đạt",
         "`v2.0\\venv` hiện dùng CPython `3.11.15`",
         "Phase 10 đã đóng canonical perception ingress",
-        "Phase 13 trở đi chưa đóng gate",
-        "full offline `pytest tests -q`: 2.207 đạt, 0 lỗi",
+        "Phase 14 trở đi chưa đóng gate",
+        "Phase 13 Embodiment Policy targeted: 381 đạt",
+        "full offline `pytest tests -q`: 2.235 đạt, 0 lỗi",
         "Dashboard toggle thành công phải persist",
         "RuntimeCriticalConfig` không nhận chuỗi thay cho",
         "Khởi động là một giao dịch hai tầng",
@@ -251,8 +252,9 @@ def test_canonical_docs_keep_current_phase_and_release_limits_explicit() -> None
     for statement in required:
         assert statement in spec, f"critical implementation limit disappeared: {statement}"
 
-    assert "Phase 1–12 đã đóng gate kỹ thuật" in readme
+    assert "Phase 1–13 đã đóng gate kỹ thuật" in readme
     forbidden = (
+        "Phase 1–12 đã đóng gate kỹ thuật",
         "Phase 1–11 đã đóng gate kỹ thuật",
         "Phase 1–10 đã đóng gate kỹ thuật",
         "Phase 1–9 đã đóng gate kỹ thuật",
