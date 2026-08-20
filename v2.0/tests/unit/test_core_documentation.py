@@ -231,7 +231,8 @@ def test_canonical_docs_keep_current_phase_and_release_limits_explicit() -> None
     spec = (ROOT / "docs" / "MAI_V2_SYSTEM_SPEC.md").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     required = (
-        "production flag vẫn tắt, chưa có live rollout/canary",
+        "V2 test cutover",
+        "agreement-controlled",
         "Feature `obs_scene_executor` vẫn mặc định `enabled=false`",
         "speech_action_adapter",
         "avatar_action_adapter",
@@ -239,7 +240,7 @@ def test_canonical_docs_keep_current_phase_and_release_limits_explicit() -> None
         "Vòng tự chủ khép kín | Chưa đạt",
         "`v2.0\\venv` hiện dùng CPython `3.11.15`",
         "Phase 10 đã đóng canonical perception ingress",
-        "Phase 15 chưa đóng gate",
+        "Phase 15 chưa đóng release gate",
         "Phase 13 Embodiment Policy targeted: 381 đạt",
         "Phase 14 calibration/trajectory targeted và impacted: 471 đạt",
         "full offline `pytest tests -q`: 2.288 đạt, 0 lỗi",

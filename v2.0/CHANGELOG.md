@@ -34,8 +34,10 @@ Mọi thay đổi product sau baseline dùng Semantic Versioning. Product versio
 - Đóng gate kỹ thuật Phase 1–10: compatibility contracts, World/Self shadow, capability registry,
   mock action loop, Director V2 shadow/takeover, speech/avatar adapters, OBS scene action và canonical
   perception ingress.
-- Giữ controlled takeover, speech/avatar action adapters, OBS scene action và OBS perception mặc định
-  tắt cho tới khi có rollout plan, live canary và rollback evidence tương ứng.
+- Chuyển working tree sang V2 test cutover: bật Director V2 takeover ở stage `SPEECH_SCHEDULING`,
+  speech/avatar typed adapters, Embodiment Policy, ContextSelector/agent context và trajectory records;
+  compatibility path vẫn tạo executable payload/mốc agreement và giữ fail-safe/rollback. External
+  OBS/perception và operator canary vẫn tắt cho tới khi có credential, live canary và rollback evidence.
 - Phase 11–14 đã đóng gate kỹ thuật; Phase 15 và external live/human/rollback evidence chưa đóng.
 - Phase 15 strict tooling đã triển khai: fixed source-bound verification, release artifact hash/freshness
   guard, operator-only closed-loop canary, MAI-HLC release projection và hashed operations rehearsal.
@@ -61,6 +63,8 @@ change được duyệt như một release.
   animation và release preflight: 100 đạt.
 - Comment/document cleanup targeted: 255 đạt; documentation guard hiện tại: 11 đạt.
 - Phase 15 documentation/release/canary targeted: 65 đạt; canary/lifecycle impacted và fake-OBS: 14 đạt.
+- V2 test cutover targeted/impacted đạt 219 test; full regression sau khi bật takeover stage cuối và
+  các typed/context/trajectory boundary đạt 2.288 test, 0 lỗi.
 - Full offline `pytest tests -q`: 2.288 đạt, 0 lỗi; còn một cảnh báo deprecation giữa
   Starlette TestClient và `httpx`.
 - Chưa có live/LLM acceptance, audio/VTS/OBS canary hoặc canary takeover cho release `2.0.0`.

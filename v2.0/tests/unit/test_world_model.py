@@ -252,4 +252,4 @@ def test_dashboard_exposes_world_shadow_read_only_and_runtime_does_not_pass_it_t
     assert 'fillDl("system-world"' in (root / "dashboard" / "static" / "operator_v2.js").read_text(encoding="utf-8")
     loader = ConfigLoader(root / "config")
     loader.load_all()
-    assert loader.get("features", "features.context_selector.enabled") is False
+    assert loader.get("features", "features.context_selector.enabled") is True

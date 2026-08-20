@@ -104,12 +104,12 @@ def test_prompt_manager_injects_grounded_context_as_system_message() -> None:
     assert request.messages[1].content.startswith("[Grounded working context]")
 
 
-async def test_agent_context_toggle_defaults_off_and_runner_can_switch() -> None:
+async def test_agent_context_and_selector_default_on_while_runner_remains_switchable() -> None:
     loader = ConfigLoader(REPO_ROOT / "config")
     loader.load_all()
     manager = FeatureManager.from_config(loader)
-    assert await manager.get_status("agent_context") is FeatureStatus.DISABLED
-    assert await manager.get_status("context_selector") is FeatureStatus.DISABLED
+    assert await manager.get_status("agent_context") is FeatureStatus.ENABLED
+    assert await manager.get_status("context_selector") is FeatureStatus.ENABLED
 
     class State:
         def snapshot(self) -> AgentStateSnapshot:

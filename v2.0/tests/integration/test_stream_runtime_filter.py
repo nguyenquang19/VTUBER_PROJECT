@@ -361,8 +361,8 @@ async def test_local_action_adapters_are_composed_with_independent_feature_lifec
     assert boundary is not None
     assert boundary.snapshot() == {
         "running": False,
-        "speech_enabled": False,
-        "avatar_enabled": False,
+        "speech_enabled": True,
+        "avatar_enabled": True,
         "idempotency_records": 0,
         "outcomes": {},
     }
@@ -370,7 +370,7 @@ async def test_local_action_adapters_are_composed_with_independent_feature_lifec
     assert "speech_delivery" not in runtime._action_mock_loop._executors
     assert runtime.operations_snapshot()["embodiment"] == {
         "running": False,
-        "enabled": False,
+        "enabled": True,
         "active_level": None,
         "active_action_id": None,
         "active_gesture_id": None,
@@ -381,7 +381,7 @@ async def test_local_action_adapters_are_composed_with_independent_feature_lifec
     await runtime.start()
     try:
         assert boundary.snapshot()["running"] is True
-        assert (await boundary.health_check()).state.value == "degraded"
+        assert (await boundary.health_check()).state.value == "healthy"
         assert runtime._world_model.query("stream.runtime") is not None
         perception = runtime.operations_snapshot()["perception"]
         assert perception["ingress"]["perception_recent_events"] == 1
@@ -391,19 +391,24 @@ async def test_local_action_adapters_are_composed_with_independent_feature_lifec
         assert perception["adapters"]["obs_perception_adapter"][
             "obs_perception_enabled"
         ] is False
-        avatar_rejected = await runtime._feature_manager.enable("avatar_action_adapter")
-        assert avatar_rejected.ok is False
-        assert "embodiment_policy" in avatar_rejected.reason
-        enabled = await runtime._feature_manager.enable("speech_action_adapter")
-        assert enabled.ok is True
-        assert boundary.speech_enabled is True
-        disabled = await runtime._feature_manager.disable("speech_action_adapter")
-        assert disabled.ok is True
+        avatar_disabled = await runtime._feature_manager.disable("avatar_action_adapter")
+        assert avatar_disabled.ok is True
+        assert boundary.avatar_enabled is False
+        avatar_enabled = await runtime._feature_manager.enable("avatar_action_adapter")
+        assert avatar_enabled.ok is True
+        assert boundary.avatar_enabled is True
+        speech_disabled = await runtime._feature_manager.disable("speech_action_adapter")
+        assert speech_disabled.ok is True
         assert boundary.speech_enabled is False
+        speech_enabled = await runtime._feature_manager.enable("speech_action_adapter")
+        assert speech_enabled.ok is True
+        assert boundary.speech_enabled is True
         assert runtime.operations_snapshot()["local_action_adapters"]["running"] is True
         assert runtime.operations_snapshot()["embodiment"]["running"] is True
-        assert runtime.operations_snapshot()["embodiment"]["enabled"] is False
+        assert runtime.operations_snapshot()["embodiment"]["enabled"] is True
         assert runtime.get_metrics()["embodiment_policy_running"] is True
+        avatar_disabled = await runtime._feature_manager.disable("avatar_action_adapter")
+        assert avatar_disabled.ok is True
         avatar_result = await runtime.execute_avatar_action(ActionRequest(
             schema_version=1,
             action_id="avatar-disabled",

@@ -94,12 +94,12 @@ class TestRegistryBasics:
 
         assert await production.get_status("director_chat_gate") is FeatureStatus.ENABLED
 
-    async def test_phase14_and_15_features_are_registered_off_with_strict_dependencies(self) -> None:
+    async def test_phase14_trajectory_test_cutover_and_phase15_operator_features(self) -> None:
         loader = ConfigLoader(REPO_ROOT / "config")
         loader.load_all()
         production = FeatureManager.from_config(loader)
 
-        assert await production.get_status("trajectory_records") is FeatureStatus.DISABLED
+        assert await production.get_status("trajectory_records") is FeatureStatus.ENABLED
         assert await production.get_status("human_like_calibration") is FeatureStatus.DISABLED
         assert await production.get_status("closed_loop_canary") is FeatureStatus.DISABLED
         graph = await production.get_dependencies("trajectory_records")
@@ -474,8 +474,8 @@ class TestFromConfig:
         assert features["avatar_action_adapter"].depends_on == [
             "animation_smooth", "embodiment_policy",
         ]
-        assert await manager.get_status("avatar_action_adapter") is FeatureStatus.DISABLED
-        assert await manager.get_status("embodiment_policy") is FeatureStatus.DISABLED
+        assert await manager.get_status("avatar_action_adapter") is FeatureStatus.ENABLED
+        assert await manager.get_status("embodiment_policy") is FeatureStatus.ENABLED
 
     def test_core_ids_from_system_yaml(self) -> None:
         loader = ConfigLoader(REPO_ROOT / "config")

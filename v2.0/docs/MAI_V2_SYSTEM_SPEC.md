@@ -36,13 +36,14 @@ mặc định tắt và chưa có live canary.
 
 Tuy nhiên, **V2 chưa phải một vòng tự chủ hoàn chỉnh đang chạy trong thực tế**. Các phần quan sát thế
 giới, mô hình bản thân, năng lực, lựa chọn hành động và khung thực thi đã được xây dựng ở nhiều mức độ
-khác nhau, nhưng chưa nối liền thành một đường đi production duy nhất. Controlled takeover, speech/avatar
-adapters, OBS scene action và Perception Phase 10 đều đã compose nhưng production flag vẫn tắt, chưa có live rollout/canary
-evidence cho các capability liên quan. Phase 9/10 không trao external action hoặc raw
-observation cho Director. Phase 11 đã đóng goal/short-intention lifecycle; Phase 12 đã đóng strict
-Memory/ContextSelector contract nhưng feature production vẫn tắt; Phase 13 đã đóng strict Embodiment
-Policy contract nhưng feature production vẫn tắt; Phase 14 đã đóng strict calibration/trajectory
-contract nhưng hai feature vẫn mặc định tắt và chưa có human review evidence; Phase 15 chưa đóng gate.
+khác nhau, nhưng chưa nối liền với external system thật thành một đường đi production duy nhất. Working
+tree hiện dùng cấu hình **V2 test cutover**: controlled takeover ở stage `SPEECH_SCHEDULING`, speech/avatar
+typed boundary, Embodiment Policy, ContextSelector/agent context và trajectory được bật để kiểm thử đường
+V2. Compatibility Director vẫn tạo executable decision/payload làm mốc agreement và là fallback khi
+proposal/selection/material không hợp lệ hoặc service lỗi. Takeover hiện vẫn là agreement-controlled nên
+không được mô tả như autonomous divergent policy.
+OBS scene action/perception, closed-loop canary và các integration cần credential vẫn tắt cho tới canary
+riêng. Phase 15 chưa đóng release gate và cấu hình test cutover không tự biến capability thành production.
 
 Vì vậy, cách mô tả chính xác nhất là:
 
@@ -60,8 +61,8 @@ Trạng thái phát hành khách quan:
 | General action mock closed loop Phase 5 | Đã đóng gate: strict transaction, verified result, commit-before-World projection, idempotency/cancellation/failure isolation; vẫn mock-only |
 | Director V2 shadow Phase 6 | Đã đóng gate: deterministic proposal, hard precedence, strict capability/evidence, bounded log/metrics; không đổi live decision |
 | Nền nhận thức/trạng thái V2 | Có mã, chủ yếu ở shadow hoặc từng thành phần riêng |
-| Director V2 takeover Phase 7 | Đã đóng gate kỹ thuật: accepted agreement tạo executable decision ownership V2; mọi lỗi trả exact legacy; production flag vẫn tắt |
-| Speech/avatar action adapters Phase 8 | Đã đóng gate kỹ thuật: local typed boundary, authoritative TTS verification, bounded idempotency và runtime composition; production flags vẫn tắt |
+| Director V2 takeover Phase 7 | Đã đóng gate kỹ thuật và bật V2 test cutover ở stage `SPEECH_SCHEDULING`; accepted agreement tạo executable decision ownership V2, mọi lỗi trả exact legacy |
+| Speech/avatar action adapters Phase 8 | Đã đóng gate kỹ thuật và bật cho V2 test cutover: local typed boundary, authoritative TTS/VTS verification, bounded idempotency và runtime composition; chưa có live audio/VTS canary |
 | External OBS scene action Phase 9 | Đã đóng gate kỹ thuật: typed transport/executor/verifier, strict transaction, bounded retry/idempotency, conditional rollback và runtime composition; production flag vẫn tắt, chưa có live canary |
 | Canonical perception expansion Phase 10 | Đã đóng gate kỹ thuật: Chat/System qua canonical ingress, OBS read-only compose dùng chung transport; OBS flag vẫn tắt, chưa có live canary |
 | Vòng tự chủ khép kín | Chưa đạt |
@@ -82,15 +83,15 @@ Các cột dưới đây độc lập với nhau. “Có mã” không thay th�
 | Capability/permission/health registry | Có | Shadow read-only | Unit, negative-path, impacted và full offline regression | Không |
 | Action transaction | Có | Mock loop và OBS external boundary strict; không nối Director V1 | Unit, negative-path, impacted, replay và full offline regression | External OBS chưa phát hành; mặc định tắt |
 | Director V2 shadow | Có | Proposal/log read-only strict; không đổi live decision | Unit, negative-path, impacted, replay và full offline regression | Không |
-| Director V2 takeover | Có | Strict controlled agreement ownership; mặc định tắt, exact legacy fallback | Unit, negative-path, impacted, replay và full offline regression | Không |
-| Speech action adapter | Có | Live `DirectorDeliveryBoundary` qua local typed boundary khi bật; exact legacy khi tắt | Unit, negative-path, transaction integration và full offline regression | Không; mặc định tắt |
-| Avatar action adapter | Có | Local typed intentional-gesture boundary; không giả automatic mood thành action | Unit, VTS fail-safe, composition và full offline regression | Không; mặc định tắt |
+| Director V2 takeover | Có | V2 test cutover stage `SPEECH_SCHEDULING`; strict agreement ownership, exact legacy fallback khi fail | Unit, negative-path, impacted, replay và full offline regression | Chưa phát hành; live canary còn thiếu |
+| Speech action adapter | Có | `DirectorDeliveryBoundary` đi qua local typed boundary; exact legacy là rollback switch | Unit, negative-path, transaction integration và full offline regression | Bật cho test; chưa live audio canary |
+| Avatar action adapter | Có | Local typed intentional-gesture boundary; không giả automatic mood thành action | Unit, VTS fail-safe, composition và full offline regression | Bật cho test; unavailable/fail-safe khi chưa có VTS |
 | External OBS scene executor | Có | Compose tại `StreamRuntime`, chỉ callable qua typed boundary khi feature/permission/health đạt | Unit, transaction integration, deterministic fake-OBS replay và full offline regression | Không; mặc định tắt, chưa live canary |
 | Perception expansion | Có | Chat/System qua canonical ingress; OBS read-only compose nhưng mặc định tắt | Unit, negative-path, runtime composition, deterministic replay và full offline regression | Không; OBS chưa live canary |
 | Goals và short intentions | Có | Có, qua GoalManager/Director/Self/dashboard | Unit, integration, replay và full offline regression | Không |
-| Memory và ContextSelector V2 | Có | Strict bounded read-only composition khi bật; mặc định tắt | Unit, integration, replay và full offline regression | Không; chưa live semantic-memory canary |
-| Embodiment Policy | Có | LOW/MID/HIGH strict arbitration đã compose; mặc định tắt | Unit, integration, deterministic replay và full offline regression | Không; chưa live VTS canary |
-| Human-like calibration và trajectory | Có | Trajectory đã compose read-only theo Director V2; MAI-HLC là workflow offline tách sealed manifest | Unit, integration, deterministic replay, tamper/negative paths và full offline regression; chưa có human review evidence thật | Không; hai feature mặc định tắt |
+| Memory và ContextSelector V2 | Có | ContextSelector/agent context strict bounded được bật; semantic memory vẫn optional | Unit, integration, replay và full offline regression | Bật cho test; chưa live semantic-memory canary |
+| Embodiment Policy | Có | LOW/MID/HIGH strict arbitration đã compose và bật test | Unit, integration, deterministic replay và full offline regression | Chưa live VTS canary |
+| Human-like calibration và trajectory | Có | Trajectory bật read-only theo Director V2; MAI-HLC là workflow offline tách sealed manifest | Unit, integration, deterministic replay, tamper/negative paths và full offline regression; chưa có human review evidence thật | Trajectory bật test; human review chưa phát hành |
 | Product `2.0.0` release gates | Có strict tooling source-bound, fixed runner và canary/operations aggregator | Contract kỹ thuật đã triển khai; chưa có closed-loop/live/human/operations bundle hiện hành | Full regression xanh; external Gate D/E và release-commit verification chưa hoàn tất | Không |
 
 Ma trận chỉ được nâng trạng thái khi có đường code tương ứng, test phù hợp và evidence máy đọc hoặc vận
@@ -180,10 +181,11 @@ Sau đó nó chọn một phương án phù hợp theo mức ưu tiên, thời g
 
 Hiện tại có hai cơ chế cùng tồn tại:
 
-- luồng compatibility cũ vẫn giữ quyền production mặc định;
-- Bộ điều phối V2 đã được compose vào đường chạy chính và có thể nhận ownership cho quyết định
-  agreement-compatible khi `director_v2_takeover` được bật. Cờ này vẫn mặc định tắt và chưa có
-  rollout/canary evidence, nên production hiện tiếp tục dùng compatibility path.
+- Bộ điều phối V2 được bật trong working tree ở stage `SPEECH_SCHEDULING` và nhận ownership cho mọi nhóm
+  quyết định hội thoại agreement-compatible;
+- luồng compatibility cũ vẫn tạo executable payload và làm mốc agreement; nó trở thành final owner khi V2
+  bị tắt, proposal không hợp lệ, thiếu evidence, hard hold hoặc subsystem lỗi. Cấu hình này phục vụ V2 test
+  cutover, chưa phải autonomous divergent takeover hoặc release evidence.
 
 ### 3.5. Lớp tạo và thực thi hành động
 
@@ -410,14 +412,14 @@ Hiện hệ thống chưa có bộ thực thi thật cho ví dụ này. Vì vậ
 | Danh mục năng lực | Đã có | Từ chối mặc định, phù hợp yêu cầu an toàn |
 | Vòng hành động mô phỏng | Đã có | Chứng minh được giao dịch nhưng chưa phải hành động thật |
 | Bộ điều phối V2 quan sát | Đã có | So sánh được với luồng cũ |
-| Tiếp quản có kiểm soát | Đã đóng gate kỹ thuật, chưa rollout production | V2 sở hữu decision khi strict agreement pass; cờ mặc định tắt và fallback V1 còn nguyên |
-| Chuyển đổi giọng nói và nhân vật | Đã đóng gate kỹ thuật, chưa rollout production | Speech dùng verified local action boundary khi bật; intentional avatar route đã compose; hai cờ vẫn tắt |
+| Tiếp quản có kiểm soát | Bật V2 test cutover, chưa live canary | V2 sở hữu decision khi strict agreement pass ở stage cuối; compatibility vẫn tạo payload/mốc agreement và là fallback |
+| Chuyển đổi giọng nói và nhân vật | Bật V2 test cutover, chưa live canary | Speech dùng verified local action boundary; intentional avatar route và Embodiment Policy bật nhưng fail-safe khi VTS unavailable |
 | Khung thực thi bên ngoài | Có OBS scene executor thật | Các external action khác chưa có executor production |
 | Nhận thức mở rộng | Có nền | Cần gắn với nguồn tín hiệu thật |
 | Mục tiêu và ý định ngắn | Có một phần | Liên kết vào trạng thái bản thân còn thiếu |
 | Chọn ký ức theo ngữ cảnh | Đã có nền | Cần đo chất lượng khi chạy thật |
 | Chính sách hiện thân | Đã có nền | Cần nối với thiết bị và trạng thái thật |
-| Ghi hành trình quyết định | Đã đóng gate kỹ thuật | Đã compose bounded/read-only theo Director V2; feature mặc định tắt |
+| Ghi hành trình quyết định | Đã đóng gate kỹ thuật và bật test | Compose bounded/read-only theo Director V2; không có decision side effect |
 | Cổng đánh giá V2 | MAI-HLC và strict release tooling đã có | Blind artifact/commitment, source/hash/freshness gate đã fail closed; chưa có human review thật và Phase 15 external evidence bundle |
 | Vòng tự chủ khép kín | Có operator-only canary kỹ thuật | Fake-OBS integration đã đạt; chưa có live canary và không có autonomous production trigger |
 
@@ -485,20 +487,21 @@ Về kỹ thuật sinh câu, kết quả đủ khả quan để tiếp tục. Ph
 
 ## 9. Điểm yếu và rủi ro
 
-### 9.1. Controlled takeover chưa rollout production — mức cao
+### 9.1. Controlled takeover đã bật test cutover nhưng chưa live canary — mức cao
 
-Nhánh tiếp quản đã có thể tạo executable `DirectorDecision` mang ownership V2 khi proposal và legacy
-đồng thuận, còn mới, đúng stage và đủ evidence. Tuy nhiên `director_v2_takeover` vẫn mặc định tắt, stage
-production vẫn là `WAIT` và chưa có live/canary evidence. Gate hiện là agreement-only nên chưa cho V2
-thực thi một action khác với compatibility fallback.
+Nhánh tiếp quản tạo executable `DirectorDecision` mang ownership V2 khi proposal và compatibility
+decision đồng thuận, còn mới, đúng stage và đủ evidence. Working tree đã bật `director_v2_takeover` ở
+stage cuối `SPEECH_SCHEDULING` để toàn bộ action hội thoại đi qua selector V2 trong test. Gate hiện vẫn
+agreement-only nên chưa cho V2 thực thi một action khác với compatibility fallback.
 
-**Hậu quả:** closure kỹ thuật không đồng nghĩa V2 đang điều khiển phiên phát thật; production vẫn dùng
-legacy cho tới khi owner bật rollout có giám sát.
+**Hậu quả:** V2 đã sở hữu decision được chấp nhận trong test cutover, nhưng chưa thể gọi đây là autonomous
+production takeover trước live canary. Tắt một cờ vẫn trả exact compatibility behavior.
 
 ### 9.2. Speech/avatar adapters chưa rollout production — mức trung bình
 
 Speech/avatar adapters đã được compose vào `StreamRuntime`, có lifecycle, toggle, bounded idempotency và
-verification typed. Tuy nhiên hai cờ production vẫn mặc định tắt và chưa có audio/VTS canary thật.
+verification typed; chúng cùng Embodiment Policy được bật cho V2 test cutover. Chưa có audio/VTS canary
+thật, nên VTS unavailable phải tiếp tục fail-safe và trạng thái này chưa phải production readiness.
 
 **Hậu quả:** closure kỹ thuật chưa chứng minh adapter ổn định với thiết bị, hotkey và tải phát sóng thật;
 production tiếp tục dùng exact legacy speech path cho tới khi owner bật rollout có giám sát.
@@ -818,13 +821,14 @@ Không nên đổi nhãn sản phẩm thành V2 chỉ vì các lớp hoặc tài
 
 Nếu nguồn lực có hạn, nên làm đúng thứ tự này:
 
-1. giữ Phase 7 mặc định tắt cho tới khi có kế hoạch rollout/canary và rollback evidence;
+1. chạy Phase 7 ở V2 test cutover stage cuối, giữ rollback switch và thu takeover metrics trước live canary;
 2. giữ Phase 11 goal/short-intention, Phase 12 Memory/ContextSelector, Phase 13 Embodiment Policy và
    Phase 14 calibration/trajectory
    trong regression;
 3. thu human review evidence bằng MAI-HLC mà không tự động thay đổi release decision;
 4. thực hiện Phase 15 release gate, live/canary, security và rollback rehearsal;
-5. giữ Phase 8/9/10/12/13 production flags tắt tới khi có audio/VTS/OBS/memory canary tương ứng;
+5. giữ external OBS/Perception và operator canary tắt tới khi có credential/live canary; các boundary
+   Phase 8/12/13 đã bật test phải fail-safe khi dependency ngoài unavailable;
 6. giảm nợ bảo trì mà không đổi thứ tự phase hoặc thêm logic V3.
 
 Thứ tự này ưu tiên độ tin cậy trước, quyền quyết định thật sau, rồi mới mở rộng hành động và tối ưu kiến trúc.
@@ -1299,8 +1303,9 @@ không deliver lần hai.
 
 Targeted Phase 7 đạt 79 test, impacted Director/transaction/runtime regression đạt 220 test và full
 offline regression đạt 1999 test, 5 deselected. Replay cùng proposal/decision/evidence tạo cùng ownership
-selection; rollback switch giữ exact legacy behavior. `director_v2_takeover` vẫn mặc định `enabled=false`,
-stage `WAIT`, chưa có live/canary evidence và chưa được phát hành; product version vẫn là `1.4.3`.
+selection; rollback switch giữ exact legacy behavior. Sau closure kỹ thuật, owner đã duyệt V2 test
+cutover: `director_v2_takeover.enabled=true`, stage `SPEECH_SCHEDULING`. Đây vẫn là agreement-controlled
+test state, chưa có live/canary evidence và chưa được phát hành; product version vẫn là `1.4.3`.
 
 #### 17.2.8. Closure contract speech và avatar action adaptation Phase 8
 
@@ -1375,8 +1380,9 @@ policy/exception đều fail safe. Automatic mood expression vẫn là cosmetic 
 tạo action record. Targeted Phase 8 đạt 163 test, impacted Director/TTS/animation/runtime regression đạt
 306 test và full offline `pytest tests -q` đạt 2.028 test, 0 lỗi. Transaction integration chứng minh
 subtitle verified mới commit, partial không remove chat và duplicate committed không gọi TTS lần hai;
-YouTube replay regression tiếp tục xanh. Hai feature vẫn mặc định `enabled=false`, chưa có live audio/VTS
-canary và chưa được phát hành; product version vẫn là `1.4.3`.
+YouTube replay regression tiếp tục xanh. Sau closure kỹ thuật, `speech_action_adapter` và
+`avatar_action_adapter` được bật cho V2 test cutover; chưa có live audio/VTS canary và chưa được phát hành.
+Rollback vẫn là tắt từng feature cho attempt kế tiếp; product version vẫn là `1.4.3`.
 
 #### 17.2.9. Closure contract external OBS scene action Phase 9
 
@@ -1716,9 +1722,9 @@ provenance/outcome. Compatibility renderer không query source mới khi feature
 
 Targeted Phase 12 đạt 267 test; deterministic context/lifecycle replay đạt; full offline
 `pytest tests -q` đạt 2.207 test, 0 lỗi trong 150,27 giây. Documentation guard, `compileall` và diff check
-đạt. `memory_semantic`, `context_selector` và `agent_context` vẫn mặc định tắt; chưa chạy live BGE-M3/
-SQLite latency/callback canary nên closure kỹ thuật không phải production rollout. Product version vẫn
-`1.4.3` vì đây chưa phải release acceptance.
+đạt. Sau closure kỹ thuật, `context_selector` và `agent_context` được bật cho V2 test cutover;
+`memory_semantic` vẫn optional/tắt. Chưa chạy live BGE-M3/SQLite latency/callback canary nên trạng thái
+này không phải production rollout. Product version vẫn `1.4.3` vì đây chưa phải release acceptance.
 
 #### 17.2.13. Strict Embodiment Policy contract Phase 13
 
@@ -1784,9 +1790,9 @@ disable/stop và verifier failure đều release lease mà không tạo verified
 automatic expression path cho lượt sau và intentional adapter fail closed.
 
 Targeted Phase 13 đạt 381 test; deterministic arbitration replay đạt; full offline
-`pytest tests -q` đạt 2.235 test, 0 lỗi trong 149,02 giây. Các cờ `embodiment_policy` và
-`avatar_action_adapter` tiếp tục mặc định tắt; chưa chạy live VTS visual/audio canary nên closure kỹ thuật
-không phải production rollout. VTS API acknowledgement chỉ chứng minh hotkey request được nhận, không
+`pytest tests -q` đạt 2.235 test, 0 lỗi trong 149,02 giây. Sau closure kỹ thuật, `embodiment_policy` và
+`avatar_action_adapter` được bật cho V2 test cutover; chưa chạy live VTS visual/audio canary nên trạng thái
+này không phải production rollout. VTS API acknowledgement chỉ chứng minh hotkey request được nhận, không
 chứng minh animation đã phát xong. Product version vẫn `1.4.3` vì đây chưa phải release acceptance.
 
 #### 17.2.14. Strict human-like calibration và trajectory contract Phase 14
@@ -1843,8 +1849,9 @@ documentation guard, V1 regression và full offline suite phải tiếp tục xa
 **Trạng thái Phase 14:** đạt closure gate kỹ thuật ngày 20/08/2026. MAI-HLC strict blind workflow,
 persist-before-reveal, commitment/tamper guard và trajectory lifecycle/replay/read-only composition đã được
 triển khai; targeted/impacted đạt 471 test, deterministic Director replay đạt và full offline
-`pytest tests -q` đạt 2.267 test, 0 lỗi. Hai feature vẫn mặc định tắt; chưa chạy human review thật hoặc
-live/canary, không có automatic release decision và product version vẫn `1.4.3`.
+`pytest tests -q` đạt 2.267 test, 0 lỗi. Sau closure kỹ thuật, `trajectory_records` được bật read-only cho
+V2 test cutover; `human_like_calibration` vẫn là workflow operator tắt mặc định. Chưa chạy human review
+thật hoặc live/canary, không có automatic release decision và product version vẫn `1.4.3`.
 
 #### 17.2.15. Strict release evidence và closed-loop canary contract Phase 15
 
@@ -2013,23 +2020,25 @@ Một chức năng chỉ thực sự hoạt động khi đã được khai báo,
 Ảnh chụp `config/features.yaml` ngày 20/08/2026:
 
 - **Đang bật:** `filter_rule`, `tts_streaming`, `animation_smooth`, `data_collector`,
-  `director_goal_arbiter`, `director_chat_gate`, `conversation_continuity`, `mood_behavior_policy`,
+  `embodiment_policy`, `speech_action_adapter`, `avatar_action_adapter`, `agent_context`,
+  `director_goal_arbiter`, `director_chat_gate`, `conversation_continuity`, `context_selector`, `mood_behavior_policy`,
   `mood_v2_shadow`, `mood_v2_prompt`, `action_transactions`, `decision_records`,
+  `trajectory_records`,
   `operator_dashboard_v2`, `proactive_hosting`, `self_talk_planner`, `behavior_library`,
   `natural_timing`, `self_talk_lore`, `relationship_memory`, `evaluation_harness`,
   `evaluation_acceptance`, `live_operations`, `kv_cache_q8`, `ambient_talk`, `world_model_shadow`,
   `perception_expansion`, `self_model_projection`, `capability_registry`, `action_mock_closed_loop`,
-  `director_v2_shadow`.
+  `director_v2_shadow`, `director_v2_takeover`.
 - **Đang tắt/tùy chọn:** `input_voice`, `input_emotion_voice`, `filter_ai`, `tts_emotion_aware`,
-  `embodiment_policy`, `animation_micro`, `speech_action_adapter`, `avatar_action_adapter`,
-  `memory_semantic`, `memory_hierarchical`, `qc_persona`, `agent_context`, `context_selector`,
+  `animation_micro`, `memory_semantic`, `memory_hierarchical`, `qc_persona`,
   `goal_proposals`, `thread_extraction`, `speculative_decoding`, `turn_taking_predictor`,
-  `director_v2_takeover`, `obs_scene_executor`, `obs_perception_adapter`, `trajectory_records`,
+  `obs_scene_executor`, `obs_perception_adapter`,
   `human_like_calibration`, `closed_loop_canary`.
 
-Trong đó `speech_action_adapter` và `avatar_action_adapter` đã được ghép vào local typed action boundary
-và composition root nhưng vẫn mặc định tắt, chưa có live audio/VTS canary. `director_v2_takeover` đã có
-strict controlled ownership nhưng mặc định tắt và chưa có live rollout evidence. `obs_scene_executor` đã
+Trong đó `speech_action_adapter`, `avatar_action_adapter`, `embodiment_policy`, `context_selector`,
+`agent_context`, `trajectory_records` và `director_v2_takeover` được bật cho V2 test cutover;
+takeover ở stage `SPEECH_SCHEDULING` nhưng vẫn agreement-controlled. Chưa có live audio/VTS/takeover
+canary nên các cờ này chưa phải production evidence. `obs_scene_executor` đã
 được compose qua external transaction boundary nhưng mặc định tắt, chưa có credential/live OBS canary.
 `obs_perception_adapter` dùng chung read-only OBS transport và cũng mặc định tắt, chưa có live sensing
 canary.
@@ -2355,6 +2364,8 @@ Ngày 20/08/2026:
 - Phase 13 Embodiment Policy targeted: 381 đạt; deterministic arbitration replay: đạt;
 - Phase 14 calibration/trajectory targeted và impacted: 471 đạt; deterministic Director replay: đạt;
 - Phase 15 documentation/release/canary targeted: 65 đạt; canary/lifecycle impacted và fake-OBS: 14 đạt;
+- V2 test cutover configuration targeted/impacted: 219 đạt; full regression sau khi bật takeover stage
+  `SPEECH_SCHEDULING`, speech/avatar, Embodiment, ContextSelector/agent context và trajectory: 2.288 đạt;
 - full offline `pytest tests -q`: 2.288 đạt, 0 lỗi;
 - còn một cảnh báo deprecation giữa Starlette TestClient và `httpx`;
 - chưa chạy real-LLM acceptance, human review, live platform/audio/VTS/OBS/memory canary,

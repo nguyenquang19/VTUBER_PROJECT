@@ -80,7 +80,7 @@ director:
   # Phase 7: accepted V2/legacy agreement transfers decision ownership while
   # preserving the proven compatibility payload and immediate legacy fallback.
   director_v2_takeover:
-    stage: WAIT
+    stage: SPEECH_SCHEDULING
     max_recent_decisions: 128
     max_reason_chars: 120
     max_evidence_ids: 16

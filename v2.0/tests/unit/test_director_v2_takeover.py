@@ -130,17 +130,17 @@ def test_config_is_deep_immutable_and_requires_monotonic_locked_inventory() -> N
         _config(action_aliases={"ACK_DONATION": "READ_CHAT"})
 
 
-def test_real_yaml_loads_strict_rollout_and_rollback_defaults() -> None:
+def test_real_yaml_loads_v2_test_cutover_and_rollback_contract() -> None:
     loader = ConfigLoader(REPO_ROOT / "config")
     loader.load_all()
     config = DirectorV2TakeoverConfig.from_loader(loader)
-    assert config.stage == "WAIT"
+    assert config.stage == "SPEECH_SCHEDULING"
     assert config.max_proposal_age_seconds == 2.0
     assert config.action_aliases["ACK_DONATION"] == "READ_CHAT"
     assert config.stage_actions["SPEECH_SCHEDULING"] == frozenset(
         action for actions in STAGE_ACTIONS.values() for action in actions
     )
-    assert loader.get("features", "features.director_v2_takeover.enabled") is False
+    assert loader.get("features", "features.director_v2_takeover.enabled") is True
 
 
 def test_disabled_takeover_is_side_effect_free_legacy_fallback() -> None:
@@ -332,13 +332,13 @@ async def test_feature_manager_owns_runtime_enable_and_rollback_switch() -> None
     loader.load_all()
     manager = FeatureManager.from_config(loader)
     selector = DirectorV2Takeover.from_loader(
-        loader, enabled=False, clock=lambda: 10.5,
+        loader, enabled=True, clock=lambda: 10.5,
     )
     attach_set_enabled_feature(manager, "director_v2_takeover", selector)
 
-    enabled = await manager.enable("director_v2_takeover", user="test")
-    assert enabled.ok is True
-    assert selector.enabled is True
     disabled = await manager.disable("director_v2_takeover", user="test")
     assert disabled.ok is True
     assert selector.enabled is False
+    enabled = await manager.enable("director_v2_takeover", user="test")
+    assert enabled.ok is True
+    assert selector.enabled is True
