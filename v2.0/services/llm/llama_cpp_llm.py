@@ -8,7 +8,8 @@ Cách gọi ĐÃ CHỐT (xem docs/MAI_V2_SYSTEM_SPEC.md + memory reference-llm-m
 
 - **Streaming qua `asyncio.open_connection` (raw socket stdlib), KHÔNG httpx.**
   httpx buffer SSE ~2.2s bất kể iter_lines/bytes/raw → raw socket TTFT ~72ms.
-  Ta tự build HTTP POST + parse SSE tay. httpx CHỈ dùng cho health (non-stream OK).
+  Ta tự build HTTP POST + parse SSE tay. httpx chỉ dùng cho health và token-count
+  preflight non-stream trước generation để khóa `n_ctx`.
 
 - Server phải chạy với `--reasoning off` (reasoning là native của Gemma 4). Với
   flag đó, delta trả `content` thẳng. Vẫn đọc thêm `reasoning_content` phòng khi
@@ -23,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import time
 from typing import Any, AsyncIterator
 from urllib.parse import urlparse
@@ -35,6 +37,7 @@ from orchestrator.logger import get_logger
 
 # Giới hạn dòng cho StreamReader (SSE delta nhỏ, nhưng nới rộng phòng câu dài).
 _READ_LIMIT = 1024 * 1024
+_COMPACTION_MARKER = "\n[…]\n"
 
 
 class LlamaCppError(Exception):
@@ -51,7 +54,27 @@ class LlamaCppLLMService(LLMService):
         request_timeout_s: float = 60.0,
         client: httpx.AsyncClient | None = None,
         sampling: dict[str, Any] | None = None,
+        context_size: int = 4096,
+        context_safety_tokens: int = 32,
+        context_min_aux_chars: int = 160,
+        context_min_latest_chars: int = 512,
+        context_preflight_timeout_s: float = 3.0,
     ) -> None:
+        self.context_size = _strict_int(context_size, "context_size", minimum=2)
+        self.context_safety_tokens = _strict_int(
+            context_safety_tokens, "context_safety_tokens", minimum=0,
+        )
+        self.context_min_aux_chars = _strict_int(
+            context_min_aux_chars, "context_min_aux_chars", minimum=1,
+        )
+        self.context_min_latest_chars = _strict_int(
+            context_min_latest_chars, "context_min_latest_chars", minimum=1,
+        )
+        self.context_preflight_timeout_s = _strict_float(
+            context_preflight_timeout_s, "context_preflight_timeout_s",
+        )
+        if self.context_safety_tokens >= self.context_size - 1:
+            raise ValueError("context_safety_tokens must leave at least one input token")
         self.base_url = base_url.rstrip("/")
         parsed = urlparse(self.base_url)
         self._host = parsed.hostname or "127.0.0.1"
@@ -63,7 +86,9 @@ class LlamaCppLLMService(LLMService):
         self._sampling: dict[str, Any] = {
             k: v for k, v in (sampling or {}).items() if v is not None
         }
-        self._client = client  # httpx — CHỈ cho health, KHÔNG cho stream
+        # httpx is used for health and exact input-token preflight; generation
+        # still uses the raw streaming socket below.
+        self._client = client
         self._owns_client = client is None
         self._log = get_logger("llm")
         self._cancelled: set[str] = set()
@@ -74,6 +99,13 @@ class LlamaCppLLMService(LLMService):
         self._last_ttft_ms: float | None = None
         self._last_decode_tps: float | None = None
         self._last_tokens_out = 0
+        self._context_preflight_total = 0
+        self._context_compactions_total = 0
+        self._context_dropped_messages_total = 0
+        self._context_budget_failures_total = 0
+        self._context_counter_failures_total = 0
+        self._context_counter_calls_total = 0
+        self._context_last_input_tokens: int | None = None
 
     @classmethod
     def from_loader(cls, loader, client: httpx.AsyncClient | None = None) -> LlamaCppLLMService:
@@ -94,6 +126,26 @@ class LlamaCppLLMService(LLMService):
             default_max_tokens=int(loader.get("models", "llm_main.num_predict", 300)),
             client=client,
             sampling=sampling,
+            context_size=_strict_int(
+                loader.get("models", "llm_main.context_size", 4096),
+                "llm_main.context_size", minimum=2,
+            ),
+            context_safety_tokens=_strict_int(
+                loader.get("models", "llm_main.context_safety_tokens", 32),
+                "llm_main.context_safety_tokens", minimum=0,
+            ),
+            context_min_aux_chars=_strict_int(
+                loader.get("models", "llm_main.context_min_aux_chars", 160),
+                "llm_main.context_min_aux_chars", minimum=1,
+            ),
+            context_min_latest_chars=_strict_int(
+                loader.get("models", "llm_main.context_min_latest_chars", 512),
+                "llm_main.context_min_latest_chars", minimum=1,
+            ),
+            context_preflight_timeout_s=_strict_float(
+                loader.get("models", "llm_main.context_preflight_timeout_s", 3.0),
+                "llm_main.context_preflight_timeout_s",
+            ),
         )
 
     # ---------- Service ----------
@@ -124,6 +176,13 @@ class LlamaCppLLMService(LLMService):
             "llm_last_ttft_ms": self._last_ttft_ms,
             "llm_last_decode_tps": self._last_decode_tps,
             "llm_last_tokens_out": self._last_tokens_out,
+            "llm_context_preflight_total": self._context_preflight_total,
+            "llm_context_compactions_total": self._context_compactions_total,
+            "llm_context_dropped_messages_total": self._context_dropped_messages_total,
+            "llm_context_budget_failures_total": self._context_budget_failures_total,
+            "llm_context_counter_failures_total": self._context_counter_failures_total,
+            "llm_context_counter_calls_total": self._context_counter_calls_total,
+            "llm_context_last_input_tokens": self._context_last_input_tokens,
         }
 
     def _ensure_client(self) -> httpx.AsyncClient:
@@ -156,9 +215,10 @@ class LlamaCppLLMService(LLMService):
         self._cancelled.discard(request.request_id)
         self._requests_total += 1
 
+        max_tokens = request.max_tokens or self.default_max_tokens
         payload: dict[str, Any] = {
             "messages": request.to_messages(),
-            "max_tokens": request.max_tokens or self.default_max_tokens,
+            "max_tokens": max_tokens,
             "temperature": request.temperature,
             "stream": True,
             "cache_prompt": True,
@@ -176,6 +236,9 @@ class LlamaCppLLMService(LLMService):
         writer: asyncio.StreamWriter | None = None
 
         try:
+            payload["messages"] = await self._bounded_messages(
+                payload["messages"], max_tokens=max_tokens, request_id=request.request_id,
+            )
             reader, writer = await self._open_connection()
             writer.write(self._build_http_request(payload))
             await writer.drain()
@@ -222,6 +285,152 @@ class LlamaCppLLMService(LLMService):
             if writer is not None:
                 writer.close()
             self._record_decode(t_first, tokens_out)
+
+    async def _bounded_messages(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        max_tokens: int,
+        request_id: str,
+    ) -> list[dict[str, str]]:
+        """Return a copied message list proven to fit the configured context budget."""
+        if isinstance(max_tokens, bool) or not isinstance(max_tokens, int) or max_tokens <= 0:
+            self._context_budget_failures_total += 1
+            self._errors_total += 1
+            raise LlamaCppError("context budget requires strict positive max_tokens")
+        budget = self.context_size - max_tokens - self.context_safety_tokens
+        if budget < 1:
+            self._context_budget_failures_total += 1
+            self._errors_total += 1
+            raise LlamaCppError(
+                f"context budget invalid: n_ctx={self.context_size}, output={max_tokens}, "
+                f"safety={self.context_safety_tokens}"
+            )
+
+        self._context_preflight_total += 1
+        working = [dict(message) for message in messages]
+        tokens = await self._checked_input_tokens(working)
+        self._context_last_input_tokens = tokens
+        if tokens <= budget:
+            return working
+
+        initial_tokens = tokens
+        self._context_compactions_total += 1
+
+        # Drop only middle conversational history. The first stable system prefix
+        # and latest instruction/user message remain owned by their callers.
+        prefix_count = 1 if working and working[0].get("role") == "system" else 0
+        while len(working) > prefix_count + 1 and tokens > budget:
+            index = next(
+                (i for i in range(prefix_count, len(working) - 1)
+                 if working[i].get("role") != "system"),
+                None,
+            )
+            if index is None:
+                break
+            remove_count = 1
+            if (
+                working[index].get("role") == "user"
+                and index + 1 < len(working) - 1
+                and working[index + 1].get("role") == "assistant"
+            ):
+                remove_count = 2
+            del working[index:index + remove_count]
+            self._context_dropped_messages_total += remove_count
+            tokens = await self._checked_input_tokens(working)
+
+        # Auxiliary system context is lower priority than the latest grounded
+        # instruction. Compact its middle while retaining both ends.
+        for index in range(prefix_count, len(working) - 1):
+            if tokens <= budget:
+                break
+            if working[index].get("role") != "system":
+                continue
+            working, tokens = await self._fit_message(
+                working, index, budget, self.context_min_aux_chars,
+            )
+
+        if tokens > budget and working:
+            working, tokens = await self._fit_message(
+                working, len(working) - 1, budget, self.context_min_latest_chars,
+            )
+
+        self._context_last_input_tokens = tokens
+        if tokens > budget:
+            self._context_budget_failures_total += 1
+            self._errors_total += 1
+            raise LlamaCppError(
+                f"context budget unresolved: input={tokens}, budget={budget}, "
+                f"n_ctx={self.context_size}"
+            )
+        self._log.info(
+            "llm_context_compacted",
+            request_id=request_id,
+            input_tokens=initial_tokens,
+            compacted_tokens=tokens,
+            budget_tokens=budget,
+        )
+        return working
+
+    async def _fit_message(
+        self,
+        messages: list[dict[str, str]],
+        index: int,
+        budget: int,
+        minimum_chars: int,
+    ) -> tuple[list[dict[str, str]], int]:
+        original = str(messages[index].get("content", ""))
+        if len(original) <= minimum_chars:
+            return messages, await self._checked_input_tokens(messages)
+
+        low = min(minimum_chars, len(original))
+        high = len(original) - 1
+        best_messages: list[dict[str, str]] | None = None
+        best_tokens: int | None = None
+
+        minimum_candidate = [dict(message) for message in messages]
+        minimum_candidate[index]["content"] = _compact_middle(original, low)
+        minimum_tokens = await self._checked_input_tokens(minimum_candidate)
+        if minimum_tokens > budget:
+            return minimum_candidate, minimum_tokens
+        best_messages, best_tokens = minimum_candidate, minimum_tokens
+
+        while low <= high:
+            retain = (low + high) // 2
+            candidate = [dict(message) for message in messages]
+            candidate[index]["content"] = _compact_middle(original, retain)
+            candidate_tokens = await self._checked_input_tokens(candidate)
+            if candidate_tokens <= budget:
+                best_messages, best_tokens = candidate, candidate_tokens
+                low = retain + 1
+            else:
+                high = retain - 1
+        return best_messages, int(best_tokens)
+
+    async def _checked_input_tokens(self, messages: list[dict[str, str]]) -> int:
+        self._context_counter_calls_total += 1
+        try:
+            value = await self._count_input_tokens(messages)
+        except Exception as exc:
+            self._context_counter_failures_total += 1
+            self._errors_total += 1
+            raise LlamaCppError(f"context token preflight failed: {exc}") from exc
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            self._context_counter_failures_total += 1
+            self._errors_total += 1
+            raise LlamaCppError("context token preflight returned invalid input_tokens")
+        return value
+
+    async def _count_input_tokens(self, messages: list[dict[str, str]]) -> int:
+        client = self._ensure_client()
+        response = await client.post(
+            f"{self.base_url}/v1/chat/completions/input_tokens",
+            json={"messages": messages},
+            timeout=self.context_preflight_timeout_s,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        return payload.get("input_tokens")
 
     async def _readline(self, reader: asyncio.StreamReader) -> bytes:
         return await asyncio.wait_for(reader.readline(), timeout=self.request_timeout_s)
@@ -286,3 +495,26 @@ class LlamaCppLLMService(LLMService):
     async def cancel(self, request_id: str) -> None:
         """Đánh dấu cancel; _iter_sse sẽ dừng ở vòng kế → đóng socket ở finally."""
         self._cancelled.add(request_id)
+
+
+def _strict_int(value: Any, field_name: str, *, minimum: int) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+        raise ValueError(f"{field_name} must be a strict integer >= {minimum}")
+    return value
+
+
+def _strict_float(value: Any, field_name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, float) or not math.isfinite(value) or value <= 0:
+        raise ValueError(f"{field_name} must be a strict finite positive float")
+    return value
+
+
+def _compact_middle(content: str, retained_chars: int) -> str:
+    if retained_chars >= len(content):
+        return content
+    retained_chars = max(0, retained_chars)
+    head_chars = (retained_chars + 1) // 2
+    tail_chars = retained_chars // 2
+    head = content[:head_chars].rstrip()
+    tail = content[-tail_chars:].lstrip() if tail_chars else ""
+    return f"{head}{_COMPACTION_MARKER}{tail}"

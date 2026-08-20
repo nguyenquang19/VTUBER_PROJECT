@@ -2401,7 +2401,7 @@ Danh tính lưu lâu dài dùng muối cục bộ tại `data/privacy_salt.bin`.
 
 ### 24.2. Kết quả xác minh gần nhất
 
-Ngày 20/08/2026:
+Ngày 20–21/08/2026:
 
 - `compileall` source chính: đạt;
 - CPython `3.11.15`, 125 dependency từ lock và `pip check`: đạt;
@@ -2451,6 +2451,17 @@ Ngày 20/08/2026:
   decode p50 38,088 token/s. Có một context overflow 4.117/4.096 token đã fallback level 1 thành công;
   artifact gắn revision `5eee615f3aa86daa76bf479298b684d9055bcb5c` nhưng source dirty do change
   đang review, nên là diagnostic evidence chứ chưa phải clean release evidence;
+- clean stress từ revision `f0bdbc64363fbe8f993c873e9e744676be96551d` chạy 164 generation/delivery
+  trong 490,387 giây, source clean và toàn bộ transaction đã commit/delivery. Bài chạy phát hiện ba lỗi
+  llama.cpp do prompt vượt `n_ctx=4096` (4.105, 4.117 và 4.119 token), gồm cả primary, filter retry
+  và fallback về request gốc; đây là bằng chứng clean nhưng không đạt release gate. Opener đạt 6,10%,
+  câu hỏi kết thúc 21,34% và còn một foreign-identity flag; hai lỗi chất lượng này thuộc task riêng,
+  không được trộn vào bounded-context fix;
+- bounded-context boundary: 31 unit đạt; impacted prompt/filter/docs 87 đạt; broad LLM/prompt/filter/
+  compatibility 284 đạt; full offline 2.320 đạt. Ba live llama.cpp test đạt trên build 10178; synthetic
+  correction 4.279 token được compact dưới budget 4.056 rồi generation thành công, token preflight trung
+  bình 12,819 ms qua 10 lần gọi trên máy hiện tại. Đây là verification cho working tree dirty đang review,
+  chưa thay clean stress/release evidence;
 - còn một cảnh báo deprecation giữa Starlette TestClient và `httpx`;
 - chưa chạy real-LLM acceptance, human review, live platform/audio/VTS/OBS/memory canary,
   backup/restore, security/PII hoặc rollback rehearsal; `llama-server` không được khởi động trong Phase 15.
@@ -2625,6 +2636,38 @@ không phải invitation, tối đa hai global style repair và plan-specific se
 Real-llama diagnostic đạt cả hai gate: opener 6,92%, câu hỏi 19,50%, 159 delivery/commit và 20 release;
 planner commit 91 gần baseline 92, nên không còn under-speaking regression do validator chồng lớp. Một
 context overflow đã fallback đúng contract còn là known risk cần xử lý ở task bounded-context riêng.
+
+### 24.10. Hợp đồng bounded context tại llama.cpp boundary
+
+Mọi `LLMRequest`, kể cả primary, shape/style correction, filter regeneration và auxiliary agent request,
+phải được kiểm tra bằng token counter của chính `llama-server` trên cùng danh sách chat message trước khi
+gửi `/v1/chat/completions`. Budget input bằng `context_size - max_tokens - context_safety_tokens`; cả
+`context_size` và safety reserve lấy từ production YAML, dùng kiểu số nguyên strict và phải để lại ít
+nhất một token input.
+
+Khi input vượt budget, boundary áp dụng compaction deterministic theo thứ tự:
+
+1. giữ nguyên persona/lore prefix đầu và message mới nhất;
+2. bỏ các turn hội thoại cũ nhất theo cặp user/assistant, không để assistant history bị tách khỏi user;
+3. nếu vẫn quá budget, compact phần giữa của auxiliary system context rồi message mới nhất, giữ đồng thời
+   phần đầu và phần cuối để không làm mất mỏ neo ở đầu hoặc correction ở cuối;
+4. đếm lại bằng chat-template tokenizer sau mỗi thay đổi; chỉ gửi generation khi số token đã xác nhận
+   không vượt budget;
+5. nếu prefix cộng minimum retained context vẫn không vừa, token counter lỗi hoặc trả schema sai thì
+   fail-closed bằng lỗi LLM để fallback chain xử lý; không gửi một request chưa được chứng minh là vừa.
+
+Compaction không được sửa object `LLMRequest` gốc, không đổi sampling, output token cap, persona/lore file,
+Director decision, transaction hay delivery contract. Production YAML phải bound phần context phụ và
+message mới nhất tối thiểu; không hardcode threshold trong code. Metrics tối thiểu gồm preflight total,
+compaction total, dropped-message total, budget failure total, counter failure total và input-token gần
+nhất. Gate yêu cầu unit/negative test cho mọi bước, impacted LLM/prompt/filter/Director regression,
+deterministic overflow replay và real-llama verification cho cả token count lẫn generation; overhead
+preflight phải được báo riêng. Clean stress chỉ được chạy lại sau khi change đã commit sạch.
+
+**Trạng thái ngày 21/08/2026:** contract đã triển khai tại một boundary dùng chung cho mọi caller. Unit,
+impacted, full offline và live llama.cpp verification đều đạt; request live 4.279 token đã được compact
+và generation thành công với zero budget/counter failure. Clean stress `f0bdbc6` vẫn là bằng chứng lỗi
+trước fix; cần commit change rồi chạy lại từ source clean để tạo release evidence mới.
 
 ---
 

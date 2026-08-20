@@ -6,6 +6,7 @@ TTFT đo được, cancel giữa chừng cắt được stream.
 """
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,7 @@ from interfaces.llm import ChatMessage, LLMRequest
 from orchestrator.config_loader import ConfigLoader
 from services.llm.llama_cpp_llm import LlamaCppLLMService
 from services.llm.process_manager import LlamaServerConfig, LlamaServerProcessManager
+from services.llm.prompt_cache import PromptCache
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 pytestmark = pytest.mark.llm
@@ -75,5 +77,55 @@ async def test_cancel_midstream(loader, running_server) -> None:
                 if got >= 3:
                     await svc.cancel("live2")
         assert got < 200
+    finally:
+        await svc.stop()
+
+
+async def test_oversized_correction_is_compacted_before_live_generation(
+    loader, running_server,
+) -> None:
+    svc = LlamaCppLLMService.from_loader(loader)
+    await svc.start()
+    try:
+        prefix = PromptCache.from_loader(loader).as_message()
+        latest = (
+            "[SELF-THOUGHT] Mỏ neo đã biết: Anami xin đừng ăn tôi. "
+            + ("Chỉ bám dữ kiện trong mỏ neo và không tự điền ý người xem. " * 75)
+            + "[SỬA HÌNH DÁNG OUTPUT] Giữ nguyên mỏ neo; chỉ viết câu thoại mới."
+        )
+        request = LLMRequest(
+            request_id="live_context_bound",
+            messages=[
+                prefix,
+                ChatMessage(role="user", content="u" * 600),
+                ChatMessage(role="assistant", content="a" * 600),
+                ChatMessage(role="user", content=latest),
+            ],
+            max_tokens=8,
+            temperature=0.0,
+        )
+        raw_messages = request.to_messages()
+        budget = svc.context_size - request.max_tokens - svc.context_safety_tokens
+        started = time.perf_counter()
+        measured_counts = [await svc._count_input_tokens(raw_messages) for _ in range(10)]
+        preflight_mean_ms = (time.perf_counter() - started) * 1000 / len(measured_counts)
+        assert measured_counts[-1] > budget
+        print(f"\nTOKEN PREFLIGHT mean={preflight_mean_ms:.3f}ms input={measured_counts[-1]}")
+
+        bounded = await svc._bounded_messages(
+            raw_messages, max_tokens=request.max_tokens, request_id=request.request_id,
+        )
+        assert await svc._count_input_tokens(bounded) <= budget
+        assert bounded[0]["content"] == prefix.content
+        assert bounded[-1]["content"].endswith(
+            "[SỬA HÌNH DÁNG OUTPUT] Giữ nguyên mỏ neo; chỉ viết câu thoại mới."
+        )
+
+        tokens = [token async for token in svc.generate_stream(request)]
+        assert any(token.is_final for token in tokens)
+        metrics = svc.get_metrics()
+        assert metrics["llm_context_compactions_total"] >= 2
+        assert metrics["llm_context_budget_failures_total"] == 0
+        assert metrics["llm_context_counter_failures_total"] == 0
     finally:
         await svc.stop()
