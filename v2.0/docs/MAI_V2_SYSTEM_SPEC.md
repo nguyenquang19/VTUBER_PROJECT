@@ -177,8 +177,10 @@ Sau đó nó chọn một phương án phù hợp theo mức ưu tiên, thời g
 
 Hiện tại có hai cơ chế cùng tồn tại:
 
-- luồng cũ vẫn quyết định hành vi thật;
-- Bộ điều phối V2 chạy ở chế độ quan sát hoặc tiếp quản có kiểm soát, nhưng kết quả V2 chưa thực sự thay thế quyết định cũ trong đường chạy chính.
+- luồng compatibility cũ vẫn giữ quyền production mặc định;
+- Bộ điều phối V2 đã được compose vào đường chạy chính và có thể nhận ownership cho quyết định
+  agreement-compatible khi `director_v2_takeover` được bật. Cờ này vẫn mặc định tắt và chưa có
+  rollout/canary evidence, nên production hiện tiếp tục dùng compatibility path.
 
 ### 3.5. Lớp tạo và thực thi hành động
 
@@ -189,7 +191,9 @@ Lớp này biến quyết định thành kết quả có thể nhìn hoặc nghe
 - bộ điều khiển nhân vật đổi biểu cảm hoặc chuyển động;
 - bộ thực thi ngoài dự kiến điều khiển cảnh, nội dung hoặc cuộc gọi.
 
-Giọng nói và nhân vật đã có các bộ chuyển đổi V2, nhưng chưa được lắp hoàn chỉnh vào điểm ghép chính của hệ thống. Bộ thực thi ngoài mới có khung đăng ký và mô phỏng; chưa có hành động thật đủ để chứng minh V2 đã tự chủ ngoài hội thoại.
+Giọng nói và nhân vật đã có adapter V2 được compose vào `StreamRuntime`; OBS `SWITCH_SCENE` cũng đã có
+transport/executor/verifier thật qua transaction boundary. Các cờ speech, avatar và OBS vẫn mặc định
+tắt, chưa có canary thiết bị/credential và chưa thuộc vòng quyết định tự chủ production.
 
 ### 3.6. Lớp giao dịch, kiểm chứng và quan sát
 
@@ -231,9 +235,10 @@ Rủi ro hiện tại không nằm ở kỹ thuật phát câu mà ở chất l�
 
 ### 4.3. Luồng mô phỏng hành động chung
 
-Hệ thống đã có một vòng mô phỏng để chứng minh các bước giữ chỗ, thực thi, kiểm chứng, xác nhận hoặc hoàn tác. Đây là nền móng tốt cho hành động V2.
-
-Tuy nhiên, trong một nhánh hiện tại, trạng thái Thế giới có thể được cập nhật trước khi giao dịch được xác nhận hoàn toàn. Nếu bước xác nhận cuối thất bại, trạng thái có nguy cơ ghi nhận một kết quả chưa chắc đã xảy ra. Đây là lỗi về tính nguyên tử cần được sửa trước khi nối hành động thật.
+Hệ thống có vòng mô phỏng và lát cắt OBS thật để chứng minh các bước giữ chỗ, thực thi, kiểm chứng,
+xác nhận hoặc hoàn tác. Contract hiện hành bắt buộc verify thành công rồi commit transaction trước khi
+project kết quả vào World. Lỗi trước commit phải release transaction còn active và giữ World không đổi;
+lỗi projection sau commit được ghi riêng, không được đổi transaction đã commit thành released.
 
 ---
 
@@ -454,7 +459,7 @@ V2 được đưa vào theo từng lớp, có cờ bật/tắt và chế độ q
 
 Bộ kiểm thử bao phủ nhiều subsystem và các bài targeted cho lõi V2 đang xanh. Ngày 20/08/2026, sau
 closure Phase 10 và strict feature/config hardening, full offline regression bằng `v2.0\venv` đạt
-2.148 bài và 0 lỗi sau khi thêm documentation/comment hygiene guard.
+2.159 bài và 0 lỗi sau canonical/lifecycle/config/dashboard hardening.
 Kết quả này chứng minh đường offline hiện có đang xanh; nó không thay thế live/LLM acceptance hoặc chứng
 minh các capability chưa compose đã production.
 
@@ -539,15 +544,16 @@ Một lần phát lại ghi nhận 778 sự kiện đầu vào, 1.003 giao dịc
 
 ### 9.9. Điểm ghép chính quá lớn — mức trung bình
 
-Tệp điều phối khởi động dài 2.217 dòng và vòng điều phối dài 1.632 dòng theo
-working tree sau closure Phase 10.
+Tệp điều phối khởi động dài 2.395 dòng và vòng điều phối dài 1.632 dòng theo
+working tree tại lần audit ngày 20/08/2026.
 
 **Hậu quả:** khó đọc, khó cô lập trách nhiệm, dễ phát sinh lỗi khi thêm một phần V2 mới.
 
 ### 9.10. Kiểu dữ liệu và bắt lỗi còn rộng — mức trung bình
 
-Quét tĩnh sau closure Phase 10 ghi nhận khoảng 1.103 lần xuất hiện `Any` và 414 vị trí
-`except Exception`/suppress ngoại lệ rộng trong code runtime. Một phần là chủ ý để hệ thống không
+Quét heuristic ngày 20/08/2026 trên 212 tệp Python thuộc runtime/tooling ghi nhận khoảng 1.423 lần
+xuất hiện `Any` và 435 dòng `except Exception`/`BaseException` hoặc suppress ngoại lệ rộng. Một phần
+là chủ ý để hệ thống không
 sập khi phát sóng, nhưng mật độ cao làm giảm khả năng phát hiện lỗi thiết kế.
 
 **Hậu quả:** lỗi có thể bị nuốt, hợp đồng giữa các phần kém rõ và việc sửa đổi tốn nhiều công sức hơn.
@@ -688,9 +694,11 @@ Mục tiêu: tài liệu, mã và phiên bản nói cùng một điều.
 3. Ghi rõ phiên bản sản phẩm vẫn là `1.4.3` cho tới khi một bản phát hành mới được chấp nhận.
 4. Từ đây chỉ duyệt một giai đoạn hoặc một lát cắt trong mỗi thay đổi.
 
-**Điều kiện hoàn tất:** không còn mâu thuẫn giữa tài liệu tổng quan, tài liệu giai đoạn và hành vi mã nguồn.
+**Trạng thái:** đã chuẩn hóa lại sau audit ngày 20/08/2026. Documentation guard phải tiếp tục kiểm tra
+inventory/link/version; review thay đổi behavior vẫn phải đọc chéo prose với code vì guard cấu trúc
+không tự chứng minh tính đúng ngữ nghĩa.
 
-### Mức 2 — sửa tính đúng của giao dịch
+### Mức 2 — tính đúng của giao dịch (đã đóng trong Phase 5)
 
 Mục tiêu: trạng thái không bao giờ đi trước kết quả thật.
 
@@ -702,8 +710,9 @@ Mục tiêu: trạng thái không bao giờ đi trước kết quả thật.
 4. Idempotency key chỉ được replay khi fingerprint request trùng khớp; cùng key nhưng request khác phải
    bị từ chối, không được trả nhầm kết quả cache.
 
-**Điều kiện hoàn tất:** không có đường đi nào ghi nhận World trước commit, không có transaction đã
-commit bị báo released, và mọi terminal result vẫn quan sát được dù metrics/dashboard lỗi.
+**Trạng thái:** closure Phase 5 đã đạt contract này bằng code, failure tests và regression. Mọi thay đổi
+action boundary sau đó phải giữ nguyên: không ghi World trước commit, không báo transaction committed
+thành released và không để lỗi metrics/dashboard làm mất terminal result.
 
 ### Mức 3 — cho V2 tiếp quản từng hành vi ít rủi ro
 
@@ -729,10 +738,9 @@ Mỗi hành vi cần ba chế độ:
 
 Mục tiêu: các phần đã có mã trở thành thành phần đang chạy.
 
-1. Khởi tạo bộ chuyển đổi giọng nói và nhân vật tại điểm ghép chính.
-2. Đăng ký cờ chức năng và chỉ số tương ứng.
-3. Nối mã ý định hiện tại vào ảnh chụp trạng thái bản thân.
-4. Ghi hành trình quyết định từ đầu vào đến kết quả.
+1. Speech/avatar adapters và cờ/chỉ số đã được compose; còn thiếu live rollout/canary.
+2. Nối mã ý định hiện tại vào ảnh chụp trạng thái bản thân.
+3. Ghi hành trình quyết định từ đầu vào đến kết quả và đưa vào replay/release evidence.
 
 **Điều kiện hoàn tất:** có thể lần theo một câu nói từ dữ kiện, ý định, quyết định, giao dịch đến kết quả phát thực tế.
 
@@ -1792,6 +1800,9 @@ xác nhận Windows, cấu hình, tệp thực thi, mô hình, âm thanh mẫu, 
 ### 21.3. Khởi động phiên
 
 ```powershell
+# Bắt buộc khi dashboard bật (mặc định của launcher)
+$env:MAI_DASHBOARD_CONTROL_TOKEN = "GENERATE_A_LONG_RANDOM_SECRET"
+
 # YouTube
 .\scripts\start_live.ps1 -Platform youtube -VideoId "VIDEO_ID"
 
@@ -1899,13 +1910,19 @@ Nội dung nền tảng, đầu ra mô hình, yêu cầu bảng điều khiển,
 
 ### 23.2. Khóa và thông tin nhạy cảm
 
-- Process-environment credential mặc định chỉ gồm `DISCORD_BOT_TOKEN` và
-  `OBS_WEBSOCKET_PASSWORD`. Operator có thể đổi tên tham chiếu trong YAML, nhưng tên
-  phải là `UPPER_SNAKE_CASE`, không khoảng trắng và hai consumer không được trỏ
-  vào cùng một biến.
+- Process-environment credential mặc định gồm `DISCORD_BOT_TOKEN`,
+  `OBS_WEBSOCKET_PASSWORD` và `MAI_DASHBOARD_CONTROL_TOKEN`. Operator có thể đổi tên tham chiếu
+  trong YAML, nhưng tên phải là `UPPER_SNAKE_CASE`, không khoảng trắng và các consumer không được
+  trỏ vào cùng một biến.
 - `DISCORD_BOT_TOKEN` chỉ bắt buộc khi chạy Discord primary hoặc `-WithDiscord`;
   `OBS_WEBSOCKET_PASSWORD` chỉ bắt buộc khi `obs_scene_executor` được bật. Credential
   optional có thể vắng mặt khi consumer tắt.
+- `MAI_DASHBOARD_CONTROL_TOKEN` bắt buộc khi dashboard được bật. Dashboard chỉ được bind vào
+  loopback; mọi HTTP method thay đổi trạng thái phải mang header `X-Mai-Operator-Token` khớp secret.
+  HTML không chứa secret và không được cache; UI hỏi token ở lần điều khiển đầu tiên, chỉ giữ trong
+  `sessionStorage` rồi gắn header. Request thiếu/sai token phải fail-closed trước route handler; Host
+  không thuộc loopback allowlist cũng bị từ chối. Proxy dashboard standalone dùng cùng secret để xác
+  thực với runtime upstream.
 - Giá trị credential phải là chuỗi không rỗng, không có khoảng trắng đầu/cuối hoặc
   ký tự điều khiển. Boundary không `strip()`, coerce hoặc ghi lại secret; malformed value
   fail-closed bằng reason code đã sanitize.
@@ -1979,7 +1996,7 @@ Ngày 20/08/2026:
 - Phase 10 targeted: 29 đạt; impacted Phase 2–4/runtime: 246 đạt; documentation guard: 9 đạt;
 - feature persistence/strict config targeted: 129 đạt; impacted dashboard/Director/runtime: 173 đạt;
 - comment/document cleanup targeted: 255 đạt; documentation guard hiện tại: 11 đạt;
-- full offline `pytest tests -q`: 2.148 đạt, 0 lỗi;
+- full offline `pytest tests -q`: 2.159 đạt, 0 lỗi;
 - còn một cảnh báo deprecation giữa Starlette TestClient và `httpx`;
 - chưa chạy live/LLM acceptance, audio/VTS/OBS canary hoặc canary takeover; `llama-server` không được
   khởi động trong Phase 10.

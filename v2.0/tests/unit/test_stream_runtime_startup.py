@@ -134,12 +134,18 @@ async def test_runtime_start_preserves_root_error_when_cleanup_step_fails() -> N
     assert router.stop_calls == 1
     assert llm.stop_calls == 1
 
-    # Launcher cleanup may ask the idempotent coordinator to snapshot/flush after
-    # the startup path already performed direct component cleanup.
+    # Launcher cleanup must not invoke a coordinator that never finished start;
+    # the startup path already performed the one allowed direct cleanup attempt.
     await runtime.stop()
     assert coordinator.stop_calls == 0
-    assert coordinator.shutdown_calls == 1
+    assert coordinator.shutdown_calls == 0
     assert router.stop_calls == 1
+    assert llm.stop_calls == 1
+
+    await runtime.stop()
+    assert coordinator.shutdown_calls == 0
+    assert router.stop_calls == 1
+    assert llm.stop_calls == 1
 
 
 async def test_runtime_start_cancellation_still_cleans_owned_components() -> None:

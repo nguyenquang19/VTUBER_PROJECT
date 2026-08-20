@@ -7,6 +7,7 @@ app:
 dashboard:
   host: "127.0.0.1"
   port: 7860
+  control_token_env: "MAI_DASHBOARD_CONTROL_TOKEN"
   ws_path: "/ws"
   push_interval_s: 1.0
   gpu_metrics:

@@ -240,11 +240,13 @@ def test_canonical_docs_keep_current_phase_and_release_limits_explicit() -> None
         "`v2.0\\venv` hiện dùng CPython `3.11.15`",
         "Phase 10 đã đóng canonical perception ingress",
         "Phase 11 trở đi chưa đóng gate",
-        "full offline `pytest tests -q`: 2.148 đạt, 0 lỗi",
+        "full offline `pytest tests -q`: 2.159 đạt, 0 lỗi",
         "Dashboard toggle thành công phải persist",
         "RuntimeCriticalConfig` không nhận chuỗi thay cho",
         "Khởi động là một giao dịch hai tầng",
         "Repository không tự nạp `.env`",
+        "MAI_DASHBOARD_CONTROL_TOKEN",
+        "X-Mai-Operator-Token",
     )
     for statement in required:
         assert statement in spec, f"critical implementation limit disappeared: {statement}"
@@ -256,6 +258,10 @@ def test_canonical_docs_keep_current_phase_and_release_limits_explicit() -> None
         "WIP chưa commit",
         "Working tree còn thay đổi Phase 14",
         "full offline `pytest -m \"not slow and not llm\"`: 1.999 đạt",
+        "chưa thực sự thay thế quyết định cũ",
+        "chưa được lắp hoàn chỉnh vào điểm ghép chính",
+        "trạng thái Thế giới có thể được cập nhật trước",
+        "Mức 2 — sửa tính đúng của giao dịch",
     )
     combined = readme + "\n" + spec
     for statement in forbidden:

@@ -236,6 +236,8 @@ class StreamRuntime:
         self._dashboard_ref = dashboard_ref
         self._shutdown_coordinator = shutdown_coordinator
         self._shutdown_coordinator_started = False
+        self._shutdown_completed = False
+        self._stop_lock = asyncio.Lock()
         self._control_plane = control_plane
         self._emergency_controller = emergency_controller
         self._incident_log = incident_log
@@ -255,6 +257,7 @@ class StreamRuntime:
             return
         self._stop_event.clear()
         self._shutdown_coordinator_started = False
+        self._shutdown_completed = False
         try:
             if self._capability_registry is not None:
                 await self._capability_registry.start()
@@ -335,10 +338,14 @@ class StreamRuntime:
             raise
 
     async def _cleanup_after_start_failure(self) -> None:
-        await self._run_shutdown_steps(
-            event="stream_runtime_start_cleanup_failed",
-            include_base_exceptions=True,
-        )
+        try:
+            await self._run_shutdown_steps(
+                event="stream_runtime_start_cleanup_failed",
+                include_base_exceptions=True,
+            )
+        finally:
+            self._shutdown_coordinator_started = False
+            self._shutdown_completed = True
 
     async def _run_shutdown_steps(
         self,
@@ -361,10 +368,20 @@ class StreamRuntime:
     async def stop(self) -> None:
         self._running = False
         self._stop_event.set()
-        if self._shutdown_coordinator is not None:
-            await self._shutdown_coordinator.shutdown()
-            return
-        await self._stop_all_components()
+        async with self._stop_lock:
+            if self._shutdown_completed:
+                return
+            try:
+                if (
+                    self._shutdown_coordinator is not None
+                    and self._shutdown_coordinator_started
+                ):
+                    await self._shutdown_coordinator.shutdown()
+                else:
+                    await self._stop_all_components()
+            finally:
+                self._shutdown_coordinator_started = False
+                self._shutdown_completed = True
 
     async def _stop_recovery(self) -> None:
         if self._health_supervisor is not None:
@@ -929,7 +946,12 @@ async def _compose_stream_runtime(
     """Compose the full stack; public wrapper owns rollback on failure."""
     from orchestrator.runtime_config_validation import validate_runtime_config
 
-    validate_runtime_config(loader)
+    runtime_config = validate_runtime_config(loader)
+    dashboard_control_token = None
+    if cfg.enable_dashboard:
+        from orchestrator.credential_contract import require_dashboard_control_token
+
+        dashboard_control_token = require_dashboard_control_token(loader)
 
     # 1.1.0: fail-fast nếu record wire-schema lệch fingerprint đã chốt (drift guard).
     from services.data.record_schema import assert_no_schema_drift
@@ -1079,9 +1101,7 @@ async def _compose_stream_runtime(
         get_logger("stream_runtime").warning("live_operations_feature_missing")
         operations_enabled = False
     llama_process_manager = None
-    if operations_enabled and bool(loader.get(
-        "operations", "health_supervisor.manage_llama_process", True,
-    )):
+    if operations_enabled and runtime_config.manage_llama_process:
         llama_process_manager = LlamaServerProcessManager(
             LlamaServerConfig.from_loader(loader),
         )
@@ -2262,6 +2282,7 @@ async def _compose_stream_runtime(
         self_talk_planner=self_talk_planner,
         control_plane=control_plane,
         incident_log=incident_log,
+        control_token=dashboard_control_token,
     )
     if dashboard_task is not None:
         async def _rollback_dashboard() -> None:

@@ -8,6 +8,9 @@ from fastapi.testclient import TestClient
 
 from dashboard.dashboard_server import DashboardServer
 
+CONTROL_TOKEN = "test-dashboard-control-token-123456"
+CONTROL_HEADERS = {"X-Mai-Operator-Token": CONTROL_TOKEN}
+
 
 class FakeRunner:
     def __init__(self, last=0, session_id="session-live"):
@@ -20,12 +23,15 @@ def _read(path: Path):
 
 
 def _server(tmp_path, last_turn_id=5):
-    return DashboardServer(runner=FakeRunner(last_turn_id), data_dir=str(tmp_path))
+    return DashboardServer(
+        runner=FakeRunner(last_turn_id), data_dir=str(tmp_path),
+        control_token=CONTROL_TOKEN,
+    )
 
 
 class TestRating:
     def test_rate_good_writes_ratings(self, tmp_path: Path) -> None:
-        c = TestClient(_server(tmp_path).app)
+        c = TestClient(_server(tmp_path).app, headers=CONTROL_HEADERS)
         r = c.post("/api/rate", json={"rating": "good"})
         assert r.status_code == 200 and r.json()["turn_id"] == 5
         recs = _read(tmp_path / "ratings.jsonl")
@@ -36,16 +42,16 @@ class TestRating:
         assert recs[0]["timestamp"].endswith("+00:00")
 
     def test_invalid_rating_400(self, tmp_path: Path) -> None:
-        c = TestClient(_server(tmp_path).app)
+        c = TestClient(_server(tmp_path).app, headers=CONTROL_HEADERS)
         assert c.post("/api/rate", json={"rating": "meh"}).status_code == 400
 
     def test_no_turn_400(self, tmp_path: Path) -> None:
-        c = TestClient(_server(tmp_path, last_turn_id=0).app)
+        c = TestClient(_server(tmp_path, last_turn_id=0).app, headers=CONTROL_HEADERS)
         assert c.post("/api/rate", json={"rating": "good"}).status_code == 400
 
     def test_rate_specific_turn_id(self, tmp_path: Path) -> None:
         # bấm 👍 trên 1 item Review → rate đúng turn_id đó, không phải turn cuối
-        c = TestClient(_server(tmp_path, last_turn_id=99).app)
+        c = TestClient(_server(tmp_path, last_turn_id=99).app, headers=CONTROL_HEADERS)
         r = c.post("/api/rate", json={
             "rating": "bad", "session_id": "session-review", "turn_id": 3,
         })
@@ -55,7 +61,7 @@ class TestRating:
         assert recs[0]["turn_id"] == 3 and recs[0]["rating"] == "bad"
 
     def test_specific_turn_requires_session_id(self, tmp_path: Path) -> None:
-        c = TestClient(_server(tmp_path).app)
+        c = TestClient(_server(tmp_path).app, headers=CONTROL_HEADERS)
         assert c.post(
             "/api/rate", json={"rating": "good", "turn_id": 5},
         ).status_code == 400
@@ -69,7 +75,7 @@ class TestCorrection:
                                      "kind": "chat_reply",
                                      "user_text": "hi", "mai_text": "câu gốc dở"}) + "\n",
                          encoding="utf-8")
-        c = TestClient(_server(tmp_path).app)
+        c = TestClient(_server(tmp_path).app, headers=CONTROL_HEADERS)
         r = c.post("/api/correct", json={"session_id": "session-a", "turn_id": 5,
                                          "corrected_text": "câu sửa hay"})
         assert r.status_code == 200
@@ -83,7 +89,7 @@ class TestCorrection:
         assert recs[0]["corrected"] == "câu sửa hay"
 
     def test_empty_correction_400(self, tmp_path: Path) -> None:
-        c = TestClient(_server(tmp_path).app)
+        c = TestClient(_server(tmp_path).app, headers=CONTROL_HEADERS)
         assert c.post("/api/correct", json={"session_id": "session-a", "turn_id": 5,
                                              "corrected_text": ""}).status_code == 400
 
@@ -99,7 +105,7 @@ class TestCorrection:
             "".join(json.dumps(record, ensure_ascii=False) + "\n" for record in records),
             encoding="utf-8",
         )
-        c = TestClient(_server(tmp_path).app)
+        c = TestClient(_server(tmp_path).app, headers=CONTROL_HEADERS)
         r = c.post("/api/correct", json={
             "session_id": "session-a", "turn_id": 1, "corrected_text": "câu sửa",
         })

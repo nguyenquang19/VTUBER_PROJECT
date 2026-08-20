@@ -7,6 +7,9 @@ from orchestrator.features import FeatureStatus
 from orchestrator.metrics_collector import MetricsCollector
 from interfaces.animation import MoodState
 
+CONTROL_TOKEN = "test-dashboard-control-token-123456"
+CONTROL_HEADERS = {"X-Mai-Operator-Token": CONTROL_TOKEN}
+
 
 class V2Features:
     async def get_status(self, feature_id: str) -> FeatureStatus:
@@ -134,7 +137,10 @@ def test_ready_overview_exposes_active_goal_and_direct_decision_view() -> None:
 
 
 def test_standalone_operator_page_keeps_mutations_unavailable() -> None:
-    client = TestClient(DashboardServer().app)
+    client = TestClient(
+        DashboardServer(control_token=CONTROL_TOKEN).app,
+        headers=CONTROL_HEADERS,
+    )
     snapshot = client.get("/api/snapshot").json()
     assert snapshot["operator_overview"]["controls_available"] is False
     assert client.post("/api/agent/pause", json={"reason": "test"}).status_code == 503

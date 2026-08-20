@@ -36,6 +36,9 @@ là `requirements.lock.txt`.
 ## Chạy live
 
 ```powershell
+# Dashboard control credential (bắt buộc vì launcher mặc định bật dashboard)
+$env:MAI_DASHBOARD_CONTROL_TOKEN = "GENERATE_A_LONG_RANDOM_SECRET"
+
 # YouTube
 .\scripts\start_live.ps1 -Platform youtube -VideoId "VIDEO_ID"
 
@@ -48,13 +51,15 @@ $env:DISCORD_BOT_TOKEN = "YOUR_TOKEN"
 .\scripts\start_live.ps1 -Platform youtube -VideoId "VIDEO_ID" -WithDiscord
 ```
 
-Runtime không tự nạp `.env`. `DISCORD_BOT_TOKEN` chỉ bắt buộc cho phiên có Discord;
-`OBS_WEBSOCKET_PASSWORD` chỉ bắt buộc khi operator chủ động bật `obs_scene_executor`.
-Hai giá trị phải được PowerShell hoặc secret store truyền vào process, không ghi vào
+Runtime không tự nạp `.env`. `MAI_DASHBOARD_CONTROL_TOKEN` bắt buộc khi dashboard bật;
+`DISCORD_BOT_TOKEN` chỉ bắt buộc cho phiên có Discord; `OBS_WEBSOCKET_PASSWORD` chỉ bắt buộc khi
+operator chủ động bật `obs_scene_executor`. Các giá trị phải được PowerShell hoặc secret store truyền vào process, không ghi vào
 YAML, CLI argument, `.env.example` hoặc Git.
 
 Launcher mặc định bật TTS và dashboard. Thêm `-Memory` để bật semantic memory. Dashboard ở
-`http://127.0.0.1:7860`; dashboard cũ luôn còn tại `/legacy`. OBS có thể đọc subtitle fallback từ
+`http://127.0.0.1:7860`, chỉ bind loopback và yêu cầu operator token cho mọi lệnh thay đổi trạng thái;
+UI sẽ hỏi token ở lần điều khiển đầu tiên và không nhúng secret vào HTML. Dashboard cũ luôn còn tại
+`/legacy`. OBS có thể đọc subtitle fallback từ
 `logs\live\subtitle.txt`.
 
 `python -m orchestrator.main` là entrypoint bootstrap cũ và từ `1.4.1` chỉ fail-fast với hướng dẫn;

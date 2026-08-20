@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from dashboard.dashboard_server import DashboardServer  # noqa: E402
 from orchestrator.config_loader import ConfigLoader  # noqa: E402
+from orchestrator.credential_contract import require_dashboard_control_token  # noqa: E402
 from orchestrator.logger import setup_from_config  # noqa: E402
 from services.operations.dashboard_data_source import DashboardDataSource  # noqa: E402
 
@@ -59,6 +60,7 @@ async def run(argv: list[str] | None = None) -> int:
         host=host,
         port=port,
         push_interval_s=float(loader.get("system", "dashboard.push_interval_s", 1.0)),
+        control_token=require_dashboard_control_token(loader),
     )
     await provider.start()
     url = f"http://{host}:{port}"

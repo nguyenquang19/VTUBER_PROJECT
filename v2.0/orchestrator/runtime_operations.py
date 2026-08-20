@@ -89,9 +89,12 @@ def start_dashboard(
     self_talk_planner: Any,
     control_plane: Any,
     incident_log: Any,
+    control_token: str | None,
 ) -> tuple[asyncio.Task[Any] | None, dict[str, Any] | None, Any]:
     if not enabled:
         return None, None, None
+    if control_token is None:
+        raise ValueError("dashboard control token is required when dashboard is enabled")
 
     from dashboard.dashboard_server import DashboardServer
     server = DashboardServer(
@@ -126,6 +129,7 @@ def start_dashboard(
         gpu_metrics_refresh_s=float(loader.get(
             "system", "dashboard.gpu_metrics.refresh_s", 2.0,
         )),
+        control_token=control_token,
     )
     task = asyncio.create_task(server.serve(), name="dashboard")
     return task, {"task": task, "server": server}, server

@@ -25,6 +25,7 @@ const moodAxes = [
 ];
 const svgNamespace = "http://www.w3.org/2000/svg";
 const radarState = new Map();
+let operatorToken = sessionStorage.getItem("mai-operator-token") || "";
 const byId = (id) => document.getElementById(id);
 const text = (id, value, fallback = "—") => {
   const node = byId(id);
@@ -41,16 +42,30 @@ const clampMood = (value) => Math.max(0, Math.min(10, Number(value) || 0));
 const displayMs = (value) => value == null ? "—" : `${Math.round(Number(value))} ms`;
 
 async function postJson(url, body = {}) {
-  try {
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    return { status: response.status, ...(await response.json()) };
-  } catch (error) {
-    return { ok: false, reason: String(error) };
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    if (!operatorToken) {
+      operatorToken = window.prompt("Nhập MAI_DASHBOARD_CONTROL_TOKEN để điều khiển Mai:", "") || "";
+      if (!operatorToken) return { ok: false, reason: "operator_token_required" };
+      sessionStorage.setItem("mai-operator-token", operatorToken);
+    }
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Mai-Operator-Token": operatorToken,
+        },
+        body: JSON.stringify(body),
+      });
+      const result = { status: response.status, ...(await response.json()) };
+      if (response.status !== 403 || result.reason !== "operator_auth_required") return result;
+      operatorToken = "";
+      sessionStorage.removeItem("mai-operator-token");
+    } catch (error) {
+      return { ok: false, reason: String(error) };
+    }
   }
+  return { ok: false, reason: "operator_auth_required" };
 }
 
 function switchSection(name) {

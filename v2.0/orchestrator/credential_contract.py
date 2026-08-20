@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import contextlib
+import os
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -77,11 +78,39 @@ class RuntimeCredentialReferences:
 
 def validate_runtime_credential_contract(loader: Any) -> RuntimeCredentialReferences:
     references = RuntimeCredentialReferences.from_loader(loader)
+    dashboard_reference = dashboard_control_token_reference(loader)
+    if dashboard_reference in {references.discord_token, references.obs_password}:
+        raise ValueError("credential environment references must be distinct")
     validate_secret_file_reference(
         loader.get("animation", "animation.token_file", "vts_token.txt"),
         "animation.token_file",
     )
     return references
+
+
+def dashboard_control_token_reference(loader: Any) -> str:
+    return validate_environment_reference(
+        loader.get(
+            "system", "dashboard.control_token_env", "MAI_DASHBOARD_CONTROL_TOKEN",
+        ),
+        "dashboard.control_token_env",
+    )
+
+
+def require_dashboard_control_token(
+    loader: Any,
+    environ: Mapping[str, str] | None = None,
+) -> str:
+    reference = dashboard_control_token_reference(loader)
+    value = require_environment_secret(os.environ if environ is None else environ, reference)
+    return validate_dashboard_control_token(value, source=reference)
+
+
+def validate_dashboard_control_token(value: object, *, source: str) -> str:
+    secret = validate_secret_value(value, source=source)
+    if len(secret) < 24:
+        raise CredentialContractError("credential_invalid", source=source)
+    return secret
 
 
 def validate_environment_reference(value: object, field_name: str) -> str:

@@ -9,6 +9,9 @@ from dashboard.dashboard_server import DashboardServer
 from services.operations.standalone_snapshot import StandaloneSnapshotProvider
 from services.operations.dashboard_data_source import DashboardDataSource
 
+CONTROL_TOKEN = "test-dashboard-control-token-123456"
+CONTROL_HEADERS = {"X-Mai-Operator-Token": CONTROL_TOKEN}
+
 
 def test_dashboard_runs_without_runtime_and_disables_mutating_controls(tmp_path: Path) -> None:
     snapshot = tmp_path / "snapshot.json"
@@ -23,7 +26,12 @@ def test_dashboard_runs_without_runtime_and_disables_mutating_controls(tmp_path:
     provider = StandaloneSnapshotProvider(
         snapshot_path=snapshot, audit_path=tmp_path / "audit.jsonl",
     )
-    client = TestClient(DashboardServer(snapshot_provider=provider).app)
+    client = TestClient(
+        DashboardServer(
+            snapshot_provider=provider, control_token=CONTROL_TOKEN,
+        ).app,
+        headers=CONTROL_HEADERS,
+    )
 
     assert "Mai Operator Console" in client.get("/").text
 
@@ -65,12 +73,18 @@ def test_independent_dashboard_exposes_source_history_and_proxy(tmp_path: Path, 
         delivery_path=tmp_path / "delivery.jsonl",
         request_timeout_s=0.1, max_files=2, max_records=20,
         default_limit=10, max_limit=20,
+        control_token=CONTROL_TOKEN,
     )
     monkeypatch.setattr(source, "_request_json", lambda method, path, payload: (
         {"runtime": {"online": True, "controls_available": True}}
         if method == "GET" else {"ok": True, "proxied": path}
     ))
-    client = TestClient(DashboardServer(snapshot_provider=source).app)
+    client = TestClient(
+        DashboardServer(
+            snapshot_provider=source, control_token=CONTROL_TOKEN,
+        ).app,
+        headers=CONTROL_HEADERS,
+    )
 
     live = client.get("/api/snapshot?source=live").json()
     history = client.get("/api/history/turns?session_id=session-1&limit=5").json()

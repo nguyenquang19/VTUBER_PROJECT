@@ -14,6 +14,10 @@ from urllib.request import Request, urlopen
 
 from interfaces.base import HealthStatus
 from interfaces.operations import DashboardDataSourceService
+from orchestrator.credential_contract import (
+    require_dashboard_control_token,
+    validate_dashboard_control_token,
+)
 from services.operations.standalone_snapshot import StandaloneSnapshotProvider
 
 
@@ -52,6 +56,7 @@ class DashboardDataSource(DashboardDataSourceService):
         max_records: int,
         default_limit: int,
         max_limit: int,
+        control_token: str,
     ) -> None:
         parsed = urlparse(live_base_url)
         if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
@@ -76,6 +81,9 @@ class DashboardDataSource(DashboardDataSourceService):
         self.max_records = int(max_records)
         self.default_limit = int(default_limit)
         self.max_limit = int(max_limit)
+        self._control_token = validate_dashboard_control_token(
+            control_token, source="dashboard_control_token",
+        )
         self._running = False
         self._live_fetch_failures_total = 0
         self._history_queries_total = 0
@@ -112,6 +120,7 @@ class DashboardDataSource(DashboardDataSourceService):
             max_limit=int(loader.get(
                 "operations", f"{base}.history.max_limit", 500,
             )),
+            control_token=require_dashboard_control_token(loader),
         )
 
     async def start(self) -> None:
@@ -217,7 +226,10 @@ class DashboardDataSource(DashboardDataSourceService):
         self, method: str, path: str, payload: dict[str, Any] | None,
     ) -> dict[str, Any]:
         body = None
-        headers = {"Accept": "application/json"}
+        headers = {
+            "Accept": "application/json",
+            "X-Mai-Operator-Token": self._control_token,
+        }
         if payload is not None:
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
             headers["Content-Type"] = "application/json"

@@ -24,6 +24,8 @@ from orchestrator.trigger_manager import TriggerManager
 from prometheus_client import CollectorRegistry
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+CONTROL_TOKEN = "test-dashboard-control-token-123456"
+CONTROL_HEADERS = {"X-Mai-Operator-Token": CONTROL_TOKEN}
 
 
 def build_server() -> DashboardServer:
@@ -41,12 +43,13 @@ def build_server() -> DashboardServer:
         trigger_manager=triggers,
         metrics=metrics,
         emergency_stop=emergency,
+        control_token=CONTROL_TOKEN,
     )
 
 
 @pytest.fixture
 def client() -> TestClient:
-    return TestClient(build_server().app)
+    return TestClient(build_server().app, headers=CONTROL_HEADERS)
 
 
 class TestServesUI:
@@ -54,6 +57,8 @@ class TestServesUI:
         r = client.get("/")
         assert r.status_code == 200
         assert "Mai" in r.text
+        assert r.headers["cache-control"] == "no-store"
+        assert CONTROL_TOKEN not in r.text
 
     def test_static_css_served(self, client: TestClient) -> None:
         r = client.get("/static/dashboard.css")
@@ -171,5 +176,33 @@ class TestDegradedServer:
         assert client.get("/api/snapshot").status_code == 200
 
     def test_toggle_without_manager_503(self) -> None:
-        client = TestClient(DashboardServer().app)
+        client = TestClient(
+            DashboardServer(control_token=CONTROL_TOKEN).app,
+            headers=CONTROL_HEADERS,
+        )
         assert client.post("/api/features/x/toggle").status_code == 503
+
+
+class TestDashboardSecurity:
+    def test_mutation_requires_exact_operator_token(self) -> None:
+        server = DashboardServer(control_token=CONTROL_TOKEN)
+        client = TestClient(server.app)
+        assert client.post("/api/emergency_stop").status_code == 403
+        assert client.post(
+            "/api/emergency_stop",
+            headers={"X-Mai-Operator-Token": "wrong-dashboard-control-token"},
+        ).status_code == 403
+        assert client.post(
+            "/api/emergency_stop", headers=CONTROL_HEADERS,
+        ).status_code == 503
+
+    def test_non_loopback_bind_is_rejected(self) -> None:
+        with pytest.raises(ValueError, match="loopback"):
+            DashboardServer(host="0.0.0.0", control_token=CONTROL_TOKEN)
+
+    def test_untrusted_host_header_is_rejected(self) -> None:
+        client = TestClient(
+            DashboardServer(control_token=CONTROL_TOKEN).app,
+            base_url="http://attacker.example",
+        )
+        assert client.get("/api/snapshot").status_code == 400

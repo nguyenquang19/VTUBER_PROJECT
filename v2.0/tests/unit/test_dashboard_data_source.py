@@ -22,6 +22,7 @@ def _source(tmp_path: Path, **overrides) -> DashboardDataSource:
         "max_records": 20,
         "default_limit": 10,
         "max_limit": 20,
+        "control_token": "test-dashboard-control-token-123456",
     }
     values.update(overrides)
     return DashboardDataSource(**values)
@@ -155,3 +156,34 @@ def test_upstream_must_be_loopback(tmp_path: Path) -> None:
         assert "loopback" in str(exc)
     else:
         raise AssertionError("non-loopback upstream should be rejected")
+
+
+def test_proxy_attaches_operator_token_to_live_command(tmp_path: Path, monkeypatch) -> None:
+    source = _source(tmp_path)
+    captured = {}
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self) -> bytes:
+            return b'{"ok": true}'
+
+    def fake_urlopen(request, *, timeout):
+        captured["headers"] = {
+            key.lower(): value for key, value in request.header_items()
+        }
+        captured["timeout"] = timeout
+        return Response()
+
+    monkeypatch.setattr(
+        "services.operations.dashboard_data_source.urlopen", fake_urlopen,
+    )
+
+    assert source._request_json("POST", "/api/agent/pause", {}) == {"ok": True}
+    assert captured["headers"]["x-mai-operator-token"] == (
+        "test-dashboard-control-token-123456"
+    )

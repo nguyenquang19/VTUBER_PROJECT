@@ -10,6 +10,18 @@ from dashboard.dashboard_server import DashboardServer
 from services.relationship.manager import RelationshipLimits, RelationshipManager
 from services.relationship.store import RelationshipStore
 
+CONTROL_TOKEN = "test-dashboard-control-token-123456"
+CONTROL_HEADERS = {"X-Mai-Operator-Token": CONTROL_TOKEN}
+
+
+def _client(manager: RelationshipManager) -> TestClient:
+    return TestClient(
+        DashboardServer(
+            relationship_manager=manager, control_token=CONTROL_TOKEN,
+        ).app,
+        headers=CONTROL_HEADERS,
+    )
+
 
 def _manager() -> tuple[RelationshipManager, str]:
     conn = sqlite3.connect(":memory:", check_same_thread=False)
@@ -33,7 +45,7 @@ def _manager() -> tuple[RelationshipManager, str]:
 
 def test_dashboard_profile_note_review_delete_flow() -> None:
     manager, viewer_id = _manager()
-    client = TestClient(DashboardServer(relationship_manager=manager).app)
+    client = _client(manager)
     profile = client.post(f"/api/relationships/{viewer_id}/profile", json={
         "preferences": ["cats"], "boundaries": ["no roast"], "tone": "gentle",
         "evidence_refs": ["agent:chat:e1"], "reason": "operator",
@@ -59,7 +71,7 @@ def test_dashboard_profile_note_review_delete_flow() -> None:
 
 def test_dashboard_rejects_note_with_invented_evidence() -> None:
     manager, viewer_id = _manager()
-    client = TestClient(DashboardServer(relationship_manager=manager).app)
+    client = _client(manager)
     response = client.post(f"/api/relationships/{viewer_id}/notes", json={
         "summary": "invented lore", "evidence_refs": ["fake"], "reason": "operator",
     })
@@ -74,7 +86,7 @@ def test_dashboard_running_gag_requires_positive_pattern_and_review() -> None:
             raw_viewer_id="raw", event_id=f"e{index}", occurred_at=now,
             emotion_category="chat_compliment",
         )
-    client = TestClient(DashboardServer(relationship_manager=manager).app)
+    client = _client(manager)
     created = client.post(f"/api/relationships/{viewer_id}/running-gags", json={
         "summary": "cat greeting",
         "event_refs": ["agent:chat:e2", "agent:chat:e3", "agent:chat:e4"],
@@ -90,7 +102,7 @@ def test_dashboard_running_gag_requires_positive_pattern_and_review() -> None:
 
 def test_dashboard_privacy_export_and_delete() -> None:
     manager, viewer_id = _manager()
-    client = TestClient(DashboardServer(relationship_manager=manager).app)
+    client = _client(manager)
     exported = client.get(f"/api/relationships/{viewer_id}/export")
     assert exported.status_code == 200
     assert exported.json()["export"]["profile"]["viewer_id"] == viewer_id

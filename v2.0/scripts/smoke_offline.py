@@ -90,7 +90,7 @@ async def check_dashboard(loader: ConfigLoader) -> SmokeResult:
     try:
         async with httpx.AsyncClient(
             transport=transport,
-            base_url="http://smoke.local",
+            base_url="http://127.0.0.1",
             timeout=timeout_s,
         ) as client:
             snapshot = await client.get("/api/snapshot")

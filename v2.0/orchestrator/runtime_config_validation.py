@@ -3,7 +3,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from orchestrator.config_loader import ConfigError
 from orchestrator.credential_contract import (
@@ -80,7 +87,9 @@ class RuntimeCriticalConfig(BaseModel):
     decision_record_max_recent: int = Field(gt=0)
     decision_record_max_evidence_refs: int = Field(gt=0)
     decision_record_max_label_chars: int = Field(gt=0)
+    manage_llama_process: bool
     dashboard_host: str = Field(min_length=1)
+    dashboard_control_token_env: str = Field(min_length=1)
     dashboard_port: int = Field(ge=1, le=65535)
     dashboard_push_interval_s: float = Field(gt=0)
     gpu_metrics_command: str = Field(min_length=1)
@@ -92,6 +101,13 @@ class RuntimeCriticalConfig(BaseModel):
     tts_subtitle_timeout_s: float = Field(gt=0)
     tts_startup_timeout_s: float = Field(gt=0)
     tts_health_timeout_s: float = Field(gt=0)
+
+    @field_validator("dashboard_host")
+    @classmethod
+    def validate_dashboard_loopback(cls, value: str) -> str:
+        if value not in {"127.0.0.1", "localhost", "::1"}:
+            raise ValueError("dashboard host must be an explicit loopback address")
+        return value
 
     @model_validator(mode="after")
     def validate_speech_style_budgets(self) -> "RuntimeCriticalConfig":
@@ -262,7 +278,13 @@ def validate_runtime_config(loader: Any) -> RuntimeCriticalConfig:
             decision_record_max_label_chars=loader.get(
                 "director", "director.decision_records.max_label_chars", 120,
             ),
+            manage_llama_process=loader.get(
+                "operations", "health_supervisor.manage_llama_process", True,
+            ),
             dashboard_host=loader.get("system", "dashboard.host", "127.0.0.1"),
+            dashboard_control_token_env=loader.get(
+                "system", "dashboard.control_token_env", "MAI_DASHBOARD_CONTROL_TOKEN",
+            ),
             dashboard_port=loader.get("system", "dashboard.port", 7860),
             dashboard_push_interval_s=loader.get(
                 "system", "dashboard.push_interval_s", 1.0,

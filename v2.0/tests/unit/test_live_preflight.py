@@ -82,6 +82,27 @@ def test_discord_preflight_requires_token_but_never_exposes_it(tmp_path: Path) -
     assert secret not in str(ready)
 
 
+def test_dashboard_preflight_requires_long_control_token_without_exposing_it(
+    tmp_path: Path,
+) -> None:
+    loader = _loader(tmp_path)
+    missing = run_preflight(
+        loader, platform_name="youtube", video_id="x", dashboard_enabled=True,
+        check_server_health=False, repo_root=tmp_path, environ={},
+        os_name="Windows", python_version=(3, 11, 0), now_utc=NOW,
+    )
+    assert missing["ready"] is False
+    secret = "dashboard-control-token-123456"
+    ready = run_preflight(
+        loader, platform_name="youtube", video_id="x", dashboard_enabled=True,
+        check_server_health=False, repo_root=tmp_path,
+        environ={"MAI_DASHBOARD_CONTROL_TOKEN": secret},
+        os_name="Windows", python_version=(3, 11, 0), now_utc=NOW,
+    )
+    assert ready["ready"] is True
+    assert secret not in str(ready)
+
+
 def test_discord_preflight_rejects_malformed_secret_without_trimming(
     tmp_path: Path,
 ) -> None:

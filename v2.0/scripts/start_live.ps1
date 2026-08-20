@@ -26,6 +26,7 @@ $PreflightArgs = @(
 )
 if ($VideoId) { $PreflightArgs += @("--video", $VideoId) }
 if ($WithDiscord) { $PreflightArgs += "--with-discord" }
+if (-not $NoDashboard) { $PreflightArgs += "--dashboard" }
 
 & $PythonExe @PreflightArgs
 if ($LASTEXITCODE -ne 0) {

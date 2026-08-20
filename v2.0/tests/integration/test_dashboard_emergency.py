@@ -4,6 +4,9 @@ from fastapi.testclient import TestClient
 
 from dashboard.dashboard_server import DashboardServer
 
+CONTROL_TOKEN = "test-dashboard-control-token-123456"
+CONTROL_HEADERS = {"X-Mai-Operator-Token": CONTROL_TOKEN}
+
 
 class FakeEmergencyController:
     def __init__(self) -> None:
@@ -25,7 +28,12 @@ class FakeEmergencyController:
 
 def test_dashboard_emergency_routes_use_fail_closed_controller() -> None:
     controller = FakeEmergencyController()
-    client = TestClient(DashboardServer(emergency_controller=controller).app)
+    client = TestClient(
+        DashboardServer(
+            emergency_controller=controller, control_token=CONTROL_TOKEN,
+        ).app,
+        headers=CONTROL_HEADERS,
+    )
 
     stopped = client.post("/api/emergency_stop")
     snapshot = client.get("/api/snapshot")

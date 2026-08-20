@@ -18,8 +18,11 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from orchestrator.config_loader import ConfigLoader  # noqa: E402
 from orchestrator.credential_contract import (  # noqa: E402
+    CredentialContractError,
     RuntimeCredentialReferences,
+    dashboard_control_token_reference,
     inspect_environment_secret,
+    require_dashboard_control_token,
     validate_runtime_credential_contract,
 )
 
@@ -64,6 +67,7 @@ def run_preflight(
     platform_name: str,
     video_id: str | None = None,
     with_discord: bool = False,
+    dashboard_enabled: bool = False,
     check_server_health: bool = True,
     repo_root: Path = REPO_ROOT,
     environ: Mapping[str, str] | None = None,
@@ -97,7 +101,8 @@ def run_preflight(
             "credential_contract",
             True,
             "credential environment variables and VTS token file valid: "
-            f"{credential_references.discord_token}, {credential_references.obs_password}",
+            f"{credential_references.discord_token}, {credential_references.obs_password}, "
+            f"{dashboard_control_token_reference(loader)}",
         ))
 
     binary = _resolve_path(str(loader.get("models", "llm_main.binary", "")), repo_root)
@@ -196,6 +201,29 @@ def run_preflight(
             )
         checks.append(PreflightCheck("obs_password", obs_present, obs_detail))
 
+    if dashboard_enabled:
+        if credential_references is None:
+            dashboard_present = False
+            dashboard_detail = "dashboard credential unavailable: invalid credential contract"
+        else:
+            reference = dashboard_control_token_reference(loader)
+            try:
+                require_dashboard_control_token(loader, env)
+            except CredentialContractError as exc:
+                dashboard_present = False
+                dashboard_detail = (
+                    f"dashboard credential {exc.reason_code} in environment variable "
+                    f"{reference}"
+                )
+            else:
+                dashboard_present = True
+                dashboard_detail = (
+                    f"dashboard credential present in environment variable {reference}"
+                )
+        checks.append(PreflightCheck(
+            "dashboard_control_token", dashboard_present, dashboard_detail,
+        ))
+
     if check_server_health:
         checks.append(_health_check(
             str(loader.get("models", "llm_main.host", "127.0.0.1")),
@@ -229,6 +257,7 @@ def main() -> int:
     parser.add_argument("--platform", required=True, choices=("youtube", "discord"))
     parser.add_argument("--video")
     parser.add_argument("--with-discord", action="store_true")
+    parser.add_argument("--dashboard", action="store_true")
     parser.add_argument("--skip-server-health", action="store_true")
     parser.add_argument("--config-dir", default=str(REPO_ROOT / "config"))
     parser.add_argument("--output")
@@ -241,6 +270,7 @@ def main() -> int:
         platform_name=args.platform,
         video_id=args.video,
         with_discord=args.with_discord,
+        dashboard_enabled=args.dashboard,
         check_server_health=not args.skip_server_health,
     )
     rendered = json.dumps(report, ensure_ascii=False, indent=2) + "\n"

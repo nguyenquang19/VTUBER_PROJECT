@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from pathlib import Path
+import secrets
 from typing import Any
 
 from datetime import datetime, timezone
@@ -18,12 +19,22 @@ from datetime import datetime, timezone
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from orchestrator.credential_contract import validate_dashboard_control_token
 from orchestrator.logger import get_logger
 
 _DASHBOARD_DIR = Path(__file__).resolve().parent
 _TEMPLATES = _DASHBOARD_DIR / "templates"
 _STATIC = _DASHBOARD_DIR / "static"
+_OPERATOR_TOKEN_HEADER = "X-Mai-Operator-Token"
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+
+
+def validate_dashboard_host(value: object) -> str:
+    if not isinstance(value, str) or value not in _LOOPBACK_HOSTS:
+        raise ValueError("dashboard host must be an explicit loopback address")
+    return value
 
 
 def _string_list(value: Any) -> list[str]:
@@ -146,6 +157,7 @@ class DashboardServer:
         gpu_metrics_refresh_s: float = 2.0,
         host: str = "127.0.0.1",
         port: int = 7860,
+        control_token: str | None = None,
     ) -> None:
         self.features = feature_manager
         self.sm = state_machine
@@ -184,8 +196,12 @@ class DashboardServer:
         self.gpu_metrics_command = gpu_metrics_command
         self.gpu_metrics_timeout_s = float(gpu_metrics_timeout_s)
         self.gpu_metrics_refresh_s = float(gpu_metrics_refresh_s)
-        self.host = host
+        self.host = validate_dashboard_host(host)
         self.port = int(port)
+        candidate_token = secrets.token_urlsafe(32) if control_token is None else control_token
+        self._control_token = validate_dashboard_control_token(
+            candidate_token, source="dashboard_control_token",
+        )
         self._log = get_logger("dashboard")
         self._ws_clients: set[WebSocket] = set()
         self._ws_source_modes: dict[WebSocket, str] = {}
@@ -439,8 +455,7 @@ class DashboardServer:
             with contextlib.suppress(Exception):
                 self.metrics.record_operator_dashboard_view(version)
 
-    @staticmethod
-    def _read_template(name: str) -> str:
+    def _render_template(self, name: str) -> str:
         path = _TEMPLATES / name
         if path.exists():
             return path.read_text(encoding="utf-8")
@@ -448,25 +463,49 @@ class DashboardServer:
 
     def _build_app(self) -> FastAPI:
         app = FastAPI(title="Mai Dashboard")
+        app.add_middleware(
+            TrustedHostMiddleware,
+            allowed_hosts=["127.0.0.1", "localhost", "[::1]", "testserver"],
+        )
+
+        @app.middleware("http")
+        async def require_operator_token(request: Request, call_next):
+            if request.method.upper() not in {"GET", "HEAD", "OPTIONS"}:
+                supplied = request.headers.get(_OPERATOR_TOKEN_HEADER, "")
+                if not secrets.compare_digest(supplied, self._control_token):
+                    return JSONResponse(
+                        {"ok": False, "reason": "operator_auth_required"},
+                        status_code=403,
+                    )
+            return await call_next(request)
 
         if _STATIC.exists():
             app.mount("/static", StaticFiles(directory=str(_STATIC)), name="static")
 
         @app.get("/", response_class=HTMLResponse)
-        async def index() -> str:
+        async def index() -> HTMLResponse:
             template = "operator_v2.html" if await self._operator_v2_enabled() else "index.html"
             self._record_dashboard_view("v2" if template.startswith("operator") else "legacy")
-            return self._read_template(template)
+            return HTMLResponse(
+                self._render_template(template),
+                headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"},
+            )
 
         @app.get("/operator", response_class=HTMLResponse)
-        async def operator_dashboard() -> str:
+        async def operator_dashboard() -> HTMLResponse:
             self._record_dashboard_view("v2")
-            return self._read_template("operator_v2.html")
+            return HTMLResponse(
+                self._render_template("operator_v2.html"),
+                headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"},
+            )
 
         @app.get("/legacy", response_class=HTMLResponse)
-        async def legacy_dashboard() -> str:
+        async def legacy_dashboard() -> HTMLResponse:
             self._record_dashboard_view("legacy")
-            return self._read_template("index.html")
+            return HTMLResponse(
+                self._render_template("index.html"),
+                headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"},
+            )
 
         @app.get("/api/snapshot")
         async def api_snapshot(source: str = "auto") -> JSONResponse:

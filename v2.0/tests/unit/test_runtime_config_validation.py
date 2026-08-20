@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from orchestrator.config_loader import ConfigError, ConfigLoader
+from orchestrator.credential_contract import CredentialContractError
 from orchestrator.runtime_config_validation import validate_runtime_config
 from orchestrator.stream_runtime import StreamRuntimeConfig, build_stream_runtime
 
@@ -26,6 +27,8 @@ def test_repository_runtime_config_is_valid() -> None:
     loader.load_all()
     validated = validate_runtime_config(loader)
     assert validated.dashboard_port == 7860
+    assert validated.dashboard_host == "127.0.0.1"
+    assert validated.dashboard_control_token_env == "MAI_DASHBOARD_CONTROL_TOKEN"
     assert validated.logging_buffer_records > 0
     assert validated.self_talk_thought_ledger_size == 32
     assert validated.self_talk_output_repeat_threshold == 0.88
@@ -55,6 +58,7 @@ def test_repository_runtime_config_is_valid() -> None:
     assert validated.director_speech_style_max_words == 65
     assert validated.director_speech_style_max_regenerations == 1
     assert validated.conversation_summarize_after_moves == 2
+    assert validated.manage_llama_process is True
 
 
 @pytest.mark.parametrize(
@@ -140,10 +144,15 @@ def test_repository_runtime_config_is_valid() -> None:
         ),
         ("system", "dashboard.port", 70000, "dashboard_port"),
         ("system", "dashboard.port", "7860", "dashboard_port"),
+        ("system", "dashboard.host", "0.0.0.0", "dashboard_host"),
         ("director", "director.tick_seconds", "1.5", "director_tick_seconds"),
         (
             "self_talk", "self_talk.silence_allow_question", "false",
             "self_talk_silence_allow_question",
+        ),
+        (
+            "operations", "health_supervisor.manage_llama_process", "false",
+            "manage_llama_process",
         ),
         (
             "self_talk", "self_talk.question_particles", "nhỉ",
@@ -189,9 +198,20 @@ def test_speech_style_budget_cannot_exceed_recent_window() -> None:
             "animation.token_file",
         ),
         (
+            {("system", "dashboard.control_token_env"): "dashboard-token"},
+            "dashboard.control_token_env",
+        ),
+        (
             {
                 ("chat_sources", "discord.token_env_var"): "SHARED_SECRET",
                 ("capabilities", "external_actions.obs.password_env"): "SHARED_SECRET",
+            },
+            "distinct",
+        ),
+        (
+            {
+                ("chat_sources", "discord.token_env_var"): "SHARED_SECRET",
+                ("system", "dashboard.control_token_env"): "SHARED_SECRET",
             },
             "distinct",
         ),
@@ -212,4 +232,17 @@ async def test_build_rejects_invalid_config_before_composing_services() -> None:
             loader=loader,
             sources=[],
             cfg=StreamRuntimeConfig(),
+        )
+
+
+@pytest.mark.asyncio
+async def test_build_requires_dashboard_token_before_composing_services(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("MAI_DASHBOARD_CONTROL_TOKEN", raising=False)
+    with pytest.raises(CredentialContractError, match="credential_missing"):
+        await build_stream_runtime(
+            loader=OverrideLoader({}),
+            sources=[],
+            cfg=StreamRuntimeConfig(enable_dashboard=True),
         )

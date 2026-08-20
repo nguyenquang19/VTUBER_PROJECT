@@ -12,6 +12,7 @@ from orchestrator.credential_contract import (
     RuntimeCredentialReferences,
     inspect_environment_secret,
     read_optional_secret_file,
+    require_dashboard_control_token,
     require_environment_secret,
     validate_environment_reference,
     write_secret_file_atomic,
@@ -33,6 +34,20 @@ def test_environment_reference_requires_upper_snake_case(value: str) -> None:
 def test_runtime_references_must_be_distinct() -> None:
     with pytest.raises(ValueError, match="distinct"):
         RuntimeCredentialReferences("SHARED_SECRET", "SHARED_SECRET")
+
+
+def test_dashboard_control_token_is_required_and_bounded() -> None:
+    loader = _Loader({
+        ("system", "dashboard.control_token_env"): "MAI_DASHBOARD_CONTROL_TOKEN",
+    })
+    with pytest.raises(CredentialContractError, match="credential_missing"):
+        require_dashboard_control_token(loader, {})
+    with pytest.raises(CredentialContractError, match="credential_invalid"):
+        require_dashboard_control_token(loader, {"MAI_DASHBOARD_CONTROL_TOKEN": "short"})
+    assert require_dashboard_control_token(
+        loader,
+        {"MAI_DASHBOARD_CONTROL_TOKEN": "dashboard-control-token-123456"},
+    ) == "dashboard-control-token-123456"
 
 
 @pytest.mark.parametrize(
@@ -100,6 +115,7 @@ def test_environment_example_is_exact_documentation_only_inventory() -> None:
     }
     assert lines == {
         "DISCORD_BOT_TOKEN=",
+        "MAI_DASHBOARD_CONTROL_TOKEN=",
         "OBS_WEBSOCKET_PASSWORD=",
     }
     assert "/vts_token.txt" in (ROOT / ".gitignore").read_text(encoding="utf-8")

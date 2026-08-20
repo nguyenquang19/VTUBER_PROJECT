@@ -107,10 +107,17 @@ async def main() -> None:
     dash_server = None
     if args.dashboard:
         import uvicorn
+        from orchestrator.credential_contract import require_dashboard_control_token
 
         host = loader.get("system", "dashboard.host", "127.0.0.1")
         port = int(loader.get("system", "dashboard.port", 7860))
-        dash_server = DashboardServer(metrics=metrics, push_interval_s=0.5)
+        dash_server = DashboardServer(
+            metrics=metrics,
+            push_interval_s=0.5,
+            host=host,
+            port=port,
+            control_token=require_dashboard_control_token(loader),
+        )
         dash_server.start_push_loop()
         uv = uvicorn.Server(uvicorn.Config(dash_server.app, host=host, port=port, log_level="warning"))
         dash_task = asyncio.create_task(uv.serve())

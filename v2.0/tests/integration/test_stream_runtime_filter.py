@@ -153,6 +153,9 @@ async def _build_runtime(
 
     enable_dashboard = dashboard_capture is not None
     if dashboard_capture is not None:
+        monkeypatch.setenv(
+            "MAI_DASHBOARD_CONTROL_TOKEN", "test-dashboard-control-token-123456",
+        )
         import dashboard.dashboard_server as dashboard_module
 
         class FakeDashboard:
@@ -191,6 +194,7 @@ class TestRuntimeFilterWiring:
             filter_enabled=True,
             dashboard_capture=dashboard,
         )
+        await runtime.start()
         try:
             parsed, level = await runtime._runner.run_turn("r1", "chào")
             assert level == 0
@@ -393,6 +397,9 @@ async def test_late_composition_failure_rolls_back_llm_process_and_dashboard(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    monkeypatch.setenv(
+        "MAI_DASHBOARD_CONTROL_TOKEN", "test-dashboard-control-token-123456",
+    )
     fake_llm = ScriptedStreamLLM([])
     process_events: list[str] = []
     dashboard_events: list[str] = []

@@ -3,6 +3,35 @@
 
 const MAX_POINTS = 60;
 const series = { gpu: [], vram: [], ttft: [], ttfa: [] };
+let operatorToken = sessionStorage.getItem("mai-operator-token") || "";
+const operatorHeaders = (json = false) => ({
+  ...(json ? { "Content-Type": "application/json" } : {}),
+  "X-Mai-Operator-Token": operatorToken,
+});
+
+async function operatorRequest(url, method, body) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    if (!operatorToken) {
+      operatorToken = window.prompt("Nhập MAI_DASHBOARD_CONTROL_TOKEN để điều khiển Mai:", "") || "";
+      if (!operatorToken) return { ok: false, reason: "operator_token_required" };
+      sessionStorage.setItem("mai-operator-token", operatorToken);
+    }
+    try {
+      const response = await fetch(url, {
+        method,
+        headers: operatorHeaders(body !== undefined),
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      });
+      const result = await response.json();
+      if (response.status !== 403 || result.reason !== "operator_auth_required") return result;
+      operatorToken = "";
+      sessionStorage.removeItem("mai-operator-token");
+    } catch (error) {
+      return { ok: false, reason: String(error) };
+    }
+  }
+  return { ok: false, reason: "operator_auth_required" };
+}
 
 // mood: 5 chiều, mỗi chiều 1 series rolling (pos). Target vẽ mức hiện tại dạng chấm.
 const MOOD_DIMS = ["vui", "buon", "buc", "bon_chon", "nguong"];
@@ -23,12 +52,7 @@ document.querySelectorAll(".tabs button").forEach((btn) => {
 
 // ---------- controls ----------
 async function post(url) {
-  try {
-    const r = await fetch(url, { method: "POST" });
-    return await r.json();
-  } catch (e) {
-    return { ok: false, reason: String(e) };
-  }
+  return operatorRequest(url, "POST");
 }
 document.getElementById("btn-estop").addEventListener("click", () => post("/api/emergency_stop"));
 document.getElementById("btn-resume").addEventListener("click", () => post("/api/resume"));
@@ -60,23 +84,11 @@ document.getElementById("btn-narrative-add").addEventListener("click", async () 
 
 // ---------- Review tab (T3 rating + T7 correction) ----------
 async function postJson(url, body) {
-  try {
-    const r = await fetch(url, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    return await r.json();
-  } catch (e) { return { ok: false, reason: String(e) }; }
+  return operatorRequest(url, "POST", body);
 }
 
 async function deleteJson(url, body) {
-  try {
-    const r = await fetch(url, {
-      method: "DELETE", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    return await r.json();
-  } catch (e) { return { ok: false, reason: String(e) }; }
+  return operatorRequest(url, "DELETE", body);
 }
 
 function rate(rating) {

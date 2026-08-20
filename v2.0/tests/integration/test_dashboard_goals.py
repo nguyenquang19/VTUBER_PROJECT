@@ -12,6 +12,9 @@ from services.agent.event_ledger import EventLedger
 from services.agent.goal_manager import GoalLimits, GoalManager
 from services.agent.types import AgentEventKind
 
+CONTROL_TOKEN = "test-dashboard-control-token-123456"
+CONTROL_HEADERS = {"X-Mai-Operator-Token": CONTROL_TOKEN}
+
 
 def _stack() -> tuple[TestClient, GoalManager, AgentState, MetricsCollector]:
     now = datetime(2026, 8, 8, 11, 0, tzinfo=timezone.utc)
@@ -26,8 +29,11 @@ def _stack() -> tuple[TestClient, GoalManager, AgentState, MetricsCollector]:
         GoalLimits(8, 4, 16, 240, 90, 3600), clock=clock, metrics=metrics,
         on_active_changed=state.set_active_goal_ref, audit_sink=state.record,
     )
-    server = DashboardServer(agent_state=state, goal_manager=goals, metrics=metrics)
-    return TestClient(server.app), goals, state, metrics
+    server = DashboardServer(
+        agent_state=state, goal_manager=goals, metrics=metrics,
+        control_token=CONTROL_TOKEN,
+    )
+    return TestClient(server.app, headers=CONTROL_HEADERS), goals, state, metrics
 
 
 def test_dashboard_can_only_pin_operator_goal_and_audits_it() -> None:
