@@ -53,6 +53,16 @@ class TestRecorders:
         text = m.prometheus_text().decode()
         assert "mai_pipeline_ttfa_seconds_count 1.0" in text
 
+    def test_phase14_human_review_and_trajectory_outcomes_are_observable(self) -> None:
+        m = fresh()
+        m.record_human_like_review("finalized")
+        m.record_trajectory("replay_match")
+        assert m.human_like_review_snapshot() == {"finalized": 1}
+        assert m.trajectory_snapshot() == {"replay_match": 1}
+        text = m.prometheus_text().decode()
+        assert 'mai_human_like_reviews_total{outcome="finalized"} 1.0' in text
+        assert 'mai_trajectory_records_total{outcome="replay_match"} 1.0' in text
+
 
 class TestGpuMetrics:
     def test_nvidia_csv_updates_real_snapshot(self) -> None:

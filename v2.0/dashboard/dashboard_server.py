@@ -144,6 +144,8 @@ class DashboardServer:
         goal_manager: Any = None,     # M2: read + audited operator controls
         relationship_manager: Any = None,  # M7: audited social record controls
         decision_records: Any = None,      # M10.3: versioned Director decision view
+        trajectory_records: Any = None,    # Phase 14: sanitized structured trajectories
+        human_like_calibration: Any = None,  # Phase 14: counters only, no sealed manifest
         self_talk_planner: Any = None,     # cause-first thought state, read-only
         control_plane: Any = None,          # M9: pause/resume/action queue/audit
         snapshot_provider: Any = None,      # M9: standalone read-only provider
@@ -183,6 +185,8 @@ class DashboardServer:
         self.goal_manager = goal_manager
         self.relationship_manager = relationship_manager
         self.decision_records = decision_records
+        self.trajectory_records = trajectory_records
+        self.human_like_calibration = human_like_calibration
         self.self_talk_planner = self_talk_planner
         self.control_plane = control_plane
         self.snapshot_provider = snapshot_provider
@@ -399,6 +403,12 @@ class DashboardServer:
         if self.decision_records is not None:
             with contextlib.suppress(Exception):
                 snap["decisions"] = self.decision_records.snapshot()
+        if self.trajectory_records is not None:
+            with contextlib.suppress(Exception):
+                snap["trajectories"] = self.trajectory_records.snapshot()
+        if self.human_like_calibration is not None:
+            with contextlib.suppress(Exception):
+                snap["human_like_calibration"] = self.human_like_calibration.snapshot()
         if self.health_supervisor is not None:
             with contextlib.suppress(Exception):
                 snap["health_supervisor"] = self.health_supervisor.snapshot()

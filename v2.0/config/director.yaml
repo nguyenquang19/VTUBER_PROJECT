@@ -52,6 +52,15 @@ director:
       - thread_missing
       - unsupported_goal_kind
 
+  trajectory_records:
+    schema_version: 1
+    max_recent: 256
+    dashboard_recent: 20
+    max_candidates: 32
+    max_evidence_refs: 8
+    max_reason_codes: 8
+    max_label_chars: 120
+
   # Phase 6: read-only Director V2 shadow. It never drives the live DirectorLoop.
   director_v2_shadow:
     tick_seconds: 1.5

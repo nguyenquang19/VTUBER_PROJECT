@@ -241,6 +241,14 @@ features:
     depends_on: []
     conflicts_with: []
 
+  trajectory_records:
+    enabled: false              # Phase 14 structured replay evidence; no decision side effects
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: evaluation
+    depends_on: [decision_records, director_v2_shadow]
+    conflicts_with: []
+
   operator_dashboard_v2:
     enabled: true               # Operator-approved M10 full-live cutover; /legacy remains rollback
     vram_cost_mb: 0
@@ -294,6 +302,14 @@ features:
     vram_cost_mb: 0
     latency_impact_ms: 0
     category: agent
+    depends_on: []
+    conflicts_with: []
+
+  human_like_calibration:
+    enabled: false              # Phase 14 offline human review; never changes runtime decisions
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: evaluation
     depends_on: []
     conflicts_with: []
 

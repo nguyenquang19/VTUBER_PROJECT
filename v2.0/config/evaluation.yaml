@@ -5,6 +5,30 @@ evaluation:
   scenario_file: "eval/scenarios/mai_agent_v1.yaml"
   artifacts_dir: "logs/evaluation"
   require_source_refs: true
+  human_like:
+    schema_version: 1
+    seed: 20260820
+    min_pairs: 20
+    max_pairs: 100
+    max_output_chars: 800
+    max_context_chars: 400
+    max_note_chars: 400
+    max_ref_chars: 120
+    dimensions:
+      language: 0.20
+      presence: 0.25
+      context: 0.15
+      character: 0.15
+      timing: 0.15
+      spontaneity: 0.10
+    ai_smell_tags:
+      - assistant_register
+      - formulaic_opener
+      - meta_exposition
+      - repetitive_structure
+      - context_miss
+      - character_drift
+      - unnatural_timing
   youtube_replay:
     burst_window_ms: 1500
     clock_start_epoch: 1767225600

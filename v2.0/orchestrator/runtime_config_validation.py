@@ -17,6 +17,8 @@ from orchestrator.credential_contract import (
     validate_runtime_credential_contract,
 )
 from services.animation.embodiment_policy import EmbodimentPolicyConfig
+from services.director.trajectory import TrajectoryConfig
+from services.evaluation.human_like import HumanLikeConfig
 
 
 def _strict_string_tuple(value: Any, field_name: str) -> tuple[str, ...]:
@@ -136,6 +138,11 @@ def validate_runtime_config(loader: Any) -> RuntimeCriticalConfig:
         EmbodimentPolicyConfig.from_loader(loader)
     except ValueError as exc:
         raise ConfigError(f"Runtime embodiment config không hợp lệ: {exc}") from exc
+    try:
+        TrajectoryConfig.from_loader(loader)
+        HumanLikeConfig.from_loader(loader)
+    except ValueError as exc:
+        raise ConfigError(f"Runtime Phase 14 config không hợp lệ: {exc}") from exc
     try:
         return RuntimeCriticalConfig(
             log_dir=loader.get("logging", "jsonl.dir", "logs"),

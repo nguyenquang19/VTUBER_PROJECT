@@ -22,6 +22,34 @@ EMBODIMENT_CONFIG = {
     "max_id_chars": 160,
     "max_gesture_id_chars": 64,
 }
+TRAJECTORY_CONFIG = {
+    "schema_version": 1,
+    "max_recent": 256,
+    "dashboard_recent": 20,
+    "max_candidates": 32,
+    "max_evidence_refs": 8,
+    "max_reason_codes": 8,
+    "max_label_chars": 120,
+}
+HUMAN_LIKE_CONFIG = {
+    "schema_version": 1,
+    "seed": 20260820,
+    "min_pairs": 20,
+    "max_pairs": 100,
+    "max_output_chars": 800,
+    "max_context_chars": 400,
+    "max_note_chars": 400,
+    "max_ref_chars": 120,
+    "dimensions": {
+        "language": 0.20,
+        "presence": 0.25,
+        "context": 0.15,
+        "character": 0.15,
+        "timing": 0.15,
+        "spontaneity": 0.10,
+    },
+    "ai_smell_tags": ["assistant_register"],
+}
 
 
 class OverrideLoader:
@@ -31,6 +59,10 @@ class OverrideLoader:
     def get(self, name: str, key: str, default=None):
         if (name, key) == ("animation", "animation.embodiment"):
             return self._overrides.get((name, key), dict(EMBODIMENT_CONFIG))
+        if (name, key) == ("director", "director.trajectory_records"):
+            return self._overrides.get((name, key), dict(TRAJECTORY_CONFIG))
+        if (name, key) == ("evaluation", "evaluation.human_like"):
+            return self._overrides.get((name, key), dict(HUMAN_LIKE_CONFIG))
         return self._overrides.get((name, key), default)
 
 
@@ -192,6 +224,34 @@ def test_speech_style_budget_cannot_exceed_recent_window() -> None:
             ("director", "director.speech_style.recent_window"): 2,
             ("director", "director.speech_style.max_formula_openers"): 3,
         }))
+
+
+@pytest.mark.parametrize(
+    ("name", "key", "value", "message"),
+    [
+        (
+            "director", "director.trajectory_records",
+            {**TRAJECTORY_CONFIG, "max_recent": "256"},
+            "max_recent must be a positive integer",
+        ),
+        (
+            "evaluation", "evaluation.human_like",
+            {
+                **HUMAN_LIKE_CONFIG,
+                "dimensions": {
+                    **HUMAN_LIKE_CONFIG["dimensions"],
+                    "language": 0.21,
+                },
+            },
+            "weights must sum to 1",
+        ),
+    ],
+)
+def test_phase14_config_fails_before_service_composition(
+    name: str, key: str, value: object, message: str,
+) -> None:
+    with pytest.raises(ConfigError, match=message):
+        validate_runtime_config(OverrideLoader({(name, key): value}))
 
 
 @pytest.mark.parametrize(

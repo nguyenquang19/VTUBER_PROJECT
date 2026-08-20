@@ -41,7 +41,8 @@ adapters, OBS scene action và Perception Phase 10 đều đã compose nhưng pr
 evidence cho các capability liên quan. Phase 9/10 không trao external action hoặc raw
 observation cho Director. Phase 11 đã đóng goal/short-intention lifecycle; Phase 12 đã đóng strict
 Memory/ContextSelector contract nhưng feature production vẫn tắt; Phase 13 đã đóng strict Embodiment
-Policy contract nhưng feature production vẫn tắt; Phase 14 trở đi chưa đóng gate.
+Policy contract nhưng feature production vẫn tắt; Phase 14 đã đóng strict calibration/trajectory
+contract nhưng hai feature vẫn mặc định tắt và chưa có human review evidence; Phase 15 chưa đóng gate.
 
 Vì vậy, cách mô tả chính xác nhất là:
 
@@ -89,7 +90,7 @@ Các cột dưới đây độc lập với nhau. “Có mã” không thay th�
 | Goals và short intentions | Có | Có, qua GoalManager/Director/Self/dashboard | Unit, integration, replay và full offline regression | Không |
 | Memory và ContextSelector V2 | Có | Strict bounded read-only composition khi bật; mặc định tắt | Unit, integration, replay và full offline regression | Không; chưa live semantic-memory canary |
 | Embodiment Policy | Có | LOW/MID/HIGH strict arbitration đã compose; mặc định tắt | Unit, integration, deterministic replay và full offline regression | Không; chưa live VTS canary |
-| Human-like calibration và trajectory | Có mã tiền V2 từ implementation cũ | Chưa audit/compose theo gate Phase 14 | Có test thành phần; chưa có human evidence Phase 14 | Không |
+| Human-like calibration và trajectory | Có | Trajectory đã compose read-only theo Director V2; MAI-HLC là workflow offline tách sealed manifest | Unit, integration, deterministic replay, tamper/negative paths và full offline regression; chưa có human review evidence thật | Không; hai feature mặc định tắt |
 | Product `2.0.0` release gates | Có tooling/evidence release kế thừa | Chưa audit theo gate Phase 15 và chưa đủ evidence độc lập | Có test thành phần; gate Phase 15 chưa chạy | Không |
 
 Ma trận chỉ được nâng trạng thái khi có đường code tương ứng, test phù hợp và evidence máy đọc hoặc vận
@@ -416,8 +417,8 @@ Hiện hệ thống chưa có bộ thực thi thật cho ví dụ này. Vì vậ
 | Mục tiêu và ý định ngắn | Có một phần | Liên kết vào trạng thái bản thân còn thiếu |
 | Chọn ký ức theo ngữ cảnh | Đã có nền | Cần đo chất lượng khi chạy thật |
 | Chính sách hiện thân | Đã có nền | Cần nối với thiết bị và trạng thái thật |
-| Ghi hành trình quyết định | Có lớp riêng | Chưa được lắp vào đường chạy chính |
-| Cổng đánh giá V2 | Có nhưng còn nông | Chủ yếu tin vào số liệu tự khai, chưa xác thực đủ bằng chứng |
+| Ghi hành trình quyết định | Đã đóng gate kỹ thuật | Đã compose bounded/read-only theo Director V2; feature mặc định tắt |
+| Cổng đánh giá V2 | MAI-HLC strict đã có; release gate còn thiếu | Blind artifact/commitment đã fail closed; chưa có human review thật và Phase 15 evidence verification |
 | Vòng tự chủ khép kín | Chưa có | Chưa nối quan sát, quyết định, hành động thật và phản hồi thành một vòng |
 
 Đường V2 đang chạy thực tế có thể tóm tắt như sau:
@@ -460,7 +461,7 @@ V2 được đưa vào theo từng lớp, có cờ bật/tắt và chế độ q
 ### 8.5. Bộ kiểm thử rộng
 
 Bộ kiểm thử bao phủ nhiều subsystem và các bài targeted cho lõi V2 đang xanh. Ngày 20/08/2026, sau
-closure Phase 13, full offline regression bằng `v2.0\venv` đạt 2.235 bài và 0 lỗi.
+closure Phase 14, full offline regression bằng `v2.0\venv` đạt 2.267 bài và 0 lỗi.
 Kết quả này chứng minh đường offline hiện có đang xanh; nó không thay thế live/LLM acceptance hoặc chứng
 minh các capability chưa compose đã production.
 
@@ -528,9 +529,12 @@ cancellation, TTL và preemption chuyển trạng thái theo policy deterministi
 **Rủi ro còn lại:** `goal_proposals` vẫn mặc định tắt; Phase 11 không thêm autonomous planner và không
 thay thế rollout/canary của Director V2.
 
-### 9.6. Ghi hành trình và cổng phát hành chưa đáng tin cậy hoàn toàn — mức trung bình
+### 9.6. Ghi hành trình đã strict; cổng phát hành vẫn chưa hoàn tất — mức trung bình
 
-Lớp ghi hành trình đã có nhưng chưa nối vào đường chạy chính. Bộ đánh giá phát hành chủ yếu kiểm tra các cờ và số liệu được khai trong dữ liệu đầu vào, chưa xác minh đầy đủ tệp bằng chứng, mã băm hoặc bản sửa đổi nguồn.
+Phase 14 đã nối trajectory dạng bounded/read-only vào Director V2, thêm deterministic replay và hash phát
+hiện artifact tamper. MAI-HLC tách blind reviewer artifact khỏi sealed manifest và chỉ reveal sau khi score
+đã persist/validate. Tuy nhiên Phase 15 release gate vẫn chưa xác minh đầy đủ toàn bộ tệp evidence, source
+revision, live/canary hoặc rollback rehearsal; chưa có human review artifact thật.
 
 **Hậu quả:** có thể báo đạt về hình thức trong khi bằng chứng thực tế thiếu hoặc không khớp.
 
@@ -602,8 +606,8 @@ Ba nguồn chính thức hiện là `docs/V1_BASELINE.md`, tài liệu này và 
 “có mã”, “đã ghép”, “đã test” và “đã phát hành”. Product version vẫn đúng là `1.4.3`; việc changelog
 chưa có release mới là chủ ý, không phải thiếu đồng bộ.
 
-Sau closure Phase 13, `main` không coi code calibration/release tooling đã có từ implementation
-generation trước là evidence đóng Phase 14–15. Mỗi phase vẫn phải được audit theo
+Sau closure Phase 14, `main` không coi release tooling đã có từ implementation generation trước là evidence
+đóng Phase 15. Phase còn lại vẫn phải được audit theo
 blueprint, cập nhật tài liệu này trước khi sửa code, chạy gate riêng và được user duyệt; không tạo
 lại tài liệu phase riêng.
 
@@ -744,7 +748,7 @@ Mục tiêu: các phần đã có mã trở thành thành phần đang chạy.
 
 1. Speech/avatar adapters và cờ/chỉ số đã được compose; còn thiếu live rollout/canary.
 2. Nối mã ý định hiện tại vào ảnh chụp trạng thái bản thân.
-3. Ghi hành trình quyết định từ đầu vào đến kết quả và đưa vào replay/release evidence.
+3. Trajectory quyết định đã compose vào bounded replay evidence; còn đưa evidence thật vào Phase 15 release gate.
 
 **Điều kiện hoàn tất:** có thể lần theo một câu nói từ dữ kiện, ý định, quyết định, giao dịch đến kết quả phát thực tế.
 
@@ -815,10 +819,11 @@ Không nên đổi nhãn sản phẩm thành V2 chỉ vì các lớp hoặc tài
 Nếu nguồn lực có hạn, nên làm đúng thứ tự này:
 
 1. giữ Phase 7 mặc định tắt cho tới khi có kế hoạch rollout/canary và rollback evidence;
-2. giữ Phase 11 goal/short-intention, Phase 12 Memory/ContextSelector và Phase 13 Embodiment Policy
+2. giữ Phase 11 goal/short-intention, Phase 12 Memory/ContextSelector, Phase 13 Embodiment Policy và
+   Phase 14 calibration/trajectory
    trong regression;
-3. thực hiện Phase 14: trajectory replay, observability hardening và human-like calibration;
-4. chỉ sau đó thực hiện Phase 15 release gate, live/canary, security và rollback rehearsal;
+3. thu human review evidence bằng MAI-HLC mà không tự động thay đổi release decision;
+4. thực hiện Phase 15 release gate, live/canary, security và rollback rehearsal;
 5. giữ Phase 8/9/10/12/13 production flags tắt tới khi có audio/VTS/OBS/memory canary tương ứng;
 6. giảm nợ bảo trì mà không đổi thứ tự phase hoặc thêm logic V3.
 
@@ -1784,6 +1789,63 @@ Targeted Phase 13 đạt 381 test; deterministic arbitration replay đạt; full
 không phải production rollout. VTS API acknowledgement chỉ chứng minh hotkey request được nhận, không
 chứng minh animation đã phát xong. Product version vẫn `1.4.3` vì đây chưa phải release acceptance.
 
+#### 17.2.14. Strict human-like calibration và trajectory contract Phase 14
+
+Phase 14 harden hai đường quan sát độc lập; không được dùng điểm đánh giá để tự thay đổi Director,
+prompt, memory, sampling hoặc production feature. Human-like calibration chỉ tạo evidence có người duyệt;
+trajectory chỉ ghi bằng chứng có cấu trúc để debug/replay và không sở hữu execution hay business commit.
+
+MAI-HLC có đúng sáu dimension và trọng số cố định trong `evaluation.yaml`: Language `20%`, Presence
+`25%`, Context `15%`, Character `15%`, Timing `15%`, Spontaneity `10%`. Mỗi candidate phải có điểm nguyên
+`1..5` cho sáu dimension, AI Smell boolean kèm tag thuộc allowlist khi có smell, Liveness nguyên `1..5`,
+Action coherence nguyên `1..5` và note đã sanitize. Aggregate là weighted mean deterministic; báo cáo bắt
+buộc nêu previous-build delta và weakest dimension, không được coi aggregate là release gate duy nhất.
+
+Blind A/B tách artifact reviewer khỏi sealed manifest. Trước khi score được validate và lưu, reviewer
+artifact không được chứa build identity, Director score, prompt, memory internals, mapping A/B hoặc raw
+transcript. Candidate order được hoán đổi deterministic bằng seed YAML và pair reference; sealed manifest
+chỉ giữ mapping, internal references đã sanitize/bounded và commitment hash. Finalization fail closed nếu
+artifact/manifest mismatch, duplicate pair, score thiếu/sai kiểu, note rỗng, AI Smell tag không hợp lệ hoặc
+artifact chưa được persist. Chỉ finalized artifact mới được reveal build mapping và bounded internals;
+automated metric không được tự điền human score hoặc chuyển `pending_human_review` thành `passed`.
+
+Trajectory schema versioned/frozen ghi một decision lifecycle có giới hạn:
+
+- `S_t`: `world_snapshot_id`, `self_snapshot_id`, `capability_snapshot_id`;
+- Decision: bounded candidate summaries, selected action và structured `reason_codes`;
+- `A_t`: sanitized `ActionRequest` khi decision tạo action; WAIT/no-action phải ghi explicit terminal state,
+  không tạo request giả;
+- `R_t`: sanitized `ActionResult` và verification outcome khi có execution;
+- `S_t+1`: ba next snapshot ID sau terminal outcome.
+
+Record không lưu chain-of-thought, raw prompt, raw chat/speech, memory payload, credential hoặc arbitrary
+action argument/result data. Candidate, reason/evidence, record history và character length đều bounded từ
+YAML. Snapshot trả deep copy/read-only projection. Record incomplete/failure phải hiển thị đúng trạng thái,
+không được bịa request/result/verification để tự nhận complete. Recorder, metric, dashboard hoặc replay lỗi
+phải fail isolated và không đổi selected action, delivery, transaction hoặc World/Self projection.
+
+Replay chỉ dựng lại typed `DirectorV2Context` từ snapshot IDs, structured flags và candidate summaries,
+chạy deterministic proposal rồi so selected action, capability, candidate và reason codes. Replay không
+được truy xuất prompt/memory internals hoặc thực thi action. Hash/fingerprint dùng để phát hiện artifact
+tamper, không phải bằng chứng rằng external side effect đã xảy ra.
+
+`human_like_calibration` và `trajectory_records` là optional features do `FeatureManager` sở hữu, có health,
+metric, strict config và safe disable/stop cleanup. Trajectory runtime mặc định tắt cho tới khi operator bật;
+human calibration là offline human workflow. Dashboard chỉ đọc bounded sanitized snapshot và không có API
+để sửa score, reveal sealed manifest hoặc phát lại action.
+
+Gate kiểm thử gồm strict YAML/interface/frozen shape, weighted score/weakest/delta, AI Smell/Liveness/action
+coherence negative paths, deterministic blinding, persist-before-reveal, commitment/tamper/PII/internal leak,
+trajectory lifecycle/WAIT/incomplete/failure isolation/retention, deterministic replay mismatch, runtime
+feature lifecycle, metrics và dashboard read-only. Impacted Director V2, action, evaluation, dashboard,
+documentation guard, V1 regression và full offline suite phải tiếp tục xanh.
+
+**Trạng thái Phase 14:** đạt closure gate kỹ thuật ngày 20/08/2026. MAI-HLC strict blind workflow,
+persist-before-reveal, commitment/tamper guard và trajectory lifecycle/replay/read-only composition đã được
+triển khai; targeted/impacted đạt 471 test, deterministic Director replay đạt và full offline
+`pytest tests -q` đạt 2.267 test, 0 lỗi. Hai feature vẫn mặc định tắt; chưa chạy human review thật hoặc
+live/canary, không có automatic release decision và product version vẫn `1.4.3`.
+
 ### 17.3. Chuỗi mã để lần theo một lượt
 
 ```mermaid
@@ -1904,7 +1966,8 @@ Một chức năng chỉ thực sự hoạt động khi đã được khai báo,
   `embodiment_policy`, `animation_micro`, `speech_action_adapter`, `avatar_action_adapter`,
   `memory_semantic`, `memory_hierarchical`, `qc_persona`, `agent_context`, `context_selector`,
   `goal_proposals`, `thread_extraction`, `speculative_decoding`, `turn_taking_predictor`,
-  `director_v2_takeover`, `obs_scene_executor`, `obs_perception_adapter`.
+  `director_v2_takeover`, `obs_scene_executor`, `obs_perception_adapter`, `trajectory_records`,
+  `human_like_calibration`.
 
 Trong đó `speech_action_adapter` và `avatar_action_adapter` đã được ghép vào local typed action boundary
 và composition root nhưng vẫn mặc định tắt, chưa có live audio/VTS canary. `director_v2_takeover` đã có
@@ -2231,7 +2294,8 @@ Ngày 20/08/2026:
 - Phase 11 goal/short-intention targeted: 160 đạt; deterministic lifecycle replay: đạt;
 - Phase 12 Memory/ContextSelector targeted: 267 đạt; deterministic bounded-context replay: đạt;
 - Phase 13 Embodiment Policy targeted: 381 đạt; deterministic arbitration replay: đạt;
-- full offline `pytest tests -q`: 2.235 đạt, 0 lỗi trong 149,02 giây;
+- Phase 14 calibration/trajectory targeted và impacted: 471 đạt; deterministic Director replay: đạt;
+- full offline `pytest tests -q`: 2.267 đạt, 0 lỗi;
 - còn một cảnh báo deprecation giữa Starlette TestClient và `httpx`;
 - chưa chạy live/LLM acceptance, audio/VTS/OBS canary hoặc canary takeover; `llama-server` không được
   khởi động trong Phase 10.

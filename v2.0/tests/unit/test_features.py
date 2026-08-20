@@ -94,6 +94,17 @@ class TestRegistryBasics:
 
         assert await production.get_status("director_chat_gate") is FeatureStatus.ENABLED
 
+    async def test_phase14_features_are_registered_off_with_strict_dependencies(self) -> None:
+        loader = ConfigLoader(REPO_ROOT / "config")
+        loader.load_all()
+        production = FeatureManager.from_config(loader)
+
+        assert await production.get_status("trajectory_records") is FeatureStatus.DISABLED
+        assert await production.get_status("human_like_calibration") is FeatureStatus.DISABLED
+        graph = await production.get_dependencies("trajectory_records")
+        assert "decision_records" in graph.requires
+        assert "director_v2_shadow" in graph.requires
+
 
 class TestCoreFeatures:
     async def test_enable_core_raises(self, mgr: FeatureManager) -> None:

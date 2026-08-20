@@ -288,6 +288,7 @@ class DirectorV2Shadow(DirectorV2ShadowService):
         self._records: OrderedDict[int, dict[str, Any]] = OrderedDict()
         self._counts: dict[str, int] = {}
         self._sequence = 0
+        self._latest_trace: tuple[DirectorV2Proposal, DirectorV2Context] | None = None
         self._running = False
         self._task: asyncio.Task[None] | None = None
 
@@ -306,6 +307,7 @@ class DirectorV2Shadow(DirectorV2ShadowService):
         self._enabled = enabled
         if not enabled:
             self._records.clear()
+            self._latest_trace = None
             if self._task is not None:
                 self._task.cancel()
                 self._task = None
@@ -401,6 +403,12 @@ class DirectorV2Shadow(DirectorV2ShadowService):
             )
         return self.propose(context)
 
+    def trajectory_context(self, proposal_id: str) -> DirectorV2Context | None:
+        trace = self._latest_trace
+        if trace is None or trace[0].proposal_id != str(proposal_id):
+            return None
+        return trace[1]
+
     def snapshot(self) -> dict[str, object]:
         recent = list(self._records.values())[-self._config.max_recent_records:]
         return {
@@ -482,6 +490,7 @@ class DirectorV2Shadow(DirectorV2ShadowService):
     def _store(
         self, proposal: DirectorV2Proposal, context: DirectorV2Context, outcome: str,
     ) -> None:
+        self._latest_trace = (proposal, context)
         record = {
             "proposal_id": proposal.proposal_id,
             "created_at": proposal.created_at,

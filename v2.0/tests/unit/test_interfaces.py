@@ -32,6 +32,7 @@ from interfaces.agent import (
 from interfaces.base import HealthState, HealthStatus, Service
 from interfaces.filter import FilterCategory, FilterService, FilterVerdict
 from interfaces.input import EventSource, InputEvent, InputService
+from interfaces.human_like import HumanLikeCalibrationService
 from interfaces.llm import LLMRequest, LLMService, LLMToken
 from interfaces.memory import MemoryEntry, MemoryService, MemoryTier
 from interfaces.operations import (
@@ -42,6 +43,7 @@ from interfaces.operations import (
 )
 from interfaces.stt import NullSTTService, STTService, TranscriptChunk
 from interfaces.tts import AudioChunk, TTSRequest, TTSService
+from interfaces.trajectory import TrajectoryRecordService
 
 
 class TestHealthStatus:
@@ -142,6 +144,16 @@ class TestServiceContract:
             (IncidentLogService, "record_incident"),
             (IncidentLogService, "resolve"),
             (IncidentLogService, "snapshot"),
+            (HumanLikeCalibrationService, "build"),
+            (HumanLikeCalibrationService, "finalize"),
+            (HumanLikeCalibrationService, "snapshot"),
+            (TrajectoryRecordService, "begin"),
+            (TrajectoryRecordService, "mark_selection"),
+            (TrajectoryRecordService, "record_action"),
+            (TrajectoryRecordService, "record_result"),
+            (TrajectoryRecordService, "record_no_action"),
+            (TrajectoryRecordService, "replay"),
+            (TrajectoryRecordService, "snapshot"),
         ],
     )
     def test_interface_declares_spec_method(self, iface, method) -> None:
@@ -168,6 +180,8 @@ class TestServiceContract:
             EmergencyControlService,
             SoakMonitorService,
             IncidentLogService,
+            HumanLikeCalibrationService,
+            TrajectoryRecordService,
         ],
     )
     def test_all_interfaces_inherit_service_base(self, iface) -> None:

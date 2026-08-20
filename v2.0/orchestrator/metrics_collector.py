@@ -291,6 +291,20 @@ class MetricsCollector:
             registry=self.registry,
         )
         self._eval_acceptance_runs: dict[str, int] = {}
+        self.human_like_reviews_total_c = Counter(
+            "mai_human_like_reviews_total",
+            "Strict MAI-HLC blind review workflow outcomes",
+            ["outcome"],
+            registry=self.registry,
+        )
+        self._human_like_reviews: dict[str, int] = {}
+        self.trajectory_records_total_c = Counter(
+            "mai_trajectory_records_total",
+            "Structured Director trajectory lifecycle and replay outcomes",
+            ["outcome"],
+            registry=self.registry,
+        )
+        self._trajectory_records: dict[str, int] = {}
         self.health_supervisor_actions_total_c = Counter(
             "mai_health_supervisor_actions_total",
             "Bounded health supervisor observations and recovery actions",
@@ -518,6 +532,22 @@ class MetricsCollector:
 
     def mood_ab_review_snapshot(self) -> dict[str, int]:
         return dict(sorted(self._mood_ab_reviews.items()))
+
+    def record_human_like_review(self, outcome: str) -> None:
+        key = str(outcome)
+        self._human_like_reviews[key] = self._human_like_reviews.get(key, 0) + 1
+        self.human_like_reviews_total_c.labels(outcome=key).inc()
+
+    def human_like_review_snapshot(self) -> dict[str, int]:
+        return dict(sorted(self._human_like_reviews.items()))
+
+    def record_trajectory(self, outcome: str) -> None:
+        key = str(outcome)
+        self._trajectory_records[key] = self._trajectory_records.get(key, 0) + 1
+        self.trajectory_records_total_c.labels(outcome=key).inc()
+
+    def trajectory_snapshot(self) -> dict[str, int]:
+        return dict(sorted(self._trajectory_records.items()))
 
     def record_action_transaction(self, state: str) -> None:
         key = str(state)

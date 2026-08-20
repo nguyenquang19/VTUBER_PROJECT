@@ -20,9 +20,12 @@ import asyncio
 import time
 import uuid
 from dataclasses import replace
+from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable
 
+from interfaces.action_execution import VerificationResult
 from interfaces.animation import MoodState
+from interfaces.action_execution import ActionRequest, ActionResult
 from interfaces.decision_record import DecisionCandidateSummary
 from interfaces.director_v2 import DirectorV2TakeoverSelection
 from interfaces.self_talk import SelfTalkContext, SelfTalkStage
@@ -86,6 +89,7 @@ class DirectorLoop:
         repair_policy: Any = None,
         transaction_manager: Any = None,
         decision_records: Any = None,
+        trajectory_records: Any = None,
         self_talk_planner: Any = None,
         thread_manager: Any = None,
         animation: Any = None,
@@ -134,6 +138,9 @@ class DirectorLoop:
         self._repair_policy = repair_policy
         self._transactions = transaction_manager
         self._decision_records = decision_records
+        self._trajectory_records = trajectory_records
+        self._trajectory_by_decision: dict[str, str] = {}
+        self._trajectory_requested_at: dict[str, datetime] = {}
         self._self_talk_planner = self_talk_planner
         self._thread_manager = thread_manager
         self._animation = animation
@@ -219,6 +226,16 @@ class DirectorLoop:
             proposal = self._director_v2_shadow.propose_current()
         except Exception:
             proposal = None
+        trajectory_id: str | None = None
+        if proposal is not None and self._trajectory_records is not None:
+            try:
+                context = self._director_v2_shadow.trajectory_context(
+                    proposal.proposal_id,
+                )
+                if context is not None:
+                    trajectory_id = self._trajectory_records.begin(context, proposal)
+            except Exception as exc:
+                self._log.warning("trajectory_begin_failed", error=str(exc))
         try:
             selection = self._director_v2_takeover.evaluate(
                 legacy_action=decision.action.value,
@@ -226,6 +243,7 @@ class DirectorLoop:
                 evidence_ids=tuple(dict.fromkeys(evidence_ids)),
             )
         except Exception:
+            self._mark_trajectory_selection(trajectory_id, "legacy")
             return decision
         if (
             not isinstance(selection, DirectorV2TakeoverSelection)
@@ -235,7 +253,9 @@ class DirectorLoop:
             or selection.proposal_id != proposal.proposal_id
             or selection.action_type != decision.action.value.upper()
         ):
+            self._mark_trajectory_selection(trajectory_id, "legacy")
             return decision
+        self._mark_trajectory_selection(trajectory_id, "director_v2")
         return replace(
             decision,
             decision_owner="director_v2",
@@ -312,8 +332,11 @@ class DirectorLoop:
         decision_id = self._record_decision(dec, director_input, now)
 
         if dec.action == DirectorAction.WAIT:
+            self._record_trajectory_no_action(decision_id, dec.reason)
             self._record_director_action(dec, now)
             return dec.action
+
+        self._record_trajectory_action(decision_id, dec, director_input, now)
 
         async with self._turn_lock:
             transaction_id = None
@@ -394,6 +417,11 @@ class DirectorLoop:
                     except Exception:
                         pass
                 else:
+                    self._update_decision_outcome(
+                        decision_id,
+                        delivery_state="cancelled",
+                        outcome="execution_cancelled",
+                    )
                     self._record_goal_action_outcome(
                         dec,
                         expected_intention_id,
@@ -1476,6 +1504,120 @@ class DirectorLoop:
             except Exception:
                 pass
 
+    def _mark_trajectory_selection(self, trajectory_id: str | None, owner: str) -> None:
+        if trajectory_id is None or self._trajectory_records is None:
+            return
+        try:
+            self._trajectory_records.mark_selection(trajectory_id, owner=owner)
+        except Exception as exc:
+            self._log.warning("trajectory_selection_failed", error=str(exc))
+
+    def _record_trajectory_action(
+        self,
+        decision_id: str | None,
+        dec: Any,
+        director_input: DirectorInput,
+        now: float,
+    ) -> None:
+        if decision_id is None or self._trajectory_records is None:
+            return
+        trajectory_id = self._trajectory_by_decision.get(decision_id)
+        if trajectory_id is None:
+            return
+        try:
+            requested_at = datetime.fromtimestamp(float(now), timezone.utc)
+            evidence = tuple(dict.fromkeys((
+                *(str(getattr(ref, "msg_id", "")) for ref in dec.refs),
+                *(str(item) for item in dec.proactive_evidence_ids),
+            )))
+            evidence = tuple(item for item in evidence if item)
+            action_type = str(dec.action.value).upper()
+            request = ActionRequest(
+                schema_version=1,
+                action_id=f"trajectory:{trajectory_id}",
+                capability_id=action_type,
+                action_type=action_type,
+                target=None,
+                arguments={},
+                intention_id=self._decision_intention_id(dec, director_input),
+                evidence_refs=evidence,
+                idempotency_key=f"trajectory:{trajectory_id}",
+                priority=0.0,
+                requested_at=requested_at,
+                transaction_policy="delivery_aware",
+            )
+            self._trajectory_records.record_action(trajectory_id, request)
+            self._trajectory_requested_at[trajectory_id] = requested_at
+        except Exception as exc:
+            self._log.warning("trajectory_action_failed", error=str(exc))
+
+    def _record_trajectory_no_action(
+        self, decision_id: str | None, reason_code: str,
+    ) -> None:
+        if decision_id is None or self._trajectory_records is None:
+            return
+        trajectory_id = self._trajectory_by_decision.pop(decision_id, None)
+        if trajectory_id is None:
+            return
+        try:
+            self._trajectory_records.record_no_action(
+                trajectory_id, reason_code=str(reason_code),
+            )
+        except Exception as exc:
+            self._log.warning("trajectory_no_action_failed", error=str(exc))
+
+    def _record_trajectory_result(
+        self,
+        decision_id: str,
+        *,
+        delivery_state: str,
+        outcome: str,
+    ) -> None:
+        if self._trajectory_records is None:
+            return
+        trajectory_id = self._trajectory_by_decision.pop(decision_id, None)
+        if trajectory_id is None:
+            return
+        started_at = self._trajectory_requested_at.pop(
+            trajectory_id,
+            datetime.fromtimestamp(float(self._clock()), timezone.utc),
+        )
+        try:
+            completed_at = datetime.fromtimestamp(float(self._clock()), timezone.utc)
+            if completed_at < started_at:
+                completed_at = started_at
+            verified = outcome in {"committed", "completed"} and delivery_state == "delivered"
+            if verified:
+                status = "success"
+            elif delivery_state == "cancelled":
+                status = "cancelled"
+            elif outcome == "duplicate_committed":
+                status = "rejected"
+            else:
+                status = "failed"
+            result = ActionResult(
+                schema_version=1,
+                action_id=f"trajectory:{trajectory_id}",
+                status=status,
+                started_at=started_at,
+                completed_at=completed_at,
+                verified=verified,
+                verification_source="director_delivery" if verified else None,
+                result_data={},
+                error_code=None if verified else str(outcome),
+            )
+            verification = VerificationResult(
+                verified=verified,
+                source="director_delivery",
+                reason_code=str(outcome),
+                evidence_refs=(),
+            )
+            self._trajectory_records.record_result(
+                trajectory_id, result, verification,
+            )
+        except Exception as exc:
+            self._log.warning("trajectory_result_failed", error=str(exc))
+
     def _record_decision(
         self, dec: Any, director_input: DirectorInput, now: float,
     ) -> str | None:
@@ -1513,6 +1655,14 @@ class DirectorLoop:
                 candidate_summary=summary,
                 hard_rejection_reason=rejection,
             )
+            if (
+                record is not None
+                and getattr(dec, "decision_owner", "legacy") == "director_v2"
+                and getattr(dec, "director_v2_proposal_id", None)
+            ):
+                self._trajectory_by_decision[record.decision_id] = str(
+                    dec.director_v2_proposal_id,
+                )
             return record.decision_id if record is not None else None
         except Exception as exc:
             self._log.warning("decision_record_failed", error=str(exc))
@@ -1537,6 +1687,14 @@ class DirectorLoop:
                 delivery_state=delivery_state,
                 outcome=outcome,
             )
+            if outcome in {
+                "committed", "duplicate_committed", "released",
+            }:
+                self._record_trajectory_result(
+                    decision_id,
+                    delivery_state=delivery_state,
+                    outcome=outcome,
+                )
         except Exception as exc:
             self._log.warning("decision_record_update_failed", error=str(exc))
 
@@ -1552,6 +1710,11 @@ class DirectorLoop:
         try:
             self._decision_records.update_outcome(
                 decision_id, delivery_state=delivery_state, outcome=outcome,
+            )
+            self._record_trajectory_result(
+                decision_id,
+                delivery_state=delivery_state,
+                outcome=outcome,
             )
         except Exception as exc:
             self._log.warning("decision_record_update_failed", error=str(exc))

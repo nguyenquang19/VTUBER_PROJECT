@@ -208,6 +208,10 @@ class DirectorV2ShadowService(Service):
         """Propose from the composition-root context provider without side effects."""
 
     @abstractmethod
+    def trajectory_context(self, proposal_id: str) -> DirectorV2Context | None:
+        """Return the exact typed context for the latest matching proposal only."""
+
+    @abstractmethod
     def snapshot(self) -> dict[str, object]:
         """Return the bounded operator-safe shadow projection."""
 

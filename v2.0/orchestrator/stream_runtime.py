@@ -176,6 +176,8 @@ class StreamRuntime:
         external_action_loop: Any = None,
         director_v2_shadow: Any = None,
         director_v2_takeover: Any = None,
+        trajectory_records: Any = None,
+        human_like_calibration: Any = None,
         goal_manager: Any = None,
         goal_proposal: Any = None,
         thread_extractor: Any = None,
@@ -224,6 +226,8 @@ class StreamRuntime:
         self._external_action_loop = external_action_loop
         self._director_v2_shadow = director_v2_shadow
         self._director_v2_takeover = director_v2_takeover
+        self._trajectory_records = trajectory_records
+        self._human_like_calibration = human_like_calibration
         self._goal_manager = goal_manager
         self._goal_proposal = goal_proposal
         self._thread_extractor = thread_extractor
@@ -279,6 +283,10 @@ class StreamRuntime:
                 await self._perception_ingress.start()
             for adapter in self._perception_adapters:
                 await adapter.start()
+            if self._human_like_calibration is not None:
+                await self._human_like_calibration.start()
+            if self._trajectory_records is not None:
+                await self._trajectory_records.start()
             if self._director_v2_shadow is not None:
                 await self._director_v2_shadow.start()
             if self._director_v2_takeover is not None:
@@ -473,6 +481,12 @@ class StreamRuntime:
         if self._director_v2_shadow is not None:
             with contextlib.suppress(Exception):
                 await self._director_v2_shadow.stop()
+        if self._trajectory_records is not None:
+            with contextlib.suppress(Exception):
+                await self._trajectory_records.stop()
+        if self._human_like_calibration is not None:
+            with contextlib.suppress(Exception):
+                await self._human_like_calibration.stop()
         if self._action_mock_loop is not None:
             with contextlib.suppress(Exception):
                 await self._action_mock_loop.stop()
@@ -599,6 +613,14 @@ class StreamRuntime:
             ),
             "director_v2_takeover": (
                 self._director_v2_takeover.snapshot() if self._director_v2_takeover is not None else None
+            ),
+            "trajectories": (
+                self._trajectory_records.snapshot()
+                if self._trajectory_records is not None else None
+            ),
+            "human_like_calibration": (
+                self._human_like_calibration.snapshot()
+                if self._human_like_calibration is not None else None
             ),
             "goals": (
                 self._goal_manager.snapshot().to_dict() if self._goal_manager is not None else None
@@ -853,6 +875,12 @@ class StreamRuntime:
         if self._director_v2_takeover is not None:
             with contextlib.suppress(Exception):
                 m.update(self._director_v2_takeover.get_metrics())
+        if self._trajectory_records is not None:
+            with contextlib.suppress(Exception):
+                m.update(self._trajectory_records.get_metrics())
+        if self._human_like_calibration is not None:
+            with contextlib.suppress(Exception):
+                m.update(self._human_like_calibration.get_metrics())
         if self._goal_manager is not None:
             with contextlib.suppress(Exception):
                 m.update(self._goal_manager.get_metrics())
@@ -1621,6 +1649,34 @@ async def _compose_stream_runtime(
     decision_records = DecisionRecordManager.from_loader(
         loader, metrics=metrics, enabled=decision_records_enabled,
     )
+    from interfaces.trajectory import TrajectorySnapshotRefs
+    from services.director.trajectory import TrajectoryRecorder
+    try:
+        trajectory_status = await feature_manager.get_status("trajectory_records")
+        trajectory_enabled = trajectory_status in (
+            FeatureStatus.ENABLED, FeatureStatus.DEGRADED,
+        )
+    except KeyError:
+        get_logger("stream_runtime").warning("trajectory_records_feature_missing")
+        trajectory_enabled = False
+    trajectory_records = TrajectoryRecorder.from_loader(
+        loader,
+        snapshot_provider=lambda: _trajectory_snapshot_refs(),
+        metrics=metrics,
+        enabled=trajectory_enabled,
+    )
+    from services.evaluation.human_like import HumanLikeCalibration
+    try:
+        human_like_status = await feature_manager.get_status("human_like_calibration")
+        human_like_enabled = human_like_status in (
+            FeatureStatus.ENABLED, FeatureStatus.DEGRADED,
+        )
+    except KeyError:
+        get_logger("stream_runtime").warning("human_like_calibration_feature_missing")
+        human_like_enabled = False
+    human_like_calibration = HumanLikeCalibration.from_loader(
+        loader, metrics=metrics, enabled=human_like_enabled,
+    )
     turn_lock = asyncio.Lock()   # 1 lock chung: ChatRouter intake + DirectorLoop
     try:
         arbiter_status = await feature_manager.get_status("director_goal_arbiter")
@@ -1760,6 +1816,7 @@ async def _compose_stream_runtime(
         repair_policy=repair_policy,
         transaction_manager=action_transactions,
         decision_records=decision_records,
+        trajectory_records=trajectory_records,
         self_talk_planner=self_talk_planner,
         thread_manager=open_thread_manager,
         animation=animation,
@@ -1846,6 +1903,10 @@ async def _compose_stream_runtime(
         feature_manager, "action_transactions", action_transactions,
     )
     attach_set_enabled_feature(feature_manager, "decision_records", decision_records)
+    attach_set_enabled_feature(feature_manager, "trajectory_records", trajectory_records)
+    attach_set_enabled_feature(
+        feature_manager, "human_like_calibration", human_like_calibration,
+    )
     attach_boolean_feature(
         feature_manager,
         "director_goal_arbiter",
@@ -2276,6 +2337,14 @@ async def _compose_stream_runtime(
             source_failures=tuple(sorted(failures)),
         )
 
+    def _trajectory_snapshot_refs() -> TrajectorySnapshotRefs:
+        context = _director_v2_context()
+        return TrajectorySnapshotRefs(
+            world_snapshot_id=context.world_snapshot_id,
+            self_snapshot_id=context.self_snapshot_id,
+            capability_snapshot_id=context.capability_snapshot_id,
+        )
+
     director_v2_shadow = DirectorV2Shadow(
         director_v2_config, capability_registry=capability_registry,
         context_provider=_director_v2_context, metrics=metrics, enabled=director_v2_enabled,
@@ -2328,6 +2397,8 @@ async def _compose_stream_runtime(
         goal_manager=goal_manager,
         relationship_manager=relationship_manager,
         decision_records=decision_records,
+        trajectory_records=trajectory_records,
+        human_like_calibration=human_like_calibration,
         self_talk_planner=self_talk_planner,
         control_plane=control_plane,
         incident_log=incident_log,
@@ -2389,7 +2460,10 @@ async def _compose_stream_runtime(
         external_executor_registry=external_executor_registry,
         external_action_loop=external_action_loop,
         director_v2_shadow=director_v2_shadow,
-        director_v2_takeover=director_v2_takeover, cfg=cfg,
+        director_v2_takeover=director_v2_takeover,
+        trajectory_records=trajectory_records,
+        human_like_calibration=human_like_calibration,
+        cfg=cfg,
         goal_manager=goal_manager,
         goal_proposal=goal_proposal,
         perception_ingress=perception_ingress,
