@@ -175,6 +175,28 @@ class TestViewerName:
         assert p.peek_top(now=0.0).viewer_name is None
 
 
+class TestSourceRole:
+    def test_add_stores_only_typed_source_roles(self) -> None:
+        p = _pool()
+        p.add(
+            "owner", "thông báo vận hành", now=0.0,
+            is_owner=True, is_moderator=False,
+        )
+
+        top = p.peek_top(now=0.0)
+        assert top.is_owner is True
+        assert top.is_moderator is False
+
+    def test_cluster_does_not_elevate_representative_role(self) -> None:
+        p = _pool()
+        p.add("viewer", "cùng một câu", now=0.0)
+        p.add("owner", "cùng một câu", now=0.1, is_owner=True)
+
+        top = p.peek_top(now=0.1)
+        assert top.cluster_count == 2
+        assert top.is_owner is False
+
+
 class TestPopAndFromLoader:
     def test_pop_removes(self) -> None:
         p = _pool()

@@ -93,7 +93,7 @@ class SpeechStyleGuard:
         max_questions: int,
         question_endings: tuple[str, ...],
         max_sentences: int = 2,
-        max_words: int = 65,
+        max_words: int = 32,
     ) -> None:
         self._window = max(1, int(recent_window))
         self._formula_openers = tuple(
@@ -204,6 +204,14 @@ class SpeechStyleGuard:
             selected.append(sentence)
             words += sentence_words
         return " ".join(selected).strip() or text.strip()
+
+    def clamp_excess_questions(self, text: str) -> str:
+        """Keep existing declarative sentences without rewriting candidate words."""
+        declarative = [
+            sentence for sentence in _sentences(text)
+            if not looks_like_question(sentence, self._question_endings)
+        ]
+        return " ".join(declarative).strip() or text.strip()
 
     def snapshot(self) -> tuple[tuple[str | None, bool], ...]:
         return tuple((item.opener, item.question_like) for item in self._recent)

@@ -39,10 +39,16 @@ class FakeChatClient:
 
 
 def fake_msg(text: str, user_id: str = "u1", user_name: str = "User1",
-             msg_id: str = "m1", amount: int | None = None) -> SimpleNamespace:
+             msg_id: str = "m1", amount: int | None = None, *,
+             is_owner: object = False, is_moderator: object = False) -> SimpleNamespace:
     return SimpleNamespace(
         message=text,
-        author=SimpleNamespace(channelId=user_id, name=user_name),
+        author=SimpleNamespace(
+            channelId=user_id,
+            name=user_name,
+            isChatOwner=is_owner,
+            isChatModerator=is_moderator,
+        ),
         datetime="2026-01-15 14:30:00",
         id=msg_id,
         amountValue=amount,
@@ -140,6 +146,26 @@ class TestEventStream:
             assert ev.metadata["is_super_chat"] is True
             await svc.stop()
             break
+
+    async def test_author_badge_roles_are_typed_and_fail_safe(self) -> None:
+        client = FakeChatClient(batches=[[
+            fake_msg("owner", msg_id="owner", is_owner=True),
+            fake_msg("mod", msg_id="mod", is_moderator=True),
+            fake_msg("spoof", msg_id="spoof", is_owner="true"),
+        ]])
+        svc = make(chat_client=client)
+        await svc.start()
+        events = []
+        async for event in svc.event_stream():
+            events.append(event)
+            if len(events) == 3:
+                await svc.stop()
+                break
+
+        assert events[0].metadata["is_owner"] is True
+        assert events[0].metadata["is_moderator"] is False
+        assert events[1].metadata["is_moderator"] is True
+        assert events[2].metadata["is_owner"] is False
 
     async def test_empty_message_skipped(self) -> None:
         client = FakeChatClient(batches=[

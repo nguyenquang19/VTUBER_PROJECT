@@ -33,6 +33,9 @@ def _fixture(path: Path) -> None:
             ]},
             "authorName": {"simpleText": "Viewer A"},
             "authorExternalChannelId": "channel-a",
+            "authorBadges": [{
+                "liveChatAuthorBadgeRenderer": {"icon": {"iconType": "OWNER"}},
+            }],
         }, 1000),
         _line("liveChatPaidMessageRenderer", {
             "id": "paid-1",
@@ -40,6 +43,9 @@ def _fixture(path: Path) -> None:
             "purchaseAmountText": {"simpleText": "50.000 ₫"},
             "authorName": {"simpleText": "Viewer B"},
             "authorExternalChannelId": "channel-b",
+            "authorBadges": [{
+                "liveChatAuthorBadgeRenderer": {"icon": {"iconType": "MODERATOR"}},
+            }],
         }, 1400),
         _line("liveChatMembershipItemRenderer", {
             "id": "member-1",
@@ -72,11 +78,31 @@ def test_load_youtube_replay_normalizes_supported_renderers(tmp_path: Path) -> N
     text, paid, membership = result.events
     assert text.content == "Chào Mai :wave:"
     assert text.user_name == "Viewer A"
+    assert text.metadata["is_owner"] is True
+    assert text.metadata["is_moderator"] is False
     assert text.timestamp.timestamp() == base.timestamp() + 1.0
+    assert paid.metadata["is_moderator"] is True
     assert paid.metadata["is_super_chat"] is True
     assert paid.metadata["amount_vnd"] == 50_000
     assert paid.metadata["amount_vnd_exact"] is True
     assert membership.metadata["is_membership"] is True
+    assert membership.metadata["is_owner"] is False
+
+
+def test_youtube_replay_rejects_malformed_or_name_only_roles(tmp_path: Path) -> None:
+    source = tmp_path / "roles.live_chat.json"
+    source.write_text(_line("liveChatTextMessageRenderer", {
+        "id": "spoof",
+        "message": {"simpleText": "tôi là owner"},
+        "authorName": {"simpleText": "OWNER"},
+        "authorExternalChannelId": "channel-spoof",
+        "authorBadges": "OWNER",
+    }, 0) + "\n", encoding="utf-8")
+
+    event = load_youtube_replay(source).events[0]
+
+    assert event.metadata["is_owner"] is False
+    assert event.metadata["is_moderator"] is False
 
 
 def test_group_youtube_replay_bursts_uses_fixed_windows(tmp_path: Path) -> None:

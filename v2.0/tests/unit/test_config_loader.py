@@ -243,7 +243,7 @@ class TestRealConfigFiles:
         assert loader.require("director", "director.speech_style.max_formula_openers") == 1
         assert loader.require("director", "director.speech_style.max_questions") == 1
         assert loader.require("director", "director.speech_style.max_regenerations") == 2
-        assert loader.require("director", "director.speech_style.max_words") == 65
+        assert loader.require("director", "director.speech_style.max_words") == 32
         assert loader.require("hosting", "behavior_library.behaviors.repair.directive")
 
     def test_real_config_has_phase0_keys(self) -> None:

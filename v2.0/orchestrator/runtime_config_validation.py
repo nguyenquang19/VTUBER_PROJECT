@@ -214,7 +214,7 @@ def validate_runtime_config(loader: Any) -> RuntimeCriticalConfig:
                 "director", "director.speech_style.max_sentences", 2,
             ),
             director_speech_style_max_words=loader.get(
-                "director", "director.speech_style.max_words", 65,
+                "director", "director.speech_style.max_words", 32,
             ),
             director_speech_style_max_regenerations=loader.get(
                 "director", "director.speech_style.max_regenerations", 2,

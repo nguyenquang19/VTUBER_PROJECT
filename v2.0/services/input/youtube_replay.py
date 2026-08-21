@@ -202,6 +202,7 @@ def _renderer_to_event(
         "platform": "youtube",
         "replay_offset_ms": offset_ms,
         "replay_renderer": renderer_name,
+        **_author_role_metadata(renderer),
     }
     timestamp_usec = str(renderer.get("timestampUsec") or "").strip()
     if timestamp_usec:
@@ -239,6 +240,28 @@ def _renderer_content(renderer_name: str, renderer: dict[str, Any]) -> str:
         if text:
             return text
     return "Thành viên mới" if renderer_name == "liveChatMembershipItemRenderer" else ""
+
+
+def _author_role_metadata(renderer: dict[str, Any]) -> dict[str, bool]:
+    """Return only typed YouTube badge roles; never infer authority from names."""
+    is_owner = False
+    is_moderator = False
+    badges = renderer.get("authorBadges")
+    if not isinstance(badges, list):
+        return {"is_owner": False, "is_moderator": False}
+    for badge in badges:
+        if not isinstance(badge, dict):
+            continue
+        rendered = badge.get("liveChatAuthorBadgeRenderer")
+        if not isinstance(rendered, dict):
+            continue
+        icon = rendered.get("icon")
+        icon_type = icon.get("iconType") if isinstance(icon, dict) else None
+        if icon_type == "OWNER":
+            is_owner = True
+        elif icon_type == "MODERATOR":
+            is_moderator = True
+    return {"is_owner": is_owner, "is_moderator": is_moderator}
 
 
 def _text_value(value: Any) -> str:

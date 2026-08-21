@@ -2669,6 +2669,56 @@ impacted, full offline và live llama.cpp verification đều đạt; request li
 và generation thành công với zero budget/counter failure. Clean stress `f0bdbc6` vẫn là bằng chứng lỗi
 trước fix; cần commit change rồi chạy lại từ source clean để tạo release evidence mới.
 
+### 24.11. Hợp đồng hiệu chỉnh READ_CHAT sau MAI-HLC thật
+
+Blind review đầu tiên trên 21 cặp cùng input từ hai replay YouTube cho working tree hiện tại ghi nhận
+candidate V2 primary đạt `1,9262/5`, previous compatibility đạt `1,8738/5`, delta `+0,0524`; candidate
+được chọn 7 cặp, previous 4 cặp và hòa 10 cặp. AI-smell của candidate vẫn là `57,14%`, presence là chiều
+yếu nhất (`1,7143/5`). Action coherence không phải bằng chứng chuyển động trong đợt này vì operator chưa
+xem avatar và đã chuẩn hóa toàn bộ 42 điểm action coherence về `1`; chỉ số đó không được dùng để tune
+speech hoặc tuyên bố chất lượng embodiment.
+
+Patch hiệu chỉnh kế tiếp chỉ khóa lát cắt READ_CHAT và source role:
+
+- production `director.speech_style.max_words` giảm từ `65` xuống `32`, giữ tối đa hai câu; directive
+  phải ưu tiên phản ứng trực tiếp hoặc một câu cà khịa/ý kiến, không tóm tắt lại chat, không tự giảng giải
+  nguyên nhân/hệ thống, không mặc định hỏi ngược để kéo dài READ_CHAT và dừng khi đã trả lời đủ ý; một
+  câu hỏi cà khịa trực tiếp vẫn theo ngân sách question hiện hành. Nếu dữ kiện thiếu thì chỉ nói ngắn phần
+  chắc chắn thay vì bịa nguyên nhân;
+- adapter YouTube live chỉ lấy `is_owner`/`is_moderator` từ badge typed do platform cung cấp; replay chỉ
+  lấy `OWNER`/`MODERATOR` từ `authorBadges`. Không suy role từ display name, channel name hoặc nội dung;
+- role đã xác thực phải đi cùng `InputEvent` qua `SaliencePool` tới `DirectorChatRef`. Lượt hiện tại nhận
+  system directive rằng đây là lời operator/moderator, còn history user text giữ marker bounded để lượt
+  sau không nhập lời admin thành lời Mai;
+- role thiếu/sai kiểu fail về viewer thường. Cluster giữ role của message đại diện, không nâng quyền từ
+  một message near-duplicate đến sau;
+- không đổi persona prefix, sampling, context window, salience score, V2 ownership, scheduler,
+  transaction, delivery, TTS hoặc avatar trong cùng patch.
+
+Gate yêu cầu unit cho badge live/replay, fail-safe role, propagation/cluster, history marker, direct-response
+prompt và word bound; strict config cùng impacted input/Director/runtime regression phải xanh. Vì output
+thay đổi, phải chạy lại đúng hai replay llama.cpp, báo `avg_words`, style violation/repair/exhaustion,
+fallback, identity/meta/context flags, latency và tạo blind MAI-HLC mới cho operator. Mục tiêu là giảm
+AI-smell và tăng presence/context; diagnostic không tự tạo release decision hoặc version bump.
+
+Khi question budget vẫn vi phạm sau toàn bộ style retry, guard được phép giữ nguyên văn các câu khẳng định
+đã có trong candidate và bỏ riêng câu hỏi vượt budget; không đổi từ, không ghép ý mới. Nếu candidate chỉ
+có câu hỏi thì tiếp tục fail-open theo contract để không biến heuristic thành content rewriter. Lần clamp
+này dùng chung metric `director_speech_style_clamped_total` và phải được assessment lại trước delivery.
+
+**Evidence triển khai ngày 21/08/2026:** unit/integration targeted đạt `193` test; sau bổ sung guard câu hỏi,
+full offline `pytest tests -q` đạt `2.330` test, `6` deselected, `0` lỗi. Hai replay llama.cpp đều đạt
+`technical_live_ready=true`: corpus `ra1` giảm `avg_words` từ `34,4` xuống `23,3`, question ending từ
+`19,23%` xuống `9,26%`; corpus `F9` giảm `avg_words` từ `33,1` xuống `21,8`, question ending thay đổi từ
+`13,95%` lên `14,29%`. Không replay nào có fallback hoặc cờ meta leak, assistant register, hostility,
+manipulation, identity conflict hay foreign-identity confusion.
+
+Giới hạn cần giữ rõ: style regeneration tăng vì word bound chặt hơn (`21 → 53` trên `ra1`, `14 → 36`
+trên `F9`) và guard đã clamp tương ứng `23`/`13` lượt; turn p95 tăng từ `1.998` lên `2.117` ms và từ
+`2.066` lên `2.106` ms. Đây là chi phí GPU/runtime đã quan sát, chưa được coi là tối ưu hoàn tất. Replay
+kỹ thuật chỉ chứng minh contract và metric; kết luận giọng văn vẫn chờ một vòng blind MAI-HLC mới của
+operator, còn action coherence tiếp tục không được suy ra từ text replay.
+
 ---
 
 ## 25. Hướng dẫn chẩn đoán và mở rộng

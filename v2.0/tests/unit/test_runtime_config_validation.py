@@ -135,7 +135,7 @@ def test_repository_runtime_config_is_valid() -> None:
     assert validated.director_speech_style_max_same_opener == 1
     assert validated.director_speech_style_max_questions == 1
     assert validated.director_speech_style_max_sentences == 2
-    assert validated.director_speech_style_max_words == 65
+    assert validated.director_speech_style_max_words == 32
     assert validated.director_speech_style_max_regenerations == 2
     assert validated.conversation_summarize_after_moves == 2
     assert validated.manage_llama_process is True

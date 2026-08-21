@@ -171,7 +171,7 @@ def _make(now=0.0, autonomy=None, agent_state=None, goal_manager=None, **dir_ove
         "speech_style_question_endings", ("nhỉ", "hả", "sao", "nào"),
     ))
     style_max_sentences = int(dir_over.pop("speech_style_max_sentences", 2))
-    style_max_words = int(dir_over.pop("speech_style_max_words", 65))
+    style_max_words = int(dir_over.pop("speech_style_max_words", 32))
     style_regenerations = int(dir_over.pop("speech_style_max_regenerations", 1))
     pool = SaliencePool(base_tier={"chat": 10, "question": 25, "mention": 35},
                         tau_seconds=50.0, floor=3.0, cluster_coef=5.0)
@@ -764,6 +764,45 @@ class TestDirectorLoop:
         assert deliveries == ["Nghe vậy tớ vẫn tò mò về phần tiếp theo."]
         metrics = loop.get_metrics()
         assert metrics["director_speech_style_regenerated_total"] == 2
+        assert metrics["director_speech_style_exhausted_total"] == 0
+
+    async def test_exhausted_question_repair_keeps_existing_statement(self) -> None:
+        loop, _, pool, _, runner, _ = _make(
+            speech_style_max_questions=0,
+            speech_style_max_regenerations=1,
+        )
+        outputs = iter((
+            "Sao lại gọi sai tên thế? Tớ là Mai cơ mà, nhớ kỹ vào đấy.",
+            "Sao lại gọi sai tên thế? Tớ là Mai cơ mà, nhớ kỹ vào đấy.",
+        ))
+        deliveries: list[str] = []
+        ref = pool.add("chat-question-clamp", "Anami ơi", now=1.0, kind="chat")
+
+        async def generate(**_kwargs):
+            return FakeParsed(next(outputs)), 0
+
+        async def deliver(request_id: str, text: str) -> TTSDeliveryResult:
+            deliveries.append(text)
+            return TTSDeliveryResult(
+                request_id=request_id, delivered=True,
+                mode=TTSDeliveryMode.SUBTITLE, sentences_total=1,
+                sentences_delivered=1, subtitle_sentences=1,
+            )
+
+        runner.run_turn = generate
+        loop._speak = deliver
+        decision = SimpleNamespace(
+            action=DirectorAction.READ_CHAT,
+            read_mode=ReadMode.SINGLE,
+            refs=(ref,),
+            goal_id=None,
+        )
+
+        assert await loop._exec_read(decision, 10.0) is True
+        assert deliveries == ["Tớ là Mai cơ mà, nhớ kỹ vào đấy."]
+        metrics = loop.get_metrics()
+        assert metrics["director_speech_style_regenerated_total"] == 1
+        assert metrics["director_speech_style_clamped_total"] == 1
         assert metrics["director_speech_style_exhausted_total"] == 0
 
     async def test_exhausted_style_correction_fails_open_without_quarantine(
@@ -1499,6 +1538,25 @@ class TestDirectorLoop:
         assert "UCxq3fZZ" not in stage
         assert "UCxq3fZZ" not in runner.read_calls[0]   # user turn cũng không rò id
 
+    async def test_owner_role_is_grounded_in_stage_and_history_only(self) -> None:
+        loop, director, pool, pulse, runner, clock = _make()
+        pool.add(
+            "owner", "hiện tại tớ mới làm được Wordle", now=0.0,
+            kind="question", viewer_name="Channel Owner", is_owner=True,
+        )
+        clock["t"] = 1.0
+
+        await loop.tick_once()
+
+        assert runner.read_calls[0] == "hiện tại tớ mới làm được Wordle"
+        stage = runner.stage_calls[0] or ""
+        assert "operator/chủ kênh" in stage
+        assert "không tóm tắt lại lời người xem" in stage
+        assert runner.hist_calls[0] == (
+            "[Nguồn: operator/chủ kênh] hiện tại tớ mới làm được Wordle",
+            True,
+        )
+
     async def test_dead_air_triggers_self_talk(self) -> None:
         auto = FakeAutonomy(ready=False, has_material=True)
         loop, director, pool, pulse, runner, clock = _make(autonomy=auto)
@@ -1649,8 +1707,12 @@ class TestChatRouterIntake:
             sources=[FakeSource()], emotion=FakeEmotion(),
             runner=FakeRunner(), pool=pool, pulse=pulse,
         )
-        ev = InputEvent(event_id="e1", timestamp=datetime.now(timezone.utc),
-                        source=EventSource.CHAT_YOUTUBE, content="Mai ơi", user_id="v1")
+        ev = InputEvent(
+            event_id="e1", timestamp=datetime.now(timezone.utc),
+            source=EventSource.CHAT_YOUTUBE, content="Mai ơi", user_id="v1",
+            metadata={"is_owner": True, "is_moderator": False},
+        )
         asyncio.new_event_loop().run_until_complete(router._process(ev))
         assert pool.size() == 1
         assert pool.peek_top(now=0.0).kind == "mention"
+        assert pool.peek_top(now=0.0).is_owner is True

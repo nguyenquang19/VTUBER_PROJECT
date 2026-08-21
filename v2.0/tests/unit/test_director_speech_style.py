@@ -123,3 +123,11 @@ def test_shape_budget_and_clamp_keep_complete_early_sentences() -> None:
     assert "word_budget" in assessment.reasons
     assert clamped == "Câu đầu đủ ý rồi. Câu thứ hai vẫn vừa đủ."
     assert guard.assess(clamped).valid is True
+
+
+def test_question_clamp_keeps_only_existing_declarative_sentences() -> None:
+    guard = _guard()
+    text = "Sao lại gọi sai tên thế? Tớ là Mai cơ mà, nhớ kỹ vào đấy."
+
+    assert guard.clamp_excess_questions(text) == "Tớ là Mai cơ mà, nhớ kỹ vào đấy."
+    assert guard.clamp_excess_questions("Cười gì hả?") == "Cười gì hả?"

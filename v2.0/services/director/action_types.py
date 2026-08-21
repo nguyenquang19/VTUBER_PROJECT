@@ -19,6 +19,8 @@ class DirectorChatRef:
     viewer_name: str | None = None
     amount_vnd: int = 0
     is_super: bool = False
+    is_owner: bool = False
+    is_moderator: bool = False
     cluster_count: int = 1
 
 

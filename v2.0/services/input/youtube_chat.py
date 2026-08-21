@@ -160,7 +160,13 @@ class YouTubeChatService(InputService):
             ts_iso = getattr(raw, "datetime", None)
             ts = _parse_ts(ts_iso) or datetime.now()
             event_id = getattr(raw, "id", None) or uuid.uuid4().hex
-            meta: dict[str, Any] = {"platform": "youtube"}
+            meta: dict[str, Any] = {
+                "platform": "youtube",
+                # Pytchat exposes typed badge flags on the author object. Fail safe:
+                # missing/non-bool values remain an ordinary viewer.
+                "is_owner": getattr(author, "isChatOwner", False) is True,
+                "is_moderator": getattr(author, "isChatModerator", False) is True,
+            }
             # pytchat có thể có amount cho super chat
             amount = getattr(raw, "amountValue", None)
             if amount:

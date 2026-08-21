@@ -35,6 +35,8 @@ class PooledMessage:
     viewer_name: str | None = None   # tên hiển thị (ack gọi tên, không channel id)
     amount_vnd: int = 0
     is_super: bool = False
+    is_owner: bool = False
+    is_moderator: bool = False
     cluster_count: int = 1
     _tokens: set[str] = field(default_factory=set, repr=False)
 
@@ -138,6 +140,8 @@ class SaliencePool:
         viewer_name: str | None = None,
         amount_vnd: int = 0,
         is_super: bool = False,
+        is_owner: bool = False,
+        is_moderator: bool = False,
     ) -> PooledMessage:
         """Thêm 1 tin vào pool. Nếu near-duplicate tin có sẵn → gom cụm (đại diện
         giữ, cluster_count++). Trả entry đại diện (mới hoặc đã gom)."""
@@ -163,6 +167,7 @@ class SaliencePool:
             base_score=self._base_for(kind, amount_vnd, is_super),
             created_at=now, viewer_name=viewer_name,
             amount_vnd=amount_vnd, is_super=is_super,
+            is_owner=is_owner is True, is_moderator=is_moderator is True,
             _tokens=tokens,
         )
         self._items[msg_id] = m

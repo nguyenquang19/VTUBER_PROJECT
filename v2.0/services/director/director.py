@@ -702,6 +702,8 @@ def _chat_ref(message: PooledMessage, score: float) -> DirectorChatRef:
         viewer_name=message.viewer_name,
         amount_vnd=message.amount_vnd,
         is_super=message.is_super,
+        is_owner=message.is_owner,
+        is_moderator=message.is_moderator,
         cluster_count=message.cluster_count,
     )
 

@@ -340,6 +340,8 @@ class ChatRouter:
                 text=text, now=now, kind=kind,
                 viewer_id=event.user_id, viewer_name=event.user_name,
                 amount_vnd=amount, is_super=is_super,
+                is_owner=event.metadata.get("is_owner") is True,
+                is_moderator=event.metadata.get("is_moderator") is True,
             )
             self._pulse.record(now=now, user_id=event.user_id)
             self._intake_pooled += 1

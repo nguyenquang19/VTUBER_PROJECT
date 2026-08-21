@@ -85,13 +85,29 @@ def timestamp(value: float) -> datetime:
 
 def stage_direction_for(dec: Any) -> str | None:
     refs = dec.refs
+    lines: list[str] = []
     if dec.read_mode == ReadMode.ACK and refs:
         ref = refs[0]
         who = ref.viewer_name or ref.viewer_id or "một người"
-        return f"{who} vừa SUPERCHAT (ủng hộ tiền) — ack ngay, cảm ơn tự nhiên đúng giọng Mai."
+        lines.append(
+            f"{who} vừa SUPERCHAT (ủng hộ tiền) — ack ngay, cảm ơn tự nhiên đúng giọng Mai."
+        )
+    if refs and any(getattr(ref, "is_owner", False) is True for ref in refs):
+        lines.append(
+            "[Nguồn đã xác thực: operator/chủ kênh] Đây là lời của ông ấy, không phải "
+            "lời Mai. Phản ứng trực tiếp; không nhập vai người nói, không kể lại thành "
+            "thông báo của Mai và không phủ nhận dữ kiện vận hành khi không có bằng chứng ngược."
+        )
+    elif refs and any(getattr(ref, "is_moderator", False) is True for ref in refs):
+        lines.append(
+            "[Nguồn đã xác thực: moderator] Giữ đúng vai người gửi; phản ứng trực tiếp "
+            "và không nhập lời moderator thành lời Mai."
+        )
     if dec.read_mode == ReadMode.CLUSTER:
-        return "Mấy người đang hỏi/nói cùng chủ đề — đáp GỘP 1 lần, đừng lặp lại từng câu."
-    return None
+        lines.append(
+            "Mấy người đang hỏi/nói cùng chủ đề — đáp GỘP 1 lần, đừng lặp lại từng câu."
+        )
+    return "\n".join(lines) or None
 
 
 def join_directives(*values: str | None) -> str:
@@ -160,11 +176,19 @@ def speech_style_constraint_prompt(
     avoid_question: bool,
     max_sentences: int,
     max_words: int,
+    direct_response: bool = False,
 ) -> str | None:
     """Render only constraints currently exhausted by delivered speech."""
     lines: list[str] = [
         f"Chỉ nói tối đa {max_sentences} câu và {max_words} từ; không xuống đoạn mới."
     ]
+    if direct_response:
+        lines.append(
+            "Phản ứng thẳng vào ý chat, ưu tiên một câu có thái độ hoặc dí dỏm rồi dừng; "
+            "không tóm tắt lại lời người xem, không tự giảng giải nguyên nhân, kỹ thuật hay hệ thống. "
+            "Không mặc định hỏi ngược để kéo dài READ_CHAT; chỉ hỏi nếu đó là một câu cà khịa trực tiếp. "
+            "Nếu thiếu dữ kiện thì chỉ nói ngắn phần chắc chắn thay vì bịa nguyên nhân."
+        )
     if forbidden_openers:
         rendered = ", ".join(f'“{value}”' for value in forbidden_openers)
         lines.append(
@@ -220,6 +244,14 @@ def history_text_for(dec: Any) -> tuple[str | None, bool]:
     if dec.read_mode in (ReadMode.SUMMARY, ReadMode.VIBE) or not refs:
         return None, False
     if dec.read_mode == ReadMode.CLUSTER:
-        joined = " / ".join(ref.text for ref in refs[:3])
+        joined = " / ".join(_history_ref_text(ref) for ref in refs[:3])
         return f"(mấy người cùng hỏi) {joined}", True
-    return refs[0].text, True
+    return _history_ref_text(refs[0]), True
+
+
+def _history_ref_text(ref: Any) -> str:
+    if getattr(ref, "is_owner", False) is True:
+        return f"[Nguồn: operator/chủ kênh] {ref.text}"
+    if getattr(ref, "is_moderator", False) is True:
+        return f"[Nguồn: moderator] {ref.text}"
+    return ref.text

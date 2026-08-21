@@ -117,7 +117,7 @@ class DirectorLoop:
             "nhỉ", "hả", "à", "ư", "không", "chưa", "sao", "gì", "nào",
         ),
         speech_style_max_sentences: int = 2,
-        speech_style_max_words: int = 65,
+        speech_style_max_words: int = 32,
         speech_style_max_regenerations: int = 1,
     ) -> None:
         self._director = director
@@ -612,6 +612,8 @@ class DirectorLoop:
                 viewer_name=item.viewer_name,
                 amount_vnd=item.amount_vnd,
                 is_super=item.is_super,
+                is_owner=item.is_owner,
+                is_moderator=item.is_moderator,
                 cluster_count=item.cluster_count,
             )
             for item in self._pool.top_cluster(now, self._max_refs)
@@ -962,7 +964,9 @@ class DirectorLoop:
         stage = _stage_direction_for(dec)
         stage = _join_directives(stage, self._behavior_directive(dec, user_text))
         if dec.action is DirectorAction.READ_CHAT:
-            stage = _join_directives(stage, self._speech_style_directive())
+            stage = _join_directives(
+                stage, self._speech_style_directive(direct_response=True),
+            )
         hist_text, commit_hist = _history_text_for(dec)
         parsed, _level = await self._run_turn_deferred(
             request_id=req_id,
@@ -1897,6 +1901,7 @@ class DirectorLoop:
         *,
         question_budget_exempt: bool = False,
         max_sentences: int | None = None,
+        direct_response: bool = False,
     ) -> str | None:
         forbidden, avoid_question = self._speech_style.constraints(
             question_budget_exempt=question_budget_exempt,
@@ -1909,6 +1914,7 @@ class DirectorLoop:
                 if max_sentences is None else max(1, int(max_sentences))
             ),
             max_words=self._speech_style.max_words,
+            direct_response=direct_response,
         )
 
     def _speech_style_assessment(
@@ -1965,6 +1971,21 @@ class DirectorLoop:
             self._speech_style_violation_total += 1
         if "sentence_budget" in assessment.reasons or "word_budget" in assessment.reasons:
             clamped = self._speech_style.clamp_shape(
+                str(getattr(current, "text", "")),
+            )
+            if clamped != str(getattr(current, "text", "")):
+                if hasattr(current, "model_copy"):
+                    current = current.model_copy(update={"text": clamped})
+                else:
+                    current = replace(current, text=clamped)
+                self._speech_style_clamped_total += 1
+                assessment = self._speech_style_assessment(
+                    current, question_budget_exempt=question_budget_exempt,
+                )
+                if assessment.valid:
+                    return current_id, current
+        if "question_budget" in assessment.reasons:
+            clamped = self._speech_style.clamp_excess_questions(
                 str(getattr(current, "text", "")),
             )
             if clamped != str(getattr(current, "text", "")):
