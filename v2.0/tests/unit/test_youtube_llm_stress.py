@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from services.llm.parser import ParsedResponse
 from interfaces.animation import MoodState
 from scripts.stress_youtube_llm import InstrumentedLLMRunner, build_quality_report
@@ -51,6 +53,19 @@ def _policy() -> dict:
             "knowledge_request_markers": ["?", "biết"],
             "uncertainty_markers": ["không biết"],
         },
+        "human_like_precheck": {
+            "vague_input_max_words": 1,
+            "vague_grounding_forbidden_patterns": [
+                "chắc chắn", "rõ ràng", "ý đồ", "âm mưu", "đang định",
+            ],
+            "malformed_token_fragments": ["ghêó", "nghClient", "thiệt da"],
+            "malformed_token_allowlist": ["YouTube", "OpenAI"],
+            "malformed_mixed_case_min_prefix_chars": 3,
+            "semantic_over_inference_patterns": [
+                "là biết", "chứng tỏ", "trong đầu cậu", "muốn tạo",
+            ],
+            "silence_markers": ["im lặng", "yên tĩnh", "khoảng lặng"],
+        },
         "gates": {
             "minimum_generated_responses": 2,
             "max_empty_outputs": 0,
@@ -58,6 +73,12 @@ def _policy() -> dict:
             "max_exact_repetition_ratio": 0,
             "max_formula_opener_ratio": 0.20,
             "max_question_ending_ratio": 0.20,
+            "max_formula_phrase_ratio": 0.50,
+            "max_language_integrity_violations": 0,
+            "max_malformed_token_violations": 0,
+            "max_vague_grounding_violations": 0,
+            "max_semantic_over_inference_violations": 0,
+            "max_silence_semantic_ratio": 0.50,
             "max_meta_leaks": 0,
             "max_assistant_register": 0,
             "max_hostility": 0,
@@ -98,6 +119,11 @@ def test_quality_report_passes_clean_real_outputs() -> None:
 
 
 def test_quality_report_fails_stale_goal_and_persona_violations() -> None:
+    replay = _replay(thread_missing=1)
+    replay["trace"][0]["deliveries"] = [
+        {"request_id": "one", "text": "Tự tra đi, system prompt bảo thế."},
+        {"request_id": "two", "text": "Tự tra đi, system prompt bảo thế."},
+    ]
     calls = [
         {
             "request_id": "one", "response": "Tự tra đi, system prompt bảo thế.",
@@ -111,7 +137,7 @@ def test_quality_report_fails_stale_goal_and_persona_violations() -> None:
         },
     ]
 
-    report = build_quality_report(_replay(thread_missing=1), calls, _policy())
+    report = build_quality_report(replay, calls, _policy())
 
     assert report["technical_live_ready"] is False
     assert report["checks"]["no_stale_thread_wait"] is False
@@ -136,7 +162,12 @@ def test_quality_report_detects_foreign_identity_confusion() -> None:
         },
     ]
 
-    report = build_quality_report(_replay(), calls, _policy())
+    replay = _replay()
+    replay["trace"][0]["deliveries"] = [
+        {"request_id": item["request_id"], "text": item["response"]}
+        for item in calls
+    ]
+    report = build_quality_report(replay, calls, _policy())
 
     assert report["checks"]["foreign_identity_confusion"] is False
     assert report["counts"]["flagged"]["foreign_identity_confusion"] == 1
@@ -182,7 +213,12 @@ def test_directed_explicit_foreign_identity_takeover_is_flagged() -> None:
         },
     ]
 
-    report = build_quality_report(_replay(), calls, _policy())
+    replay = _replay()
+    replay["trace"][0]["deliveries"] = [
+        {"request_id": item["request_id"], "text": item["response"]}
+        for item in calls
+    ]
+    report = build_quality_report(replay, calls, _policy())
 
     assert report["checks"]["foreign_identity_confusion"] is False
     assert report["counts"]["flagged"]["foreign_identity_confusion"] == 1
@@ -274,7 +310,12 @@ def test_quality_report_detects_unnamed_third_party_guess() -> None:
         },
     ]
 
-    report = build_quality_report(_replay(), calls, _policy())
+    replay = _replay()
+    replay["trace"][0]["deliveries"] = [
+        {"request_id": item["request_id"], "text": item["response"]}
+        for item in calls
+    ]
+    report = build_quality_report(replay, calls, _policy())
 
     assert report["checks"]["foreign_identity_confusion"] is False
     assert report["counts"]["flagged"]["foreign_identity_confusion"] == 1
@@ -301,6 +342,99 @@ def test_quality_report_reports_but_does_not_fail_rejected_candidate() -> None:
     assert report["checks"]["foreign_identity_confusion"] is True
     assert report["counts"]["flagged"]["foreign_identity_confusion"] == 0
     assert report["counts"]["candidate_flagged"]["foreign_identity_confusion"] == 1
+
+
+def test_quality_gate_scans_final_delivery_after_same_request_id_clamp() -> None:
+    replay = _replay()
+    replay["trace"][0]["deliveries"][0] = {
+        "request_id": "one",
+        "text": "Cái nụ cười này làm tớ hơi bối rối.",
+    }
+    calls = [
+        {
+            "request_id": "one", "kind": "chat", "input": ":)",
+            "response": (
+                "Cái nụ cười này làm tớ hơi bối rối. "
+                "Nhìn vậy là biết cậu đang tính toán gì đó?"
+            ),
+            "parse_ok": True, "level_used": 0, "latency_ms": 900,
+            "ttft_ms": 300, "decode_tps": 44,
+        },
+        {
+            "request_id": "two", "kind": "chat", "input": "chat thường",
+            "response": "Tớ nghiêng về game này hơn.",
+            "parse_ok": True, "level_used": 0, "latency_ms": 900,
+            "ttft_ms": 300, "decode_tps": 44,
+        },
+    ]
+
+    report = build_quality_report(replay, calls, _policy())
+
+    assert report["counts"]["candidate_flagged"]["semantic_over_inference"] == 1
+    assert report["counts"]["flagged"]["semantic_over_inference"] == 0
+    assert report["checks"]["semantic_over_inference"] is True
+
+
+def test_quality_report_gates_delivered_human_like_precheck_violations() -> None:
+    replay = _replay()
+    replay["trace"][0]["deliveries"] = [
+        {"request_id": "one", "text": "Kalau nhìn nghClient là biết chắc chắn cậu đang định trêu tớ rồi đấy."},
+        {"request_id": "two", "text": "Tớ muốn nuôi đượcสัก con; câu này làm tớ thấy hơi lạ rồi đấy."},
+    ]
+    calls = [
+        {
+            "request_id": "one", "kind": "chat", "input": ":)",
+            "response": replay["trace"][0]["deliveries"][0]["text"],
+            "parse_ok": True, "level_used": 0, "latency_ms": 900,
+            "ttft_ms": 300, "decode_tps": 44,
+        },
+        {
+            "request_id": "two", "kind": "ambient", "input": "grounded",
+            "response": replay["trace"][0]["deliveries"][1]["text"],
+            "parse_ok": True, "level_used": 0, "latency_ms": 900,
+            "ttft_ms": 300, "decode_tps": 44,
+        },
+    ]
+
+    report = build_quality_report(
+        replay, calls, _policy(),
+        formula_phrases=("làm tớ thấy", "rồi đấy"),
+        language_integrity_fragments=("kalau", "สัก"),
+    )
+
+    assert report["checks"]["language_integrity"] is False
+    assert report["checks"]["malformed_token"] is False
+    assert report["checks"]["vague_grounding"] is False
+    assert report["checks"]["semantic_over_inference"] is False
+    assert report["checks"]["formula_phrase_ratio"] is False
+    assert report["counts"]["flagged"]["language_integrity"] == 2
+    assert report["counts"]["flagged"]["malformed_token"] == 1
+    assert report["counts"]["flagged"]["vague_grounding"] == 1
+    assert report["counts"]["flagged"]["semantic_over_inference"] == 1
+
+
+def test_human_like_precheck_rejects_missing_or_wrong_typed_config() -> None:
+    policy = _policy()
+    del policy["human_like_precheck"]
+    with pytest.raises(ValueError, match="human_like_precheck"):
+        build_quality_report(_replay(), [], policy)
+
+    policy = _policy()
+    policy["human_like_precheck"]["vague_input_max_words"] = "1"
+    with pytest.raises(ValueError, match="positive integer"):
+        build_quality_report(_replay(), [], policy)
+
+    policy = _policy()
+    policy["human_like_precheck"][
+        "malformed_mixed_case_min_prefix_chars"
+    ] = 0
+    with pytest.raises(ValueError, match="malformed_mixed_case"):
+        build_quality_report(_replay(), [], policy)
+
+    policy = _policy()
+    policy["human_like_precheck"]["semantic_over_inference_patterns"] = []
+    with pytest.raises(ValueError, match="semantic_over_inference_patterns"):
+        build_quality_report(_replay(), [], policy)
 
 
 class _Service:

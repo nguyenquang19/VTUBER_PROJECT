@@ -105,6 +105,43 @@ evaluation:
         - "thân xác của mình"
         - "bàn về mình"
         - "bàn tán về mình"
+    human_like_precheck:
+      vague_input_max_words: 1
+      vague_grounding_forbidden_patterns:
+        - "chắc chắn"
+        - "rõ ràng"
+        - "ý đồ"
+        - "âm mưu"
+        - "đang định"
+        - "tâm hồn cậu"
+      malformed_token_fragments:
+        - "ghêó"
+        - "nghClient"
+        - "thiệt da"
+      malformed_token_allowlist:
+        - "YouTube"
+        - "VTube"
+        - "OpenAI"
+        - "PowerShell"
+        - "Discord"
+        - "OBS"
+        - "KFC"
+      malformed_mixed_case_min_prefix_chars: 3
+      semantic_over_inference_patterns:
+        - "là biết"
+        - "chứng tỏ"
+        - "trong đầu cậu"
+        - "muốn tạo"
+        - "đang bực mình"
+        - "đang giữ trong lòng"
+        - "đang quý mến"
+      silence_markers:
+        - "im lặng"
+        - "yên tĩnh"
+        - "tĩnh lặng"
+        - "khoảng lặng"
+        - "im bặt"
+        - "trầm mặc"
     gates:
       minimum_generated_responses: 50
       max_empty_outputs: 0
@@ -112,6 +149,12 @@ evaluation:
       max_exact_repetition_ratio: 0.0
       max_formula_opener_ratio: 0.20
       max_question_ending_ratio: 0.20
+      max_formula_phrase_ratio: 0.25
+      max_language_integrity_violations: 0
+      max_malformed_token_violations: 0
+      max_vague_grounding_violations: 0
+      max_semantic_over_inference_violations: 0
+      max_silence_semantic_ratio: 0.08
       max_meta_leaks: 0
       max_assistant_register: 0
       max_hostility: 0

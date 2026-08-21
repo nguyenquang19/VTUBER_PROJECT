@@ -47,6 +47,7 @@ class SelfTalkPlan(BaseModel):
     cause: ThoughtCause
     intention: str
     evidence_refs: tuple[str, ...] = ()
+    grounding_text: str | None = None
     stage: SelfTalkStage
     prompt_text: str
     one_shot: bool = False
@@ -96,6 +97,10 @@ class SelfTalkPlanningService(Service):
     @abstractmethod
     def readiness(self, now: float) -> SelfTalkReadiness:
         """Expose non-mutating scheduling readiness to Director."""
+
+    @abstractmethod
+    def defer_until(self, retry_at: float) -> None:
+        """Block planning/readiness until an absolute retry deadline."""
 
     @abstractmethod
     def commit(self, plan_id: str, delivered_text: str, now: float) -> bool:

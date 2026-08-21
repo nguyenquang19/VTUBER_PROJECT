@@ -29,6 +29,7 @@ def _planner(**overrides) -> SelfTalkPlanner:
         "resume_after_chat_seconds": 10.0,
         "min_silence_seconds": 20.0,
         "thought_ledger_size": 3,
+        "silence_repeat_last_n": 3,
         "semantic_repeat_threshold": 0.72,
         "max_previous_text_chars": 80,
         "grounded_categories": ("follow_up_topic",),
@@ -44,6 +45,11 @@ def _planner(**overrides) -> SelfTalkPlanner:
             "grounded": {"max_sentences": 2, "allow_question": True},
         },
     }
+    if "thought_ledger_size" in overrides and "silence_repeat_last_n" not in overrides:
+        kwargs["silence_repeat_last_n"] = min(
+            int(kwargs["silence_repeat_last_n"]),
+            int(overrides["thought_ledger_size"]),
+        )
     kwargs.update(overrides)
     return SelfTalkPlanner(**kwargs)
 
@@ -74,6 +80,28 @@ def test_requires_a_real_cause_and_does_not_use_a_topic_pool() -> None:
     assert "active_topic_id" not in planner.snapshot()
 
 
+def test_unavailable_deadline_blocks_readiness_and_prepare_until_retry() -> None:
+    planner = _planner()
+    planner.defer_until(50.0)
+    planner.defer_until(40.0)
+
+    readiness = planner.readiness(20.0, _recent())
+
+    assert readiness.ready is False
+    assert readiness.reason == "thought_unavailable"
+    assert readiness.retry_at == 50.0
+    assert planner.prepare(
+        mood=MoodState(), now=20.0, context=_recent(),
+    ) is None
+    assert planner.prepare(
+        mood=MoodState(), now=50.0, context=_recent(),
+    ) is not None
+    metrics = planner.get_metrics()
+    assert metrics["self_talk_planner_unavailable_deferred_total"] == 1
+    assert metrics["self_talk_planner_unavailable_suppressed_total"] == 1
+    assert planner.snapshot()["unavailable_until"] == 50.0
+
+
 def test_lore_is_grounded_before_silence_and_commits_with_delivery() -> None:
     provider = LoreMaterialProvider((LoreMaterial(
         material_id="plushies",
@@ -89,6 +117,7 @@ def test_lore_is_grounded_before_silence_and_commits_with_delivery() -> None:
     assert plan is not None
     assert plan.cause is ThoughtCause.GROUNDED
     assert plan.evidence_refs == ("lore:plushies",)
+    assert plan.grounding_text == "Lore đã xác thực về Mai: Mai sưu tầm thú bông."
     assert "sưu tầm thú bông" in plan.prompt_text
     assert provider.has_reservation("plushies")
 
@@ -121,6 +150,7 @@ def test_arc_advances_only_after_delivery_and_keeps_same_thought() -> None:
     planner = _planner()
     first = planner.prepare(mood=MoodState(), now=30.0, context=_recent())
     assert first and first.stage is SelfTalkStage.OPEN
+    assert first.grounding_text == "chat vừa bàn về một bài nhạc"
     assert planner.validate_output(first.plan_id, "Tự nhiên im một lúc lại thấy đầu óc chạy lung tung.").valid
 
     planner.release(first.plan_id)
@@ -193,6 +223,7 @@ def test_grounded_one_shot_uses_only_supplied_context_and_keeps_arc() -> None:
     )
     assert grounded and grounded.one_shot
     assert grounded.cause is ThoughtCause.GROUNDED
+    assert grounded.grounding_text == "Dữ kiện đã xác thực: viewer hỏi về trà."
     assert "Chỉ dùng dữ kiện" in grounded.prompt_text
     assert planner.commit(grounded.plan_id, "Ừ, chuyện trà làm tớ hơi tò mò thật.", 31.0)
     resumed = planner.prepare(mood=MoodState(), now=32.0, context=_recent())
@@ -213,6 +244,7 @@ def test_every_chat_creates_global_quiet_gate_without_an_active_arc() -> None:
 def test_silence_is_one_shot_until_real_chat_starts_a_new_episode() -> None:
     planner = _planner(
         cause_directions={"silence": "Chỉ nói về chính khoảng im lặng."},
+        silence_repeat_last_n=1,
     )
     first = planner.prepare(mood=MoodState(), now=30.0, context=_silence())
     assert first and first.one_shot and first.stage is SelfTalkStage.OPEN
@@ -223,7 +255,19 @@ def test_silence_is_one_shot_until_real_chat_starts_a_new_episode() -> None:
 
     planner.on_chat(100.0)
     assert planner.prepare(mood=MoodState(), now=109.0, context=_silence()) is None
-    second = planner.prepare(mood=MoodState(), now=110.0, context=_silence())
+    assert planner.prepare(mood=MoodState(), now=110.0, context=_silence()) is None
+    assert planner.get_metrics()[
+        "self_talk_planner_silence_repeat_suppressed_total"
+    ] == 1
+
+    grounded = planner.prepare(
+        mood=MoodState(), now=200.0, base_prompt="Dữ kiện thật về một bài nhạc.",
+        category="follow_up_topic", context=_silence(),
+    )
+    assert grounded is not None
+    assert planner.commit(grounded.plan_id, "Bài nhạc đó có nhịp khá lạ.", 200.0)
+    planner.on_chat(210.0)
+    second = planner.prepare(mood=MoodState(), now=220.0, context=_silence())
     assert second and second.one_shot
 
 
@@ -240,7 +284,7 @@ def test_context_readiness_blocks_consumed_or_missing_material_without_mutation(
     assert blocked.ready is False and blocked.reason == "no_material"
     assert planner.snapshot() == before
     planner.on_chat(100.0)
-    assert planner.readiness(110.0, _silence()).ready is True
+    assert planner.readiness(110.0, _silence()).reason == "no_material"
 
 
 def test_semantic_question_is_rejected_even_without_question_mark() -> None:
@@ -369,6 +413,7 @@ def test_emoji_only_recent_context_falls_back_to_grounded_silence() -> None:
 
     assert plan is not None
     assert plan.cause is ThoughtCause.SILENCE
+    assert plan.grounding_text is None
     assert "Nguyên nhân ý nghĩ: silence" in plan.prompt_text
     assert "Buổi live đang có một khoảng im lặng" in plan.prompt_text
     assert planner.get_metrics()["self_talk_planner_recent_context_rejected_total"] == 1

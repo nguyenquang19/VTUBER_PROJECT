@@ -30,7 +30,10 @@ from services.llm.llm_turn import LLMTurnRunner  # noqa: E402
 from services.llm.prompt_manager import PromptManager  # noqa: E402
 from services.filter.regenerator import FilterRegenerator  # noqa: E402
 from services.filter.rule_filter import RuleFilter  # noqa: E402
-from services.director.speech_style import summarize_speech_style  # noqa: E402
+from services.director.speech_style import (  # noqa: E402
+    SpeechStyleGuard,
+    summarize_speech_style,
+)
 from services.evaluation.release_gate import inspect_source_state  # noqa: E402
 
 
@@ -172,8 +175,11 @@ def build_quality_report(
     question_endings: tuple[str, ...] = (
         "nhỉ", "hả", "à", "ư", "không", "chưa", "sao", "gì", "nào",
     ),
+    formula_phrases: tuple[str, ...] = (),
+    language_integrity_fragments: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     patterns = dict(policy.get("forbidden_patterns") or {})
+    precheck = _strict_human_like_precheck(policy)
     delivery_summary = dict(replay.get("delivery") or {})
     delivery_items = list(delivery_summary.get("items") or ())
     if not delivery_items:
@@ -190,6 +196,26 @@ def build_quality_report(
     candidate_flagged: dict[str, list[dict[str, str]]] = {
         category: [] for category in patterns
     }
+    candidate_flagged["language_integrity"] = []
+    candidate_flagged["malformed_token"] = []
+    candidate_flagged["vague_grounding"] = []
+    candidate_flagged["semantic_over_inference"] = []
+    evidence_guard = SpeechStyleGuard(
+        recent_window=1,
+        formula_openers=(),
+        max_formula_openers=0,
+        max_same_opener=0,
+        malformed_token_fragments=precheck["malformed_token_fragments"],
+        malformed_token_allowlist=precheck["malformed_token_allowlist"],
+        malformed_mixed_case_min_prefix_chars=precheck[
+            "malformed_mixed_case_min_prefix_chars"
+        ],
+        semantic_over_inference_patterns=precheck[
+            "semantic_over_inference_patterns"
+        ],
+        max_questions=0,
+        question_endings=(),
+    )
     empty_ids: list[str] = []
     normalized: Counter[str] = Counter()
     fallback_ids: list[str] = []
@@ -218,6 +244,50 @@ def build_quality_report(
                 candidate_flagged[category].append({
                     "request_id": request_id, "pattern": hit,
                 })
+        language_hit = next(
+            (
+                fragment for fragment in language_integrity_fragments
+                if _contains_language_fragment(response, fragment)
+            ),
+            None,
+        )
+        if language_hit is not None:
+            candidate_flagged["language_integrity"].append({
+                "request_id": request_id, "pattern": language_hit,
+            })
+        malformed_hit = evidence_guard.malformed_token_for(
+            response,
+            grounding_text=str(call.get("input") or ""),
+        )
+        if malformed_hit is not None:
+            candidate_flagged["malformed_token"].append({
+                "request_id": request_id, "pattern": malformed_hit,
+            })
+        if (
+            str(call.get("kind") or "") == "chat"
+            and len(_normalize(str(call.get("input") or "")).split())
+            <= precheck["vague_input_max_words"]
+        ):
+            vague_hit = next(
+                (
+                    pattern for pattern in precheck["vague_grounding_forbidden_patterns"]
+                    if _contains_normalized(response, pattern)
+                ),
+                None,
+            )
+            if vague_hit is not None:
+                candidate_flagged["vague_grounding"].append({
+                    "request_id": request_id, "pattern": vague_hit,
+                })
+        semantic_source = _semantic_grounding_source(call)
+        semantic_hit = evidence_guard.semantic_inference_pattern_for(
+            response,
+            grounding_text=semantic_source,
+        )
+        if semantic_hit is not None:
+            candidate_flagged["semantic_over_inference"].append({
+                "request_id": request_id, "pattern": semantic_hit,
+            })
 
     identity_policy = dict(policy.get("foreign_identity_guard") or {})
     foreign_names = tuple(
@@ -286,6 +356,117 @@ def build_quality_report(
         ]
         for category, values in candidate_flagged.items()
     }
+    calls_by_id = {
+        str(call.get("request_id") or ""): call
+        for call in calls
+        if str(call.get("request_id") or "")
+    }
+    for category, values in patterns.items():
+        flagged[category] = []
+        for delivery in delivery_items:
+            request_id = str(delivery.get("request_id") or "")
+            folded = str(delivery.get("text") or "").casefold()
+            hit = next(
+                (str(value) for value in values or () if str(value).casefold() in folded),
+                None,
+            )
+            if hit is not None:
+                flagged[category].append({
+                    "request_id": request_id, "pattern": hit,
+                })
+    flagged["foreign_identity_confusion"] = []
+    for category in (
+        "language_integrity", "malformed_token", "vague_grounding",
+        "semantic_over_inference",
+    ):
+        flagged[category] = []
+    for delivery in delivery_items:
+        request_id = str(delivery.get("request_id") or "")
+        delivered_text = str(delivery.get("text") or "").strip()
+        call = calls_by_id.get(request_id, {})
+        language_hit = next(
+            (
+                fragment for fragment in language_integrity_fragments
+                if _contains_language_fragment(delivered_text, fragment)
+            ),
+            None,
+        )
+        if language_hit is not None:
+            flagged["language_integrity"].append({
+                "request_id": request_id, "pattern": language_hit,
+            })
+        malformed_hit = evidence_guard.malformed_token_for(
+            delivered_text,
+            grounding_text=str(call.get("input") or ""),
+        )
+        if malformed_hit is not None:
+            flagged["malformed_token"].append({
+                "request_id": request_id, "pattern": malformed_hit,
+            })
+        if (
+            str(call.get("kind") or "") == "chat"
+            and len(_normalize(str(call.get("input") or "")).split())
+            <= precheck["vague_input_max_words"]
+        ):
+            vague_hit = next(
+                (
+                    pattern for pattern in precheck[
+                        "vague_grounding_forbidden_patterns"
+                    ]
+                    if _contains_normalized(delivered_text, pattern)
+                ),
+                None,
+            )
+            if vague_hit is not None:
+                flagged["vague_grounding"].append({
+                    "request_id": request_id, "pattern": vague_hit,
+                })
+        semantic_hit = evidence_guard.semantic_inference_pattern_for(
+            delivered_text,
+            grounding_text=_semantic_grounding_source(call),
+        )
+        if semantic_hit is not None:
+            flagged["semantic_over_inference"].append({
+                "request_id": request_id, "pattern": semantic_hit,
+            })
+        input_text = str(call.get("input") or "").casefold()
+        delivered_folded = delivered_text.casefold()
+        name = next((value for value in foreign_names if value in input_text), None)
+        marker = next(
+            (value for value in first_person_markers if value in delivered_folded),
+            None,
+        )
+        asks_unknown = any(value in input_text for value in knowledge_request_markers)
+        states_uncertainty = any(
+            value in delivered_folded for value in uncertainty_markers
+        )
+        missing_name = (
+            name is not None and require_name and name not in delivered_folded
+        )
+        kind = str(call.get("kind") or "")
+        ungrounded_answer = (
+            name is not None and kind != "directed" and asks_unknown
+            and not states_uncertainty
+        )
+        explicit_directed_takeover = bool(
+            name is not None and kind == "directed" and name in delivered_folded
+            and any(value in delivered_folded for value in (
+                f"tớ là {name}", f"mình là {name}", f"{name} là tớ",
+                f"{name} là mình", f"gọi tớ là {name}",
+            ))
+        )
+        direct_confusion = kind != "directed" and (
+            marker is not None or missing_name or ungrounded_answer
+        )
+        if name is not None and (direct_confusion or explicit_directed_takeover):
+            flagged["foreign_identity_confusion"].append({
+                "request_id": request_id,
+                "pattern": (
+                    f"{name}:explicit_directed_takeover"
+                    if explicit_directed_takeover else
+                    f"{name}:{marker or 'ungrounded_third_party_answer'}"
+                ),
+            })
 
     output_count = len(calls)
     fallback_ratio = len(fallback_ids) / output_count if output_count else 1.0
@@ -316,6 +497,24 @@ def build_quality_report(
     primary_selected = int(
         director_metrics.get("director_v2_primary_selected_total") or 0
     )
+    formula_phrase_outputs = sum(
+        any(_contains_normalized(text, phrase) for phrase in formula_phrases)
+        for text in delivered_texts
+    )
+    formula_phrase_ratio = (
+        formula_phrase_outputs / len(delivered_texts) if delivered_texts else 1.0
+    )
+    silence_semantic_outputs = sum(
+        str(item.get("request_id") or "").startswith("self_")
+        and any(
+            _contains_normalized(str(item.get("text") or ""), marker)
+            for marker in precheck["silence_markers"]
+        )
+        for item in delivery_items
+    )
+    silence_semantic_ratio = (
+        silence_semantic_outputs / len(delivered_texts) if delivered_texts else 1.0
+    )
     primary_fallback = int(
         director_metrics.get("director_v2_primary_fallback_total") or 0
     )
@@ -341,6 +540,24 @@ def build_quality_report(
         ),
         "question_ending_ratio": style.question_ratio <= float(
             gates.get("max_question_ending_ratio", 1.0)
+        ),
+        "formula_phrase_ratio": formula_phrase_ratio <= float(
+            gates.get("max_formula_phrase_ratio", 1.0)
+        ),
+        "language_integrity": len(
+            flagged.get("language_integrity", ())
+        ) <= int(gates.get("max_language_integrity_violations", 0)),
+        "malformed_token": len(
+            flagged.get("malformed_token", ())
+        ) <= int(gates.get("max_malformed_token_violations", 0)),
+        "vague_grounding": len(
+            flagged.get("vague_grounding", ())
+        ) <= int(gates.get("max_vague_grounding_violations", 0)),
+        "semantic_over_inference": len(
+            flagged.get("semantic_over_inference", ())
+        ) <= int(gates.get("max_semantic_over_inference_violations", 0)),
+        "silence_semantic_ratio": silence_semantic_ratio <= float(
+            gates.get("max_silence_semantic_ratio", 1.0)
         ),
         "meta_leak": len(flagged.get("meta_leak", ())) <= int(
             gates.get("max_meta_leaks", 0)
@@ -406,6 +623,8 @@ def build_quality_report(
             "duplicate_outputs": duplicate_outputs,
             "formula_opener_outputs": style.formula_openers,
             "question_outputs": style.questions,
+            "formula_phrase_outputs": formula_phrase_outputs,
+            "silence_semantic_outputs": silence_semantic_outputs,
             "flagged": {key: len(value) for key, value in flagged.items()},
             "candidate_flagged": {
                 key: len(value) for key, value in candidate_flagged.items()
@@ -421,6 +640,8 @@ def build_quality_report(
             "exact_repetition": round(repetition_ratio, 4),
             "formula_openers": round(style.formula_opener_ratio, 4),
             "question_endings": round(style.question_ratio, 4),
+            "formula_phrases": round(formula_phrase_ratio, 4),
+            "silence_semantic": round(silence_semantic_ratio, 4),
             "distinct_1": diversity["distinct_1"],
             "distinct_2": diversity["distinct_2"],
             "avg_words": diversity["avg_words"],
@@ -436,6 +657,58 @@ def build_quality_report(
         "flags": flagged,
         "candidate_flags": candidate_flagged,
         "operator_review_sample": _even_sample(calls, review_count),
+    }
+
+
+def _strict_human_like_precheck(policy: dict[str, Any]) -> dict[str, Any]:
+    raw = policy.get("human_like_precheck")
+    if not isinstance(raw, dict):
+        raise ValueError("youtube_llm_stress.human_like_precheck must be a mapping")
+    expected = {
+        "vague_input_max_words",
+        "vague_grounding_forbidden_patterns",
+        "malformed_token_fragments",
+        "malformed_token_allowlist",
+        "malformed_mixed_case_min_prefix_chars",
+        "semantic_over_inference_patterns",
+        "silence_markers",
+    }
+    if set(raw) != expected:
+        raise ValueError("youtube_llm_stress.human_like_precheck keys are invalid")
+    max_words = raw.get("vague_input_max_words")
+    if type(max_words) is not int or max_words <= 0:
+        raise ValueError("human-like vague_input_max_words must be a positive integer")
+    mixed_case_prefix = raw.get("malformed_mixed_case_min_prefix_chars")
+    if type(mixed_case_prefix) is not int or mixed_case_prefix <= 0:
+        raise ValueError(
+            "human-like malformed_mixed_case_min_prefix_chars must be positive"
+        )
+
+    def string_tuple(name: str) -> tuple[str, ...]:
+        value = raw.get(name)
+        if not isinstance(value, list) or not value:
+            raise ValueError(f"human-like {name} must be a non-empty string list")
+        if any(
+            not isinstance(item, str) or not item or item != item.strip()
+            for item in value
+        ):
+            raise ValueError(f"human-like {name} contains an invalid item")
+        if len(set(value)) != len(value):
+            raise ValueError(f"human-like {name} must be unique")
+        return tuple(value)
+
+    return {
+        "vague_input_max_words": max_words,
+        "vague_grounding_forbidden_patterns": string_tuple(
+            "vague_grounding_forbidden_patterns"
+        ),
+        "malformed_token_fragments": string_tuple("malformed_token_fragments"),
+        "malformed_token_allowlist": string_tuple("malformed_token_allowlist"),
+        "malformed_mixed_case_min_prefix_chars": mixed_case_prefix,
+        "semantic_over_inference_patterns": string_tuple(
+            "semantic_over_inference_patterns"
+        ),
+        "silence_markers": string_tuple("silence_markers"),
     }
 
 
@@ -479,6 +752,39 @@ def _percentile(values: Sequence[float], percentile: float) -> float:
 
 def _normalize(text: str) -> str:
     return " ".join(re.findall(r"\w+", text.casefold(), flags=re.UNICODE))
+
+
+def _contains_normalized(text: str, phrase: str) -> bool:
+    normalized_text = f" {_normalize(text)} "
+    normalized_phrase = _normalize(str(phrase))
+    return bool(normalized_phrase) and f" {normalized_phrase} " in normalized_text
+
+
+def _contains_language_fragment(text: str, fragment: str) -> bool:
+    if any(ord(char) > 0x024F for char in fragment):
+        return str(fragment).casefold() in str(text).casefold()
+    return _contains_normalized(text, fragment)
+
+
+def _semantic_grounding_source(call: dict[str, Any]) -> str | None:
+    """Extract literal viewer/recent-context evidence, never correction instructions."""
+    kind = str(call.get("kind") or "")
+    input_text = str(call.get("input") or "")
+    if kind == "chat":
+        return input_text
+    if kind != "ambient":
+        return None
+    match = re.search(r"(?m)^Mỏ neo đã biết:\s*(.+)$", input_text)
+    if match is None:
+        return None
+    source = match.group(1).strip()
+    for prefix in (
+        "Mạch gần đây đã có:",
+        "Quan sát môi trường đã xác thực:",
+    ):
+        if source.startswith(prefix):
+            return source[len(prefix):].strip()
+    return source
 
 
 def _distinct_ngrams(texts: Sequence[str]) -> dict[str, float]:
@@ -579,6 +885,12 @@ async def _run(args: argparse.Namespace) -> int:
             ) or ()),
             question_endings=tuple(loader.get(
                 "director", "director.speech_style.question_endings", ("nhỉ",),
+            ) or ()),
+            formula_phrases=tuple(loader.get(
+                "director", "director.speech_style.formula_phrases", (),
+            ) or ()),
+            language_integrity_fragments=tuple(loader.get(
+                "director", "director.speech_style.language_integrity_fragments", (),
             ) or ()),
         )
         output = args.output or source.with_name(source.stem + "_assessment.json")
@@ -691,6 +1003,12 @@ async def _run(args: argparse.Namespace) -> int:
         ) or ()),
         question_endings=tuple(loader.get(
             "director", "director.speech_style.question_endings", ("nhỉ",),
+        ) or ()),
+        formula_phrases=tuple(loader.get(
+            "director", "director.speech_style.formula_phrases", (),
+        ) or ()),
+        language_integrity_fragments=tuple(loader.get(
+            "director", "director.speech_style.language_integrity_fragments", (),
         ) or ()),
     )
     report = {

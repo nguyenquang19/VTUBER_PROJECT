@@ -89,6 +89,43 @@ class OverrideLoader:
         self._overrides = overrides
 
     def get(self, name: str, key: str, default=None):
+        strict_defaults = {
+            ("director", "director.speech_style.malformed_token_fragments"): [
+                "ghêó", "nghClient", "thiệt da",
+            ],
+            ("director", "director.speech_style.malformed_token_allowlist"): [
+                "YouTube", "OpenAI",
+            ],
+            (
+                "director",
+                "director.speech_style.malformed_mixed_case_min_prefix_chars",
+            ): 3,
+            (
+                "director", "director.speech_style.semantic_over_inference_patterns",
+            ): ["là biết", "chứng tỏ"],
+            (
+                "evaluation",
+                "evaluation.youtube_llm_stress.human_like_precheck."
+                "malformed_token_fragments",
+            ): ["ghêó", "nghClient", "thiệt da"],
+            (
+                "evaluation",
+                "evaluation.youtube_llm_stress.human_like_precheck."
+                "malformed_token_allowlist",
+            ): ["YouTube", "OpenAI"],
+            (
+                "evaluation",
+                "evaluation.youtube_llm_stress.human_like_precheck."
+                "malformed_mixed_case_min_prefix_chars",
+            ): 3,
+            (
+                "evaluation",
+                "evaluation.youtube_llm_stress.human_like_precheck."
+                "semantic_over_inference_patterns",
+            ): ["là biết", "chứng tỏ"],
+        }
+        if (name, key) in strict_defaults:
+            return self._overrides.get((name, key), strict_defaults[(name, key)])
         if (name, key) == ("animation", "animation.embodiment"):
             return self._overrides.get((name, key), dict(EMBODIMENT_CONFIG))
         if (name, key) == ("director", "director.trajectory_records"):
@@ -111,6 +148,7 @@ def test_repository_runtime_config_is_valid() -> None:
     assert validated.dashboard_control_token_env == "MAI_DASHBOARD_CONTROL_TOKEN"
     assert validated.logging_buffer_records > 0
     assert validated.self_talk_thought_ledger_size == 32
+    assert validated.self_talk_silence_repeat_last_n == 8
     assert validated.self_talk_output_repeat_threshold == 0.88
     assert validated.self_talk_stage_repeat_threshold == 0.72
     assert validated.self_talk_stage_repeat_min_tokens == 4
@@ -133,6 +171,32 @@ def test_repository_runtime_config_is_valid() -> None:
     )
     assert validated.director_speech_style_max_formula_openers == 1
     assert validated.director_speech_style_max_same_opener == 1
+    assert "làm tớ thấy" in validated.director_speech_style_formula_phrases
+    assert validated.director_speech_style_max_formula_phrases == 3
+    assert "kalau" in (
+        validated.director_speech_style_language_integrity_fragments
+    )
+    assert "тут" in validated.director_speech_style_language_integrity_fragments
+    assert "สัก" in validated.director_speech_style_language_integrity_fragments
+    assert "nghClient" in validated.director_speech_style_malformed_token_fragments
+    assert "OpenAI" in validated.director_speech_style_malformed_token_allowlist
+    assert validated.director_speech_style_malformed_mixed_case_min_prefix_chars == 3
+    assert validated.director_speech_style_vague_input_max_words == 1
+    assert "âm mưu" in (
+        validated.director_speech_style_vague_grounding_forbidden_patterns
+    )
+    assert (
+        validated.director_speech_style_vague_grounding_forbidden_patterns
+        == validated.evaluation_vague_grounding_forbidden_patterns
+    )
+    assert (
+        validated.director_speech_style_malformed_token_fragments
+        == validated.evaluation_malformed_token_fragments
+    )
+    assert (
+        validated.director_speech_style_semantic_over_inference_patterns
+        == validated.evaluation_semantic_over_inference_patterns
+    )
     assert validated.director_speech_style_max_questions == 1
     assert validated.director_speech_style_max_sentences == 2
     assert validated.director_speech_style_max_words == 65
@@ -191,6 +255,40 @@ def test_repository_runtime_config_is_valid() -> None:
             "director_speech_style_max_regenerations",
         ),
         (
+            "director", "director.speech_style.formula_phrases", ["ổn", 1],
+            "director_speech_style_formula_phrases",
+        ),
+        (
+            "director", "director.speech_style.language_integrity_fragments", [],
+            "director_speech_style_language_integrity_fragments",
+        ),
+        (
+            "director", "director.speech_style.malformed_token_fragments", None,
+            "director_speech_style_malformed_token_fragments",
+        ),
+        (
+            "director", "director.speech_style.malformed_token_allowlist", [],
+            "director_speech_style_malformed_token_allowlist",
+        ),
+        (
+            "director",
+            "director.speech_style.malformed_mixed_case_min_prefix_chars", 0,
+            "director_speech_style_malformed_mixed_case_min_prefix_chars",
+        ),
+        (
+            "director", "director.speech_style.semantic_over_inference_patterns", [],
+            "director_speech_style_semantic_over_inference_patterns",
+        ),
+        (
+            "director", "director.speech_style.vague_input_max_words", -1,
+            "director_speech_style_vague_input_max_words",
+        ),
+        (
+            "director", "director.speech_style.vague_grounding_forbidden_patterns",
+            ["âm mưu", 1],
+            "director_speech_style_vague_grounding_forbidden_patterns",
+        ),
+        (
             "director", "director.speech_style.max_sentences", 0,
             "director_speech_style_max_sentences",
         ),
@@ -209,6 +307,10 @@ def test_repository_runtime_config_is_valid() -> None:
         (
             "self_talk", "self_talk.semantic_repeat_threshold", 1.1,
             "self_talk_semantic_repeat_threshold",
+        ),
+        (
+            "self_talk", "self_talk.silence_repeat_last_n", 0,
+            "self_talk_silence_repeat_last_n",
         ),
         (
             "self_talk", "self_talk.stage_repeat_threshold", 1.1,
@@ -259,6 +361,44 @@ def test_speech_style_budget_cannot_exceed_recent_window() -> None:
         validate_runtime_config(OverrideLoader({
             ("director", "director.speech_style.recent_window"): 2,
             ("director", "director.speech_style.max_formula_openers"): 3,
+        }))
+
+
+def test_human_like_windows_cannot_exceed_bounded_history() -> None:
+    with pytest.raises(ConfigError, match="phrase budget exceeds recent window"):
+        validate_runtime_config(OverrideLoader({
+            ("director", "director.speech_style.recent_window"): 2,
+            ("director", "director.speech_style.max_formula_phrases"): 3,
+        }))
+    with pytest.raises(ConfigError, match="silence repeat window exceeds thought ledger"):
+        validate_runtime_config(OverrideLoader({
+            ("self_talk", "self_talk.thought_ledger_size"): 2,
+            ("self_talk", "self_talk.silence_repeat_last_n"): 3,
+        }))
+
+
+def test_runtime_and_evaluation_vague_grounding_contracts_cannot_drift() -> None:
+    with pytest.raises(ConfigError, match="vague grounding contracts differ"):
+        validate_runtime_config(OverrideLoader({
+            (
+                "director",
+                "director.speech_style.vague_grounding_forbidden_patterns",
+            ): ["âm mưu"],
+        }))
+
+
+def test_runtime_and_evaluation_new_grounding_contracts_cannot_drift() -> None:
+    with pytest.raises(ConfigError, match="malformed token contracts differ"):
+        validate_runtime_config(OverrideLoader({
+            (
+                "director", "director.speech_style.malformed_token_fragments",
+            ): ["nghClient"],
+        }))
+    with pytest.raises(ConfigError, match="semantic inference contracts differ"):
+        validate_runtime_config(OverrideLoader({
+            (
+                "director", "director.speech_style.semantic_over_inference_patterns",
+            ): ["là biết"],
         }))
 
 

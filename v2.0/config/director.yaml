@@ -31,6 +31,15 @@ director:
     formula_openers: ["mà", "trời ơi", "ủa", "ơ kìa"]
     max_formula_openers: 1        # tối đa 1/12 lượt dùng nhóm opener công thức
     max_same_opener: 1            # không lặp cùng opener trong cửa sổ
+    formula_phrases: ["làm tớ thấy", "rồi đấy", "luôn ấy", "luôn á", "chắc chắn", "cực kỳ"]
+    max_formula_phrases: 3        # tổng phrase cấu hình trong 12 delivery gần nhất
+    language_integrity_fragments: ["kalau", "тут", "สัก"]  # foreign contamination đã có evidence
+    malformed_token_fragments: ["ghêó", "nghClient", "thiệt da"]
+    malformed_token_allowlist: ["YouTube", "VTube", "OpenAI", "PowerShell", "Discord", "OBS", "KFC"]
+    malformed_mixed_case_min_prefix_chars: 3
+    vague_input_max_words: 1
+    vague_grounding_forbidden_patterns: ["chắc chắn", "rõ ràng", "ý đồ", "âm mưu", "đang định", "tâm hồn cậu"]
+    semantic_over_inference_patterns: ["là biết", "chứng tỏ", "trong đầu cậu", "muốn tạo", "đang bực mình", "đang giữ trong lòng", "đang quý mến"]
     max_questions: 1              # invite bypass; các lượt khác tối đa 1/12 delivery
     question_endings: ["nhỉ", "hả", "à", "ư", "không", "chưa", "sao", "gì", "nào"]
     max_sentences: 2              # shape bound chống nhiều đoạn/lặp nội bộ

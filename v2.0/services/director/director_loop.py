@@ -44,6 +44,7 @@ from services.director.delivery_boundary import DirectorDeliveryBoundary
 from services.director.action_prompts import (
     history_text_for as _history_text_for,
     join_directives as _join_directives,
+    literal_grounding_directive as _literal_grounding_directive,
     proactive_thread_directive as _proactive_thread_directive,
     read_user_text as _read_user_text,
     room_reaction_prompt as _room_reaction_prompt,
@@ -112,6 +113,15 @@ class DirectorLoop:
         ),
         speech_style_max_formula_openers: int = 2,
         speech_style_max_same_opener: int = 1,
+        speech_style_formula_phrases: tuple[str, ...] = (),
+        speech_style_max_formula_phrases: int = 0,
+        speech_style_language_integrity_fragments: tuple[str, ...] = (),
+        speech_style_malformed_token_fragments: tuple[str, ...] = (),
+        speech_style_malformed_token_allowlist: tuple[str, ...] = (),
+        speech_style_malformed_mixed_case_min_prefix_chars: int = 0,
+        speech_style_vague_input_max_words: int = 1,
+        speech_style_vague_grounding_forbidden_patterns: tuple[str, ...] = (),
+        speech_style_semantic_over_inference_patterns: tuple[str, ...] = (),
         speech_style_max_questions: int = 2,
         speech_style_question_endings: tuple[str, ...] = (
             "nhỉ", "hả", "à", "ư", "không", "chưa", "sao", "gì", "nào",
@@ -178,6 +188,23 @@ class DirectorLoop:
             formula_openers=speech_style_formula_openers,
             max_formula_openers=speech_style_max_formula_openers,
             max_same_opener=speech_style_max_same_opener,
+            formula_phrases=speech_style_formula_phrases,
+            max_formula_phrases=speech_style_max_formula_phrases,
+            language_integrity_fragments=(
+                speech_style_language_integrity_fragments
+            ),
+            malformed_token_fragments=speech_style_malformed_token_fragments,
+            malformed_token_allowlist=speech_style_malformed_token_allowlist,
+            malformed_mixed_case_min_prefix_chars=(
+                speech_style_malformed_mixed_case_min_prefix_chars
+            ),
+            vague_input_max_words=speech_style_vague_input_max_words,
+            vague_grounding_forbidden_patterns=(
+                speech_style_vague_grounding_forbidden_patterns
+            ),
+            semantic_over_inference_patterns=(
+                speech_style_semantic_over_inference_patterns
+            ),
             max_questions=speech_style_max_questions,
             question_endings=speech_style_question_endings,
             max_sentences=speech_style_max_sentences,
@@ -212,6 +239,14 @@ class DirectorLoop:
         self._speech_style_regenerated_total = 0
         self._speech_style_exhausted_total = 0
         self._speech_style_clamped_total = 0
+        self._speech_style_phrase_violation_total = 0
+        self._speech_style_language_violation_total = 0
+        self._malformed_token_violation_total = 0
+        self._malformed_token_suppressed_total = 0
+        self._grounding_violation_total = 0
+        self._grounding_suppressed_total = 0
+        self._semantic_over_inference_violation_total = 0
+        self._semantic_over_inference_suppressed_total = 0
         self._thread_focus_total = 0
         self._thread_boundary_clear_total = 0
         self._thread_forced_park_total = 0
@@ -857,7 +892,7 @@ class DirectorLoop:
                         refs=[], thread_id=None, goal_id=dec.goal_id,
                     )
                     return False
-            req_id, parsed = await self._repair_speech_style(
+            req_id, parsed, final_style = await self._repair_speech_style(
                 req_id,
                 parsed,
                 context,
@@ -865,7 +900,16 @@ class DirectorLoop:
                     retry_id, retry_context,
                 ),
                 question_budget_exempt=question_budget_exempt,
+                grounding_text=context,
             )
+            if any(
+                reason in final_style.reasons
+                for reason in ("language_integrity", "malformed_token")
+            ):
+                self._finalize_runner_delivery(req_id, False)
+                if "malformed_token" in final_style.reasons:
+                    self._malformed_token_suppressed_total += 1
+                return False
             if self._speech_candidate_is_duplicate(parsed):
                 self._speech_dedup_duplicate_total += 1
                 self._speech_dedup_suppressed_total += 1
@@ -918,14 +962,23 @@ class DirectorLoop:
         )
         context = _join_directives(context, self._speech_style_directive())
         parsed = await self._run_directed_deferred(request_id, context)
-        request_id, parsed = await self._repair_speech_style(
+        request_id, parsed, final_style = await self._repair_speech_style(
             request_id,
             parsed,
             context,
             lambda retry_id, retry_context: self._run_directed_deferred(
                 retry_id, retry_context,
             ),
+            grounding_text=context,
         )
+        if any(
+            reason in final_style.reasons
+            for reason in ("language_integrity", "malformed_token")
+        ):
+            self._finalize_runner_delivery(request_id, False)
+            if "malformed_token" in final_style.reasons:
+                self._malformed_token_suppressed_total += 1
+            return False
         spoken = await self._maybe_speak(
             request_id,
             parsed,
@@ -959,7 +1012,9 @@ class DirectorLoop:
         primary = refs[0] if refs else None
         # De-AI register: user turn = CHAT THẬT; "cách xử" (gộp/ack) → stage_direction (system).
         user_text = _read_user_text(dec)
-        stage = _stage_direction_for(dec)
+        stage = _join_directives(
+            _stage_direction_for(dec), _literal_grounding_directive(),
+        )
         stage = _join_directives(stage, self._behavior_directive(dec, user_text))
         if dec.action is DirectorAction.READ_CHAT:
             stage = _join_directives(stage, self._speech_style_directive())
@@ -1024,9 +1079,26 @@ class DirectorLoop:
                 )
                 return retry_parsed
 
-            req_id, parsed = await self._repair_speech_style(
+            req_id, parsed, final_assessment = await self._repair_speech_style(
                 req_id, parsed, stage or "", rerun_style,
+                grounding_text=user_text,
+                enforce_semantic_grounding=True,
             )
+            if any(
+                reason in final_assessment.reasons
+                for reason in (
+                    "vague_grounding", "semantic_over_inference",
+                    "language_integrity", "malformed_token",
+                )
+            ):
+                self._finalize_runner_delivery(req_id, False)
+                if "vague_grounding" in final_assessment.reasons:
+                    self._grounding_suppressed_total += 1
+                if "semantic_over_inference" in final_assessment.reasons:
+                    self._semantic_over_inference_suppressed_total += 1
+                if "malformed_token" in final_assessment.reasons:
+                    self._malformed_token_suppressed_total += 1
+                return False
             if self._speech_candidate_is_duplicate(parsed):
                 self._speech_dedup_duplicate_total += 1
                 self._speech_dedup_suppressed_total += 1
@@ -1087,14 +1159,27 @@ class DirectorLoop:
                     now + self._room_reaction_retry_defer_seconds,
                 )
                 return False
-        req_id, parsed = await self._repair_speech_style(
+        req_id, parsed, final_style = await self._repair_speech_style(
             req_id,
             parsed,
             prompt,
             lambda retry_id, retry_prompt: self._run_ambient_deferred(
                 retry_id, retry_prompt,
             ),
+            grounding_text=prompt,
         )
+        if any(
+            reason in final_style.reasons
+            for reason in ("language_integrity", "malformed_token")
+        ):
+            self._room_reaction_suppressed_total += 1
+            self._finalize_runner_delivery(req_id, False)
+            if "malformed_token" in final_style.reasons:
+                self._malformed_token_suppressed_total += 1
+            self._director.defer_room_reaction(
+                now + self._room_reaction_retry_defer_seconds,
+            )
+            return False
         if self._room_candidate_is_duplicate(parsed):
             self._room_reaction_duplicate_total += 1
             self._room_reaction_suppressed_total += 1
@@ -1256,6 +1341,9 @@ class DirectorLoop:
                 if not validation.valid:
                     self._finalize_runner_delivery(delivery_req_id, False)
                     self._self_talk_planner.release(plan.plan_id)
+                    self._self_talk_planner.defer_until(
+                        now + self._self_talk_planner.unavailable_retry_seconds,
+                    )
                     self._director.defer_self_talk(
                         now + self._self_talk_planner.unavailable_retry_seconds,
                     )
@@ -1267,6 +1355,57 @@ class DirectorLoop:
                     )
                 except Exception:
                     pass
+        async def rerun_style(retry_id: str, retry_prompt: str) -> Any:
+            return await self._run_ambient_deferred(retry_id, retry_prompt)
+
+        delivery_req_id, parsed, final_style = await self._repair_speech_style(
+            delivery_req_id,
+            parsed,
+            prompt,
+            rerun_style,
+            question_budget_exempt=question_budget_exempt,
+            grounding_text=(plan.grounding_text if plan is not None else None),
+            enforce_semantic_grounding=bool(
+                plan is not None and plan.grounding_text is not None
+            ),
+        )
+        if any(
+            reason in final_style.reasons
+            for reason in (
+                "language_integrity", "malformed_token", "vague_grounding",
+                "semantic_over_inference",
+            )
+        ):
+            self._finalize_runner_delivery(delivery_req_id, False)
+            if "malformed_token" in final_style.reasons:
+                self._malformed_token_suppressed_total += 1
+            if "semantic_over_inference" in final_style.reasons:
+                self._semantic_over_inference_suppressed_total += 1
+            if "vague_grounding" in final_style.reasons:
+                self._grounding_suppressed_total += 1
+            if plan is not None:
+                self._self_talk_planner.release(plan.plan_id)
+                self._self_talk_planner.defer_until(
+                    now + self._self_talk_planner.unavailable_retry_seconds,
+                )
+                self._director.defer_self_talk(
+                    now + self._self_talk_planner.unavailable_retry_seconds,
+                )
+            return False
+        if plan is not None:
+            validation = self._self_talk_planner.validate_output(
+                plan.plan_id, getattr(parsed, "text", ""),
+            )
+            if not validation.valid:
+                self._finalize_runner_delivery(delivery_req_id, False)
+                self._self_talk_planner.release(plan.plan_id)
+                self._self_talk_planner.defer_until(
+                    now + self._self_talk_planner.unavailable_retry_seconds,
+                )
+                self._director.defer_self_talk(
+                    now + self._self_talk_planner.unavailable_retry_seconds,
+                )
+                return False
         self._speech_dedup_generated_total += 1
         if self._speech_candidate_is_duplicate(parsed):
             self._speech_dedup_duplicate_total += 1
@@ -1274,6 +1413,9 @@ class DirectorLoop:
             self._finalize_runner_delivery(delivery_req_id, False)
             if plan is not None:
                 self._self_talk_planner.release(plan.plan_id)
+                self._self_talk_planner.defer_until(
+                    now + self._self_talk_planner.unavailable_retry_seconds,
+                )
                 self._director.defer_self_talk(
                     now + self._self_talk_planner.unavailable_retry_seconds,
                 )
@@ -1292,6 +1434,12 @@ class DirectorLoop:
         if not spoken:
             if plan is not None:
                 self._self_talk_planner.release(plan.plan_id)
+                self._self_talk_planner.defer_until(
+                    now + self._self_talk_planner.unavailable_retry_seconds,
+                )
+                self._director.defer_self_talk(
+                    now + self._self_talk_planner.unavailable_retry_seconds,
+                )
             return False
         if plan is not None:
             self._self_talk_planner.commit(plan.plan_id, parsed.text, now)
@@ -1909,6 +2057,10 @@ class DirectorLoop:
                 if max_sentences is None else max(1, int(max_sentences))
             ),
             max_words=self._speech_style.max_words,
+            forbidden_phrases=self._speech_style.forbidden_formula_phrases(),
+            require_vietnamese_integrity=(
+                self._speech_style.requires_language_integrity
+            ),
         )
 
     def _speech_style_assessment(
@@ -1916,6 +2068,8 @@ class DirectorLoop:
         parsed: Any,
         *,
         question_budget_exempt: bool = False,
+        grounding_text: str | None = None,
+        enforce_semantic_grounding: bool = False,
     ) -> SpeechStyleAssessment:
         verdict = getattr(self._runner, "last_filter_verdict", None)
         if verdict is not None and getattr(verdict, "passed", True) is not True:
@@ -1923,6 +2077,8 @@ class DirectorLoop:
         return self._speech_style.assess(
             str(getattr(parsed, "text", "")),
             question_budget_exempt=question_budget_exempt,
+            grounding_text=grounding_text,
+            enforce_semantic_grounding=enforce_semantic_grounding,
         )
 
     async def _repair_speech_style(
@@ -1933,14 +2089,29 @@ class DirectorLoop:
         rerun: Callable[[str, str], Awaitable[Any]],
         *,
         question_budget_exempt: bool = False,
-    ) -> tuple[str, Any]:
+        grounding_text: str | None = None,
+        enforce_semantic_grounding: bool = False,
+    ) -> tuple[str, Any, SpeechStyleAssessment]:
         """Try one bounded style-only rewrite and fail open when still formulaic."""
         assessment = self._speech_style_assessment(
-            parsed, question_budget_exempt=question_budget_exempt,
+            parsed,
+            question_budget_exempt=question_budget_exempt,
+            grounding_text=grounding_text,
+            enforce_semantic_grounding=enforce_semantic_grounding,
         )
         if assessment.valid:
-            return request_id, parsed
+            return request_id, parsed, assessment
         self._speech_style_violation_total += 1
+        if "formula_phrase_budget" in assessment.reasons:
+            self._speech_style_phrase_violation_total += 1
+        if "language_integrity" in assessment.reasons:
+            self._speech_style_language_violation_total += 1
+        if "malformed_token" in assessment.reasons:
+            self._malformed_token_violation_total += 1
+        if "vague_grounding" in assessment.reasons:
+            self._grounding_violation_total += 1
+        if "semantic_over_inference" in assessment.reasons:
+            self._semantic_over_inference_violation_total += 1
         current_id = request_id
         current = parsed
         for attempt in range(self._speech_style_max_regenerations):
@@ -1952,17 +2123,53 @@ class DirectorLoop:
                 str(getattr(current, "text", "")),
                 reasons=assessment.reasons,
                 opener=assessment.opener,
+                phrase=assessment.phrase,
+                language_fragment=assessment.language_fragment,
+                grounding_pattern=assessment.grounding_pattern,
+                malformed_token=assessment.malformed_token,
+                semantic_inference_pattern=assessment.semantic_inference_pattern,
                 max_sentences=self._speech_style.max_sentences,
                 max_words=self._speech_style.max_words,
             )
             current = await rerun(retry_id, retry_context)
             current_id = retry_id
             assessment = self._speech_style_assessment(
-                current, question_budget_exempt=question_budget_exempt,
+                current,
+                question_budget_exempt=question_budget_exempt,
+                grounding_text=grounding_text,
+                enforce_semantic_grounding=enforce_semantic_grounding,
             )
             if assessment.valid:
-                return current_id, current
+                return current_id, current, assessment
             self._speech_style_violation_total += 1
+            if "formula_phrase_budget" in assessment.reasons:
+                self._speech_style_phrase_violation_total += 1
+            if "language_integrity" in assessment.reasons:
+                self._speech_style_language_violation_total += 1
+            if "malformed_token" in assessment.reasons:
+                self._malformed_token_violation_total += 1
+            if "vague_grounding" in assessment.reasons:
+                self._grounding_violation_total += 1
+            if "semantic_over_inference" in assessment.reasons:
+                self._semantic_over_inference_violation_total += 1
+        if "question_budget" in assessment.reasons:
+            clamped = self._speech_style.clamp_questions(
+                str(getattr(current, "text", "")),
+            )
+            if clamped != str(getattr(current, "text", "")):
+                if hasattr(current, "model_copy"):
+                    current = current.model_copy(update={"text": clamped})
+                else:
+                    current = replace(current, text=clamped)
+                self._speech_style_clamped_total += 1
+                assessment = self._speech_style_assessment(
+                    current,
+                    question_budget_exempt=question_budget_exempt,
+                    grounding_text=grounding_text,
+                    enforce_semantic_grounding=enforce_semantic_grounding,
+                )
+                if assessment.valid:
+                    return current_id, current, assessment
         if "sentence_budget" in assessment.reasons or "word_budget" in assessment.reasons:
             clamped = self._speech_style.clamp_shape(
                 str(getattr(current, "text", "")),
@@ -1974,12 +2181,15 @@ class DirectorLoop:
                     current = replace(current, text=clamped)
                 self._speech_style_clamped_total += 1
                 assessment = self._speech_style_assessment(
-                    current, question_budget_exempt=question_budget_exempt,
+                    current,
+                    question_budget_exempt=question_budget_exempt,
+                    grounding_text=grounding_text,
+                    enforce_semantic_grounding=enforce_semantic_grounding,
                 )
                 if assessment.valid:
-                    return current_id, current
+                    return current_id, current, assessment
         self._speech_style_exhausted_total += 1
-        return current_id, current
+        return current_id, current, assessment
 
     def get_metrics(self) -> dict[str, Any]:
         planner_metrics = (
@@ -2050,6 +2260,26 @@ class DirectorLoop:
             ),
             "director_speech_style_clamped_total": (
                 self._speech_style_clamped_total
+            ),
+            "director_speech_style_phrase_violation_total": (
+                self._speech_style_phrase_violation_total
+            ),
+            "director_speech_style_language_violation_total": (
+                self._speech_style_language_violation_total
+            ),
+            "director_malformed_token_violation_total": (
+                self._malformed_token_violation_total
+            ),
+            "director_malformed_token_suppressed_total": (
+                self._malformed_token_suppressed_total
+            ),
+            "director_grounding_violation_total": self._grounding_violation_total,
+            "director_grounding_suppressed_total": self._grounding_suppressed_total,
+            "director_semantic_over_inference_violation_total": (
+                self._semantic_over_inference_violation_total
+            ),
+            "director_semantic_over_inference_suppressed_total": (
+                self._semantic_over_inference_suppressed_total
             ),
             "director_thread_focus_total": self._thread_focus_total,
             "director_thread_boundary_clear_total": self._thread_boundary_clear_total,

@@ -356,6 +356,35 @@ async def simulate_replay(
         speech_style_max_same_opener=int(loader.get(
             "director", "director.speech_style.max_same_opener", 1,
         )),
+        speech_style_formula_phrases=tuple(loader.get(
+            "director", "director.speech_style.formula_phrases", (),
+        ) or ()),
+        speech_style_max_formula_phrases=int(loader.get(
+            "director", "director.speech_style.max_formula_phrases", 0,
+        )),
+        speech_style_language_integrity_fragments=tuple(loader.get(
+            "director", "director.speech_style.language_integrity_fragments", (),
+        ) or ()),
+        speech_style_malformed_token_fragments=tuple(loader.get(
+            "director", "director.speech_style.malformed_token_fragments", (),
+        ) or ()),
+        speech_style_malformed_token_allowlist=tuple(loader.get(
+            "director", "director.speech_style.malformed_token_allowlist", (),
+        ) or ()),
+        speech_style_malformed_mixed_case_min_prefix_chars=int(loader.get(
+            "director",
+            "director.speech_style.malformed_mixed_case_min_prefix_chars", 0,
+        )),
+        speech_style_vague_input_max_words=int(loader.get(
+            "director", "director.speech_style.vague_input_max_words", 1,
+        )),
+        speech_style_vague_grounding_forbidden_patterns=tuple(loader.get(
+            "director",
+            "director.speech_style.vague_grounding_forbidden_patterns", (),
+        ) or ()),
+        speech_style_semantic_over_inference_patterns=tuple(loader.get(
+            "director", "director.speech_style.semantic_over_inference_patterns", (),
+        ) or ()),
         speech_style_max_questions=int(loader.get(
             "director", "director.speech_style.max_questions", 2,
         )),

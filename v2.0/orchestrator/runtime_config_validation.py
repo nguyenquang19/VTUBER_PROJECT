@@ -62,6 +62,35 @@ class RuntimeCriticalConfig(BaseModel):
     director_speech_style_formula_openers: tuple[str, ...] = Field(min_length=1)
     director_speech_style_max_formula_openers: int = Field(ge=0)
     director_speech_style_max_same_opener: int = Field(ge=0)
+    director_speech_style_formula_phrases: tuple[str, ...] = Field(min_length=1)
+    director_speech_style_max_formula_phrases: int = Field(ge=0)
+    director_speech_style_language_integrity_fragments: tuple[str, ...] = Field(
+        min_length=1,
+    )
+    director_speech_style_malformed_token_fragments: tuple[str, ...] = Field(
+        min_length=1,
+    )
+    director_speech_style_malformed_token_allowlist: tuple[str, ...] = Field(
+        min_length=1,
+    )
+    director_speech_style_malformed_mixed_case_min_prefix_chars: int = Field(ge=1)
+    director_speech_style_vague_input_max_words: int = Field(ge=0)
+    director_speech_style_vague_grounding_forbidden_patterns: tuple[str, ...] = Field(
+        min_length=1,
+    )
+    evaluation_vague_input_max_words: int = Field(ge=0)
+    evaluation_vague_grounding_forbidden_patterns: tuple[str, ...] = Field(
+        min_length=1,
+    )
+    director_speech_style_semantic_over_inference_patterns: tuple[str, ...] = Field(
+        min_length=1,
+    )
+    evaluation_malformed_token_fragments: tuple[str, ...] = Field(min_length=1)
+    evaluation_malformed_token_allowlist: tuple[str, ...] = Field(min_length=1)
+    evaluation_malformed_mixed_case_min_prefix_chars: int = Field(ge=1)
+    evaluation_semantic_over_inference_patterns: tuple[str, ...] = Field(
+        min_length=1,
+    )
     director_speech_style_max_questions: int = Field(ge=0)
     director_speech_style_question_endings: tuple[str, ...] = Field(min_length=1)
     director_speech_style_max_sentences: int = Field(gt=0)
@@ -75,6 +104,7 @@ class RuntimeCriticalConfig(BaseModel):
     self_talk_min_silence_seconds: float = Field(gt=0)
     self_talk_unavailable_retry_seconds: float = Field(gt=0)
     self_talk_thought_ledger_size: int = Field(gt=0)
+    self_talk_silence_repeat_last_n: int = Field(gt=0)
     self_talk_semantic_repeat_threshold: float = Field(ge=0, le=1)
     self_talk_output_repeat_threshold: float = Field(ge=0, le=1)
     self_talk_stage_repeat_threshold: float = Field(ge=0, le=1)
@@ -121,12 +151,61 @@ class RuntimeCriticalConfig(BaseModel):
             raise ValueError("speech style formula budget exceeds recent window")
         if self.director_speech_style_max_same_opener > window:
             raise ValueError("speech style same-opener budget exceeds recent window")
+        if self.director_speech_style_max_formula_phrases > window:
+            raise ValueError("speech style phrase budget exceeds recent window")
         if self.director_speech_style_max_questions > window:
             raise ValueError("speech style question budget exceeds recent window")
         if any(not value.strip() for value in self.director_speech_style_formula_openers):
             raise ValueError("speech style formula openers must be non-empty")
         if any(not value.strip() for value in self.director_speech_style_question_endings):
             raise ValueError("speech style question endings must be non-empty")
+        if len(set(self.director_speech_style_formula_phrases)) != len(
+            self.director_speech_style_formula_phrases
+        ):
+            raise ValueError("speech style formula phrases must be unique")
+        if len(set(self.director_speech_style_language_integrity_fragments)) != len(
+            self.director_speech_style_language_integrity_fragments
+        ):
+            raise ValueError("speech style language fragments must be unique")
+        if len(set(self.director_speech_style_malformed_token_fragments)) != len(
+            self.director_speech_style_malformed_token_fragments
+        ):
+            raise ValueError("speech style malformed token fragments must be unique")
+        if len(set(self.director_speech_style_malformed_token_allowlist)) != len(
+            self.director_speech_style_malformed_token_allowlist
+        ):
+            raise ValueError("speech style malformed token allowlist must be unique")
+        if len(set(
+            self.director_speech_style_vague_grounding_forbidden_patterns
+        )) != len(self.director_speech_style_vague_grounding_forbidden_patterns):
+            raise ValueError("speech style vague grounding patterns must be unique")
+        if len(set(
+            self.director_speech_style_semantic_over_inference_patterns
+        )) != len(self.director_speech_style_semantic_over_inference_patterns):
+            raise ValueError("semantic over-inference patterns must be unique")
+        if (
+            self.director_speech_style_vague_input_max_words
+            != self.evaluation_vague_input_max_words
+            or self.director_speech_style_vague_grounding_forbidden_patterns
+            != self.evaluation_vague_grounding_forbidden_patterns
+        ):
+            raise ValueError("runtime and evaluation vague grounding contracts differ")
+        if (
+            self.director_speech_style_malformed_token_fragments
+            != self.evaluation_malformed_token_fragments
+            or self.director_speech_style_malformed_token_allowlist
+            != self.evaluation_malformed_token_allowlist
+            or self.director_speech_style_malformed_mixed_case_min_prefix_chars
+            != self.evaluation_malformed_mixed_case_min_prefix_chars
+        ):
+            raise ValueError("runtime and evaluation malformed token contracts differ")
+        if (
+            self.director_speech_style_semantic_over_inference_patterns
+            != self.evaluation_semantic_over_inference_patterns
+        ):
+            raise ValueError("runtime and evaluation semantic inference contracts differ")
+        if self.self_talk_silence_repeat_last_n > self.self_talk_thought_ledger_size:
+            raise ValueError("self-talk silence repeat window exceeds thought ledger")
         return self
 
 
@@ -204,6 +283,103 @@ def validate_runtime_config(loader: Any) -> RuntimeCriticalConfig:
             director_speech_style_max_same_opener=loader.get(
                 "director", "director.speech_style.max_same_opener", 1,
             ),
+            director_speech_style_formula_phrases=_strict_string_tuple(loader.get(
+                "director", "director.speech_style.formula_phrases",
+                ("làm tớ thấy", "rồi đấy"),
+            ), "director_speech_style_formula_phrases"),
+            director_speech_style_max_formula_phrases=loader.get(
+                "director", "director.speech_style.max_formula_phrases", 3,
+            ),
+            director_speech_style_language_integrity_fragments=_strict_string_tuple(
+                loader.get(
+                    "director", "director.speech_style.language_integrity_fragments",
+                    ("kalau",),
+                ),
+                "director_speech_style_language_integrity_fragments",
+            ),
+            director_speech_style_malformed_token_fragments=_strict_string_tuple(
+                loader.get(
+                    "director", "director.speech_style.malformed_token_fragments",
+                    None,
+                ),
+                "director_speech_style_malformed_token_fragments",
+            ),
+            director_speech_style_malformed_token_allowlist=_strict_string_tuple(
+                loader.get(
+                    "director", "director.speech_style.malformed_token_allowlist",
+                    None,
+                ),
+                "director_speech_style_malformed_token_allowlist",
+            ),
+            director_speech_style_malformed_mixed_case_min_prefix_chars=loader.get(
+                "director",
+                "director.speech_style.malformed_mixed_case_min_prefix_chars",
+                None,
+            ),
+            director_speech_style_vague_input_max_words=loader.get(
+                "director", "director.speech_style.vague_input_max_words", 1,
+            ),
+            director_speech_style_vague_grounding_forbidden_patterns=(
+                _strict_string_tuple(loader.get(
+                    "director",
+                    "director.speech_style.vague_grounding_forbidden_patterns",
+                    ("chắc chắn",),
+                ), "director_speech_style_vague_grounding_forbidden_patterns")
+            ),
+            director_speech_style_semantic_over_inference_patterns=(
+                _strict_string_tuple(loader.get(
+                    "director",
+                    "director.speech_style.semantic_over_inference_patterns",
+                    None,
+                ), "director_speech_style_semantic_over_inference_patterns")
+            ),
+            evaluation_vague_input_max_words=loader.get(
+                "evaluation",
+                "evaluation.youtube_llm_stress.human_like_precheck.vague_input_max_words",
+                1,
+            ),
+            evaluation_vague_grounding_forbidden_patterns=_strict_string_tuple(
+                loader.get(
+                    "evaluation",
+                    "evaluation.youtube_llm_stress.human_like_precheck."
+                    "vague_grounding_forbidden_patterns",
+                    ("chắc chắn",),
+                ),
+                "evaluation_vague_grounding_forbidden_patterns",
+            ),
+            evaluation_malformed_token_fragments=_strict_string_tuple(
+                loader.get(
+                    "evaluation",
+                    "evaluation.youtube_llm_stress.human_like_precheck."
+                    "malformed_token_fragments",
+                    None,
+                ),
+                "evaluation_malformed_token_fragments",
+            ),
+            evaluation_malformed_token_allowlist=_strict_string_tuple(
+                loader.get(
+                    "evaluation",
+                    "evaluation.youtube_llm_stress.human_like_precheck."
+                    "malformed_token_allowlist",
+                    None,
+                ),
+                "evaluation_malformed_token_allowlist",
+            ),
+            evaluation_malformed_mixed_case_min_prefix_chars=loader.get(
+                "evaluation",
+                "evaluation.youtube_llm_stress.human_like_precheck."
+                "malformed_mixed_case_min_prefix_chars",
+                None,
+            ),
+            evaluation_semantic_over_inference_patterns=_strict_string_tuple(
+                loader.get(
+                    "evaluation",
+                    "evaluation.youtube_llm_stress.human_like_precheck."
+                    "semantic_over_inference_patterns",
+                    None,
+                ),
+                "evaluation_semantic_over_inference_patterns",
+            ),
             director_speech_style_max_questions=loader.get(
                 "director", "director.speech_style.max_questions", 2,
             ),
@@ -242,6 +418,9 @@ def validate_runtime_config(loader: Any) -> RuntimeCriticalConfig:
             ),
             self_talk_thought_ledger_size=loader.get(
                 "self_talk", "self_talk.thought_ledger_size", 32,
+            ),
+            self_talk_silence_repeat_last_n=loader.get(
+                "self_talk", "self_talk.silence_repeat_last_n", 8,
             ),
             self_talk_semantic_repeat_threshold=loader.get(
                 "self_talk", "self_talk.semantic_repeat_threshold", 0.72,

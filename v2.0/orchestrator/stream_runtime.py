@@ -1864,6 +1864,33 @@ async def _compose_stream_runtime(
         speech_style_max_same_opener=int(
             speech_style.get("max_same_opener", 1)
         ),
+        speech_style_formula_phrases=tuple(
+            speech_style.get("formula_phrases", ())
+        ),
+        speech_style_max_formula_phrases=int(
+            speech_style.get("max_formula_phrases", 0)
+        ),
+        speech_style_language_integrity_fragments=tuple(
+            speech_style.get("language_integrity_fragments", ())
+        ),
+        speech_style_malformed_token_fragments=tuple(
+            speech_style.get("malformed_token_fragments", ())
+        ),
+        speech_style_malformed_token_allowlist=tuple(
+            speech_style.get("malformed_token_allowlist", ())
+        ),
+        speech_style_malformed_mixed_case_min_prefix_chars=int(
+            speech_style.get("malformed_mixed_case_min_prefix_chars", 0)
+        ),
+        speech_style_vague_input_max_words=int(
+            speech_style.get("vague_input_max_words", 1)
+        ),
+        speech_style_vague_grounding_forbidden_patterns=tuple(
+            speech_style.get("vague_grounding_forbidden_patterns", ())
+        ),
+        speech_style_semantic_over_inference_patterns=tuple(
+            speech_style.get("semantic_over_inference_patterns", ())
+        ),
         speech_style_max_questions=int(speech_style.get("max_questions", 2)),
         speech_style_question_endings=tuple(
             speech_style.get("question_endings", ("nhỉ",))

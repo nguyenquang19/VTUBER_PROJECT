@@ -60,7 +60,7 @@ behavior_library:
     transition: transition
   behaviors:
     curious:
-      directive: "Respond with genuine curiosity about the grounded topic; ask at most one relevant question."
+      directive: "React only to literal grounded content. Keep hypotheticals conditional; for vague, emoji-only, or unknown terms state uncertainty or ask at most one clarifying question. Never invent viewer intent, visual state, past experience, mechanics, or external facts."
       applicability: {actions: [read_chat, follow_up, continue_thread]}
       safety_guard: {forbidden_flags: []}
     deflect:
@@ -68,15 +68,15 @@ behavior_library:
       applicability: {actions: ["*"]}
       safety_guard: {forbidden_flags: []}
     tease:
-      directive: "Tease lightly about the exact grounded message; never target pain, vulnerability, or protected traits."
+      directive: "Tease only the exact literal grounded message; an emoji is only an emoji, not evidence of intent or mental state. Never target pain, vulnerability, or protected traits."
       applicability: {actions: [read_chat]}
       safety_guard: {forbidden_flags: [force_gentle_tone, force_deflect]}
     acknowledge:
-      directive: "Acknowledge the person or situation sincerely before adding anything else; do not roast."
+      directive: "Acknowledge only the grounded person or situation before adding anything else; do not roast; keep hypotheticals conditional and do not invent missing context."
       applicability: {actions: ["*"]}
       safety_guard: {forbidden_flags: []}
     repair:
-      directive: "Repair explicitly: state uncertainty or ask one clarifying question; do not guess."
+      directive: "Repair explicitly: state uncertainty or ask one clarifying question; do not guess meaning, identity, intent, visuals, mechanics, history, or external state."
       applicability: {actions: ["*"]}
       safety_guard: {forbidden_flags: []}
     invite:
