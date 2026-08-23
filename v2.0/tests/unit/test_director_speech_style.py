@@ -3,6 +3,11 @@ from services.director.speech_style import (
     looks_like_question,
     summarize_speech_style,
 )
+from services.director.action_prompts import (
+    literal_grounding_directive,
+    speech_style_constraint_prompt,
+    speech_style_correction_prompt,
+)
 
 
 def _guard(**overrides: object) -> SpeechStyleGuard:
@@ -129,5 +134,135 @@ def test_question_clamp_keeps_only_existing_declarative_sentences() -> None:
     guard = _guard()
     text = "Sao lại gọi sai tên thế? Tớ là Mai cơ mà, nhớ kỹ vào đấy."
 
-    assert guard.clamp_excess_questions(text) == "Tớ là Mai cơ mà, nhớ kỹ vào đấy."
-    assert guard.clamp_excess_questions("Cười gì hả?") == "Cười gì hả?"
+    assert guard.clamp_questions(text) == "Tớ là Mai cơ mà, nhớ kỹ vào đấy."
+    assert guard.clamp_questions("Cười gì hả?") == "Cười gì hả?"
+
+
+def test_formula_phrases_are_delivery_observer_only() -> None:
+    guard = _guard(
+        formula_phrases=("làm tớ thấy", "rồi đấy"),
+    )
+    first = guard.assess("Câu này làm tớ thấy vui.")
+    assert first.valid is True
+    assert first.phrase == "làm tớ thấy"
+
+    assert guard.record("Câu trước làm tớ thấy vui.") == ("làm tớ thấy",)
+    assessment = guard.assess("Đoạn này ổn rồi đấy.")
+
+    assert assessment.valid is True
+    assert assessment.reasons == ()
+    assert assessment.phrase == "rồi đấy"
+
+
+def test_language_integrity_fragment_is_bounded_and_word_aware() -> None:
+    guard = _guard(language_integrity_fragments=("kalau", "ghêó", "тут", "สัก"))
+
+    contaminated = guard.assess("Nhưng kalau là tớ thì sẽ chờ.")
+    malformed = guard.assess("Tớ thấy vui ghêó.")
+
+    assert contaminated.reasons == ("language_integrity",)
+    assert contaminated.language_fragment == "kalau"
+    assert malformed.language_fragment == "ghêó"
+    assert guard.assess("Biết rồi khổ lắm тут nói mãi.").language_fragment == "тут"
+    assert guard.assess("Tớ muốn nuôi đượcสัก con.").language_fragment == "สัก"
+    assert guard.assess("Tên Kalauton nghe lạ.").valid is True
+
+
+def test_vague_grounding_is_source_aware_and_word_bounded() -> None:
+    guard = _guard(
+        vague_input_max_words=1,
+        vague_grounding_forbidden_patterns=("chắc chắn", "âm mưu"),
+    )
+
+    blocked = guard.assess(
+        "Cậu chắc chắn đang có âm mưu.", grounding_text=":)",
+    )
+
+    assert blocked.reasons == ("vague_grounding",)
+    assert blocked.grounding_pattern == "chắc chắn"
+    assert guard.assess(
+        "Chuyện này chắc chắn ổn.", grounding_text="chắc chắn",
+    ).valid is True
+
+
+def test_malformed_token_guard_is_source_aware_and_allows_known_terms() -> None:
+    guard = _guard(
+        malformed_token_fragments=("ghêó", "thiệt da"),
+        malformed_token_allowlist=("OpenAI", "YouTube"),
+        malformed_mixed_case_min_prefix_chars=3,
+    )
+
+    exact = guard.assess("Câu này nghe thiệt da.")
+    mixed = guard.assess("Đừng để cái mặt nghClient trăn trở.")
+
+    assert exact.reasons == ("malformed_token",)
+    assert exact.malformed_token == "thiệt da"
+    assert mixed.malformed_token == "nghClient"
+    assert guard.assess("OpenAI và YouTube đều là tên riêng.").valid is True
+    assert guard.assess(
+        "Cậu vừa nhắc nghClient.", grounding_text="nghClient",
+    ).valid is True
+
+
+def test_semantic_over_inference_is_source_aware_without_word_limit() -> None:
+    guard = _guard(
+        semantic_over_inference_patterns=(
+            "là biết", "chứng tỏ", "trong đầu cậu", "muốn tạo",
+        ),
+    )
+
+    blocked = guard.assess(
+        "Nhìn icon là biết cậu muốn tạo không khí vui vẻ.",
+        grounding_text="vẫy tay với tui đi nữ hoàng :hugging_face:",
+        enforce_semantic_grounding=True,
+    )
+
+    assert blocked.reasons == ("semantic_over_inference",)
+    assert blocked.semantic_inference_pattern == "muốn tạo"
+    assert guard.assess(
+        "Cậu nói muốn tạo không khí vui vẻ.",
+        grounding_text="tôi muốn tạo không khí vui vẻ",
+        enforce_semantic_grounding=True,
+    ).valid is True
+    assert guard.assess(
+        "Nhìn icon là biết cậu vui.", grounding_text=":)",
+    ).valid is True
+    assert guard.assess(
+        "Cậu chắc chắn đang có âm mưu.", grounding_text="cậu vừa kể chuyện dài",
+    ).valid is True
+
+
+def test_question_clamp_keeps_only_existing_statement() -> None:
+    guard = _guard(max_questions=0)
+
+    assert guard.clamp_questions(
+        "Phần này ổn rồi. Cậu nghĩ sao?",
+    ) == "Phần này ổn rồi."
+    assert guard.clamp_questions("Cậu nghĩ sao?") == "Cậu nghĩ sao?"
+
+
+def test_human_like_prompt_contract_is_literal_and_correction_is_bounded() -> None:
+    grounding = literal_grounding_directive()
+    constraint = speech_style_constraint_prompt(
+        (), avoid_question=False, max_sentences=2, max_words=65,
+        forbidden_phrases=(), require_vietnamese_integrity=True,
+    )
+    correction = speech_style_correction_prompt(
+        grounding, "Nhưng kalau là tớ thì vui rồi đấy.",
+        reasons=(
+            "language_integrity", "vague_grounding",
+            "malformed_token", "semantic_over_inference",
+        ),
+        opener=None, language_fragment="kalau",
+        grounding_pattern="ý đồ", malformed_token="nghClient",
+        semantic_inference_pattern="là biết",
+        max_sentences=2, max_words=65,
+    )
+
+    assert "Keep hypotheticals conditional" in grounding
+    assert "Never invent viewer intent" in grounding
+    assert constraint is not None and "rồi đấy" not in constraint
+    assert "Dùng tiếng Việt tự nhiên" in constraint
+    assert "kalau" in correction and "Giữ nguyên dữ kiện và ý trả lời" in correction
+    assert "ý đồ" in correction and "không hỏi thêm" in correction
+    assert "nghClient" in correction and "là biết" in correction

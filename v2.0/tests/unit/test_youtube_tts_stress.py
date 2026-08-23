@@ -63,7 +63,7 @@ def test_extract_delivery_timeline_preserves_replay_order_and_llm_latency() -> N
             ]
         },
         "replay": {
-            "delivery": {"delivered_responses": 2},
+            "delivery": {"delivered_turns": 2},
             "trace": [
                 {
                     "offset_ms": 1000,
@@ -87,7 +87,7 @@ def test_extract_delivery_timeline_preserves_replay_order_and_llm_latency() -> N
 def test_extract_delivery_timeline_rejects_duplicate_request_id() -> None:
     report = {
         "replay": {
-            "delivery": {"delivered_responses": 2},
+            "delivery": {"delivered_turns": 2},
             "trace": [{
                 "offset_ms": 1000,
                 "deliveries": [

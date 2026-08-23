@@ -114,6 +114,18 @@ def join_directives(*values: str | None) -> str:
     return "\n".join(value for value in values if value)
 
 
+def literal_grounding_directive() -> str:
+    """Keep public chat speech inside the literal evidence boundary."""
+    return (
+        "[Literal grounding] Use only facts present in the viewer message and trusted "
+        "system context. Keep hypotheticals conditional. For vague, emoji-only, or "
+        "unknown terms, acknowledge only the literal signal or state uncertainty; do "
+        "not add a follow-up question unless the action explicitly requires one. Never "
+        "invent viewer intent, mental/visual state, past "
+        "experience, game mechanics, external state, or an event that already happened."
+    )
+
+
 def room_reaction_prompt(dec: Any) -> str:
     if dec.read_mode == ReadMode.VIBE:
         return (
@@ -177,6 +189,8 @@ def speech_style_constraint_prompt(
     max_sentences: int,
     max_words: int,
     direct_response: bool = False,
+    forbidden_phrases: tuple[str, ...] = (),
+    require_vietnamese_integrity: bool = False,
 ) -> str | None:
     """Render only constraints currently exhausted by delivered speech."""
     lines: list[str] = [
@@ -199,6 +213,17 @@ def speech_style_constraint_prompt(
         lines.append(
             "Kết thúc bằng một nhận xét khẳng định; lượt này không hỏi ngược chat."
         )
+    if forbidden_phrases:
+        rendered = ", ".join(f'“{value}”' for value in forbidden_phrases)
+        lines.append(
+            "Các cụm sau đang bị dùng quá dày và không được xuất hiện trong lượt này: "
+            + rendered + "."
+        )
+    if require_vietnamese_integrity:
+        lines.append(
+            "Dùng tiếng Việt tự nhiên; chỉ giữ nguyên tên riêng hoặc thuật ngữ có trong "
+            "dữ kiện. Không chèn liên từ ngoại ngữ hoặc token dính chữ bị lỗi."
+        )
     return "[Ràng buộc nhịp văn phong hiện tại]\n" + "\n".join(lines)
 
 
@@ -208,6 +233,10 @@ def speech_style_correction_prompt(
     *,
     reasons: tuple[str, ...],
     opener: str | None,
+    language_fragment: str | None = None,
+    grounding_pattern: str | None = None,
+    malformed_token: str | None = None,
+    semantic_inference_pattern: str | None = None,
     max_sentences: int,
     max_words: int,
 ) -> str:
@@ -222,6 +251,29 @@ def speech_style_correction_prompt(
             "Xóa toàn bộ câu hỏi và viết thành nhận xét khẳng định. Không dùng dấu hỏi, "
             "đuôi hỏi hoặc chép lại câu hỏi cũ; nếu thiếu dữ kiện thì chỉ nói phản ứng "
             "về phần đã biết."
+        )
+    if "language_integrity" in reasons:
+        rules.append(
+            f"Loại fragment lỗi “{language_fragment or 'ngoại ngữ'}” và viết lại hoàn "
+            "toàn bằng tiếng Việt tự nhiên; vẫn giữ tên riêng/thuật ngữ có trong dữ kiện."
+        )
+    if "malformed_token" in reasons:
+        rules.append(
+            f"Loại token/cụm lỗi “{malformed_token or 'token dính chữ'}”; không sửa "
+            "bằng một token lạ khác. Chỉ giữ tên riêng hoặc thuật ngữ có trong dữ kiện."
+        )
+    if "vague_grounding" in reasons:
+        rules.append(
+            f"Bỏ suy diễn “{grounding_pattern or 'ý định không có trong input'}”. "
+            "Input rất ngắn nên chỉ phản ứng vào ký hiệu/từ thật sự có mặt hoặc nói "
+            "chưa đủ nghĩa; không gán ý định, trạng thái, lịch sử hay quan sát thị giác "
+            "và không hỏi thêm."
+        )
+    if "semantic_over_inference" in reasons:
+        rules.append(
+            f"Bỏ suy diễn “{semantic_inference_pattern or 'trạng thái không có bằng chứng'}”. "
+            "Chỉ nói điều literal source thể hiện; không gán ý định, cảm xúc, suy nghĩ "
+            "hoặc trạng thái tinh thần từ emoji, biểu hiện hay cách viết."
         )
     if "sentence_budget" in reasons or "word_budget" in reasons:
         rules.append(

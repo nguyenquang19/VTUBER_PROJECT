@@ -165,6 +165,28 @@ def _make(now=0.0, autonomy=None, agent_state=None, goal_manager=None, **dir_ove
         "speech_style_formula_openers", ("mà", "trời ơi", "ủa", "ơ kìa"),
     ))
     style_formula_max = int(dir_over.pop("speech_style_max_formula_openers", 2))
+    style_phrases = tuple(dir_over.pop("speech_style_formula_phrases", ()))
+    style_language = tuple(dir_over.pop(
+        "speech_style_language_integrity_fragments", (),
+    ))
+    style_malformed = tuple(dir_over.pop(
+        "speech_style_malformed_token_fragments", (),
+    ))
+    style_malformed_allowlist = tuple(dir_over.pop(
+        "speech_style_malformed_token_allowlist", (),
+    ))
+    style_mixed_case_prefix = int(dir_over.pop(
+        "speech_style_malformed_mixed_case_min_prefix_chars", 0,
+    ))
+    style_vague_words = int(dir_over.pop(
+        "speech_style_vague_input_max_words", 1,
+    ))
+    style_vague_patterns = tuple(dir_over.pop(
+        "speech_style_vague_grounding_forbidden_patterns", (),
+    ))
+    style_semantic_patterns = tuple(dir_over.pop(
+        "speech_style_semantic_over_inference_patterns", (),
+    ))
     style_same_max = int(dir_over.pop("speech_style_max_same_opener", 1))
     style_question_max = int(dir_over.pop("speech_style_max_questions", 2))
     style_endings = tuple(dir_over.pop(
@@ -212,6 +234,14 @@ def _make(now=0.0, autonomy=None, agent_state=None, goal_manager=None, **dir_ove
         speech_style_recent_window=style_window,
         speech_style_formula_openers=style_openers,
         speech_style_max_formula_openers=style_formula_max,
+        speech_style_formula_phrases=style_phrases,
+        speech_style_language_integrity_fragments=style_language,
+        speech_style_malformed_token_fragments=style_malformed,
+        speech_style_malformed_token_allowlist=style_malformed_allowlist,
+        speech_style_malformed_mixed_case_min_prefix_chars=style_mixed_case_prefix,
+        speech_style_vague_input_max_words=style_vague_words,
+        speech_style_vague_grounding_forbidden_patterns=style_vague_patterns,
+        speech_style_semantic_over_inference_patterns=style_semantic_patterns,
         speech_style_max_same_opener=style_same_max,
         speech_style_max_questions=style_question_max,
         speech_style_question_endings=style_endings,
@@ -720,6 +750,297 @@ class TestDirectorLoop:
         assert metrics["director_speech_style_violation_total"] == 1
         assert metrics["director_speech_style_regenerated_total"] == 1
         assert metrics["director_speech_style_exhausted_total"] == 0
+
+    async def test_read_human_like_guards_repair_language_and_keep_literal_grounding(
+        self,
+    ) -> None:
+        loop, _, pool, _, runner, _ = _make(
+            speech_style_formula_phrases=("rồi đấy",),
+            speech_style_language_integrity_fragments=("kalau",),
+            speech_style_max_regenerations=2,
+        )
+        outputs = iter(("Kalau câu này ổn rồi đấy.", "Câu này ổn rồi đấy."))
+        finalizations: list[bool] = []
+        deliveries: list[str] = []
+        stages: list[str] = []
+        ref = pool.add("chat-grounding", ":)", now=1.0, kind="chat")
+
+        async def generate(**kwargs):
+            stages.append(str(kwargs.get("stage_direction") or ""))
+            return FakeParsed(next(outputs)), 0
+
+        def finalize(_request_id: str, success: bool) -> None:
+            finalizations.append(success)
+
+        async def deliver(request_id: str, text: str) -> TTSDeliveryResult:
+            deliveries.append(text)
+            return TTSDeliveryResult(
+                request_id=request_id, delivered=True,
+                mode=TTSDeliveryMode.SUBTITLE, sentences_total=1,
+                sentences_delivered=1, subtitle_sentences=1,
+            )
+
+        runner.run_turn = generate
+        runner.finalize_delivery = finalize
+        loop._speak = deliver
+        decision = SimpleNamespace(
+            action=DirectorAction.READ_CHAT,
+            read_mode=ReadMode.SINGLE,
+            refs=(ref,),
+            goal_id=None,
+        )
+
+        assert await loop._exec_read(decision, 10.0) is True
+        assert finalizations == [False, True]
+        assert deliveries == ["Câu này ổn rồi đấy."]
+        assert "[Literal grounding]" in stages[0]
+        assert "Never invent viewer intent" in stages[0]
+        assert "SỬA VĂN PHONG" in stages[1]
+        assert "kalau" in stages[1].casefold()
+        metrics = loop.get_metrics()
+        assert metrics[
+            "director_speech_style_formula_observed_delivery_total"
+        ] == 1
+        assert metrics["director_speech_style_formula_observed_hit_total"] == 1
+        assert metrics["director_speech_style_language_violation_total"] == 1
+        assert metrics["director_speech_style_regenerated_total"] == 1
+
+    async def test_read_repairs_generated_malformed_mixed_case_token(self) -> None:
+        loop, _, pool, _, runner, _ = _make(
+            speech_style_malformed_token_fragments=("thiệt da",),
+            speech_style_malformed_token_allowlist=("OpenAI",),
+            speech_style_malformed_mixed_case_min_prefix_chars=3,
+            speech_style_max_regenerations=1,
+        )
+        outputs = iter((
+            "Đừng để cái mặt nghClient trăn trở mãi.",
+            "Cậu cứ thong thả chọn đi.",
+        ))
+        ref = pool.add("chat-malformed", "cứ thong thả chọn", now=1.0, kind="chat")
+        delivered: list[str] = []
+
+        async def generate(**_kwargs):
+            return FakeParsed(next(outputs)), 0
+
+        async def speak(request_id: str, text: str) -> TTSDeliveryResult:
+            delivered.append(text)
+            return TTSDeliveryResult(
+                request_id=request_id, delivered=True,
+                mode=TTSDeliveryMode.SUBTITLE, sentences_total=1,
+                sentences_delivered=1, subtitle_sentences=1,
+            )
+
+        runner.run_turn = generate
+        loop._speak = speak
+        decision = SimpleNamespace(
+            action=DirectorAction.READ_CHAT, read_mode=ReadMode.SINGLE,
+            refs=(ref,), goal_id=None,
+        )
+
+        assert await loop._exec_read(decision, 10.0) is True
+        assert delivered == ["Cậu cứ thong thả chọn đi."]
+        metrics = loop.get_metrics()
+        assert metrics["director_malformed_token_violation_total"] == 1
+        assert metrics["director_malformed_token_suppressed_total"] == 0
+
+    async def test_read_suppresses_persistent_malformed_token(self) -> None:
+        loop, _, pool, _, runner, _ = _make(
+            speech_style_malformed_token_fragments=("thiệt da",),
+            speech_style_malformed_token_allowlist=("OpenAI",),
+            speech_style_malformed_mixed_case_min_prefix_chars=3,
+            speech_style_max_regenerations=2,
+        )
+        outputs = iter((
+            "Câu này nghe thiệt da.",
+            "Vẫn thiệt da như vậy.",
+            "Tớ cứ thấy thiệt da.",
+        ))
+        ref = pool.add("chat-malformed-exhaust", "câu này nghe lạ", now=1.0, kind="chat")
+        delivered: list[str] = []
+
+        async def generate(**_kwargs):
+            return FakeParsed(next(outputs)), 0
+
+        async def speak(_request_id: str, text: str) -> TTSDeliveryResult:
+            delivered.append(text)
+            raise AssertionError("persistent malformed output must not reach delivery")
+
+        runner.run_turn = generate
+        loop._speak = speak
+        decision = SimpleNamespace(
+            action=DirectorAction.READ_CHAT, read_mode=ReadMode.SINGLE,
+            refs=(ref,), goal_id=None,
+        )
+
+        assert await loop._exec_read(decision, 10.0) is False
+        assert delivered == []
+        metrics = loop.get_metrics()
+        assert metrics["director_malformed_token_violation_total"] == 3
+        assert metrics["director_malformed_token_suppressed_total"] == 1
+
+    async def test_read_suppresses_persistent_semantic_over_inference(self) -> None:
+        loop, _, pool, _, runner, _ = _make(
+            speech_style_semantic_over_inference_patterns=("là biết",),
+            speech_style_max_regenerations=2,
+        )
+        outputs = iter((
+            "Nhìn icon là biết cậu đang bực mình.",
+            "Nhìn vậy là biết cậu đang có chuyện.",
+            "Thế là biết cậu đang giấu điều gì đó.",
+        ))
+        ref = pool.add("chat-semantic", ":)", now=1.0, kind="chat")
+        delivered: list[str] = []
+
+        async def generate(**_kwargs):
+            return FakeParsed(next(outputs)), 0
+
+        async def speak(_request_id: str, text: str) -> TTSDeliveryResult:
+            delivered.append(text)
+            raise AssertionError("persistent inference must not reach delivery")
+
+        runner.run_turn = generate
+        loop._speak = speak
+        decision = SimpleNamespace(
+            action=DirectorAction.READ_CHAT, read_mode=ReadMode.SINGLE,
+            refs=(ref,), goal_id=None,
+        )
+
+        assert await loop._exec_read(decision, 10.0) is False
+        assert delivered == []
+        assert runner.committed == []
+        metrics = loop.get_metrics()
+        assert metrics["director_semantic_over_inference_violation_total"] == 3
+        assert metrics["director_semantic_over_inference_suppressed_total"] == 1
+
+    async def test_vague_grounding_is_repaired_before_delivery(self) -> None:
+        loop, _, pool, _, runner, _ = _make(
+            speech_style_vague_input_max_words=1,
+            speech_style_vague_grounding_forbidden_patterns=("chắc chắn",),
+            speech_style_max_regenerations=2,
+        )
+        outputs = iter((
+            "Nụ cười này chắc chắn là cậu đang trêu tớ rồi.",
+            "Tớ chỉ thấy một dấu cười, còn ý nghĩa thì chưa rõ.",
+        ))
+        finalizations: list[bool] = []
+        deliveries: list[str] = []
+        ref = pool.add("chat-vague", ":)", now=1.0, kind="chat")
+
+        async def generate(**_kwargs):
+            return FakeParsed(next(outputs)), 0
+
+        def finalize(_request_id: str, success: bool) -> None:
+            finalizations.append(success)
+
+        async def deliver(request_id: str, text: str) -> TTSDeliveryResult:
+            deliveries.append(text)
+            return TTSDeliveryResult(
+                request_id=request_id, delivered=True,
+                mode=TTSDeliveryMode.SUBTITLE, sentences_total=1,
+                sentences_delivered=1, subtitle_sentences=1,
+            )
+
+        runner.run_turn = generate
+        runner.finalize_delivery = finalize
+        loop._speak = deliver
+        decision = SimpleNamespace(
+            action=DirectorAction.READ_CHAT,
+            read_mode=ReadMode.SINGLE,
+            refs=(ref,),
+            goal_id=None,
+        )
+
+        assert await loop._exec_read(decision, 10.0) is True
+        assert finalizations == [False, True]
+        assert deliveries == ["Tớ chỉ thấy một dấu cười, còn ý nghĩa thì chưa rõ."]
+        metrics = loop.get_metrics()
+        assert metrics["director_grounding_violation_total"] == 1
+        assert metrics["director_grounding_suppressed_total"] == 0
+
+    async def test_exhausted_question_budget_drops_only_question_sentence(
+        self,
+    ) -> None:
+        loop, _, pool, _, runner, _ = _make(
+            speech_style_max_questions=0,
+            speech_style_max_regenerations=1,
+        )
+        outputs = iter((
+            "Phần đã biết vẫn ổn. Cậu nghĩ sao?",
+            "Ý chính vẫn giữ nguyên. Cậu thấy thế nào?",
+        ))
+        deliveries: list[str] = []
+        ref = pool.add("chat-question-clamp", "ổn", now=1.0, kind="chat")
+
+        async def generate(**_kwargs):
+            return FakeParsed(next(outputs)), 0
+
+        async def deliver(request_id: str, text: str) -> TTSDeliveryResult:
+            deliveries.append(text)
+            return TTSDeliveryResult(
+                request_id=request_id, delivered=True,
+                mode=TTSDeliveryMode.SUBTITLE, sentences_total=1,
+                sentences_delivered=1, subtitle_sentences=1,
+            )
+
+        runner.run_turn = generate
+        loop._speak = deliver
+        decision = SimpleNamespace(
+            action=DirectorAction.READ_CHAT,
+            read_mode=ReadMode.SINGLE,
+            refs=(ref,),
+            goal_id=None,
+        )
+
+        assert await loop._exec_read(decision, 10.0) is True
+        assert deliveries == ["Ý chính vẫn giữ nguyên."]
+        metrics = loop.get_metrics()
+        assert metrics["director_speech_style_clamped_total"] == 1
+        assert metrics["director_speech_style_exhausted_total"] == 0
+
+    async def test_exhausted_vague_grounding_is_not_delivered_or_committed(
+        self,
+    ) -> None:
+        loop, _, pool, _, runner, _ = _make(
+            speech_style_vague_input_max_words=1,
+            speech_style_vague_grounding_forbidden_patterns=("âm mưu",),
+            speech_style_max_regenerations=2,
+        )
+        outputs = iter((
+            "Cậu đang âm mưu trêu tớ.",
+            "Dấu cười này là một âm mưu rồi.",
+            "Tớ vẫn thấy có âm mưu trong đó.",
+        ))
+        finalizations: list[bool] = []
+        deliveries: list[str] = []
+        ref = pool.add("chat-vague-hard", ":)", now=1.0, kind="chat")
+
+        async def generate(**_kwargs):
+            return FakeParsed(next(outputs)), 0
+
+        def finalize(_request_id: str, success: bool) -> None:
+            finalizations.append(success)
+
+        async def deliver(_request_id: str, text: str) -> TTSDeliveryResult:
+            deliveries.append(text)
+            raise AssertionError("ungrounded candidate must not reach delivery")
+
+        runner.run_turn = generate
+        runner.finalize_delivery = finalize
+        loop._speak = deliver
+        decision = SimpleNamespace(
+            action=DirectorAction.READ_CHAT,
+            read_mode=ReadMode.SINGLE,
+            refs=(ref,),
+            goal_id=None,
+        )
+
+        assert await loop._exec_read(decision, 10.0) is False
+        assert finalizations == [False, False, False]
+        assert deliveries == []
+        assert pool.size() == 1
+        metrics = loop.get_metrics()
+        assert metrics["director_grounding_violation_total"] == 3
+        assert metrics["director_grounding_suppressed_total"] == 1
 
     async def test_read_question_can_use_second_bounded_style_repair(self) -> None:
         loop, _, pool, _, runner, _ = _make(
@@ -1240,6 +1561,8 @@ class TestDirectorLoop:
         assert planner.snapshot()["pending_plan_id"] is None
         assert runner.committed == []
         assert lore_material.get_metrics()["self_talk_lore_releases_total"] == 1
+        assert loop.get_metrics()["director_self_talk_deferred_until"] == 110.0
+        assert planner.readiness(21.0).reason == "thought_unavailable"
 
         async def delivered(request_id: str, _text: str) -> TTSDeliveryResult:
             return TTSDeliveryResult(
@@ -1252,7 +1575,7 @@ class TestDirectorLoop:
             )
 
         loop._speak = delivered
-        assert await loop._exec_self_talk(_Decision(), 21.0) is True
+        assert await loop._exec_self_talk(_Decision(), 111.0) is True
         assert planner.snapshot()["stage"] == "develop"
         assert len(runner.committed) == 1
         assert lore_material.get_metrics()["self_talk_lore_commits_total"] == 1
@@ -1303,6 +1626,206 @@ class TestDirectorLoop:
         assert len(runner.ambient_calls) == 2
         assert spoken == ["Tự nhiên tớ vừa để ý khoảng im này."]
         assert planner.get_metrics()["self_talk_planner_output_rejected_total"] == 1
+
+    async def test_self_talk_style_guard_repairs_language_after_shape_rewrite(self) -> None:
+        planner = SelfTalkPlanner(
+            cognitive_moves=("nhận ra một chi tiết nhỏ trong mỏ neo",),
+            min_silence_seconds=20.0,
+            stage_limits={"open": {"max_sentences": 1, "allow_question": False}},
+        )
+        loop, _, _, _, runner, _ = _make(
+            autonomy=FakeAutonomy(),
+            speech_style_language_integrity_fragments=("kalau",),
+            speech_style_max_regenerations=1,
+        )
+        loop._self_talk_planner = planner
+        loop.set_runtime_context_provider(
+            lambda: RuntimeContext(
+                silence_seconds=30.0,
+                working_memory_recent=["chat đang bàn về trà"],
+            ),
+        )
+        outputs = iter((
+            FakeParsed("Tớ nghĩ một ý. Rồi thêm ý nữa?"),
+            FakeParsed("Nhưng kalau là tớ thì sẽ chờ."),
+            FakeParsed("Tớ sẽ chờ thêm một chút."),
+        ))
+
+        async def generate(_request_id: str, prompt: str):
+            runner.ambient_calls.append(prompt)
+            return next(outputs)
+
+        spoken: list[str] = []
+
+        async def deliver(request_id: str, text: str) -> TTSDeliveryResult:
+            spoken.append(text)
+            return TTSDeliveryResult(
+                request_id=request_id, delivered=True,
+                mode=TTSDeliveryMode.SUBTITLE, sentences_total=1,
+                sentences_delivered=1, subtitle_sentences=1,
+            )
+
+        runner.run_ambient_turn = generate
+        loop._speak = deliver
+
+        class _Decision:
+            action = DirectorAction.SELF_TALK
+            proactive_source = None
+            proactive_summary = None
+            proactive_category = None
+
+        assert await loop._exec_self_talk(_Decision(), 30.0) is True
+        assert len(runner.ambient_calls) == 3
+        assert "SỬA VĂN PHONG" in runner.ambient_calls[2]
+        assert spoken == ["Tớ sẽ chờ thêm một chút."]
+        assert planner.snapshot()["stage"] == "develop"
+        metrics = loop.get_metrics()
+        assert metrics["director_speech_style_language_violation_total"] == 1
+        assert metrics["director_speech_style_regenerated_total"] == 1
+
+    async def test_self_talk_repairs_semantic_inference_against_plan_grounding(self) -> None:
+        planner = SelfTalkPlanner(
+            cognitive_moves=("nêu phản ứng vào chi tiết literal",),
+            min_silence_seconds=20.0,
+            stage_limits={"open": {"max_sentences": 1, "allow_question": False}},
+        )
+        loop, _, _, _, runner, _ = _make(
+            autonomy=FakeAutonomy(),
+            speech_style_semantic_over_inference_patterns=("muốn tạo", "là biết"),
+            speech_style_max_regenerations=1,
+        )
+        loop._self_talk_planner = planner
+        loop.set_runtime_context_provider(
+            lambda: RuntimeContext(
+                silence_seconds=30.0,
+                working_memory_recent=[
+                    "vẫy tay với tui đi nữ hoàng :hugging_face:",
+                ],
+            ),
+        )
+        outputs = iter((
+            FakeParsed("Nhìn icon là biết cậu muốn tạo không khí vui vẻ."),
+            FakeParsed("Tớ chỉ thấy một lời nhờ vẫy tay khá dễ thương."),
+        ))
+
+        async def generate(_request_id: str, prompt: str):
+            runner.ambient_calls.append(prompt)
+            return next(outputs)
+
+        spoken: list[str] = []
+
+        async def deliver(request_id: str, text: str) -> TTSDeliveryResult:
+            spoken.append(text)
+            return TTSDeliveryResult(
+                request_id=request_id, delivered=True,
+                mode=TTSDeliveryMode.SUBTITLE, sentences_total=1,
+                sentences_delivered=1, subtitle_sentences=1,
+            )
+
+        runner.run_ambient_turn = generate
+        loop._speak = deliver
+
+        class _Decision:
+            action = DirectorAction.SELF_TALK
+            proactive_source = None
+            proactive_summary = None
+            proactive_category = None
+
+        assert await loop._exec_self_talk(_Decision(), 30.0) is True
+        assert spoken == ["Tớ chỉ thấy một lời nhờ vẫy tay khá dễ thương."]
+        assert len(runner.ambient_calls) == 2
+        metrics = loop.get_metrics()
+        assert metrics["director_semantic_over_inference_violation_total"] == 1
+        assert metrics["director_semantic_over_inference_suppressed_total"] == 0
+
+    async def test_self_talk_semantic_exhaustion_releases_and_defers_plan(self) -> None:
+        planner = SelfTalkPlanner(
+            cognitive_moves=("nêu phản ứng vào chi tiết literal",),
+            min_silence_seconds=20.0,
+            stage_limits={"open": {"max_sentences": 1, "allow_question": False}},
+        )
+        loop, _, _, _, runner, _ = _make(
+            autonomy=FakeAutonomy(),
+            speech_style_semantic_over_inference_patterns=("là biết",),
+            speech_style_max_regenerations=2,
+        )
+        loop._self_talk_planner = planner
+        loop.set_runtime_context_provider(
+            lambda: RuntimeContext(
+                silence_seconds=30.0,
+                working_memory_recent=["cậu vừa gửi một icon vẫy tay"],
+            ),
+        )
+        outputs = iter((
+            FakeParsed("Nhìn là biết cậu đang vui."),
+            FakeParsed("Thế là biết cậu muốn trêu tớ."),
+            FakeParsed("Vậy là biết cậu đang hào hứng."),
+        ))
+
+        async def generate(_request_id: str, prompt: str):
+            runner.ambient_calls.append(prompt)
+            return next(outputs)
+
+        runner.run_ambient_turn = generate
+
+        class _Decision:
+            action = DirectorAction.SELF_TALK
+            proactive_source = None
+            proactive_summary = None
+            proactive_category = None
+
+        assert await loop._exec_self_talk(_Decision(), 30.0) is False
+        assert runner.committed == []
+        assert planner.snapshot()["pending_plan_id"] is None
+        assert planner.readiness(31.0).reason == "thought_unavailable"
+        metrics = loop.get_metrics()
+        assert metrics["director_semantic_over_inference_violation_total"] == 3
+        assert metrics["director_semantic_over_inference_suppressed_total"] == 1
+
+    async def test_self_talk_suppresses_persistent_configured_language(self) -> None:
+        planner = SelfTalkPlanner(
+            cognitive_moves=("nhận ra một chi tiết nhỏ trong mỏ neo",),
+            min_silence_seconds=20.0,
+            stage_limits={"open": {"max_sentences": 1, "allow_question": False}},
+        )
+        loop, _, _, _, runner, _ = _make(
+            autonomy=FakeAutonomy(),
+            speech_style_language_integrity_fragments=("kalau",),
+            speech_style_max_regenerations=2,
+        )
+        loop._self_talk_planner = planner
+        loop.set_runtime_context_provider(
+            lambda: RuntimeContext(
+                silence_seconds=30.0,
+                working_memory_recent=["chat đang bàn về trà"],
+            ),
+        )
+        outputs = iter((
+            FakeParsed("Kalau thì tớ sẽ chờ."),
+            FakeParsed("Tớ kalau sẽ chờ."),
+            FakeParsed("Tớ vẫn kalau chờ."),
+        ))
+
+        async def generate(_request_id: str, prompt: str):
+            runner.ambient_calls.append(prompt)
+            return next(outputs)
+
+        runner.run_ambient_turn = generate
+
+        class _Decision:
+            action = DirectorAction.SELF_TALK
+            proactive_source = None
+            proactive_summary = None
+            proactive_category = None
+
+        assert await loop._exec_self_talk(_Decision(), 30.0) is False
+        assert len(runner.ambient_calls) == 3
+        assert runner.committed == []
+        assert planner.snapshot()["pending_plan_id"] is None
+        assert planner.readiness(31.0).reason == "thought_unavailable"
+        metrics = loop.get_metrics()
+        assert metrics["director_speech_style_language_violation_total"] == 3
+        assert metrics["director_speech_style_exhausted_total"] == 1
 
     async def test_self_talk_receives_global_style_directive_before_generation(self) -> None:
         planner = SelfTalkPlanner(

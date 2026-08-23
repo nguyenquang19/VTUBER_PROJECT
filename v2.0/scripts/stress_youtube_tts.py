@@ -98,7 +98,7 @@ def extract_delivery_timeline(report: dict[str, Any]) -> list[dict[str, Any]]:
                 "llm_latency_ms": latency_by_id.get(request_id, 0.0),
                 "text": text,
             })
-    expected = int((replay.get("delivery") or {}).get("delivered_responses") or 0)
+    expected = int((replay.get("delivery") or {}).get("delivered_turns") or 0)
     if expected and expected != len(timeline):
         raise ValueError(
             f"delivery timeline mismatch: trace={len(timeline)} report={expected}"

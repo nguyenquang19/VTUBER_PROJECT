@@ -30,6 +30,7 @@ class Thought:
     anchor: str
     intention: str
     evidence_refs: tuple[str, ...] = ()
+    grounding_text: str | None = None
 
 
 @dataclass
@@ -58,6 +59,7 @@ class SelfTalkPlanner(SelfTalkPlanningService):
         min_silence_seconds: float = 20.0,
         unavailable_retry_seconds: float = 90.0,
         thought_ledger_size: int = 32,
+        silence_repeat_last_n: int = 8,
         semantic_repeat_threshold: float = 0.72,
         output_repeat_threshold: float = 0.88,
         stage_repeat_threshold: float = 0.72,
@@ -94,6 +96,8 @@ class SelfTalkPlanner(SelfTalkPlanningService):
             raise ValueError("stage_repeat_threshold phải trong khoảng 0..1")
         if stage_repeat_min_tokens <= 0:
             raise ValueError("stage_repeat_min_tokens phải dương")
+        if silence_repeat_last_n <= 0 or silence_repeat_last_n > thought_ledger_size:
+            raise ValueError("silence_repeat_last_n phải trong thought ledger")
         if not silence_intention.strip():
             raise ValueError("silence_intention không được rỗng")
         self._moves = moves
@@ -105,6 +109,7 @@ class SelfTalkPlanner(SelfTalkPlanningService):
         self._resume_after_chat_s = float(resume_after_chat_seconds)
         self._min_silence_s = float(min_silence_seconds)
         self._unavailable_retry_s = float(unavailable_retry_seconds)
+        self._silence_repeat_last_n = int(silence_repeat_last_n)
         self._repeat_threshold = float(semantic_repeat_threshold)
         self._output_repeat_threshold = float(output_repeat_threshold)
         self._stage_repeat_threshold = float(stage_repeat_threshold)
@@ -136,6 +141,7 @@ class SelfTalkPlanner(SelfTalkPlanningService):
         self._pending_thought: Thought | None = None
         self._interrupted_plan_id: str | None = None
         self._chat_quiet_until = 0.0
+        self._unavailable_until = 0.0
         self._silence_consumed = False
         self._metrics: dict[str, int] = {
             "plans_total": 0,
@@ -151,7 +157,10 @@ class SelfTalkPlanner(SelfTalkPlanningService):
             "repeat_suppressed_total": 0,
             "output_rejected_total": 0,
             "chat_quiet_suppressed_total": 0,
+            "unavailable_suppressed_total": 0,
+            "unavailable_deferred_total": 0,
             "silence_one_shots_total": 0,
+            "silence_repeat_suppressed_total": 0,
             "stage_repeat_rejected_total": 0,
             "semantic_question_rejected_total": 0,
             "recent_context_rejected_total": 0,
@@ -177,6 +186,7 @@ class SelfTalkPlanner(SelfTalkPlanningService):
             min_silence_seconds=float(raw.get("min_silence_seconds", 20.0)),
             unavailable_retry_seconds=float(raw.get("unavailable_retry_seconds", 90.0)),
             thought_ledger_size=int(raw.get("thought_ledger_size", 32)),
+            silence_repeat_last_n=int(raw.get("silence_repeat_last_n", 8)),
             semantic_repeat_threshold=float(raw.get("semantic_repeat_threshold", 0.72)),
             output_repeat_threshold=float(raw.get("output_repeat_threshold", 0.88)),
             stage_repeat_threshold=float(raw.get("stage_repeat_threshold", 0.72)),
@@ -231,6 +241,9 @@ class SelfTalkPlanner(SelfTalkPlanningService):
     ) -> SelfTalkPlan | None:
         if not self._enabled or self._pending is not None:
             return None
+        if now < self._unavailable_until:
+            self._metrics["unavailable_suppressed_total"] += 1
+            return None
         if now < self._chat_quiet_until:
             self._metrics["chat_quiet_suppressed_total"] += 1
             return None
@@ -243,6 +256,7 @@ class SelfTalkPlanner(SelfTalkPlanningService):
                 cause=thought.cause,
                 intention=thought.intention,
                 evidence_refs=thought.evidence_refs,
+                grounding_text=thought.grounding_text,
                 stage=SelfTalkStage.GROUNDED,
                 prompt_text=self._grounded_prompt(thought, mood, tone_flags),
                 one_shot=True,
@@ -267,6 +281,10 @@ class SelfTalkPlanner(SelfTalkPlanningService):
             if thought is None:
                 self._metrics["no_material_total"] += 1
                 return None
+            if thought.cause is ThoughtCause.SILENCE and self._silence_repeated():
+                self._silence_consumed = True
+                self._metrics["silence_repeat_suppressed_total"] += 1
+                return None
             if thought.cause is not ThoughtCause.SILENCE and self._is_repeated(thought):
                 self._release_lore(thought)
                 self._metrics["repeat_suppressed_total"] += 1
@@ -280,6 +298,7 @@ class SelfTalkPlanner(SelfTalkPlanningService):
                     cause=thought.cause,
                     intention=thought.intention,
                     evidence_refs=thought.evidence_refs,
+                    grounding_text=thought.grounding_text,
                     stage=SelfTalkStage.OPEN,
                     prompt_text=self._arc_prompt(_Arc(thought=thought), mood, tone_flags),
                     one_shot=True,
@@ -307,6 +326,7 @@ class SelfTalkPlanner(SelfTalkPlanningService):
             cause=self._arc.thought.cause,
             intention=self._arc.thought.intention,
             evidence_refs=self._arc.thought.evidence_refs,
+            grounding_text=self._arc.thought.grounding_text,
             stage=self._arc.stage,
             prompt_text=self._arc_prompt(self._arc, mood, tone_flags),
             **self._limits_for(self._arc.stage),
@@ -386,6 +406,12 @@ class SelfTalkPlanner(SelfTalkPlanningService):
             return SelfTalkReadiness(ready=False, reason="disabled")
         if self._pending is not None:
             return SelfTalkReadiness(ready=False, reason="thought_pending")
+        if now < self._unavailable_until:
+            return SelfTalkReadiness(
+                ready=False,
+                reason="thought_unavailable",
+                retry_at=self._unavailable_until,
+            )
         if self._arc is not None and now < self._arc.resume_after:
             return SelfTalkReadiness(
                 ready=False, reason="thought_suspended", retry_at=self._arc.resume_after,
@@ -405,6 +431,12 @@ class SelfTalkPlanner(SelfTalkPlanningService):
         if context is not None and not self._has_schedulable_material(context):
             return SelfTalkReadiness(ready=False, reason="no_material")
         return SelfTalkReadiness(ready=True)
+
+    def defer_until(self, retry_at: float) -> None:
+        deadline = max(0.0, float(retry_at))
+        if deadline > self._unavailable_until:
+            self._unavailable_until = deadline
+            self._metrics["unavailable_deferred_total"] += 1
 
     def commit(self, plan_id: str, delivered_text: str, now: float) -> bool:
         plan = self._pending
@@ -519,7 +551,9 @@ class SelfTalkPlanner(SelfTalkPlanningService):
             "pending_plan_id": self._pending.plan_id if self._pending else None,
             "pending_interrupted": self._interrupted_plan_id is not None,
             "chat_quiet_until": self._chat_quiet_until,
+            "unavailable_until": self._unavailable_until,
             "silence_consumed": self._silence_consumed,
+            "silence_repeat_last_n": self._silence_repeat_last_n,
             "ledger": list(self._ledger),
         }
 
@@ -594,18 +628,24 @@ class SelfTalkPlanner(SelfTalkPlanningService):
         cause: ThoughtCause
         anchor: str
         evidence: tuple[str, ...]
+        grounding_text: str | None
         if base_prompt and base_prompt.strip():
             cause = ThoughtCause.GROUNDED
-            anchor = _bounded(base_prompt, self._max_previous_chars)
+            grounding_text = _bounded(base_prompt, self._max_previous_chars)
+            anchor = grounding_text
             evidence = (f"category:{category or 'ambient'}",)
         elif ctx.environment_summary and ctx.environment_summary.strip():
             cause = ThoughtCause.ENVIRONMENT
+            grounding_text = _bounded(
+                ctx.environment_summary, self._max_previous_chars,
+            )
             anchor = "Quan sát môi trường đã xác thực: " + _bounded(
                 ctx.environment_summary, self._max_previous_chars,
             )
             evidence = ("runtime:environment",)
         elif ctx.recent_context and self._has_recent_material(ctx.recent_context[-1]):
             cause = ThoughtCause.RECENT_CONTEXT
+            grounding_text = _bounded(ctx.recent_context[-1], self._max_previous_chars)
             anchor = "Mạch gần đây đã có: " + _bounded(
                 ctx.recent_context[-1], self._max_previous_chars,
             )
@@ -614,6 +654,7 @@ class SelfTalkPlanner(SelfTalkPlanningService):
             lore := self._lore_material.reserve()
         ) is not None:
             cause = ThoughtCause.GROUNDED
+            grounding_text = _bounded(lore.anchor, self._max_previous_chars)
             anchor = _bounded(lore.anchor, self._max_previous_chars)
             evidence = (lore.evidence_ref,)
         elif ctx.recent_context:
@@ -621,12 +662,14 @@ class SelfTalkPlanner(SelfTalkPlanningService):
             if ctx.silence_seconds < self._min_silence_s or self._silence_consumed:
                 return None
             cause = ThoughtCause.SILENCE
+            grounding_text = None
             anchor = "Buổi live đang có một khoảng im lặng; ngoài điều đó không có sự kiện mới được xác thực."
             evidence = ("runtime:silence",)
         elif ctx.silence_seconds >= self._min_silence_s:
             if self._silence_consumed:
                 return None
             cause = ThoughtCause.SILENCE
+            grounding_text = None
             anchor = "Buổi live đang có một khoảng im lặng; ngoài điều đó không có sự kiện mới được xác thực."
             evidence = ("runtime:silence",)
         else:
@@ -639,6 +682,7 @@ class SelfTalkPlanner(SelfTalkPlanningService):
             anchor=anchor,
             intention=move,
             evidence_refs=evidence,
+            grounding_text=grounding_text,
         )
 
     def _make_grounded_thought(self, base_prompt: str, category: str) -> Thought:
@@ -651,6 +695,7 @@ class SelfTalkPlanner(SelfTalkPlanningService):
             anchor=anchor,
             intention=intention,
             evidence_refs=(f"category:{category}",),
+            grounding_text=anchor,
         )
 
     def _next_move(self) -> str:
@@ -707,7 +752,7 @@ class SelfTalkPlanner(SelfTalkPlanningService):
             and self._lore_material.has_available_material()
         ):
             return True
-        return not self._silence_consumed
+        return not self._silence_consumed and not self._silence_repeated()
 
     def _limits_for(self, stage: SelfTalkStage) -> dict[str, Any]:
         default_questions = stage is SelfTalkStage.INVITE
@@ -723,6 +768,10 @@ class SelfTalkPlanner(SelfTalkPlanningService):
             _jaccard(signature, set(item.get("thought_tokens", ()))) >= self._repeat_threshold
             for item in self._ledger
         )
+
+    def _silence_repeated(self) -> bool:
+        recent = list(self._ledger)[-self._silence_repeat_last_n:]
+        return any(item.get("cause") == ThoughtCause.SILENCE.value for item in recent)
 
     def _text_repeats_ledger(
         self,

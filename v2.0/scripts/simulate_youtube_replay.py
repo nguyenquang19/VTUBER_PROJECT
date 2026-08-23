@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import json
 import random
+import re
 import sys
 from collections import Counter
 from datetime import datetime, timezone
@@ -15,6 +16,20 @@ from typing import Any, Callable, Sequence
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
+
+_GENERATION_RETRY_SUFFIX = re.compile(r"_(?:r\d+|s\d+|shape)$")
+
+
+def generation_turn_id(request_id: str) -> str:
+    """Return the stable public-turn lineage for one generation attempt."""
+    value = str(request_id).strip()
+    if not value:
+        raise ValueError("generation request_id must be non-empty")
+    while True:
+        parent = _GENERATION_RETRY_SUFFIX.sub("", value)
+        if parent == value:
+            return value
+        value = parent
 
 from interfaces.animation import MoodState  # noqa: E402
 from interfaces.tts import TTSDeliveryMode, TTSDeliveryResult  # noqa: E402
@@ -89,6 +104,8 @@ class _ReplayRunner:
         response = f"[MÔ PHỎNG] Mai phản hồi: {user_text[:180]}"
         self.calls.append({
             "request_id": request_id,
+            "attempt_id": request_id,
+            "turn_id": generation_turn_id(request_id),
             "kind": "chat",
             "input": user_text,
             "response": response,
@@ -120,6 +137,8 @@ class _ReplayRunner:
             )
         self.calls.append({
             "request_id": request_id,
+            "attempt_id": request_id,
+            "turn_id": generation_turn_id(request_id),
             "kind": "ambient",
             "input": prompt_text,
             "response": response,
@@ -136,6 +155,8 @@ class _ReplayRunner:
         response = f"[MÔ PHỎNG] Mai {move} về {topic}."
         self.calls.append({
             "request_id": request_id,
+            "attempt_id": request_id,
+            "turn_id": generation_turn_id(request_id),
             "kind": "directed",
             "input": system_context,
             "response": response,
@@ -297,7 +318,21 @@ async def simulate_replay(
     deliveries: list[dict[str, str]] = []
 
     async def deliver(request_id: str, text: str) -> TTSDeliveryResult:
-        deliveries.append({"request_id": request_id, "text": text})
+        call = next(
+            (
+                item for item in reversed(runner.calls)
+                if str(item.get("request_id") or "") == request_id
+            ),
+            None,
+        )
+        deliveries.append({
+            "request_id": request_id,
+            "attempt_id": str((call or {}).get("attempt_id") or request_id),
+            "turn_id": str(
+                (call or {}).get("turn_id") or generation_turn_id(request_id)
+            ),
+            "text": text,
+        })
         return TTSDeliveryResult(
             request_id=request_id,
             delivered=True,
@@ -356,6 +391,32 @@ async def simulate_replay(
         speech_style_max_same_opener=int(loader.get(
             "director", "director.speech_style.max_same_opener", 1,
         )),
+        speech_style_formula_phrases=tuple(loader.get(
+            "director", "director.speech_style.formula_phrases", (),
+        ) or ()),
+        speech_style_language_integrity_fragments=tuple(loader.get(
+            "director", "director.speech_style.language_integrity_fragments", (),
+        ) or ()),
+        speech_style_malformed_token_fragments=tuple(loader.get(
+            "director", "director.speech_style.malformed_token_fragments", (),
+        ) or ()),
+        speech_style_malformed_token_allowlist=tuple(loader.get(
+            "director", "director.speech_style.malformed_token_allowlist", (),
+        ) or ()),
+        speech_style_malformed_mixed_case_min_prefix_chars=int(loader.get(
+            "director",
+            "director.speech_style.malformed_mixed_case_min_prefix_chars", 0,
+        )),
+        speech_style_vague_input_max_words=int(loader.get(
+            "director", "director.speech_style.vague_input_max_words", 1,
+        )),
+        speech_style_vague_grounding_forbidden_patterns=tuple(loader.get(
+            "director",
+            "director.speech_style.vague_grounding_forbidden_patterns", (),
+        ) or ()),
+        speech_style_semantic_over_inference_patterns=tuple(loader.get(
+            "director", "director.speech_style.semantic_over_inference_patterns", (),
+        ) or ()),
         speech_style_max_questions=int(loader.get(
             "director", "director.speech_style.max_questions", 2,
         )),
@@ -678,7 +739,7 @@ async def simulate_replay(
     ]
     duration_minutes = max(result.duration_ms / 60000.0, 1 / 60.0)
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "mode": "offline_youtube_replay",
         "input_file": str(input_path.resolve()),
         "timing": {
@@ -760,8 +821,14 @@ async def simulate_replay(
             },
         },
         "delivery": {
-            "generated_responses": len(runner.calls),
-            "delivered_responses": len(deliveries),
+            "generation_attempts": len(runner.calls),
+            "public_turns": len({
+                str(call.get("turn_id") or generation_turn_id(
+                    str(call.get("request_id") or "")
+                ))
+                for call in runner.calls
+            }),
+            "delivered_turns": len(deliveries),
             "mode": str(getattr(runner, "delivery_mode", "subtitle_stub")),
             "transactions": transactions.snapshot()["counts"],
             "items": list(deliveries),

@@ -2718,6 +2718,104 @@ trên `F9`) và guard đã clamp tương ứng `23`/`13` lượt; turn p95 tăng
 `2.066` lên `2.106` ms. Đây là chi phí GPU/runtime đã quan sát, chưa được coi là tối ưu hoàn tất. Replay
 kỹ thuật chỉ chứng minh contract và metric; kết luận giọng văn vẫn chờ một vòng blind MAI-HLC mới của
 operator, còn action coherence tiếp tục không được suy ra từ text replay.
+### 24.12. Human-like quality hardening sau clean stress
+
+Clean stress từ source sạch `5841d3bfd7866d40ff70d5c319d11c324aee6898` đạt toàn bộ technical
+gate: 279 LLM request, zero LLM/context-budget/counter error, bốn compaction thành công, 156 delivery
+đều commit đúng, zero fallback, zero final identity flag và question-ending 19,87%. Kết quả này xác nhận
+runtime/transaction và bounded-context contract, nhưng không tự động chứng minh human-like quality hoặc
+thay thế MAI-HLC blind review.
+
+Content pre-review trên toàn bộ 156 delivery phát hiện bốn lớp nợ chất lượng cần harden mà không đổi
+Director ownership, action transaction, memory, sampling hoặc persona source:
+
+- input mơ hồ, emoji-only, câu giả định hoặc thuật ngữ chưa biết đôi lúc bị diễn giải thành ý định,
+  trạng thái, lịch sử, vật thể hay mechanics chưa có evidence;
+- silence SELF_TALK không vi phạm cooldown nhưng nhiều episode vẫn tạo các biến thể semantic gần nhau;
+- opener và phrase quen thuộc có thể lặp dày dù exact-output dedup vẫn bằng zero;
+- foreign connector hoặc malformed token hiếm có thể lọt qua filter safety hiện tại.
+
+Grounding hardening phải giữ literal evidence: input mơ hồ chỉ được phản ứng vào tín hiệu có thật, câu giả
+định phải giữ conditional, thiếu nghĩa phải thừa nhận ngắn gọn và không được bịa quan sát thị giác, kinh
+nghiệm trước đó, viewer intent hoặc external state. Prompt contract được bảo vệ thêm bằng source-aware
+guard deterministic: với input ngắn trong giới hạn YAML, configured inference pattern không có trong
+source phải bị bounded correction trước delivery. Nếu correction cạn mà pattern vẫn còn, candidate phải
+bị suppress, không commit transaction/history và không ghi rằng Mai đã nói. Runtime/evaluation pattern
+set phải giống nhau qua strict startup validation; không dùng LLM judge hoặc utility score mới.
+
+SELF_TALK phải có bounded silence-repeat window lấy từ strict YAML. Một silence thought đã delivery trong
+cửa sổ này phải bị suppress trước generation; chat mới không được tự động xóa lịch sử semantic đó. Guard
+phải có metric riêng, không commit planner state, không advance cooldown và không ghi rằng Mai đã nói khi
+candidate bị suppress.
+
+SELF_TALK candidate bị filter hoặc delivery boundary từ chối phải release pending plan và đặt
+`unavailable_retry_seconds` defer ngay trong planner readiness giống output-validation failure. Cả
+compatibility Director và Director V2 primary phải cùng quan sát deadline này; không được thử lại cùng
+material ở mỗi Director tick. Defer không được tính là delivery, commit thought hay advance
+successful-speech cooldown.
+
+Danh sách formula phrase cấu hình trong YAML chỉ là **delivery observer**. Runtime chỉ đếm phrase trên
+final speech đã delivery; phrase không được đưa vào prompt cấm, không tạo assessment failure, regeneration,
+clamp, suppression hoặc transaction release. Observer phải báo cả số delivery có ít nhất một phrase và
+tổng phrase hit để operator đánh giá bằng MAI-HLC; không được dùng ngưỡng phrase tự động làm technical
+release gate.
+
+Language fragment và malformed token vẫn là hard correctness guard. Guard phải chạy trên mọi public
+speech, kể cả candidate SELF_TALK đã qua dedup/shape rewrite, và correction bounded như style violation;
+không được chặn tên riêng, game term hoặc từ mượn không nằm trong cấu hình. Configured language
+contamination còn tồn tại sau retry phải bị suppress trước delivery, release SELF_TALK plan nếu có và áp
+dụng unavailable defer; không commit/fallback. Khi question budget đã cạn, retry còn câu hỏi nhưng có ít
+nhất một câu khẳng định thì guard bỏ riêng câu hỏi và giữ phần khẳng định trong sentence/word bound; không
+biến dấu hỏi thành một phát ngôn khác nghĩa. Các violation mềm khác vẫn theo delivery fail-safe hiện hữu
+khi retry cạn; không bịa fallback text.
+
+Malformed-token hardening không chỉ dựa vào foreign-fragment đã biết. Runtime phải kiểm tra thêm exact
+malformed fragment có evidence trong strict YAML và token mixed-case bất thường theo ngưỡng prefix cấu
+hình. Token xuất hiện nguyên dạng trong literal source hoặc nằm trong allowlist YAML được phép giữ để không
+chặn tên riêng/thuật ngữ; candidate tự sinh token lạ ngoài source phải correction bounded. Runtime và stress
+evaluator phải dùng cùng fragment, allowlist và threshold qua startup cross-contract validation. Nếu retry
+cạn mà malformed token vẫn còn thì fail closed giống language contamination: không delivery, không commit
+và không fallback.
+
+Semantic over-inference là contract riêng với vague short-input grounding. Danh sách pattern cấu hình phải
+bắt các cấu trúc gán ý định, cảm xúc hoặc trạng thái tinh thần như suy từ emoji hay biểu hiện không có trong
+source; áp dụng source-aware cho READ_CHAT và SELF_TALK có viewer/recent-context evidence, không phụ thuộc
+độ dài input. Exact pattern có trong literal source được phép phản chiếu, nhưng prompt, previous speech và
+instruction không được dùng làm evidence. `SelfTalkPlan` phải mang riêng bounded `grounding_text` lấy từ
+thought source để Director không parse prompt. Pattern runtime/evaluation phải giống nhau qua strict startup
+validation. Candidate còn `semantic_over_inference` sau bounded retry phải bị suppress; READ_CHAT không
+commit history và SELF_TALK phải release plan, đặt planner/Director unavailable defer. Runtime và stress
+evidence phải có violation/suppression metric riêng; pattern matching deterministic không thay thế blind
+human review và không được mở rộng thành LLM judge.
+
+Stress evidence phải báo tối thiểu language-integrity violations, configured formula-phrase observation,
+silence-marker prevalence trong đúng tập SELF_TALK delivery và lifecycle metric của silence occurrence
+guard bên cạnh gate cũ. Lexical silence marker không được đặt tên hoặc diễn giải là semantic repetition.
+Threshold/window/pattern production đều ở YAML và strict config phải fail closed khi thiếu/sai kiểu/ngoài
+miền. Automated precheck chỉ là release evidence kỹ thuật; official human-like gate vẫn cần tối thiểu 20
+blind A/B pair được người thật chấm, persist trước reveal và finalize đúng MAI-HLC contract tại mục 17.2.14.
+
+Stress evaluator phải tách candidate evidence khỏi delivery evidence: `candidate_flags` kiểm tra raw LLM
+generation, còn release `flags` và gate phải kiểm tra đúng text cuối trong delivery transaction sau bounded
+rewrite/question/shape clamp. Không được suy delivery violation chỉ vì raw response cùng `request_id` từng
+có pattern đã bị runtime loại bỏ; ngược lại final delivered text phải được scan trực tiếp, không dựa vào
+candidate verdict.
+
+Acceptance bắt buộc gồm strict-config negative paths, ambiguous/emoji/hypothetical prompt grounding,
+source-aware malformed/mixed-case token và semantic-over-inference correction/exhaustion trên READ_CHAT +
+SELF_TALK, silence suppression lifecycle/metric, formula-phrase delivery observation, language correction
+và exhaustion,
+transaction/no-false-commit regression, deterministic replay, full offline suite và clean real-llama
+stress. Tuning không được tuyên bố đạt nếu giảm lỗi bằng cách làm delivery/fallback/latency hoặc Director V2
+primary gate thoái lui.
+
+MCB-0B baseline evidence dùng stress schema mới phải phân biệt rõ `generation_attempts`, `public_turns`,
+`delivered_turns`, transaction `reserved/released/committed` và candidate/final-delivery scope. Mỗi generation
+attempt phải có `attempt_id`, `turn_id` và `request_id` để retry không bị đếm như public turn mới; delivery
+join đúng final attempt bằng `request_id`. Artifact bắt buộc có full Git SHA, source clean/dirty, aggregate
+config hash cùng hash từng YAML áp dụng, corpus hash, random seed, UTC start/end và sanitization marker.
+Artifact từ dirty source hoặc thiếu identity không được dùng để accept baseline. `generated - delivered`
+không phải suppression metric; suppression/release chỉ lấy từ authoritative transaction và guard lifecycle.
 
 ---
 

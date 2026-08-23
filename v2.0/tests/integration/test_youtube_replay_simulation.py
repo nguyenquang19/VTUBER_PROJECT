@@ -53,7 +53,11 @@ async def test_replay_simulator_batches_chat_and_uses_real_director(tmp_path: Pa
     assert first["director_v2"]["selection"]["decision_owner"] == "director_v2"
     assert first["selected"][0]["event_id"] == "mention"
     assert first["selected"][0]["kind"] == "mention"
-    assert report["delivery"]["delivered_responses"] == 1
+    assert report["delivery"]["delivered_turns"] == 1
+    assert report["delivery"]["generation_attempts"] == 1
+    assert report["delivery"]["public_turns"] == 1
+    assert report["delivery"]["items"][0]["attempt_id"]
+    assert report["delivery"]["items"][0]["turn_id"]
     assert report["delivery"]["transactions"]["committed"] == 1
     assert report["director"]["metrics"]["director_v2_primary_selected_total"] >= 1
     assert report["thought_engine"]["metrics"]["self_talk_planner_enabled"] is True

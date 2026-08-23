@@ -6,6 +6,7 @@ self_talk:
   min_silence_seconds: 20
   unavailable_retry_seconds: 90
   thought_ledger_size: 32
+  silence_repeat_last_n: 8
   semantic_repeat_threshold: 0.72
   output_repeat_threshold: 0.88
   stage_repeat_threshold: 0.72

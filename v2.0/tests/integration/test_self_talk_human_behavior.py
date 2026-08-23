@@ -54,7 +54,7 @@ def test_cause_priority_is_grounded_environment_context_then_silence() -> None:
     assert silence and silence.cause is ThoughtCause.SILENCE
 
 
-def test_silence_is_one_safe_one_shot_per_quiet_episode() -> None:
+def test_silence_one_shot_is_not_rearmed_by_brief_chat_alone() -> None:
     planner, _ = _load()
     context = SelfTalkContext(silence_seconds=120.0)
     first = planner.prepare(mood=MoodState(), now=120.0, context=context)
@@ -65,8 +65,8 @@ def test_silence_is_one_safe_one_shot_per_quiet_episode() -> None:
     assert planner.get_metrics()["self_talk_planner_silence_one_shots_total"] == 1
 
     planner.on_chat(301.0)
-    second = planner.prepare(mood=MoodState(), now=313.0, context=context)
-    assert second and second.one_shot
+    assert planner.prepare(mood=MoodState(), now=313.0, context=context) is None
+    assert planner.get_metrics()["self_talk_planner_silence_repeat_suppressed_total"] == 1
 
 
 def test_mood_changes_expression_directive_not_cause_or_evidence() -> None:
