@@ -585,6 +585,29 @@ llama.cpp/tokenizer, không đổi prompt/decision/output, không thêm mutable 
 `cognitive_brain_shadow`. MCB-3 mới được docs-first về opportunity, queue/timeout, tokenizer preflight và
 Brain shadow consumer.
 
+MCB-3 chỉ được thêm một Brain observer dùng llama.cpp; compatibility Director vẫn quyết định và chạy ngay,
+không chờ Brain. Heartbeat 1,5 giây không phải Brain opportunity. Một opportunity chỉ được mở từ thay đổi
+authoritative có ý nghĩa: chat/donation/operator input mới, verified outcome làm đổi lựa chọn kế tiếp,
+Focus/proactive readiness đến hạn hoặc Goal/Thread cần conversational move. Hard hold, transaction không
+tương thích, feature/service không sẵn sàng, duplicate trong debounce, context không vừa token budget và
+shutdown đều chặn call trước llama.cpp.
+
+Brain shadow dùng bounded latest-wins queue, tối đa một generation đang chạy và workload class thấp hơn live
+speech. Live generation phải preempt/cancel shadow; shadow không được giữ `turn_lock`, không được làm
+Director chờ và không được chạy đồng thời có chủ ý với live generation. Context được token-count bằng exact
+llama.cpp chat template và reject whole request khi vượt budget; không compact âm thầm một structured prompt.
+Output dùng llama.cpp JSON Schema, chỉ có subset `WAIT | SPEAK` của `CognitiveTurn`; MCB-3 cấm action,
+Focus và Memory proposal. Parser reject markdown/trailing text, duplicate/unknown key, invalid enum/bound/
+reference hoặc stale context; không retry/regenerate trong cùng opportunity và không yêu cầu/lưu chain-of-thought.
+
+Observer record được giữ bounded in-memory để so mode/latency với compatibility decision nhưng không được
+gọi transaction, TTS, delivery, executor hoặc domain write. Feature-off, skip, timeout, cancel, parse/schema
+failure và stale output đều là no-op đối với public path: exact compatibility result đã chọn vẫn giữ nguyên.
+MCB-3 có thể cho phép bật riêng shadow qua `cognitive_brain_shadow`, nhưng mặc định tiếp tục tắt và không cấp
+takeover authority. Sáu acceptance threshold về schema failure, timeout, call ratio, event-to-first-audio,
+queue wait và primary fallback phải được owner duyệt trước code/activation; giá trị thiếu baseline không được
+agent tự biến thành production gate.
+
 ---
 
 # 8. Configuration, feature và observability policy
@@ -1416,6 +1439,12 @@ Owner đã duyệt docs-first MCB-2 và implementation read-only đạt ngày 24
 Builder, Focus projection, strict cognition config, bounded metrics/tests đã có nhưng chưa compose consumer
 vào runtime. Slice không sửa decision path, không gọi LLM, không persist context/Focus, không nhận proposal
 và không tự chuyển MCB-3.
+
+MCB-2 implementation đã được chốt tại commit `75814e9`. Docs-first MCB-3 đã bắt đầu ngày 24/08/2026 và chỉ
+khóa Brain observer, structured llama.cpp boundary, opportunity scheduler, resource preemption, validation,
+metrics và exact compatibility semantics. Chưa có code/config/test MCB-3, chưa mở feature và chưa có quyền
+takeover; implementation bị chặn cho tới khi owner duyệt các giá trị YAML cùng acceptance threshold được nêu
+trong System Spec.
 
 ---
 
