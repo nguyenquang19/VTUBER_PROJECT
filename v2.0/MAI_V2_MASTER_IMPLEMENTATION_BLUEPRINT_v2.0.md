@@ -526,6 +526,36 @@ Director chỉ nhận bounded snapshot:
 
 Không dump toàn bộ database, transcript hoặc internal state vào prompt.
 
+## 7.10. Cognitive Brain contract migration
+
+MCB là migration track đã được owner chấp nhận để thay dần quyền quyết định mềm của policy hội thoại bằng
+một Brain dùng LLM, nhưng không thay kernel đã kiểm chứng. Track này không đổi định nghĩa product V2, không
+đổi thứ tự hay trạng thái closure của Phase 0–15 và không tự chứng minh capability đã production.
+
+Ranh giới quyền lực khóa cứng:
+
+- Brain sở hữu đề xuất attention, intent, `WAIT`/speech và wording trong scope được rollout;
+- kernel sở hữu truth, provenance, freshness, capability, permission, emergency/operator hold, transaction,
+  execution, verification, delivery và mọi domain commit;
+- Brain chỉ trả proposal bất biến; không tạo capability, không gọi executor, không ghi World/Self/Goal/
+  Focus/Memory và không tuyên bố external success;
+- `CognitiveActionProposal` phải tham chiếu capability/action envelope hiện có. Chỉ kernel mới được
+  materialize nó thành `ActionRequest` sau validation;
+- `MemoryProposal` không phải `MemoryEntry`; success memory chỉ được materialize sau verified outcome;
+- `FocusState` là continuity ngắn hạn, không phải World truth hoặc Goal và chỉ được commit tại boundary do
+  kernel sở hữu;
+- soft style chỉ được quan sát; hard safety, privacy, grounding và malformed output vẫn fail closed;
+- feature-off hoặc Brain chưa khả dụng giữ exact compatibility path.
+
+Crossing-subsystem contract của track này nằm trong `interfaces/cognition.py` và dùng các tên canonical:
+`CognitionConfig`, `CognitiveContext`, `CognitiveHardState`, `CognitiveEvidenceSource`,
+`CognitiveEvidenceItem`, `CognitiveConversationState`,
+`CognitiveMemoryItem`, `CognitiveSpeechSummary`, `CognitiveActionEnvelope`, `CognitiveTurn`,
+`CognitiveMode`, `CognitiveUncertainty`, `FocusState`, `FocusOrigin`, `FocusOperation`, `FocusProposal`, `MemoryKind`,
+`MemoryScope`, `MemoryClaimBasis`, `MemoryRetentionClass`, `MemoryProposal`, `CognitiveActionProposal` và
+`CognitiveBrainService`. MCB-1 chỉ được tạo contract/config/feature boundary bất hoạt; không được có
+llama.cpp call, scheduler, Director takeover, delivery, action execution hoặc state mutation.
+
 ---
 
 # 8. Configuration, feature và observability policy
@@ -1325,6 +1355,33 @@ Cả hai path bắt buộc pass.
 | 15 | Product `2.0.0` release gates |
 
 Không được đổi thứ tự hoặc gộp phase nếu chưa có user approval.
+
+## 13.1. Locked MCB migration track
+
+MCB bắt đầu từ comparison baseline kỹ thuật `ea4910bd9e7c53af16131f51c542445a8bcdee24`. Owner đã chấp nhận
+baseline kỹ thuật này, duyệt và triển khai MCB-1 contract-only ngày 23/08/2026. Blind MAI-HLC 20 pair đã persist/finalize
+hợp lệ nhưng quality vẫn `HOLD`: candidate tăng aggregate/Presence/Character nhưng Context giảm và
+AI-smell không giảm. Quality HOLD không cho phép suy ra cải thiện chất lượng và tiếp tục chặn offline
+quality acceptance, takeover, canary hoặc release cho tới khi một candidate sau đạt quality gate đã khóa.
+
+| Order | Slice | Quyền được thêm | Gate chính |
+|---:|---|---|---|
+| MCB-0 | Baseline audit/rework | Không có runtime authority mới | Clean source-bound technical baseline; human quality được báo riêng |
+| MCB-1 | Contract foundation | Contract/config/disabled feature only | Immutable strict shape, feature-off, no LLM/no mutation |
+| MCB-2 | Context + Focus shadow | Read-only context/projection | Deterministic ID/order/bounds/freshness; no domain commit |
+| MCB-3 | Brain shadow | Proposal observation only | llama.cpp schema/latency/opportunity gates; no delivery/action/state side effect |
+| MCB-4 | Offline A/B | Không có live authority | Same-input comparison và ít nhất 30 blind discovery pairs |
+| MCB-5 | READ_CHAT takeover | `WAIT`/`READ_CHAT` trong accepted envelope | Limited canary, exact rollback và ít nhất 60 blind pairs |
+| MCB-6 | SELF_TALK/FOLLOW_UP takeover | Bounded conversational scope | Focus commit only after delivery; interrupt/recovery evidence |
+| MCB-7 | Memory/carryover | Proposal only; kernel commits | Provenance/privacy/outcome/TTL/idempotency gates |
+| MCB-8 | Embodiment/action proposal | Proposal trong current capability envelope | Permission/health/verification/rollback; zero false success |
+| MCB-9 | Model bake-off/fine-tune | Không đổi kernel authority | Frozen contract/corpus, sanitized split và same-harness A/B |
+| MCB-10 | Release | Chỉ scope đã canary/review | Same clean revision, 100 blind pairs, operations/security/rollback và owner approval |
+
+MCB-1 non-goals được khóa: không context builder runtime, không Brain adapter/prompt, không scheduler,
+không Director/TTS/action/memory/Focus takeover hoặc mutation, không đổi model/sampling/persona, không xóa
+compatibility component và không tăng product version. Sau mỗi slice phải dừng để owner review; không tự
+chuyển sang slice kế tiếp.
 
 ---
 

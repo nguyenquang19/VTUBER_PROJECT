@@ -31,6 +31,7 @@ CONFIG_FILES: dict[str, str] = {
     "evaluation": "evaluation.yaml",              # M8 eval/data/fine-tune gates
     "operations": "operations.yaml",              # M9 live operations/recovery
     "capabilities": "capabilities.yaml",          # Phase 4 declarative availability
+    "cognition": "cognition.yaml",                # MCB-1 strict Brain/kernel contracts
     "features": "features.yaml",
     "triggers": "triggers.yaml",
     "state_machine": "state_machine.yaml",
@@ -137,6 +138,15 @@ class ConfigLoader:
             return {}
         if not isinstance(data, dict):
             raise ConfigError(f"{path.name}: top-level phải là mapping, nhận {type(data).__name__}")
+        if path.name == CONFIG_FILES["cognition"]:
+            # Local import keeps the generic loader lightweight and makes cognition
+            # reload atomic: invalid schema never replaces the prior whole config.
+            from interfaces.cognition import CognitionConfig
+
+            try:
+                CognitionConfig.from_mapping(data)
+            except ValueError as exc:
+                raise ConfigError(f"{path.name}: config không hợp lệ: {exc}") from exc
         return data
 
     def load_all(self) -> None:

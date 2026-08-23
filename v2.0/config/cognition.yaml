@@ -1,0 +1,48 @@
+# MCB-1 contract validation only. No Brain service is composed in this slice.
+schema_version: 1
+rollout_mode: disabled
+
+max_id_chars: 128
+max_label_chars: 64
+max_text_chars: 2048
+max_speech_chars: 512
+max_attention_items: 24
+max_memory_items: 16
+max_recent_delivered_speech: 8
+max_available_actions: 16
+max_evidence_refs: 16
+max_reason_codes: 8
+max_memory_proposals: 4
+max_unresolved_items: 8
+max_focus_claims: 16
+max_action_argument_items: 16
+max_action_argument_chars: 1024
+focus_ttl_seconds: 900
+
+source_failure_codes:
+  - context
+  - world
+  - self
+  - capability
+  - transaction
+  - emergency
+  - operator
+  - chat
+  - goal
+  - thread
+  - proactive
+
+reason_codes:
+  - no_opportunity
+  - hard_hold
+  - compatibility_only
+  - insufficient_evidence
+  - intentional_wait
+  - propose_speech
+  - propose_action
+  - focus_continuity
+
+speech_source_modes:
+  - read_chat
+  - self_talk
+  - follow_up

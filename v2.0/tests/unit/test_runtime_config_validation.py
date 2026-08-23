@@ -4,6 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import yaml
 
 from orchestrator.config_loader import ConfigError, ConfigLoader
 from orchestrator.credential_contract import CredentialContractError
@@ -12,6 +13,9 @@ from orchestrator.stream_runtime import StreamRuntimeConfig, build_stream_runtim
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+COGNITION_CONFIG = yaml.safe_load(
+    (REPO_ROOT / "config" / "cognition.yaml").read_text(encoding="utf-8")
+)
 EMBODIMENT_CONFIG = {
     "mid_cooldown_s": 2.0,
     "mid_timeout_s": 1.0,
@@ -138,6 +142,14 @@ class OverrideLoader:
             return self._overrides.get((name, key), dict(CLOSED_LOOP_CANARY_CONFIG))
         return self._overrides.get((name, key), default)
 
+    def section(self, name: str) -> dict[str, object]:
+        if name != "cognition":
+            return {}
+        value = self._overrides.get(("cognition", "section"), COGNITION_CONFIG)
+        if not isinstance(value, dict):
+            return value  # type: ignore[return-value]
+        return dict(value)
+
 
 def test_repository_runtime_config_is_valid() -> None:
     loader = ConfigLoader(REPO_ROOT / "config")
@@ -202,6 +214,13 @@ def test_repository_runtime_config_is_valid() -> None:
     assert validated.director_speech_style_max_regenerations == 2
     assert validated.conversation_summarize_after_moves == 2
     assert validated.manage_llama_process is True
+
+
+def test_runtime_rejects_invalid_cognition_config_before_composition() -> None:
+    invalid = dict(COGNITION_CONFIG)
+    invalid["rollout_mode"] = "shadow"
+    with pytest.raises(ConfigError, match="Runtime cognition config"):
+        validate_runtime_config(OverrideLoader({("cognition", "section"): invalid}))
 
 
 @pytest.mark.parametrize(

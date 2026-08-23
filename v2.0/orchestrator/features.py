@@ -22,12 +22,15 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 import yaml
 
 from orchestrator.config_loader import ConfigError
 from orchestrator.logger import get_logger
+
+if TYPE_CHECKING:
+    from orchestrator.metrics_collector import MetricsCollector
 
 Handler = Callable[[], Awaitable[None]]
 HealthCheck = Callable[[], Awaitable[bool]]
@@ -93,6 +96,7 @@ class Feature:
     description: str
     category: str
     default_enabled: bool
+    activation_allowed: bool = True
     depends_on: list[str] = field(default_factory=list)
     conflicts_with: list[str] = field(default_factory=list)
     vram_cost_mb: int = 0
@@ -157,18 +161,23 @@ class FeatureManager:
         vram_budget_mb: int = 0,
         core_feature_ids: tuple[str, ...] = (),
         persist_path: Path | None = None,
+        metrics: MetricsCollector | None = None,
     ) -> None:
         self._features: dict[str, Feature] = {}
         self._vram_budget_mb = vram_budget_mb
         self._core_ids = set(core_feature_ids)
         self._persist_path = persist_path
+        self._metrics = metrics
         self._lock = asyncio.Lock()
         self._log = get_logger("features")
 
     # ---------- construction ----------
 
     @classmethod
-    def from_config(cls, loader, *, persist: bool = False) -> FeatureManager:
+    def from_config(
+        cls, loader, *, persist: bool = False,
+        metrics: MetricsCollector | None = None,
+    ) -> FeatureManager:
         """Build from strict YAML; production composition opts into persistence."""
         total = _strict_int(
             loader.get("system", "resources.vram_total_mb", 0),
@@ -208,6 +217,7 @@ class FeatureManager:
             vram_budget_mb=budget,
             core_feature_ids=core_ids,
             persist_path=persist_path,
+            metrics=metrics,
         )
 
         for raw_feature_id, raw_spec in raw_features.items():
@@ -217,6 +227,11 @@ class FeatureManager:
             if "enabled" not in raw_spec or not isinstance(raw_spec["enabled"], bool):
                 raise ConfigError(f"features.{feature_id}.enabled phải là boolean thật")
             enabled = raw_spec["enabled"]
+            activation_allowed = raw_spec.get("activation_allowed", True)
+            if not isinstance(activation_allowed, bool):
+                raise ConfigError(
+                    f"features.{feature_id}.activation_allowed phải là boolean thật"
+                )
             name = _strict_text(
                 raw_spec.get("name", feature_id),
                 f"features.{feature_id}.name",
@@ -237,6 +252,7 @@ class FeatureManager:
                     description=description,
                     category=category,
                     default_enabled=enabled,
+                    activation_allowed=activation_allowed,
                     depends_on=_strict_id_list(
                         raw_spec.get("depends_on", []),
                         f"features.{feature_id}.depends_on",
@@ -259,6 +275,9 @@ class FeatureManager:
                 )
             )
         mgr._validate_initial_config()
+        cognitive = mgr._features.get("cognitive_brain_shadow")
+        if cognitive is not None and not cognitive.is_enabled:
+            mgr._record_cognitive_feature_toggle("disabled")
         return mgr
 
     def register(self, feature: Feature) -> None:
@@ -281,6 +300,10 @@ class FeatureManager:
             if overlap:
                 raise ConfigError(
                     f"features.{feature.id} vừa depend vừa conflict: {', '.join(overlap)}",
+                )
+            if feature.is_enabled and not feature.activation_allowed:
+                raise ConfigError(
+                    f"features.{feature.id} enabled nhưng activation_allowed=false"
                 )
             if not feature.is_enabled:
                 continue
@@ -415,6 +438,12 @@ class FeatureManager:
 
             if self.is_core(feature_id):
                 raise CoreFeatureError(f"{feature_id} là core feature, không toggle được")
+
+            if not f.activation_allowed:
+                self._record_cognitive_feature_toggle("enable_rejected")
+                return self._reject(
+                    f, user, "enable", "activation bị khóa bởi contract hiện tại",
+                )
 
             if f.is_enabled:
                 return ToggleResult.success(feature_id, f.current_status)
@@ -613,12 +642,17 @@ class FeatureManager:
                 pass
             raise
 
+    def _record_cognitive_feature_toggle(self, outcome: str) -> None:
+        if self._metrics is not None:
+            self._metrics.record_cognitive_feature_toggle(outcome)
+
     def _render_new_config(self) -> str:
         payload: dict[str, Any] = {"features": {}}
         for fid in sorted(self._features):
             f = self._features[fid]
             payload["features"][fid] = {
                 "enabled": f.is_enabled,
+                "activation_allowed": f.activation_allowed,
                 "vram_cost_mb": f.vram_cost_mb,
                 "latency_impact_ms": f.latency_impact_ms,
                 "category": f.category,

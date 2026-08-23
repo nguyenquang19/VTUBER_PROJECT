@@ -13,6 +13,7 @@ from pydantic import (
 )
 
 from orchestrator.config_loader import ConfigError
+from interfaces.cognition import CognitionConfig
 from orchestrator.credential_contract import (
     validate_runtime_credential_contract,
 )
@@ -208,6 +209,10 @@ class RuntimeCriticalConfig(BaseModel):
 
 def validate_runtime_config(loader: Any) -> RuntimeCriticalConfig:
     """Validate values whose failure after startup would corrupt operation."""
+    try:
+        CognitionConfig.from_mapping(loader.section("cognition"))
+    except (AttributeError, ValueError) as exc:
+        raise ConfigError(f"Runtime cognition config không hợp lệ: {exc}") from exc
     try:
         validate_runtime_credential_contract(loader)
     except ValueError as exc:

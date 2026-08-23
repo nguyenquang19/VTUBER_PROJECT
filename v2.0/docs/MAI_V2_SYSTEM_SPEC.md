@@ -92,11 +92,12 @@ Các cột dưới đây độc lập với nhau. “Có mã” không thay th�
 | Goals và short intentions | Có | Có, qua GoalManager/Director/Self/dashboard | Unit, integration, replay và full offline regression | Không |
 | Memory và ContextSelector V2 | Có | ContextSelector/agent context strict bounded được bật; semantic memory vẫn optional | Unit, integration, replay và full offline regression | Bật cho test; chưa live semantic-memory canary |
 | Embodiment Policy | Có | LOW/MID/HIGH strict arbitration đã compose và bật test | Unit, integration, deterministic replay và full offline regression | Chưa live VTS canary |
-| Human-like calibration và trajectory | Có | Trajectory bật read-only theo Director V2; MAI-HLC là workflow offline tách sealed manifest | Unit, integration, deterministic replay, tamper/negative paths và full offline regression; chưa có human review evidence thật | Trajectory bật test; human review chưa phát hành |
+| Human-like calibration và trajectory | Có | Trajectory bật read-only theo Director V2; MAI-HLC là workflow offline tách sealed manifest | Unit, integration, deterministic replay, tamper/negative paths, full offline regression và owner blind review 20 pair đã finalize; quality vẫn `HOLD` | Trajectory bật test; human review không tự tạo release decision |
 | Product `2.0.0` release gates | Có strict tooling source-bound, fixed runner và canary/operations aggregator | Contract kỹ thuật đã triển khai; chưa có closed-loop/live/human/operations bundle hiện hành | Full regression xanh; external Gate D/E và release-commit verification chưa hoàn tất | Không |
+| Cognitive Brain MCB | Có contract/config foundation MCB-1; chưa có Brain implementation | Feature đã đăng ký nhưng `enabled=false`, `activation_allowed=false`, không ghép runtime | Targeted foundation 343, impacted boundary 220 và full offline 2.398 test đạt | Không |
 
 Ma trận chỉ được nâng trạng thái khi có đường code tương ứng, test phù hợp và evidence máy đọc hoặc vận
-hành. Blueprint tiếp tục giữ scope/phase order; bảng này chỉ mô tả working tree ngày 20/08/2026.
+hành. Blueprint tiếp tục giữ scope/phase order; bảng này chỉ mô tả working tree ngày 23/08/2026.
 
 ---
 
@@ -421,7 +422,7 @@ Hiện hệ thống chưa có bộ thực thi thật cho ví dụ này. Vì vậ
 | Chọn ký ức theo ngữ cảnh | Đã có nền | Cần đo chất lượng khi chạy thật |
 | Chính sách hiện thân | Đã có nền | Cần nối với thiết bị và trạng thái thật |
 | Ghi hành trình quyết định | Đã đóng gate kỹ thuật và bật test | Compose bounded/read-only theo Director V2; không có decision side effect |
-| Cổng đánh giá V2 | MAI-HLC và strict release tooling đã có | Blind artifact/commitment, source/hash/freshness gate đã fail closed; chưa có human review thật và Phase 15 external evidence bundle |
+| Cổng đánh giá V2 | MAI-HLC và strict release tooling đã có | Blind artifact/commitment, source/hash/freshness gate đã fail closed; owner blind review 20 pair đã finalize nhưng quality `HOLD`, Phase 15 external evidence bundle vẫn thiếu |
 | Vòng tự chủ khép kín | Có operator-only canary kỹ thuật | Fake-OBS integration đã đạt; chưa có live canary và không có autonomous production trigger |
 
 Đường V2 đang chạy thực tế có thể tóm tắt như sau:
@@ -540,8 +541,9 @@ thay thế rollout/canary của Director V2.
 
 Phase 14 đã nối trajectory dạng bounded/read-only vào Director V2, thêm deterministic replay và hash phát
 hiện artifact tamper. MAI-HLC tách blind reviewer artifact khỏi sealed manifest và chỉ reveal sau khi score
-đã persist/validate. Tuy nhiên Phase 15 release gate vẫn chưa xác minh đầy đủ toàn bộ tệp evidence, source
-revision, live/canary hoặc rollback rehearsal; chưa có human review artifact thật.
+đã persist/validate. Owner blind review 20 pair đã finalize ngày 23/08/2026 nhưng quality vẫn `HOLD`;
+Phase 15 release gate vẫn chưa xác minh đầy đủ toàn bộ tệp evidence, source revision, live/canary hoặc
+rollback rehearsal.
 
 **Hậu quả:** có thể báo đạt về hình thức trong khi bằng chứng thực tế thiếu hoặc không khớp.
 
@@ -1900,8 +1902,9 @@ documentation guard, V1 regression và full offline suite phải tiếp tục xa
 persist-before-reveal, commitment/tamper guard và trajectory lifecycle/replay/read-only composition đã được
 triển khai; targeted/impacted đạt 471 test, deterministic Director replay đạt và full offline
 `pytest tests -q` đạt 2.267 test, 0 lỗi. Sau closure kỹ thuật, `trajectory_records` được bật read-only cho
-V2 test cutover; `human_like_calibration` vẫn là workflow operator tắt mặc định. Chưa chạy human review
-thật hoặc live/canary, không có automatic release decision và product version vẫn `1.4.3`.
+V2 test cutover; `human_like_calibration` vẫn là workflow operator tắt mặc định. Owner blind review 20 pair
+sau đó đã finalize nhưng quality vẫn `HOLD`; chưa có live/canary, không có automatic release decision và
+product version vẫn `1.4.3`.
 
 #### 17.2.15. Strict release evidence và closed-loop canary contract Phase 15
 
@@ -1960,6 +1963,271 @@ impacted đạt 14 test; full offline `pytest tests -q` đạt 2.288 test, 0 l�
 chưa có real-LLM, human review, live platform/audio/VTS/OBS/memory, backup/restore, security/PII và rollback
 artifacts trên clean release revision. Feature vẫn mặc định tắt, product version vẫn `1.4.3`, không có
 release evidence `2.0.0` hợp lệ và chưa được retire fallback.
+
+#### 17.2.16. Cognitive Brain contract foundation MCB-1
+
+Owner đã chấp nhận `ea4910bd9e7c53af16131f51c542445a8bcdee24` làm comparison baseline kỹ thuật,
+duyệt và triển khai MCB-1 contract-only ngày 23/08/2026. Blind MAI-HLC 20 pair đã finalize hợp lệ nhưng quality vẫn `HOLD` vì
+Context giảm và AI-smell không giảm; vì MCB-1 không gọi LLM, không đổi decision/output và không có runtime
+authority, quality HOLD không chặn việc định nghĩa contract nhưng tiếp tục chặn mọi quality acceptance,
+takeover, canary và release ở các slice sau.
+
+MCB khóa ranh giới quyền lực sau:
+
+| Concern | Brain | Kernel/runtime owner |
+|---|---|---|
+| Attention, intent, `WAIT`/speech proposal và wording | Đề xuất trong rollout scope | Xác minh context/evidence và hard precedence |
+| Capability/permission/health/conflict | Không định nghĩa hoặc tự cấp quyền | Capability Registry, operator policy và transaction owner |
+| External action | Chỉ tạo `CognitiveActionProposal` | Validate rồi materialize `ActionRequest`, execute và verify |
+| World/Self/Goal/Thread | Chỉ đọc bounded immutable projection | Domain service hiện hữu sở hữu mutation |
+| Focus | Đề xuất | Future Focus owner validate; commit chỉ tại accepted boundary |
+| Memory | Đề xuất | Memory validator/store chỉ commit với provenance và verified outcome |
+| Delivery/transaction | Không có quyền | `DirectorLoop` và delivery/transaction boundary hiện hữu |
+| Safety/privacy/grounding | Không override | Hard deterministic validator; soft style chỉ observer |
+| Sampling/model/release | Không có runtime authority | YAML và owner/release gate |
+
+Các contract canonical nằm trong `interfaces/cognition.py`, dùng frozen dataclass theo convention
+hiện tại, deep-freeze collection lồng nhau, reject unknown/unsupported value, boolean không được nhận như
+integer, số phải hữu hạn và mọi `datetime` phải timezone-aware rồi normalize UTC. Bound được truyền từ
+strict config; constructor không tự chọn production default ngoài schema constant đã chấp nhận.
+
+`CognitionConfig` là frozen strict value được tạo từ toàn bộ `config/cognition.yaml`. Mỗi dataclass nhận
+config này qua required dataclass `InitVar`: config chỉ dùng để validate constructor, không trở thành field
+wire, không được persist cùng proposal và không tạo module-global mutable bounds. `CognitiveTurn` còn nhận
+exact `CognitiveContext` qua `InitVar` để kiểm tra reference/mode matrix mà không nhúng context vào output.
+
+Các nested contract dưới đây cũng nằm trong `interfaces/cognition.py`; MCB-1 không dùng `dict[str, Any]`
+hoặc free-form mapping để thay chúng:
+
+```text
+CognitiveHardState:
+  schema_version
+  emergency, operator_hold, safety_hold, permission_hold,
+  transaction_conflict, critical_state: strict bool
+  source_failure_codes: bounded unique tuple[str] từ configured allowlist
+
+CognitiveEvidenceItem:
+  schema_version, evidence_id
+  source: CHAT | THREAD | GOAL | WORLD | SELF | CAPABILITY | ENVIRONMENT | OPERATOR
+  summary, provenance_refs, observed_at, optional expires_at
+
+CognitiveConversationState:
+  schema_version
+  optional topic, thread_ref, goal_ref, intention_ref, summary
+  evidence_refs
+
+CognitiveMemoryItem:
+  schema_version, memory_ref, kind, summary, scope, optional viewer_ref,
+  provenance_refs, observed_at, optional expires_at, confidence
+
+CognitiveSpeechSummary:
+  schema_version, delivery_id, speech_text, delivered_at,
+  source_mode: configured bounded label, evidence_refs
+
+CognitiveActionEnvelope:
+  schema_version, capability_id, action_type, description,
+  argument_schema, target_required, allows_speech,
+  availability_ref, checked_at, evidence_refs
+```
+
+`CognitiveEvidenceItem.expires_at`, khi có, phải sau `observed_at`; item hết hạn không được đưa vào context.
+`CognitiveConversationState` phải có ít nhất một field nội dung/reference hoặc evidence ref. Action envelope
+chỉ là deep-frozen sanitized subset của `Capability` + `CapabilityAvailability`: không lộ executor/verifier,
+permission payload, credential hoặc callable. `argument_schema` là JSON-safe mapping và dùng cùng item/total
+serialized bounds với proposal `arguments`, nhưng hai mapping được kiểm tra độc lập. `CognitiveMemoryItem`
+áp dụng cùng scope matrix với `MemoryProposal`; World/Self hiện tại luôn thắng nội dung memory khi conflict.
+
+`CognitiveContext` là immutable bounded input, không chứa raw mutable store, toàn transcript, toàn memory,
+credential hoặc prompt nội bộ:
+
+```text
+schema_version: positive int
+context_id: deterministic non-empty content hash
+created_at: UTC datetime
+session_id: sanitized bounded reference
+world_snapshot_id: non-empty reference
+self_snapshot_id: non-empty reference
+capability_snapshot_id: non-empty reference
+focus_snapshot_id: optional non-empty reference; None khi chưa có active Focus
+operator_state: CognitiveHardState
+available_modes: non-empty unique tuple[CognitiveMode]
+available_actions: bounded tuple[CognitiveActionEnvelope]
+chat_digest: optional CognitiveEvidenceItem với source CHAT
+attention_items: bounded tuple[CognitiveEvidenceItem]
+conversation_state: CognitiveConversationState
+memory_items: bounded tuple[CognitiveMemoryItem]
+recent_delivered_speech: bounded tuple[CognitiveSpeechSummary]
+```
+
+`context_id` bind canonical serialized content, không bind object address hoặc insertion order. World hiện tại
+thắng Memory khi conflict. Evidence phải có provenance/freshness; source thiếu hoặc malformed được omit hoặc
+đánh critical degradation theo policy của source, không được bịa giá trị thay thế. Token preflight thuộc
+MCB-2/3 và phải tái sử dụng llama.cpp boundary hiện hữu; MCB-1 chưa dựng context hoặc gọi tokenizer.
+
+```text
+enum CognitiveMode: WAIT | SPEAK | PROPOSE_ACTION
+enum CognitiveUncertainty: LOW | MEDIUM | HIGH | UNKNOWN
+
+CognitiveTurn:
+  schema_version: positive int
+  turn_id: non-empty bounded reference
+  context_id: exact CognitiveContext reference
+  mode: CognitiveMode
+  attention_target_id: optional current evidence reference
+  intent: optional bounded text; required for non-WAIT
+  speech_text: optional bounded text
+  action_proposal: optional CognitiveActionProposal
+  focus_proposal: optional FocusProposal
+  memory_proposals: bounded tuple[MemoryProposal]
+  evidence_refs: bounded unique tuple of current evidence references
+  uncertainty: CognitiveUncertainty
+  reason_codes: bounded non-empty unique tuple from configured allowlist
+```
+
+Combination matrix là strict: `WAIT` bắt buộc `intent=None` và không có speech/action/Focus/Memory proposal;
+`reason_codes` mang lý do WAIT duy nhất, không có representation thứ hai bằng free-text intent. `SPEAK` bắt
+buộc speech + intent và không có action; `PROPOSE_ACTION` bắt buộc action +
+intent, speech chỉ được có nếu current envelope khai báo action hỗ trợ speech. Stale/mismatched `context_id`,
+target/evidence không tồn tại, field dư hoặc combination sai đều invalid trước transaction.
+
+```text
+FocusState:
+  schema_version, focus_id, topic, stance, unresolved_items, claims_delivered,
+  continuation_pressure, saturation, origin, evidence_refs,
+  born_at, updated_at, expires_at
+
+enum FocusOperation: CREATE | UPDATE | KEEP | CLEAR
+
+FocusProposal:
+  schema_version, proposal_id, context_id, operation, optional base_focus_id,
+  optional topic, optional stance, unresolved_items,
+  optional continuation_pressure, optional saturation, optional origin, evidence_refs
+```
+
+`origin` là strict enum `CHAT | SELF | MEMORY | GOAL | ENVIRONMENT | OPERATOR`; pressure/saturation là finite
+`[0,1]`. Một public conversation lane chỉ có tối đa một active Focus ở slice sở hữu state sau này.
+`claims_delivered` chỉ nhận claim sau authoritative delivery. `FocusState` bắt buộc
+`born_at <= updated_at < expires_at` và lifetime không vượt `focus_ttl_seconds`.
+
+Focus operation matrix là strict:
+
+- `CREATE`: `base_focus_id=None`; topic, pressure, saturation, origin và evidence bắt buộc; stance có thể
+  `None`, còn `unresolved_items` luôn được truyền dưới dạng bounded tuple, kể cả tuple rỗng;
+- `UPDATE`: `base_focus_id` phải khớp active `focus_snapshot_id`; topic, pressure, saturation, origin và
+  evidence bắt buộc, stance có thể `None`, `unresolved_items` luôn được truyền; kernel thay toàn bộ phần
+  proposal-owned của state và reject stale base thay vì merge ngầm;
+- `KEEP`: `base_focus_id` phải khớp; mọi field mutation và evidence mới phải rỗng;
+- `CLEAR`: `base_focus_id` phải khớp; mọi field mutation phải rỗng, evidence ghi lý do clear;
+- khi context không có active Focus, chỉ `CREATE` hợp lệ; khi có active Focus, `CREATE` invalid.
+
+Proposal không tự cấp `focus_id`/timestamps, không commit state và bị reject nếu evidence stale/missing.
+Kernel mới materialize `FocusState` sau accepted boundary; restart carryover nằm ngoài MCB-1.
+
+```text
+enum MemoryKind: EPISODIC | PREFERENCE | RELATIONSHIP_NOTE | SELF_SUMMARY
+enum MemoryScope: SESSION | VIEWER | SELF
+enum MemoryClaimBasis: OBSERVED_INPUT | DELIVERED_SPEECH | VERIFIED_ACTION | SELF_SUMMARY
+enum MemoryRetentionClass: TURN | SESSION | PERSISTENT_CANDIDATE
+
+MemoryProposal:
+  schema_version, proposal_id, context_id,
+  kind, content, scope, optional viewer_ref, claim_basis,
+  provenance_refs, optional outcome_ref, confidence, retention_class
+
+CognitiveActionProposal:
+  schema_version, proposal_id, context_id, capability_id, action_type,
+  target_ref, arguments, intention_id, evidence_refs
+```
+
+`MemoryProposal` không phải `MemoryEntry`. Scope matrix là strict: `VIEWER` bắt buộc pseudonymous
+`viewer_ref`; `SESSION`/`SELF` bắt buộc `viewer_ref=None`; kernel không được broaden scope. Claim basis
+`DELIVERED_SPEECH` hoặc `VERIFIED_ACTION` bắt buộc `outcome_ref` trỏ authoritative delivered/verified
+outcome; `OBSERVED_INPUT` và `SELF_SUMMARY` bắt buộc `outcome_ref=None`. `PERSISTENT_CANDIDATE` chỉ đưa vào
+review/validator, không tự materialize persistent truth; kernel ánh xạ retention class sang TTL/tier policy.
+Duplicate proposal/outcome phải idempotent và uncertain item đi review thay vì thành truth.
+`CognitiveActionProposal` chỉ chứa JSON-safe bounded arguments phù hợp current capability schema; không chứa
+callback, credential, raw transport hoặc unregistered action type. Kernel phải kiểm tra lại current
+availability/permission/health/conflict rồi mới materialize existing `ActionRequest`.
+
+`CognitiveBrainService` kế thừa `Service` và trong MCB-1 chỉ thêm abstract async
+`propose(context: CognitiveContext) -> CognitiveTurn`. Lifecycle, health và metric dùng contract `Service`
+hiện hữu; chưa thêm `snapshot()` free-form. Typed Brain snapshot chỉ được docs-first cùng bounded owner ở
+MCB-3. Interface không import concrete `services/`, prompt hoặc llama adapter. MCB-1 không có production
+implementation, background task, LLM call hoặc runtime consumer.
+
+Feature declaration:
+
+```text
+feature_id: cognitive_brain_shadow
+enabled: false
+activation_allowed: false
+category: agent
+depends_on: [world_model_shadow, self_model_projection, capability_registry]
+conflicts_with: []
+operational rollout_mode trong MCB-1: disabled only
+```
+
+Feature disabled phải tạo zero background task và zero decision/output/state difference. MCB-1 bổ sung
+strict `activation_allowed` vào generic feature spec với backward-compatible default `true` cho feature cũ;
+riêng `cognitive_brain_shadow=false`. `FeatureManager.enable()` phải reject trước mọi status/persistence/
+handler change, giữ `DISABLED` và ghi bounded outcome `enable_rejected`. Vì vậy implementation scope bắt buộc
+bao gồm `orchestrator/features.py` và negative toggle/persistence tests; chỉ thêm `enabled: false` vào YAML là
+không đủ. Service chưa compose là `stopped`; trạng thái feature `enabled` hoặc service `running` trong MCB-1
+là lỗi contract. Rollback là giữ/tắt feature và bỏ unconsumed contract/config trước khi slice sau phụ thuộc;
+không có data migration hoặc state cleanup.
+
+Canonical config owner là `config/cognition.yaml` vì bounds thuộc subsystem riêng và không phù hợp
+`director.yaml`/`models.yaml`. Các giá trị đã được owner duyệt và đang binding cho MCB-1:
+
+| Key | Proposed value | MCB-1 use |
+|---|---:|---|
+| `schema_version` | `1` | Exact contract version |
+| `rollout_mode` | `disabled` | Chỉ operational enum được phép trong MCB-1 |
+| `max_id_chars` / `max_label_chars` | `128` / `64` | ID, enum label và reason bound |
+| `max_text_chars` / `max_speech_chars` | `2048` / `512` | Per text field / `speech_text` field bound, không phải total context budget |
+| `max_attention_items` / `max_memory_items` | `24` / `16` | Immutable tuple capacity |
+| `max_recent_delivered_speech` / `max_available_actions` | `8` / `16` | Context capacity |
+| `max_evidence_refs` / `max_reason_codes` | `16` / `8` | Turn/proposal capacity |
+| `max_memory_proposals` | `4` | Per-turn proposal capacity |
+| `max_unresolved_items` / `max_focus_claims` | `8` / `16` | Focus bounds |
+| `max_action_argument_items` / `max_action_argument_chars` | `16` / `1024` | Item count và canonical serialized total cho mỗi envelope schema/proposal arguments mapping |
+| `focus_ttl_seconds` | `900` | Max `FocusState.expires_at - born_at`; no runtime eviction yet |
+| `source_failure_codes` | `[context, world, self, capability, transaction, emergency, operator, chat, goal, thread, proactive]` | Exact hard-state degradation allowlist |
+| `reason_codes` | `[no_opportunity, hard_hold, compatibility_only, insufficient_evidence, intentional_wait, propose_speech, propose_action, focus_continuity]` | Exact turn reason allowlist |
+| `speech_source_modes` | `[read_chat, self_talk, follow_up]` | Exact delivered-speech source allowlist |
+
+Timeout, opportunity debounce/reconsideration và queue capacity chưa được dùng ở MCB-1 nên chưa được thêm
+như config chết; chúng thuộc MCB-3 docs-first. Config phải reject missing/unknown key, bool-as-int, numeric
+string, NaN/infinity, duplicate/unknown enum và reload lỗi phải giữ nguyên whole prior config.
+
+Metric vocabulary khóa trước implementation:
+
+- `cognitive_contract_rejected_total{reason}` với allowlist `invalid_type`, `invalid_schema`,
+  `invalid_bound`, `invalid_time`, `invalid_mode`, `invalid_combination`, `invalid_reference`;
+- `cognitive_feature_toggle_total{outcome}` với bounded outcome `disabled`, `enable_rejected`, `stopped`;
+- chưa tạo `cognitive_snapshot_evicted_total` trong MCB-1 vì chưa có snapshot store; metric này chỉ xuất hiện
+  cùng bounded owner ở MCB-2.
+
+Metric label không chứa raw ID, prompt, speech, viewer, exception text hoặc arbitrary config value.
+
+Fallback được đề xuất cho slice có runtime sau này: disabled/stopped/unhealthy dùng exact compatibility;
+timeout/parse/schema/stale-context trước reservation cũng dùng compatibility, trừ khi hard hold cấm action
+hoặc compatibility không thể chạy an toàn thì trả `WAIT` không speech/state commit. Không được invent safe
+speech. MCB-1 chỉ hỗ trợ `disabled`, nên fallback proposal này chưa có runtime effect và cần owner xác nhận
+trước code để tránh implementation tự chọn.
+
+Acceptance MCB-1 gồm exact nested shape/deep immutability/strict scalar/time/mode/Focus/Memory matrix,
+bound/enum/reference negative tests, no-cross-import, ConfigLoader inventory/reload, default-disabled
+dependency, `activation_allowed=false` enable-rejection không đổi status/persistence, zero task/call/decision/
+mutation khi feature-off, impacted interface/FeatureManager/Director V2/memory/action/documentation regression
+và full offline suite. Không cần real LLM, replay, TTS/VTS/OBS hay human review vì output không đổi.
+
+**Trạng thái hiện tại:** MCB-1 contract-only đã implemented ngày 23/08/2026. Có
+`interfaces/cognition.py`, strict `config/cognition.yaml`, generic `activation_allowed`, feature declaration
+bất hoạt, bounded cognition metrics và negative tests. Targeted foundation đạt 343 test, impacted
+Director/capability/action/memory/composition đạt 220 test và full offline đạt 2.398 test với một warning
+deprecation có sẵn. Chưa có Brain adapter/service implementation, context builder, LLM call, background task,
+runtime consumer, decision/output/state mutation, shadow validation hoặc release; không được tự chuyển MCB-2.
 
 ### 17.3. Chuỗi mã để lần theo một lượt
 
@@ -2040,6 +2308,7 @@ shape/type trước khi runtime compose service.
 | `models.yaml` | `llama.cpp`, tham số sinh, VieNeu-TTS, phụ đề và mô hình ký ức |
 | `features.yaml` | bật/tắt, phụ thuộc, xung đột và chi phí tài nguyên |
 | `capabilities.yaml` | năng lực, quyền, sức khỏe và hành động mô phỏng |
+| `cognition.yaml` | schema, bounds và allowlist cho Cognitive Brain contract MCB-1; rollout chỉ `disabled` |
 | `chat_sources.yaml` | YouTube và Discord |
 | `director.yaml`, `chat_salience.yaml` | nhịp quyết định, phân xử, chấm điểm, giao dịch và V2 |
 | `agent_state.yaml`, `agent_goals.yaml` | trạng thái tác nhân, mục tiêu và thời hạn |
@@ -2067,7 +2336,7 @@ shape/type trước khi runtime compose service.
 
 Một chức năng chỉ thực sự hoạt động khi đã được khai báo, đủ phụ thuộc, không xung đột tài nguyên, có phần cài đặt, được ghép vào `StreamRuntime`, có bộ chuyển đổi bên ngoài nếu cần, sức khỏe đạt và cờ đang bật. “Bật trong YAML” không phải bằng chứng có đầu ra thật.
 
-Ảnh chụp `config/features.yaml` ngày 20/08/2026:
+Ảnh chụp `config/features.yaml` ngày 23/08/2026:
 
 - **Đang bật:** `filter_rule`, `tts_streaming`, `animation_smooth`, `data_collector`,
   `embodiment_policy`, `speech_action_adapter`, `avatar_action_adapter`, `agent_context`,
@@ -2083,7 +2352,7 @@ Một chức năng chỉ thực sự hoạt động khi đã được khai báo,
   `animation_micro`, `memory_semantic`, `memory_hierarchical`, `qc_persona`,
   `goal_proposals`, `thread_extraction`, `speculative_decoding`, `turn_taking_predictor`,
   `obs_scene_executor`, `obs_perception_adapter`,
-  `human_like_calibration`, `closed_loop_canary`.
+  `human_like_calibration`, `closed_loop_canary`, `cognitive_brain_shadow`.
 
 Trong đó `speech_action_adapter`, `avatar_action_adapter`, `embodiment_policy`, `context_selector`,
 `agent_context`, `trajectory_records` và `director_v2_takeover` được bật cho V2 test cutover;
@@ -2092,7 +2361,8 @@ rollback. Chưa có live audio/VTS/takeover
 canary nên các cờ này chưa phải production evidence. `obs_scene_executor` đã
 được compose qua external transaction boundary nhưng mặc định tắt, chưa có credential/live OBS canary.
 `obs_perception_adapter` dùng chung read-only OBS transport và cũng mặc định tắt, chưa có live sensing
-canary.
+canary. `cognitive_brain_shadow` còn có `activation_allowed=false`, nên yêu cầu bật phải bị từ chối trước
+khi đổi status, persist hoặc chạy handler; MCB-1 không compose Brain service.
 Trạng thái bật/tắt không được dùng riêng để suy ra mức production.
 
 Dashboard toggle thành công phải persist vào đúng `config/features.yaml` qua atomic replace và chỉ
@@ -2716,8 +2986,8 @@ manipulation, identity conflict hay foreign-identity confusion.
 Giới hạn cần giữ rõ: style regeneration tăng vì word bound chặt hơn (`21 → 53` trên `ra1`, `14 → 36`
 trên `F9`) và guard đã clamp tương ứng `23`/`13` lượt; turn p95 tăng từ `1.998` lên `2.117` ms và từ
 `2.066` lên `2.106` ms. Đây là chi phí GPU/runtime đã quan sát, chưa được coi là tối ưu hoàn tất. Replay
-kỹ thuật chỉ chứng minh contract và metric; kết luận giọng văn vẫn chờ một vòng blind MAI-HLC mới của
-operator, còn action coherence tiếp tục không được suy ra từ text replay.
+kỹ thuật chỉ chứng minh contract và metric. Vòng blind MAI-HLC sau đó đã được owner chấm/finalize nhưng
+quality vẫn `HOLD`; action coherence tiếp tục không được suy ra từ text replay.
 ### 24.12. Human-like quality hardening sau clean stress
 
 Clean stress từ source sạch `5841d3bfd7866d40ff70d5c319d11c324aee6898` đạt toàn bộ technical
@@ -2816,6 +3086,24 @@ join đúng final attempt bằng `request_id`. Artifact bắt buộc có full Gi
 config hash cùng hash từng YAML áp dụng, corpus hash, random seed, UTC start/end và sanitization marker.
 Artifact từ dirty source hoặc thiếu identity không được dùng để accept baseline. `generated - delivered`
 không phải suppression metric; suppression/release chỉ lấy từ authoritative transaction và guard lifecycle.
+
+Owner disposition ngày 23/08/2026: commit `ea4910bd9e7c53af16131f51c542445a8bcdee24` được **ACCEPT** làm
+comparison baseline kỹ thuật candidate. Clean real-llama stress schema `2` trên corpus hash
+`ad41153ddfce77d53268422948bb122935d0a136b6122feb12ae4e67175eff84` ghi 296 generation attempt,
+160 public turn, 135 delivered turn, 135/135 committed transaction đã delivery, 24 release, zero generation
+fallback, zero exact delivery duplicate và toàn bộ technical check đạt. Formula phrase là observer
+44/135 delivery (51 hit), không phải gate; lexical silence marker là 5/69 SELF_TALK delivery và không được
+gọi là semantic repetition. Candidate/final scan tách riêng; final hard violation bằng zero. Config aggregate
+hash là `5d2411000f4ea1264a8d95591952fcff4d1cd8e5978d26dcd0772de1cf7135f1`, source clean và full SHA/UTC/
+corpus/seed/sanitization identity đầy đủ.
+
+Blind MAI-HLC 20 pair đã được owner chấm, persist và finalize với commitment
+`f517aa219bd5957c7c008c63aef7d0c422dd91c340e26ed7cfe63ea17138bc20`; finalized artifact SHA-256 là
+`7CDD94C31192E7DEE2B33A6B17A42626D5E6118B8CA440DFCB96847C271E9BDB`, trạng thái `review_complete` và
+`automatic_release_decision=false`. Sau reveal, candidate thắng 9 pair, previous thắng 5 và 6 tie;
+aggregate `2.3900 -> 2.4975`, Presence `2.15 -> 2.20`, Character `2.05 -> 2.80`, nhưng Context
+`3.00 -> 2.45` và AI-smell giữ `50%`. Owner tiếp tục **HOLD** quality acceptance: technical baseline
+acceptance và aggregate delta dương không được dùng thay quality verdict hoặc mở takeover/release.
 
 ---
 

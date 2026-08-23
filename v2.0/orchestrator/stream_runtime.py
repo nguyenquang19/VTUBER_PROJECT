@@ -1031,7 +1031,7 @@ async def _compose_stream_runtime(
     # B0: setup structlog + JSONL sinks (turns.jsonl để baseline eval)
     turn_logger = setup_from_config(loader, metrics=metrics)
     pref_logger = _make_pref_logger(loader)   # T2: DPO pairs sink
-    feature_manager = FeatureManager.from_config(loader, persist=True)
+    feature_manager = FeatureManager.from_config(loader, persist=True, metrics=metrics)
 
     # M1: one shared grounded working state for every stream producer.
     from services.agent.agent_state import AgentState

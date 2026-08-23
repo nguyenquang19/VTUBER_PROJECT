@@ -15,6 +15,15 @@ from typing import Any, Callable
 from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram, generate_latest
 
 
+COGNITIVE_CONTRACT_REJECTION_REASONS = frozenset({
+    "invalid_type", "invalid_schema", "invalid_bound", "invalid_time",
+    "invalid_mode", "invalid_combination", "invalid_reference",
+})
+COGNITIVE_FEATURE_TOGGLE_OUTCOMES = frozenset({
+    "disabled", "enable_rejected", "stopped",
+})
+
+
 class MetricsCollector:
     def __init__(
         self,
@@ -432,6 +441,20 @@ class MetricsCollector:
         )
         self._director_v2_takeover: dict[tuple[str, str], int] = {}
 
+        # --- Cognitive Brain MCB-1 contract/disabled-feature metrics ---
+        self.cognitive_contract_rejected_total_c = Counter(
+            "cognitive_contract_rejected_total",
+            "Strict Cognitive Brain contract rejection outcomes",
+            ["reason"], registry=self.registry,
+        )
+        self.cognitive_feature_toggle_total_c = Counter(
+            "cognitive_feature_toggle_total",
+            "Cognitive Brain disabled/blocked feature outcomes",
+            ["outcome"], registry=self.registry,
+        )
+        self._cognitive_contract_rejected: dict[str, int] = {}
+        self._cognitive_feature_toggle: dict[str, int] = {}
+
         # --- Real NVIDIA device metrics for the operator dashboard ---
         self.gpu_util = Gauge(
             "mai_gpu_util_percent", "NVIDIA GPU utilization",
@@ -465,6 +488,28 @@ class MetricsCollector:
 
     def record_state_transition(self, from_state: str, to_state: str) -> None:
         self.state_transitions_total.labels(from_state=from_state, to_state=to_state).inc()
+
+    def record_cognitive_contract_rejected(self, reason: str) -> None:
+        if reason not in COGNITIVE_CONTRACT_REJECTION_REASONS:
+            raise ValueError("unsupported cognitive contract rejection reason")
+        self._cognitive_contract_rejected[reason] = (
+            self._cognitive_contract_rejected.get(reason, 0) + 1
+        )
+        self.cognitive_contract_rejected_total_c.labels(reason=reason).inc()
+
+    def record_cognitive_feature_toggle(self, outcome: str) -> None:
+        if outcome not in COGNITIVE_FEATURE_TOGGLE_OUTCOMES:
+            raise ValueError("unsupported cognitive feature toggle outcome")
+        self._cognitive_feature_toggle[outcome] = (
+            self._cognitive_feature_toggle.get(outcome, 0) + 1
+        )
+        self.cognitive_feature_toggle_total_c.labels(outcome=outcome).inc()
+
+    def cognition_snapshot(self) -> dict[str, dict[str, int]]:
+        return {
+            "contract_rejected": dict(sorted(self._cognitive_contract_rejected.items())),
+            "feature_toggle": dict(sorted(self._cognitive_feature_toggle.items())),
+        }
 
     def record_director_action(self, action: str, reason: str) -> None:
         key = (str(action), str(reason))
