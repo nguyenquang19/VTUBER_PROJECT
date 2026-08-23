@@ -8,6 +8,7 @@ instance không bị "Duplicated timeseries".
 """
 from __future__ import annotations
 
+import math
 import subprocess
 import time
 from typing import Any, Callable
@@ -22,6 +23,18 @@ COGNITIVE_CONTRACT_REJECTION_REASONS = frozenset({
 COGNITIVE_FEATURE_TOGGLE_OUTCOMES = frozenset({
     "disabled", "enable_rejected", "stopped",
 })
+COGNITIVE_CONTEXT_BUILD_OUTCOMES = frozenset({
+    "ready", "degraded", "unavailable", "rejected",
+})
+COGNITIVE_CONTEXT_SOURCES = frozenset({
+    "hard_state", "world", "self", "capability", "agent_state",
+    "goal", "thread", "memory", "delivery",
+})
+COGNITIVE_CONTEXT_SOURCE_OUTCOMES = frozenset({"accepted", "omitted", "failed"})
+COGNITIVE_FOCUS_OUTCOMES = frozenset({
+    "present", "absent", "stale", "mismatch", "invalid",
+})
+COGNITIVE_SNAPSHOT_KINDS = frozenset({"context", "focus"})
 
 
 class MetricsCollector:
@@ -454,6 +467,42 @@ class MetricsCollector:
         )
         self._cognitive_contract_rejected: dict[str, int] = {}
         self._cognitive_feature_toggle: dict[str, int] = {}
+        self.cognitive_context_build_total_c = Counter(
+            "cognitive_context_build_total",
+            "Read-only Cognitive Context build outcomes",
+            ["outcome"], registry=self.registry,
+        )
+        self.cognitive_context_source_total_c = Counter(
+            "cognitive_context_source_total",
+            "Bounded Cognitive Context source adaptation outcomes",
+            ["source", "outcome"], registry=self.registry,
+        )
+        self.cognitive_context_build_duration_seconds_h = Histogram(
+            "cognitive_context_build_duration_seconds",
+            "Read-only Cognitive Context build duration",
+            buckets=[0.001, 0.003, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25],
+            registry=self.registry,
+        )
+        self.cognitive_context_serialized_chars_h = Histogram(
+            "cognitive_context_serialized_chars",
+            "Canonical serialized Cognitive Context size",
+            buckets=[1024, 2048, 4096, 8192, 16384, 32768],
+            registry=self.registry,
+        )
+        self.cognitive_focus_projection_total_c = Counter(
+            "cognitive_focus_projection_total",
+            "Read-only Focus projection outcomes",
+            ["outcome"], registry=self.registry,
+        )
+        self.cognitive_snapshot_evicted_total_c = Counter(
+            "cognitive_snapshot_evicted_total",
+            "Bounded in-memory cognition snapshot evictions",
+            ["kind"], registry=self.registry,
+        )
+        self._cognitive_context_build: dict[str, int] = {}
+        self._cognitive_context_source: dict[tuple[str, str], int] = {}
+        self._cognitive_focus_projection: dict[str, int] = {}
+        self._cognitive_snapshot_evicted: dict[str, int] = {}
 
         # --- Real NVIDIA device metrics for the operator dashboard ---
         self.gpu_util = Gauge(
@@ -509,6 +558,67 @@ class MetricsCollector:
         return {
             "contract_rejected": dict(sorted(self._cognitive_contract_rejected.items())),
             "feature_toggle": dict(sorted(self._cognitive_feature_toggle.items())),
+        }
+
+    def record_cognitive_context_build(self, outcome: str) -> None:
+        if outcome not in COGNITIVE_CONTEXT_BUILD_OUTCOMES:
+            raise ValueError("unsupported cognitive context build outcome")
+        self._cognitive_context_build[outcome] = (
+            self._cognitive_context_build.get(outcome, 0) + 1
+        )
+        self.cognitive_context_build_total_c.labels(outcome=outcome).inc()
+
+    def record_cognitive_context_source(self, source: str, outcome: str) -> None:
+        if source not in COGNITIVE_CONTEXT_SOURCES:
+            raise ValueError("unsupported cognitive context source")
+        if outcome not in COGNITIVE_CONTEXT_SOURCE_OUTCOMES:
+            raise ValueError("unsupported cognitive context source outcome")
+        key = (source, outcome)
+        self._cognitive_context_source[key] = self._cognitive_context_source.get(key, 0) + 1
+        self.cognitive_context_source_total_c.labels(source=source, outcome=outcome).inc()
+
+    def observe_cognitive_context_build_duration(self, seconds: float) -> None:
+        if (
+            isinstance(seconds, bool)
+            or not isinstance(seconds, (int, float))
+            or not math.isfinite(float(seconds))
+            or seconds < 0
+        ):
+            raise ValueError("cognitive context duration must be non-negative")
+        self.cognitive_context_build_duration_seconds_h.observe(float(seconds))
+
+    def observe_cognitive_context_serialized_chars(self, chars: int) -> None:
+        if isinstance(chars, bool) or not isinstance(chars, int) or chars < 0:
+            raise ValueError("cognitive context serialized chars must be non-negative")
+        self.cognitive_context_serialized_chars_h.observe(chars)
+
+    def record_cognitive_focus_projection(self, outcome: str) -> None:
+        if outcome not in COGNITIVE_FOCUS_OUTCOMES:
+            raise ValueError("unsupported cognitive focus outcome")
+        self._cognitive_focus_projection[outcome] = (
+            self._cognitive_focus_projection.get(outcome, 0) + 1
+        )
+        self.cognitive_focus_projection_total_c.labels(outcome=outcome).inc()
+
+    def record_cognitive_snapshot_evicted(self, kind: str, count: int = 1) -> None:
+        if kind not in COGNITIVE_SNAPSHOT_KINDS:
+            raise ValueError("unsupported cognitive snapshot kind")
+        if isinstance(count, bool) or not isinstance(count, int) or count <= 0:
+            raise ValueError("cognitive snapshot eviction count must be positive")
+        self._cognitive_snapshot_evicted[kind] = (
+            self._cognitive_snapshot_evicted.get(kind, 0) + count
+        )
+        self.cognitive_snapshot_evicted_total_c.labels(kind=kind).inc(count)
+
+    def cognition_context_snapshot(self) -> dict[str, dict[str, int]]:
+        return {
+            "build": dict(sorted(self._cognitive_context_build.items())),
+            "source": {
+                f"{source}:{outcome}": count
+                for (source, outcome), count in sorted(self._cognitive_context_source.items())
+            },
+            "focus": dict(sorted(self._cognitive_focus_projection.items())),
+            "evicted": dict(sorted(self._cognitive_snapshot_evicted.items())),
         }
 
     def record_director_action(self, action: str, reason: str) -> None:

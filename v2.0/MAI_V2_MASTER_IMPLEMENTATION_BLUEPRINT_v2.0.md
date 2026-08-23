@@ -1412,9 +1412,10 @@ không Director/TTS/action/memory/Focus takeover hoặc mutation, không đổi 
 compatibility component và không tăng product version. Sau mỗi slice phải dừng để owner review; không tự
 chuyển sang slice kế tiếp.
 
-MCB-2 implementation chỉ được bắt đầu sau khi owner duyệt docs-first. Slice này được phép thêm typed request,
-Context Builder read-only, Focus projection read-only, strict cognition config và bounded metrics/tests; không
-được sửa decision path, gọi LLM, persist context/Focus, nhận proposal hoặc tự chuyển MCB-3.
+Owner đã duyệt docs-first MCB-2 và implementation read-only đạt ngày 24/08/2026: typed request, Context
+Builder, Focus projection, strict cognition config, bounded metrics/tests đã có nhưng chưa compose consumer
+vào runtime. Slice không sửa decision path, không gọi LLM, không persist context/Focus, không nhận proposal
+và không tự chuyển MCB-3.
 
 ---
 

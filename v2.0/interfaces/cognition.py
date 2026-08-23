@@ -1,7 +1,8 @@
 """Strict proposal-only contracts for the Cognitive Brain boundary.
 
-MCB-1 defines immutable values only.  Nothing in this module calls an LLM,
-executes an action, mutates domain state, or owns a background task.
+MCB-1 defines immutable proposal values. MCB-2 adds only a read-only context
+builder boundary. Nothing in this module calls an LLM, executes an action,
+mutates domain state, or owns a background task.
 """
 from __future__ import annotations
 
@@ -18,7 +19,7 @@ from typing import Any, Mapping
 from interfaces.base import Service
 
 
-_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_CONTEXT_ID_RE = re.compile(r"^(?:ctx:)?[0-9a-f]{64}$")
 
 
 class CognitiveEvidenceSource(str, Enum):
@@ -109,6 +110,14 @@ class CognitionConfig:
     max_action_argument_items: int
     max_action_argument_chars: int
     focus_ttl_seconds: int
+    max_context_serialized_chars: int
+    max_context_snapshots: int
+    max_context_request_age_seconds: int
+    max_context_future_skew_seconds: int
+    max_recent_speech_age_seconds: int
+    memory_query_top_k: int
+    focus_saturation_move_count: int
+    focus_pressure_by_status: Mapping[str, float]
     source_failure_codes: tuple[str, ...]
     reason_codes: tuple[str, ...]
     speech_source_modes: tuple[str, ...]
@@ -120,7 +129,11 @@ class CognitionConfig:
         "max_available_actions", "max_evidence_refs", "max_reason_codes",
         "max_memory_proposals", "max_unresolved_items", "max_focus_claims",
         "max_action_argument_items", "max_action_argument_chars",
-        "focus_ttl_seconds", "source_failure_codes", "reason_codes",
+        "focus_ttl_seconds", "max_context_serialized_chars",
+        "max_context_snapshots", "max_context_request_age_seconds",
+        "max_context_future_skew_seconds", "max_recent_speech_age_seconds",
+        "memory_query_top_k", "focus_saturation_move_count",
+        "focus_pressure_by_status", "source_failure_codes", "reason_codes",
         "speech_source_modes",
     })
 
@@ -128,7 +141,7 @@ class CognitionConfig:
         if _positive_int(self.schema_version, "schema_version") != 1:
             raise ValueError("schema_version must be 1")
         if self.rollout_mode != "disabled":
-            raise ValueError("rollout_mode must be disabled in MCB-1")
+            raise ValueError("rollout_mode must remain disabled through MCB-2")
         integer_fields = (
             "max_id_chars", "max_label_chars", "max_text_chars",
             "max_speech_chars", "max_attention_items", "max_memory_items",
@@ -136,12 +149,32 @@ class CognitionConfig:
             "max_evidence_refs", "max_reason_codes", "max_memory_proposals",
             "max_unresolved_items", "max_focus_claims",
             "max_action_argument_items", "max_action_argument_chars",
-            "focus_ttl_seconds",
+            "focus_ttl_seconds", "max_context_serialized_chars",
+            "max_context_snapshots", "max_context_request_age_seconds",
+            "max_context_future_skew_seconds", "max_recent_speech_age_seconds",
+            "memory_query_top_k", "focus_saturation_move_count",
         )
         for name in integer_fields:
             _positive_int(getattr(self, name), name)
         if self.max_speech_chars > self.max_text_chars:
             raise ValueError("max_speech_chars must not exceed max_text_chars")
+        if self.max_context_serialized_chars < self.max_text_chars:
+            raise ValueError("max_context_serialized_chars must cover max_text_chars")
+        if self.memory_query_top_k > self.max_memory_items:
+            raise ValueError("memory_query_top_k must not exceed max_memory_items")
+        pressure = self.focus_pressure_by_status
+        if not isinstance(pressure, Mapping) or set(pressure) != {
+            "active", "waiting", "parked",
+        }:
+            raise ValueError("focus_pressure_by_status must define exact thread statuses")
+        normalized_pressure: dict[str, float] = {}
+        for status in ("active", "waiting", "parked"):
+            normalized_pressure[status] = _unit_interval(
+                pressure[status], f"focus_pressure_by_status.{status}",
+            )
+        object.__setattr__(
+            self, "focus_pressure_by_status", MappingProxyType(normalized_pressure),
+        )
         allowlist_caps = {
             "source_failure_codes": self.max_evidence_refs,
             "reason_codes": self.max_reason_codes,
@@ -166,12 +199,45 @@ class CognitionConfig:
                 f"cognition config keys mismatch: missing={missing}, unknown={unknown}"
             )
         payload = dict(value)
+        pressure = payload["focus_pressure_by_status"]
+        if not isinstance(pressure, Mapping):
+            raise ValueError("focus_pressure_by_status must be a YAML mapping")
+        payload["focus_pressure_by_status"] = dict(pressure)
         for name in ("source_failure_codes", "reason_codes", "speech_source_modes"):
             raw = payload[name]
             if not isinstance(raw, list):
                 raise ValueError(f"{name} must be a YAML list")
             payload[name] = tuple(raw)
         return cls(**payload)
+
+
+@dataclass(frozen=True)
+class CognitiveContextRequest:
+    """Kernel-owned, identity-only request for one read-only context build."""
+
+    config: InitVar[CognitionConfig]
+    schema_version: int
+    request_id: str
+    session_id: str
+    requested_at: datetime
+    trigger_event_ref: str | None
+    hard_state: "CognitiveHardState"
+
+    def __post_init__(self, config: CognitionConfig) -> None:
+        _schema(self.schema_version, config)
+        object.__setattr__(self, "request_id", _identifier(
+            self.request_id, "request_id", config,
+        ))
+        object.__setattr__(self, "session_id", _identifier(
+            self.session_id, "session_id", config,
+        ))
+        object.__setattr__(self, "requested_at", _utc(
+            self.requested_at, "requested_at",
+        ))
+        object.__setattr__(self, "trigger_event_ref", _optional_identifier(
+            self.trigger_event_ref, "trigger_event_ref", config,
+        ))
+        _instance(self.hard_state, CognitiveHardState, "hard_state")
 
 
 @dataclass(frozen=True)
@@ -393,7 +459,7 @@ class CognitiveContext:
     def __post_init__(self, config: CognitionConfig) -> None:
         _schema(self.schema_version, config)
         context_id = _text(self.context_id, "context_id", config.max_id_chars)
-        if _SHA256_RE.fullmatch(context_id) is None:
+        if _CONTEXT_ID_RE.fullmatch(context_id) is None:
             raise ValueError("context_id must be a lowercase SHA-256 hash")
         object.__setattr__(self, "context_id", context_id)
         object.__setattr__(self, "created_at", _utc(self.created_at, "created_at"))
@@ -753,6 +819,24 @@ class CognitiveBrainService(Service):
         """Return one proposal without executing or committing any side effect."""
 
 
+class CognitiveContextBuilderService(Service):
+    """Read-only typed projection boundary; it owns no domain truth."""
+
+    @abstractmethod
+    async def build(
+        self, request: CognitiveContextRequest,
+    ) -> CognitiveContext | None:
+        """Build and retain one bounded context, or return None fail-closed."""
+
+    @abstractmethod
+    def recent(self, limit: int | None = None) -> tuple[CognitiveContext, ...]:
+        """Return detached successful contexts ordered oldest to newest."""
+
+    @abstractmethod
+    def focus_snapshot(self) -> FocusState | None:
+        """Return the Focus projection paired with the latest successful build."""
+
+
 def _schema(value: Any, config: CognitionConfig) -> None:
     if _positive_int(value, "schema_version") != config.schema_version:
         raise ValueError("schema_version does not match cognition config")
@@ -796,7 +880,7 @@ def _optional_identifier(value: Any, name: str, config: CognitionConfig) -> str 
 
 def _context_hash(value: Any, config: CognitionConfig) -> str:
     result = _text(value, "context_id", config.max_id_chars)
-    if _SHA256_RE.fullmatch(result) is None:
+    if _CONTEXT_ID_RE.fullmatch(result) is None:
         raise ValueError("context_id must be a lowercase SHA-256 hash")
     return result
 

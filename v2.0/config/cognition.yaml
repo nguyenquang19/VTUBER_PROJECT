@@ -1,4 +1,4 @@
-# MCB-1 contract validation only. No Brain service is composed in this slice.
+# MCB-2 read-only Context/Focus shadow. No Brain or runtime consumer is composed.
 schema_version: 1
 rollout_mode: disabled
 
@@ -18,6 +18,17 @@ max_focus_claims: 16
 max_action_argument_items: 16
 max_action_argument_chars: 1024
 focus_ttl_seconds: 900
+max_context_serialized_chars: 32768
+max_context_snapshots: 128
+max_context_request_age_seconds: 30
+max_context_future_skew_seconds: 5
+max_recent_speech_age_seconds: 1800
+memory_query_top_k: 16
+focus_saturation_move_count: 4
+focus_pressure_by_status:
+  active: 1.0
+  waiting: 0.75
+  parked: 0.25
 
 source_failure_codes:
   - context
@@ -31,6 +42,8 @@ source_failure_codes:
   - goal
   - thread
   - proactive
+  - memory
+  - delivery
 
 reason_codes:
   - no_opportunity

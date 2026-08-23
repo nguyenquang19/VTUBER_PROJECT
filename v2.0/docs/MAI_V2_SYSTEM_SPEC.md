@@ -2228,7 +2228,8 @@ bất hoạt, bounded cognition metrics và negative tests. Targeted foundation 
 Director/capability/action/memory/composition đạt 220 test và full offline đạt 2.398 test với một warning
 deprecation có sẵn. Chưa có Brain adapter/service implementation, context builder, LLM call, background task,
 runtime consumer, decision/output/state mutation, shadow validation hoặc release. MCB-1 đã được chốt tại
-commit `0fe0bebdc8ac041a963e1363992346f395f712f1`; owner đã yêu cầu thực hiện docs-first MCB-2, chưa duyệt code.
+commit `0fe0bebdc8ac041a963e1363992346f395f712f1`; docs-first MCB-2 đã commit tại
+`5d246b7` và owner đã duyệt implementation read-only.
 
 #### 17.2.17. Cognitive Context và Focus shadow MCB-2 — docs-first
 
@@ -2345,7 +2346,9 @@ Ordering canonical:
 - action envelope: `action_type`, rồi `capability_id`; MCB-2 giữ tuple này rỗng theo phase gate;
 - mọi tuple reference/reason: unique rồi lexical ascending, trừ collection có ordering semantic ở trên.
 
-`context_id = "ctx:" + sha256(canonical_json_without_context_id).hexdigest()`. Canonical JSON dùng UTF-8,
+`context_id = "ctx:" + sha256(canonical_json_without_context_id).hexdigest()`. Builder MCB-2 luôn phát dạng
+có prefix; raw 64-hex MCB-1 vẫn được parser chấp nhận để giữ compatibility cho artifact/test đã tồn tại.
+Canonical JSON dùng UTF-8,
 sorted object keys, enum `.value`, UTC ISO-8601, JSON scalar hữu hạn và list theo ordering đã khóa; không dùng
 `repr`, object address hoặc mapping insertion order. Hash bao gồm `created_at=requested_at`, session/source
 snapshot IDs, hard state và toàn bộ selected content. Vì vậy cùng request + cùng source snapshot tạo cùng ID,
@@ -2430,8 +2433,7 @@ claims hoặc goal. Focus proposal validation/materialization sau accepted deliv
 
 ##### 17.2.17.6. Config, metrics, bounds và rollback
 
-`config/cognition.yaml` vẫn là canonical owner. MCB-2 dự kiến bổ sung strict keys sau; đây là giá trị cần owner
-duyệt trước code:
+`config/cognition.yaml` vẫn là canonical owner. MCB-2 đã bổ sung các strict keys được owner duyệt:
 
 | Key | Proposed value | Purpose |
 |---|---:|---|
@@ -2465,7 +2467,7 @@ context renderer, delivery và V1 compatibility không thay đổi.
 
 ##### 17.2.17.7. Implementation scope và acceptance dự kiến
 
-Sau owner approval, code MCB-2 dự kiến:
+Implementation MCB-2 gồm:
 
 - tạo `services/cognition/__init__.py`, `services/cognition/context_builder.py`;
 - sửa `interfaces/cognition.py`, `config/cognition.yaml`, config validation và cognition metrics;
@@ -2492,8 +2494,13 @@ Acceptance bắt buộc:
 Không cần real LLM, deterministic dialogue replay, TTS/VTS/OBS hoặc human review vì MCB-2 không thay
 decision/output. Quality vẫn `HOLD`; pass kỹ thuật MCB-2 không được diễn giải là hệ thống đã nói người hơn.
 
-**Trạng thái:** docs-first MCB-2 đang chờ owner duyệt contract, source policy, Focus projection, config bounds
-và file/test scope. Chưa có code/config/test MCB-2, chưa compose context consumer và chưa bắt đầu MCB-3.
+**Trạng thái:** MCB-2 read-only đã implemented ngày 24/08/2026. Có
+`CognitiveContextRequest`, `CognitiveContextBuilderService`, strict config mở rộng,
+`services/cognition/context_builder.py`, bounded Context/Focus cache, privacy-safe adaptation và metrics/tests.
+Targeted MCB-1/2 đạt 40 test; impacted World/Self/Capability/AgentState/Goal/Thread/Memory/Config/Metrics/docs
+đạt 381 test; full offline đạt 2.415 test với một dependency deprecation warning. Service chưa compose vào
+`StreamRuntime`/`DirectorLoop`, không có LLM/background task/persistence/decision/output/state mutation,
+quality vẫn `HOLD` và chưa bắt đầu MCB-3.
 
 ### 17.3. Chuỗi mã để lần theo một lượt
 

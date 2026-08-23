@@ -31,7 +31,7 @@ CONFIG_FILES: dict[str, str] = {
     "evaluation": "evaluation.yaml",              # M8 eval/data/fine-tune gates
     "operations": "operations.yaml",              # M9 live operations/recovery
     "capabilities": "capabilities.yaml",          # Phase 4 declarative availability
-    "cognition": "cognition.yaml",                # MCB-1 strict Brain/kernel contracts
+    "cognition": "cognition.yaml",                # MCB-1/2 strict context/Brain contracts
     "features": "features.yaml",
     "triggers": "triggers.yaml",
     "state_machine": "state_machine.yaml",
