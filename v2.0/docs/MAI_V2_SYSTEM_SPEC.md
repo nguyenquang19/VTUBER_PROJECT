@@ -2227,7 +2227,273 @@ và full offline suite. Không cần real LLM, replay, TTS/VTS/OBS hay human rev
 bất hoạt, bounded cognition metrics và negative tests. Targeted foundation đạt 343 test, impacted
 Director/capability/action/memory/composition đạt 220 test và full offline đạt 2.398 test với một warning
 deprecation có sẵn. Chưa có Brain adapter/service implementation, context builder, LLM call, background task,
-runtime consumer, decision/output/state mutation, shadow validation hoặc release; không được tự chuyển MCB-2.
+runtime consumer, decision/output/state mutation, shadow validation hoặc release. MCB-1 đã được chốt tại
+commit `0fe0bebdc8ac041a963e1363992346f395f712f1`; owner đã yêu cầu thực hiện docs-first MCB-2, chưa duyệt code.
+
+#### 17.2.17. Cognitive Context và Focus shadow MCB-2 — docs-first
+
+MCB-2 tạo một adapter typed giữa kernel state hiện hữu và contract MCB-1. Mục tiêu là làm cho lần gọi Brain
+sau này nhìn thấy đúng trạng thái, đúng mạch hội thoại và đúng câu đã delivery mà không biến Brain thành owner
+của truth. Slice này không có Brain, không gọi llama.cpp, không đổi câu Mai nói và không chứng minh
+human-likeness.
+
+Audit source hiện tại xác nhận:
+
+- `WorldModelShadow` trả immutable `WorldSnapshot`; mỗi `StateValue` đã có source, confidence, freshness,
+  evidence, expiry và authority;
+- `SelfModelProjection` trả `SelfSnapshot`, gồm `focused_thread_id`, topic, attention, active goal/intention và
+  recent action refs;
+- `CapabilityRegistry` trả capability + current availability nhưng mapping còn chứa executor, verifier,
+  permission và mock metadata không được chuyển nguyên vào cognition;
+- `AgentState`, `GoalManager` và `OpenThreadManager` là owner của grounded event, goal/intention và thread;
+- `ConversationContextComposer`/`ContextSelector` hiện là compatibility renderer dạng text. MCB-2 không thay
+  output hoặc tái dùng rendered string này làm typed truth;
+- `MemoryService.query()` đã bounded/fallback nhưng `MemoryEntry` cũ không luôn có đủ kind/scope/provenance/
+  confidence để trở thành `CognitiveMemoryItem`;
+- `RuleThreadDetector` có thể nhìn `SPEECH_FINAL`, còn authoritative update sau delivery dùng
+  `SPEECH_COMPLETED`. Vì vậy không được coi mọi `OpenThread.claims` là claim đã nói thật;
+- `_director_v2_context()` hiện là local Director adapter mang candidate/score semantics. Nó không phải
+  `CognitiveContext` và không được sửa hoặc đưa Director score vào Brain context trong slice này.
+
+##### 17.2.17.1. Contract và owner
+
+MCB-2 bổ sung vào `interfaces/cognition.py` đúng hai public contract:
+
+```text
+CognitiveContextRequest:
+  schema_version: positive int, exact cognition schema
+  request_id: bounded non-empty ID
+  session_id: bounded non-empty ID
+  requested_at: timezone-aware UTC datetime
+  trigger_event_ref: optional bounded event ID
+  hard_state: CognitiveHardState
+
+CognitiveContextBuilderService(Service):
+  async build(request: CognitiveContextRequest) -> CognitiveContext | None
+  recent(limit: int | None = None) -> tuple[CognitiveContext, ...]
+  focus_snapshot() -> FocusState | None
+```
+
+`CognitiveContextRequest` không chứa raw transcript, prompt, viewer identity, mutable domain object,
+capability mapping hoặc memory query result. `trigger_event_ref` chỉ là exact reference vào
+`AgentStateSnapshot.recent_events`. `requested_at` là clock duy nhất cho validation/freshness và trở thành
+`CognitiveContext.created_at`; builder không gọi wall clock rải rác khi xây cùng một context. Current grounded
+chat event không bind pseudonymous viewer ref, nên MCB-2 không truy hồi hoặc đưa viewer-scoped memory vào
+context; binding này được hoãn tới MCB-7 thay vì tin một ID không xác minh được.
+
+`build()` trả `None` khi required source thiếu/malformed/stale hoặc context vượt total bound. Nó không tạo
+sentinel snapshot ID, không bịa default semantic state và không trả safe speech. Một hard hold hợp lệ không
+làm build fail: builder vẫn tạo context nhưng co `available_modes` về `(WAIT,)` để slice sau không thể đề xuất
+speech/action. `recent()` chỉ trả snapshot đã build thành công, oldest-to-newest, detached khỏi deque nội bộ;
+`limit` phải là positive int trong configured capacity. `focus_snapshot()` trả projection đi cùng successful
+build gần nhất hoặc `None`.
+
+Service implementation dự kiến là `services/cognition/context_builder.py`, không import concrete
+`StreamRuntime`/`DirectorLoop`, không có write API và không làm owner của source service. Trong MCB-2 nó chỉ
+được gọi trực tiếp bởi test/diagnostic; không compose consumer vào live runtime, không có polling, listener,
+queue hoặc background task. Existing `cognitive_brain_shadow` vẫn `enabled=false`,
+`activation_allowed=false`; không tạo thêm feature flag chết chỉ để chứa một service chưa có runtime consumer.
+
+##### 17.2.17.2. Source matrix và failure policy
+
+| Source | Read contract | MCB-2 use | Failure |
+|---|---|---|---|
+| Kernel hard state | `CognitiveContextRequest.hard_state` | Emergency/operator/safety/permission/transaction precedence | Invalid request → `None`; any hold → `WAIT` only |
+| World | `WorldModelService.snapshot()` | Current fresh state/evidence và `world_snapshot_id` | Required; exception/invalid ID → `None` |
+| Self | `SelfModelService.snapshot()` | Current topic/attention/goal/focused thread và `self_snapshot_id` | Required; exception/invalid ID → `None` |
+| Capability | `CapabilityRegistryService.snapshot()` | Canonical `capability_snapshot_id` và freshness identity | Required; malformed snapshot → `None` |
+| Agent state | `AgentStateService.snapshot()` | Exact trigger, current conversation và authoritative recent delivery | Required; malformed snapshot → `None` |
+| Goal | `GoalManagerService.snapshot()` | Active goal/intention refs có evidence | Optional; omit + `goal` failure code |
+| Thread | `OpenThreadManagerService.snapshot()` | Matching active thread, unresolved items, Focus projection | Optional; omit + `thread` failure code |
+| Memory | `MemoryService.query()` | Strictly-adaptable relevant items only | Optional; empty là hợp lệ; error/invalid item bị omit + `memory` khi source fails |
+
+Operator/emergency/transaction owners vẫn ở kernel; MCB-2 không tạo owner hay query đường vòng khác.
+`CognitiveHardState` phải được materialize một lần tại opportunity boundary sau này và truyền vào request.
+Builder không đọc `_director_v2_context()`, không nhận Director candidates, urgency/score, prompt fragments
+hoặc compatibility decision làm attention hint.
+
+Registry hiện không có native snapshot ID. Builder phải sanitize current availability, canonical serialize
+theo `action_type/capability_id/available/reason_code/checked_at/evidence_refs` rồi tạo
+`capability_snapshot_id="capctx:"+sha256(...)`; hash không chứa executor/verifier/permission/credential/mock
+payload. Đây chỉ là identity của read projection, không thay authority của Capability Registry.
+
+Hard source failure không được che bằng cached prior context vì có thể làm Brain nhìn state cũ. Soft item
+failure không làm mất toàn context: item bị omit, code bounded được thêm vào
+`operator_state.source_failure_codes`. MCB-2 bổ sung `memory` và `delivery` vào configured allowlist; không
+đưa exception text hoặc source ID vào metric label/reason code. Duplicate cùng canonical identity được giữ
+một bản theo deterministic priority; collision cùng ID nhưng payload khác làm build `None`.
+
+##### 17.2.17.3. Selection, freshness và canonical identity
+
+Selection chạy theo thứ tự cố định trước khi apply capacity:
+
+1. Validate request, schema, time và hard state.
+2. Read World → Self → Capability → AgentState → Goal → Thread; Memory query chạy sau khi exact trigger đã
+   được xác minh để có bounded query text. Không có trigger thì query text là current topic/summary; không có
+   cả hai thì bỏ Memory thay vì query toàn kho.
+3. Loại expired/future/malformed/scope-conflicting item và áp dụng World/Self-over-Memory conflict rule trên
+   exact normalized `world_path`/`self_path` metadata.
+4. Sort rồi truncate từng collection; không truncate theo provider insertion order.
+5. Serialize canonical JSON, enforce total character bound, hash và mới tạo immutable `CognitiveContext`.
+
+Ordering canonical:
+
+- evidence: source priority `CHAT, THREAD, GOAL, WORLD, SELF, ENVIRONMENT, OPERATOR`, rồi
+  `observed_at` mới đến cũ, rồi `evidence_id` tăng dần;
+- memory: `observed_at` mới đến cũ rồi `memory_ref` tăng dần;
+- recent speech: `delivered_at` mới đến cũ rồi `delivery_id` tăng dần;
+- action envelope: `action_type`, rồi `capability_id`; MCB-2 giữ tuple này rỗng theo phase gate;
+- mọi tuple reference/reason: unique rồi lexical ascending, trừ collection có ordering semantic ở trên.
+
+`context_id = "ctx:" + sha256(canonical_json_without_context_id).hexdigest()`. Canonical JSON dùng UTF-8,
+sorted object keys, enum `.value`, UTC ISO-8601, JSON scalar hữu hạn và list theo ordering đã khóa; không dùng
+`repr`, object address hoặc mapping insertion order. Hash bao gồm `created_at=requested_at`, session/source
+snapshot IDs, hard state và toàn bộ selected content. Vì vậy cùng request + cùng source snapshot tạo cùng ID,
+còn request time/source/content đổi thì ID phải đổi.
+
+Freshness policy:
+
+- reject request cũ quá `max_context_request_age_seconds` hoặc ở tương lai quá
+  `max_context_future_skew_seconds` so với injected validation clock;
+- tôn trọng `StateValue.expires_at`, `CognitiveEvidenceItem.expires_at`, `OpenThread.expires_at` và memory
+  expiry nếu metadata có timezone-aware value;
+- recent delivered speech chỉ nhận `GroundedEvent.kind=SPEECH_COMPLETED` trong
+  `max_recent_speech_age_seconds`; `SPEECH_FINAL`, generated text, `last_spoken_summary` và failed delivery
+  không hợp lệ;
+- exact trigger phải là fresh `CHAT_RECEIVED`; không found, duplicate conflict, wrong kind hoặc stale trigger
+  làm build `None`, không âm thầm chuyển sang ambient context;
+- ambient và triggered context đều không truy hồi viewer-scoped memory trong MCB-2 vì AgentState chưa có
+  verified pseudonymous event-to-viewer binding.
+
+MCB-2 chỉ enforce canonical serialized character budget, chưa gọi tokenizer. Exact llama.cpp tokenizer/token
+preflight, context-window reservation và prompt budget thuộc MCB-3 vì chỉ khi đó mới có model/prompt owner.
+
+##### 17.2.17.4. Typed adaptation và privacy
+
+Chat digest lấy bounded text từ exact `CHAT_RECEIVED` payload, giữ event/provenance refs và không giữ username,
+raw platform user ID hoặc toàn payload. Event payload không được serialize wholesale. Conversation state chỉ
+chứa selected topic/thread/goal/intention/summary và evidence refs; không dump `AgentStateSnapshot.to_dict()`.
+
+World/Self adaptation chỉ lấy documented public fields. Capability snapshot chỉ dùng identity/freshness trong
+MCB-2: `available_actions=()` và `PROPOSE_ACTION` không nằm trong `available_modes` trước MCB-8. Vì vậy
+executor/verifier ID, permissions, credential/env name, callable, mock transport và registry internals không
+thể lọt vào context. Không có hard hold thì modes là `(WAIT, SPEAK)`; có bất kỳ hard flag nào thì chỉ
+`(WAIT,)`.
+
+Một `MemoryEntry` chỉ được chuyển thành `CognitiveMemoryItem` khi metadata có đủ và đúng type:
+
+- `cognitive_kind` map exact `MemoryKind`;
+- `cognitive_scope` map exact `MemoryScope`;
+- non-empty bounded `provenance_refs`;
+- finite `confidence` trong `[0,1]`;
+- scope `VIEWER` luôn bị omit trong MCB-2; scope `SESSION`/`SELF` bắt buộc không có viewer ID;
+- optional `expires_at` là ISO-8601 string có UTC offset hợp lệ, vì `MemoryEntry.metadata` chỉ nhận JSON-safe
+  scalar;
+- nếu có `action_status` success/delivered thì `verified=true`, `outcome_id` và provenance bắt buộc theo
+  `MemoryEntry` boundary hiện hữu.
+
+Không suy `kind` từ tag/content, không dùng `importance` làm confidence, không broaden viewer memory thành
+session/self và không đưa legacy entry thiếu metadata vào context. MCB-7 mới có quyền docs-first adapter/
+proposal materialization đầy đủ hơn.
+
+##### 17.2.17.5. Focus shadow projection
+
+MCB-2 không tạo mutable Focus store. Focus là `FocusState` dẫn xuất on-demand từ current Self + Thread +
+AgentState, không có write/commit API và không survive restart. Điều kiện materialize đồng thời:
+
+1. `SelfSnapshot.focused_thread_id` khác `None`;
+2. exact ID khớp duy nhất một `OpenThread` còn fresh;
+3. origin event còn trong bounded AgentState và map rõ ràng sang `FocusOrigin`;
+4. timestamps hợp lệ và projected lifetime không vượt `focus_ttl_seconds`.
+
+Origin mapping exact: `CHAT_RECEIVED → CHAT`, `SPEECH_COMPLETED` hoặc `SELF_TALK_COMPLETED → SELF`,
+`GOAL_AUDIT → GOAL`, `ENVIRONMENT_OBSERVED → ENVIRONMENT`, source operator → `OPERATOR`; trường hợp khác
+trả `None`. `MEMORY` được reserve cho MCB-7, không sinh trong MCB-2.
+
+Projection fields:
+
+- topic lấy từ thread; stance luôn `None`, không suy đoán thái độ;
+- unresolved items chỉ lấy fresh `open_questions` có source event xác minh được;
+- `claims_delivered` chỉ lấy contribution whose `source_event_id` trỏ exact `SPEECH_COMPLETED`; mọi
+  `SPEECH_FINAL` claim bị loại;
+- `continuation_pressure` lấy exact YAML mapping theo `ThreadStatus`;
+- `saturation = min(1.0, move_count / focus_saturation_move_count)`; đây là derived indicator, không phải
+  World truth;
+- `born_at=thread.created_at`, `updated_at=thread.updated_at`,
+  `expires_at=min(thread.expires_at, born_at + focus_ttl_seconds)`;
+- `focus_id` dùng cùng canonical SHA-256 rule với prefix `focus:` và loại chính field `focus_id`.
+
+Context `focus_snapshot_id` phải đúng projected `focus_id`; nếu không project được thì là `None`. Builder chỉ
+cache projection tương ứng successful build gần nhất cho `focus_snapshot()`. Nó không accept
+`FocusProposal`, không renew TTL, không merge state, không thay `Self.focused_thread_id`, thread status,
+claims hoặc goal. Focus proposal validation/materialization sau accepted delivery vẫn thuộc MCB-6.
+
+##### 17.2.17.6. Config, metrics, bounds và rollback
+
+`config/cognition.yaml` vẫn là canonical owner. MCB-2 dự kiến bổ sung strict keys sau; đây là giá trị cần owner
+duyệt trước code:
+
+| Key | Proposed value | Purpose |
+|---|---:|---|
+| `max_context_serialized_chars` | `32768` | Hard total canonical context bound trước hash/store |
+| `max_context_snapshots` | `128` | Bounded in-memory successful contexts, không persist |
+| `max_context_request_age_seconds` | `30` | Reject queued/stale request |
+| `max_context_future_skew_seconds` | `5` | Reject invalid future clock |
+| `max_recent_speech_age_seconds` | `1800` | Khớp current recent-event lifetime |
+| `memory_query_top_k` | `16` | Không vượt `max_memory_items` |
+| `focus_saturation_move_count` | `4` | Denominator deterministic, positive int |
+| `focus_pressure_by_status` | `{active: 1.0, waiting: 0.75, parked: 0.25}` | Exact normalized projection mapping |
+| `source_failure_codes` additions | `[memory, delivery]` | Bounded soft-source outcomes |
+
+Unknown/missing key, bool-as-number, numeric string, non-finite/range error, duplicate code, missing/extra
+thread status hoặc `memory_query_top_k > max_memory_items` phải reject whole reload và giữ prior config.
+`max_context_snapshots=0` không dùng làm disable switch; MCB-2 không có runtime consumer, còn rollout vẫn do
+`cognitive_brain_shadow` bất hoạt kiểm soát.
+
+Metrics xuất hiện cùng implementation owner:
+
+- `cognitive_context_build_total{outcome}`: `ready | degraded | unavailable | rejected`;
+- `cognitive_context_source_total{source,outcome}` với exact source và `accepted | omitted | failed`;
+- `cognitive_context_build_duration_seconds` và `cognitive_context_serialized_chars` không có raw label;
+- `cognitive_focus_projection_total{outcome}`: `present | absent | stale | mismatch | invalid`;
+- `cognitive_snapshot_evicted_total{kind}` với `context | focus`.
+
+ID, viewer, prompt, chat/speech text, exception, arbitrary reason/config value không được làm label. Snapshot
+chỉ giữ in-memory immutable sanitized context; `stop()`/process exit xóa toàn bộ, không tạo schema/data
+migration. Rollback là không compose/call builder và revert unconsumed MCB-2 implementation; live Director,
+context renderer, delivery và V1 compatibility không thay đổi.
+
+##### 17.2.17.7. Implementation scope và acceptance dự kiến
+
+Sau owner approval, code MCB-2 dự kiến:
+
+- tạo `services/cognition/__init__.py`, `services/cognition/context_builder.py`;
+- sửa `interfaces/cognition.py`, `config/cognition.yaml`, config validation và cognition metrics;
+- tạo behavior-named tests `test_cognitive_context_builder.py` và
+  `test_cognitive_focus_projection.py`, cập nhật impacted interface/config/documentation tests;
+- không sửa `StreamRuntime`, `DirectorLoop`, prompt/model/sampling, feature activation, TTS/action/memory write,
+  product version hoặc changelog.
+
+Acceptance bắt buộc:
+
+- strict request/source/memory/time/config negative paths;
+- deterministic same-input selection/order/canonical hash và changed-input hash;
+- total/per-field bounds, duplicate/collision, future/stale/expiry behavior;
+- exact trigger isolation, viewer-scoped memory luôn bị loại, no raw transcript/credential/executor/verifier/
+  permission leakage;
+- current World/Self over Memory conflict behavior;
+- recent speech và Focus claims chỉ sau `SPEECH_COMPLETED`;
+- Focus absent/mismatch/stale/origin/TTL/pressure/saturation/hash tests;
+- required source failure → `None`, soft source failure → degraded context, hard hold → `WAIT` only;
+- bounded recent snapshots/eviction metric, stop clears cache, no persistence/background task/runtime consumer;
+- no-cross-import, impacted World/Self/Capability/AgentState/Goal/Thread/Memory/ContextSelector/Director
+  regressions, documentation guard và full offline suite.
+
+Không cần real LLM, deterministic dialogue replay, TTS/VTS/OBS hoặc human review vì MCB-2 không thay
+decision/output. Quality vẫn `HOLD`; pass kỹ thuật MCB-2 không được diễn giải là hệ thống đã nói người hơn.
+
+**Trạng thái:** docs-first MCB-2 đang chờ owner duyệt contract, source policy, Focus projection, config bounds
+và file/test scope. Chưa có code/config/test MCB-2, chưa compose context consumer và chưa bắt đầu MCB-3.
 
 ### 17.3. Chuỗi mã để lần theo một lượt
 

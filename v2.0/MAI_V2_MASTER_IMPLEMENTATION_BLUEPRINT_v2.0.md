@@ -556,6 +556,35 @@ Crossing-subsystem contract của track này nằm trong `interfaces/cognition.p
 `CognitiveBrainService`. MCB-1 chỉ được tạo contract/config/feature boundary bất hoạt; không được có
 llama.cpp call, scheduler, Director takeover, delivery, action execution hoặc state mutation.
 
+MCB-2 chỉ dựng lớp chuyển đổi typed, deterministic từ các owner hiện hữu sang `CognitiveContext` và một
+`FocusState` shadow dẫn xuất. Contract bổ sung canonical là `CognitiveContextRequest` và
+`CognitiveContextBuilderService`; service trả `CognitiveContext | None`, giữ bounded in-memory snapshots cho
+diagnostic nhưng không persist, không được ghi ngược vào World/Self/Goal/Thread/Memory và không được nhận hay
+commit `FocusProposal`. `None` nghĩa là required source không thể tạo context an toàn; slice có Brain sau này
+phải đi exact compatibility path.
+
+Source authority MCB-2 khóa như sau:
+
+- `WorldModelService`, `SelfModelService`, `CapabilityRegistryService`, `AgentStateService`,
+  `GoalManagerService`, `OpenThreadManagerService` và `MemoryService` vẫn là owner; Context Builder chỉ đọc
+  public snapshot/query contract;
+- hard state do kernel tạo tại opportunity boundary; mọi hard hold co `available_modes` về đúng `WAIT`;
+- chat chỉ được chọn bằng exact `trigger_event_ref`, không match gần đúng; recent speech/Focus claim chỉ nhận
+  `SPEECH_COMPLETED` authoritative;
+- Focus chỉ materialize khi `SelfSnapshot.focused_thread_id` khớp một open thread còn fresh. Pressure và
+  saturation là projection deterministic theo YAML, không phải truth hoặc state mới;
+- memory thiếu scope/kind/provenance/confidence rõ ràng bị omit; viewer scope không được broaden và World/Self
+  hiện tại tiếp tục thắng memory khi conflict;
+- capability snapshot được dùng cho identity/freshness nhưng MCB-2 chưa cấp `PROPOSE_ACTION`; action envelope
+  để rỗng tới slice MCB-8;
+- context ID là SHA-256 của canonical JSON sau selection/order/bounds, loại chính field `context_id`; timestamp
+  build lấy từ request để same-input replay không phụ thuộc wall clock.
+
+MCB-2 không compose consumer vào `StreamRuntime`/`DirectorLoop`, không tạo background task, không gọi
+llama.cpp/tokenizer, không đổi prompt/decision/output, không thêm mutable Focus owner và không mở khóa
+`cognitive_brain_shadow`. MCB-3 mới được docs-first về opportunity, queue/timeout, tokenizer preflight và
+Brain shadow consumer.
+
 ---
 
 # 8. Configuration, feature và observability policy
@@ -1382,6 +1411,10 @@ MCB-1 non-goals được khóa: không context builder runtime, không Brain ada
 không Director/TTS/action/memory/Focus takeover hoặc mutation, không đổi model/sampling/persona, không xóa
 compatibility component và không tăng product version. Sau mỗi slice phải dừng để owner review; không tự
 chuyển sang slice kế tiếp.
+
+MCB-2 implementation chỉ được bắt đầu sau khi owner duyệt docs-first. Slice này được phép thêm typed request,
+Context Builder read-only, Focus projection read-only, strict cognition config và bounded metrics/tests; không
+được sửa decision path, gọi LLM, persist context/Focus, nhận proposal hoặc tự chuyển MCB-3.
 
 ---
 
