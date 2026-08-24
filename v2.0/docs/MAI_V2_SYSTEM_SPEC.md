@@ -2819,6 +2819,152 @@ llama.cpp baseline và sáu
 numerical gate vẫn `HOLD` theo protocol đã duyệt. Không có takeover authority, quality tiếp tục `HOLD` và
 không tự chuyển MCB-4.
 
+#### 17.2.19. MCB-4 — Offline cognitive A/B
+
+MCB-4 là discovery harness ngoại tuyến giữa compatibility conversational path hiện tại và Brain MCB-3. Nó
+không phải shadow activation, takeover, canary hoặc release gate. Harness được phép gọi llama.cpp thật trên
+một corpus đã khóa nhưng không được compose consumer mới vào `StreamRuntime`, không được delivery/TTS/action,
+không được reserve/commit/release transaction và không được ghi World/Self/Goal/Thread/Focus/Memory/history.
+`cognitive_brain_shadow` tiếp tục mặc định tắt; CLI ngoại tuyến chỉ được khởi tạo service trực tiếp khi
+`activation_allowed=true` và source/config/corpus preflight hợp lệ.
+
+##### 17.2.19.1. Đơn vị so sánh và fairness contract
+
+Một case A/B bắt đầu từ một source case bất biến và một authoritative pre-turn snapshot. Hai path phải dùng:
+
+- cùng corpus case ID/category và cùng sanitized source event/evidence refs;
+- cùng World/Self/capability/Focus/conversation/memory/recent-delivery snapshot identity;
+- cùng persona/lore source digest, GGUF/model identity, tokenizer/chat-template identity;
+- cùng deterministic seed, sampling values và output budget do cấu hình A/B sở hữu;
+- cùng source revision và toàn bộ config identity; artifact từ dirty source được phép dùng chẩn đoán nhưng
+  không được dùng làm gate evidence.
+
+Compatibility candidate phải đi qua Director/LLM compatibility implementation hiện tại. Brain candidate
+phải đi qua `CognitiveContextBuilderService` và `CognitiveBrainService` hiện tại, chỉ có `WAIT | SPEAK` và
+không nhìn thấy compatibility decision/reason trong prompt. Context serialization và system policy của hai
+path khác nhau vì đây chính là biến kiến trúc đang đánh giá; artifact phải ghi digest từng prompt/profile và
+không được tuyên bố hai prompt byte-identical. Không được đổi model, persona/lore, sampling, filter policy hoặc
+corpus giữa hai candidate trong cùng run.
+
+Generation chạy tuần tự trên cùng llama.cpp slot để không đo race GPU như chất lượng. Thứ tự old/new được
+hoán đổi deterministic theo `seed + case_id` nhằm giảm order/cache bias. Mỗi candidate tối đa một primary
+generation cho discovery; failure không được thay bằng canned speech hoặc regenerate thành một candidate có
+vẻ tốt hơn. Parse/schema/filter/preflight/timeout/cancel/stale phải giữ nguyên outcome và đi vào denominator.
+
+##### 17.2.19.2. Corpus và pair selection
+
+Corpus canonical được đặt dưới `eval/`, versioned và content-hashed; `config/evaluation.yaml` chỉ giữ path,
+seed, bounds và selection policy. Corpus phải có cả natural và failure/adversarial cases, tối thiểu các strata:
+
+- direct chat/question và conversational continuation;
+- proactive/self-talk readiness và trường hợp `WAIT` là lựa chọn đúng;
+- vague/emoji-only/unknown-term input;
+- unsupported visual, third-party identity và conditional/hypothetical wording;
+- repetition/formula pressure và contradiction với delivered claims;
+- donation/operator priority, interruption và hard-hold cases;
+- stale/missing evidence, malformed context và prompt-injection-like chat data.
+
+Mọi case có stable `case_id`, category/strata allowlist, source event, public context seed data và expected hard
+constraints; không chứa credential, raw private transcript hoặc viewer identity. Expected hard constraints chỉ
+dùng kiểm correctness, không dùng làm hidden style answer.
+
+Selection từ completed cases sang blind review phải deterministic và stratified. Ít nhất 30 informative pair
+được persist trước reveal. Pair có một path `WAIT` và path kia `SPEAK` vẫn hợp lệ, dùng display marker cố định
+`[WAIT — không nói]` để reviewer chấm timing/action coherence. Pair cả hai `WAIT` chỉ tính trong decision
+matrix, không tính vào 30 quality pairs. Empty/failure của một path không được biến thành fake speech; nó bị
+exclude khỏi text pair với exact reason nhưng vẫn nằm trong technical denominator. Báo cáo phải công bố total
+cases, eligible, selected, both-WAIT, từng failure/exclusion và per-stratum counts để phát hiện selection bias.
+
+##### 17.2.19.3. Artifact chain và blindness
+
+MCB-4 tái sử dụng `HumanLikeCalibration`/MAI-HLC hiện có; không tạo thuật toán blind thứ hai. Chuỗi artifact:
+
+1. private source-bound comparison artifact chứa identities, raw sanitized candidate output, exact mode/action,
+   telemetry, outcome và hard-precheck flags;
+2. sealed manifest bind source/config/corpus/model/profile/prompt identities, deterministic selection và
+   A/B role mapping bằng SHA-256 commitment;
+3. blind review artifact chỉ chứa `pair_ref`, bounded context summary, candidate A/B và rubric; không lộ role,
+   SHA build, prompt nội bộ, score tự động, memory internals hoặc failure label;
+4. persisted human scores được validate cùng `pair_ref`/commitment trước reveal;
+5. finalized artifact reveal role và tạo summary; `automatic_release_decision=false` luôn bắt buộc.
+
+Private comparison/manifest không được đưa cho reviewer trước khi review đã persist. Blind artifact phải được
+atomic-write và content digest trong manifest phải fail-closed nếu context/output/order bị sửa. Artifact chỉ
+giữ sanitized public evidence; không log prompt body, raw model rejection, CoT, exception text, credential,
+PII hoặc mutable runtime object.
+
+Rubric giữ MAI-HLC canonical: Language 20%, Presence 25%, Context 15%, Character 15%, Timing 15% và
+Spontaneity 10%, cộng AI-smell, liveness, action coherence và note. Decision report riêng phải có:
+
+- compatibility action label × Brain `WAIT/SPEAK` matrix và coarse mode agreement;
+- deliberate-ignore candidates, later-recovery applicability và under-speaking/dead-air markers;
+- unsupported inference, contradiction, semantic repetition và grounding prechecks;
+- donation/operator/interruption/hard-hold correctness;
+- calls, schema/parse/preflight/stale/timeout outcomes và latency/token distributions.
+
+Automated detector là precheck/triage, không được sửa output, sửa điểm hoặc thay blind human score.
+
+##### 17.2.19.4. Config, implementation scope và metrics
+
+`config/evaluation.yaml::evaluation.cognitive_ab` là owner dự kiến của:
+
+```text
+schema_version: 1
+corpus_file: .\eval\corpora\cognitive_ab_v1.yaml
+seed: 20260824
+minimum_cases: 30
+minimum_blind_pairs: 30
+maximum_blind_pairs: 100
+wait_display_marker: "[WAIT — không nói]"
+max_context_summary_chars: 400
+max_candidate_output_chars: 800
+generation_max_tokens: 192
+generation_temperature: 0.75
+strict_source_clean_for_gate: true
+required_strata: <bounded allowlist above>
+```
+
+`minimum_blind_pairs=30` là gate MCB-4 đã khóa; các quality delta cuối cùng chưa được agent tự đặt. Seed và
+generation bounds chỉ áp dụng CLI A/B, không đổi live `models.yaml` hoặc `config/cognition.yaml`. Loader phải
+reject unknown key, bool-as-int, invalid path/bound, duplicate stratum và min/max conflict.
+
+Implementation dự kiến tạo `services/evaluation/cognitive_ab.py`,
+`scripts/run_cognitive_ab_replay.py`, `eval/corpora/cognitive_ab_v1.yaml` và behavior-named tests. Sửa có kiểm
+soát `config/evaluation.yaml`, config validation/metrics và chỉ các replay/evaluation helper cần để lấy exact
+pre-turn snapshot. Tái sử dụng `services/evaluation/human_like.py`; chỉ sửa nó khi compatibility adapter thật
+sự cần một schema-versioned, backward-compatible field, không làm mất khả năng finalize artifact MCB-0.
+
+Không dự kiến sửa `StreamRuntime`, `DirectorLoop` live composition, feature state, `models.yaml`, Brain live
+prompt, Director selector/materializer, TTS/action/memory writer, product version hoặc changelog. Metric/evidence
+vocabulary bounded gồm `cognitive_ab_case_total{stratum,outcome}`, `cognitive_ab_candidate_total{role,outcome}`,
+`cognitive_ab_mode_total{role,mode}`, `cognitive_ab_pair_total{outcome}` và artifact distributions không có ID/
+text trong label.
+
+##### 17.2.19.5. Acceptance, rủi ro và stop condition
+
+Docs-first phải được owner duyệt trước code. Sau implementation, acceptance tối thiểu:
+
+- strict corpus/config/artifact contract và deterministic hash/order/selection tests;
+- cùng case/snapshot/profile/model/seed/bounds cho hai path, với path-specific prompt digest được công bố;
+- exact compatibility Director path và exact Brain MCB-3 validation; zero synthetic fallback candidate;
+- decision/action/`WAIT` matrix, all-case denominator và per-stratum coverage;
+- at least 30 persisted blind pairs, sealed commitment, tamper rejection và reveal chỉ sau complete review;
+- natural + adversarial corpus, both-WAIT/exclusion/failure accounting và no cherry-pick proof;
+- zero transaction, delivery, TTS, action, history, Focus, Memory, Goal, Thread, Self hoặc World mutation;
+- targeted evaluation/cognition tests, impacted V1 replay/evaluation regression và full offline suite;
+- real llama.cpp A/B từ clean exact SHA với source/config/corpus/model/prompt digests và raw technical
+  distributions; owner review chấm xong mới có go/no-go cho MCB-5.
+
+Rủi ro chính là shared-source nhưng khác information surface, hidden cache/order bias, insufficient eligible
+pair do Brain failure/`WAIT`, selection bias, manifest leakage và hiểu aggregate như production proof.
+Mitigation là immutable pre-turn identity, deterministic alternating order/seed, explicit denominators,
+stratified selection, persist-before-reveal và `automatic_release_decision=false`. Rollback chỉ bỏ offline
+harness/config/corpus; runtime không có migration hoặc authority để rollback.
+
+**Trạng thái:** docs-first MCB-4 được owner cho bắt đầu ngày 24/08/2026. Chưa có implementation/evidence A/B,
+chưa có 30-pair review và không có live authority. Sáu numerical gate MCB-3 cùng human-like quality vẫn
+`HOLD`; vì vậy chưa có cơ sở bắt đầu MCB-5.
+
 ### 17.3. Chuỗi mã để lần theo một lượt
 
 ```mermaid

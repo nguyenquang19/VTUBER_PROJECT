@@ -1440,11 +1440,26 @@ Builder, Focus projection, strict cognition config, bounded metrics/tests đã c
 vào runtime. Slice không sửa decision path, không gọi LLM, không persist context/Focus, không nhận proposal
 và không tự chuyển MCB-3.
 
-MCB-2 implementation đã được chốt tại commit `75814e9`; docs-first MCB-3 được chốt tại `c0ae3c2`. Working
-tree MCB-3 đã triển khai Brain observer, structured llama.cpp boundary, opportunity scheduler, resource
-preemption, validation, metrics và exact compatibility semantics. Feature vẫn mặc định tắt, chưa có quyền
-takeover và real llama.cpp baseline/sáu numerical acceptance gate vẫn `HOLD` theo protocol đã duyệt trong
-System Spec; không tự chuyển MCB-4.
+MCB-2 implementation đã được chốt tại commit `75814e9`; docs-first MCB-3 được chốt tại `c0ae3c2`; MCB-3
+implementation được chốt tại `d6982b9`. Brain observer, structured llama.cpp boundary, opportunity scheduler,
+resource preemption, validation, metrics và exact compatibility semantics đã có. Feature vẫn mặc định tắt,
+chưa có quyền takeover và real llama.cpp baseline/sáu numerical acceptance gate vẫn `HOLD` theo protocol đã
+duyệt trong System Spec.
+
+Owner đã cho phép bắt đầu docs-first MCB-4 ngày 24/08/2026. Slice này chỉ được thêm một harness A/B ngoại
+tuyến, source-bound và persist-before-reveal; không bật Brain trong live runtime, không đọc kết quả Brain vào
+Director và không thay đổi delivery/action/state authority. Mỗi pair phải bind cùng corpus case, authoritative
+pre-turn snapshot, persona/lore profile, model identity và deterministic generation seed. Khác biệt adapter/
+prompt giữa compatibility path và Brain là biến kiến trúc được đo, phải được sealed manifest ghi nhận và
+không được che thành “cùng prompt”.
+
+MCB-4 phải báo riêng: ma trận compatibility action/`WAIT` so với Brain `SPEAK`/`WAIT`; schema/timeout/stale/
+preflight exclusions; coverage natural và adversarial; ít nhất 30 informative blind discovery pairs; MAI-HLC
+dimensions, AI-smell, liveness và action coherence sau reveal. Pair selection phải deterministic, stratified
+và công bố cả excluded denominator; không được chỉ chọn các lượt mà cả hai path đều nói hay. Cặp có đúng một
+path `WAIT` dùng marker hiển thị canonical trong review; cặp cả hai `WAIT` chỉ vào decision matrix, không được
+độn số pair chất lượng. Automated precheck và aggregate không tự tạo go/no-go. MCB-3 gate còn `HOLD` hoặc
+human review chưa hoàn tất đều chặn MCB-5; chỉ owner mới quyết định controlled takeover.
 
 ---
 
