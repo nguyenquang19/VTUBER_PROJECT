@@ -1440,11 +1440,11 @@ Builder, Focus projection, strict cognition config, bounded metrics/tests đã c
 vào runtime. Slice không sửa decision path, không gọi LLM, không persist context/Focus, không nhận proposal
 và không tự chuyển MCB-3.
 
-MCB-2 implementation đã được chốt tại commit `75814e9`. Docs-first MCB-3 đã bắt đầu ngày 24/08/2026 và chỉ
-khóa Brain observer, structured llama.cpp boundary, opportunity scheduler, resource preemption, validation,
-metrics và exact compatibility semantics. Chưa có code/config/test MCB-3, chưa mở feature và chưa có quyền
-takeover; implementation bị chặn cho tới khi owner duyệt các giá trị YAML cùng acceptance threshold được nêu
-trong System Spec.
+MCB-2 implementation đã được chốt tại commit `75814e9`; docs-first MCB-3 được chốt tại `c0ae3c2`. Working
+tree MCB-3 đã triển khai Brain observer, structured llama.cpp boundary, opportunity scheduler, resource
+preemption, validation, metrics và exact compatibility semantics. Feature vẫn mặc định tắt, chưa có quyền
+takeover và real llama.cpp baseline/sáu numerical acceptance gate vẫn `HOLD` theo protocol đã duyệt trong
+System Spec; không tự chuyển MCB-4.
 
 ---
 

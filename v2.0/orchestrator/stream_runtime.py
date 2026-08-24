@@ -194,6 +194,7 @@ class StreamRuntime:
         control_plane: Any = None,
         emergency_controller: Any = None,
         incident_log: Any = None,
+        cognitive_scheduler: Any = None,
         cfg: StreamRuntimeConfig | None = None,
     ) -> None:
         self._loader = loader
@@ -248,6 +249,7 @@ class StreamRuntime:
         self._control_plane = control_plane
         self._emergency_controller = emergency_controller
         self._incident_log = incident_log
+        self._cognitive_scheduler = cognitive_scheduler
         self.cfg = cfg or StreamRuntimeConfig()
 
         self._running = False
@@ -316,6 +318,15 @@ class StreamRuntime:
                 await self._control_plane.start()
             if self._emergency_controller is not None:
                 await self._emergency_controller.start()
+            if self._cognitive_scheduler is not None and self._feature_manager is not None:
+                try:
+                    cognition_status = await self._feature_manager.get_status(
+                        "cognitive_brain_shadow",
+                    )
+                except KeyError:
+                    cognition_status = FeatureStatus.DISABLED
+                if cognition_status in (FeatureStatus.ENABLED, FeatureStatus.DEGRADED):
+                    await self._cognitive_scheduler.start()
             if self._incident_log is not None:
                 await self._incident_log.start()
             await self._router.start()
@@ -433,6 +444,9 @@ class StreamRuntime:
                 await self._subtitle_svc.stop()
 
     async def _stop_supporting_services(self) -> None:
+        if self._cognitive_scheduler is not None:
+            with contextlib.suppress(Exception):
+                await self._cognitive_scheduler.stop()
         # Memory
         with contextlib.suppress(Exception):
             await self._runner.close_memory_writes()
@@ -650,6 +664,7 @@ class StreamRuntime:
                 if self._emergency_controller is not None else None
             ),
             "incidents": self._incident_log.snapshot() if self._incident_log is not None else None,
+            "cognitive_brain_shadow": self._cognitive_health_snapshot(),
             "decisions": (
                 self._director_loop.decision_snapshot()
                 if self._director_loop is not None else None
@@ -916,7 +931,30 @@ class StreamRuntime:
         if self._incident_log is not None:
             with contextlib.suppress(Exception):
                 m.update(self._incident_log.get_metrics())
+        if self._cognitive_scheduler is not None:
+            with contextlib.suppress(Exception):
+                m.update(self._cognitive_scheduler.get_metrics())
         return m
+
+    def _cognitive_health_snapshot(self) -> dict[str, Any] | None:
+        if self._cognitive_scheduler is None:
+            return None
+        try:
+            value = self._cognitive_scheduler.snapshot()
+            return {
+                "running": value.running,
+                "healthy": value.healthy,
+                "queue_depth": value.queue_depth,
+                "inflight_count": value.inflight_count,
+                "retained_record_count": value.retained_record_count,
+                "last_outcome": (
+                    value.last_outcome.value if value.last_outcome is not None else None
+                ),
+            }
+        except Exception:
+            return {
+                "running": False, "healthy": False, "snapshot_error": True,
+            }
 
     @property
     def agent_state(self) -> Any:
@@ -1178,6 +1216,9 @@ async def _compose_stream_runtime(
             rollback, "llama_process_manager", llama_process_manager,
         )
     llm_svc = LlamaCppLLMService.from_loader(loader)
+    set_llm_metrics = getattr(llm_svc, "set_metrics", None)
+    if callable(set_llm_metrics):
+        set_llm_metrics(metrics)
     await _start_owned_resource(rollback, "llm_service", llm_svc)
     health = await llm_svc.health_check()
     if not health.is_ok:
@@ -2501,6 +2542,28 @@ async def _compose_stream_runtime(
         dashboard_server=dashboard_server,
     )
 
+    # MCB-3: compose a dormant observer. No proposal is routed back to public output.
+    from orchestrator.runtime_cognition import build_cognitive_runtime_stack
+    cognitive_stack = build_cognitive_runtime_stack(
+        loader=loader,
+        feature_manager=feature_manager,
+        llm=llm_svc,
+        world_model=world_model,
+        self_model=self_model,
+        capability_registry=capability_registry,
+        agent_state=agent_state,
+        goal_manager=goal_manager,
+        thread_manager=open_thread_manager,
+        memory_service=memory,
+        transactions=action_transactions,
+        control_plane=control_plane,
+        emergency_controller=emergency_controller,
+        metrics=metrics,
+        session_id=session_id,
+    )
+    cognitive_scheduler = cognitive_stack.scheduler
+    director_loop.configure_cognitive_observer(cognitive_stack.observer)
+
     rt = StreamRuntime(
         loader=loader, llm_svc=llm_svc, runner=runner, emotion=emotion,
         chat_router=router, autonomy=autonomy,
@@ -2541,6 +2604,7 @@ async def _compose_stream_runtime(
         control_plane=control_plane,
         emergency_controller=emergency_controller,
         incident_log=incident_log,
+        cognitive_scheduler=cognitive_scheduler,
     )
     configure_shutdown_coordinator(
         enabled=operations_enabled,

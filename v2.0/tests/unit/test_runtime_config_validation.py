@@ -218,7 +218,7 @@ def test_repository_runtime_config_is_valid() -> None:
 
 def test_runtime_rejects_invalid_cognition_config_before_composition() -> None:
     invalid = dict(COGNITION_CONFIG)
-    invalid["rollout_mode"] = "shadow"
+    invalid["rollout_mode"] = "disabled"
     with pytest.raises(ConfigError, match="Runtime cognition config"):
         validate_runtime_config(OverrideLoader({("cognition", "section"): invalid}))
 

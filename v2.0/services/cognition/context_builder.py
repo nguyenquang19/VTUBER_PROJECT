@@ -451,7 +451,9 @@ class CognitiveContextBuilder(CognitiveContextBuilderService):
         if request.trigger_event_ref is None:
             return None
         event = events.get(request.trigger_event_ref)
-        if event is None or event.kind is not AgentEventKind.CHAT_RECEIVED:
+        if event is None or event.kind not in (
+            AgentEventKind.CHAT_RECEIVED, AgentEventKind.DONATION_RECEIVED,
+        ):
             return None
         if event.provenance.session_id not in (None, request.session_id):
             return None
@@ -972,6 +974,7 @@ def _focus_origin(event: GroundedEvent | None) -> FocusOrigin | None:
         return FocusOrigin.OPERATOR
     mapping = {
         AgentEventKind.CHAT_RECEIVED: FocusOrigin.CHAT,
+        AgentEventKind.DONATION_RECEIVED: FocusOrigin.CHAT,
         AgentEventKind.SPEECH_COMPLETED: FocusOrigin.SELF,
         AgentEventKind.SELF_TALK_COMPLETED: FocusOrigin.SELF,
         AgentEventKind.GOAL_AUDIT: FocusOrigin.GOAL,

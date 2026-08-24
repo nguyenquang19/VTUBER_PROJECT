@@ -94,7 +94,7 @@ Các cột dưới đây độc lập với nhau. “Có mã” không thay th�
 | Embodiment Policy | Có | LOW/MID/HIGH strict arbitration đã compose và bật test | Unit, integration, deterministic replay và full offline regression | Chưa live VTS canary |
 | Human-like calibration và trajectory | Có | Trajectory bật read-only theo Director V2; MAI-HLC là workflow offline tách sealed manifest | Unit, integration, deterministic replay, tamper/negative paths, full offline regression và owner blind review 20 pair đã finalize; quality vẫn `HOLD` | Trajectory bật test; human review không tự tạo release decision |
 | Product `2.0.0` release gates | Có strict tooling source-bound, fixed runner và canary/operations aggregator | Contract kỹ thuật đã triển khai; chưa có closed-loop/live/human/operations bundle hiện hành | Full regression xanh; external Gate D/E và release-commit verification chưa hoàn tất | Không |
-| Cognitive Brain MCB | MCB-1 contract và MCB-2 Context/Focus shadow đã có; MCB-3 mới docs-first | Context Builder chưa ghép runtime; Brain feature vẫn `enabled=false`, `activation_allowed=false` | Targeted MCB-1/2 40, impacted 381 và full offline 2.415 test đạt | Không |
+| Cognitive Brain MCB | MCB-1 contract, MCB-2 Context/Focus và MCB-3 Brain observer đã có | Brain observer đã compose nhưng feature vẫn `enabled=false`; compatibility Director giữ toàn quyền | Targeted 91, impacted 361, full offline 2.437 test đạt; real llama.cpp shadow protocol còn chờ | Không |
 
 Ma trận chỉ được nâng trạng thái khi có đường code tương ứng, test phù hợp và evidence máy đọc hoặc vận
 hành. Blueprint tiếp tục giữ scope/phase order; bảng này chỉ mô tả working tree ngày 24/08/2026.
@@ -2167,7 +2167,8 @@ conflicts_with: []
 operational rollout_mode trong MCB-1: disabled only
 ```
 
-Feature disabled phải tạo zero background task và zero decision/output/state difference. MCB-1 bổ sung
+Đây là declaration tại closure MCB-1. Feature disabled phải tạo zero background task và zero
+decision/output/state difference. MCB-1 bổ sung
 strict `activation_allowed` vào generic feature spec với backward-compatible default `true` cho feature cũ;
 riêng `cognitive_brain_shadow=false`. `FeatureManager.enable()` phải reject trước mọi status/persistence/
 handler change, giữ `DISABLED` và ghi bounded outcome `enable_rejected`. Vì vậy implementation scope bắt buộc
@@ -2222,7 +2223,7 @@ dependency, `activation_allowed=false` enable-rejection không đổi status/per
 mutation khi feature-off, impacted interface/FeatureManager/Director V2/memory/action/documentation regression
 và full offline suite. Không cần real LLM, replay, TTS/VTS/OBS hay human review vì output không đổi.
 
-**Trạng thái hiện tại:** MCB-1 contract-only đã implemented ngày 23/08/2026. Có
+**Trạng thái tại closure MCB-1:** contract-only đã implemented ngày 23/08/2026. Có
 `interfaces/cognition.py`, strict `config/cognition.yaml`, generic `activation_allowed`, feature declaration
 bất hoạt, bounded cognition metrics và negative tests. Targeted foundation đạt 343 test, impacted
 Director/capability/action/memory/composition đạt 220 test và full offline đạt 2.398 test với một warning
@@ -2289,11 +2290,12 @@ speech/action. `recent()` chỉ trả snapshot đã build thành công, oldest-t
 `limit` phải là positive int trong configured capacity. `focus_snapshot()` trả projection đi cùng successful
 build gần nhất hoặc `None`.
 
-Service implementation dự kiến là `services/cognition/context_builder.py`, không import concrete
+Service implementation tại MCB-2 là `services/cognition/context_builder.py`, không import concrete
 `StreamRuntime`/`DirectorLoop`, không có write API và không làm owner của source service. Trong MCB-2 nó chỉ
 được gọi trực tiếp bởi test/diagnostic; không compose consumer vào live runtime, không có polling, listener,
-queue hoặc background task. Existing `cognitive_brain_shadow` vẫn `enabled=false`,
-`activation_allowed=false`; không tạo thêm feature flag chết chỉ để chứa một service chưa có runtime consumer.
+queue hoặc background task. Tại closure MCB-2, `cognitive_brain_shadow` vẫn `enabled=false`,
+`activation_allowed=false`; slice này không tạo thêm feature flag chết chỉ để chứa một service chưa có
+runtime consumer.
 
 ##### 17.2.17.2. Source matrix và failure policy
 
@@ -2502,12 +2504,12 @@ Targeted MCB-1/2 đạt 40 test; impacted World/Self/Capability/AgentState/Goal/
 `StreamRuntime`/`DirectorLoop`, không có LLM/background task/persistence/decision/output/state mutation,
 quality vẫn `HOLD` và chưa bắt đầu MCB-3.
 
-#### 17.2.18. Brain shadow MCB-3 — docs-first
+#### 17.2.18. Brain shadow MCB-3
 
-MCB-2 được chốt tại commit `75814e9` ngày 24/08/2026. Lượt MCB-3 hiện chỉ chuẩn hóa tài liệu; chưa có
-Brain adapter, opportunity scheduler, prompt, structured llama.cpp request, runtime composition, config mới
-hoặc test MCB-3. Feature `cognitive_brain_shadow` vẫn bất hoạt và public decision/output vẫn hoàn toàn thuộc
-compatibility path.
+MCB-2 được chốt tại commit `75814e9` ngày 24/08/2026. Docs-first MCB-3 được chốt tại `c0ae3c2`; working
+tree sau đó đã triển khai Brain adapter, opportunity scheduler, prompt, structured llama.cpp request, runtime
+composition, config, metrics và behavior tests. Feature `cognitive_brain_shadow` vẫn mặc định bất hoạt và
+public decision/output vẫn hoàn toàn thuộc compatibility path.
 
 ##### 17.2.18.1. Source audit, authority và non-goals
 
@@ -2534,8 +2536,7 @@ minh câu Brain người hơn; same-input A/B và blind review thuộc MCB-4.
 
 ##### 17.2.18.2. Contract được đề xuất
 
-MCB-3 sẽ bổ sung các frozen strict type sau vào `interfaces/cognition.py`; tên/shape này cần owner duyệt
-trước implementation:
+MCB-3 bổ sung các frozen strict type sau vào `interfaces/cognition.py`:
 
 ```text
 enum CognitiveOpportunityKind:
@@ -2661,7 +2662,7 @@ phải đo thực tế; nếu llama.cpp không nhả slot đúng hạn, shadow b
 
 ##### 17.2.18.4. Structured llama.cpp và token preflight
 
-Để không import concrete llama service vào cognition, MCB-3 dự kiến mở rộng backward-compatible
+Để không import concrete llama service vào cognition, MCB-3 mở rộng backward-compatible
 `interfaces/llm.py`:
 
 ```text
@@ -2701,7 +2702,7 @@ persist hoặc đưa vào metric label.
 
 ##### 17.2.18.5. Feature, fallback và side-effect proof
 
-Sau khi owner duyệt code MCB-3, feature declaration dự kiến đổi thành:
+Feature declaration đã đổi thành:
 
 ```text
 feature_id: cognitive_brain_shadow
@@ -2728,8 +2729,8 @@ record hoặc dashboard failure cũng không được thoát sang compatibility 
 
 ##### 17.2.18.6. YAML values và owner gates
 
-`config/cognition.yaml` tiếp tục là canonical owner. Các giá trị vận hành dưới đây mới là đề xuất docs-first,
-chưa được ghi vào YAML/code và cần owner chấp nhận:
+`config/cognition.yaml` tiếp tục là canonical owner. Các giá trị vận hành dưới đây đã được owner duyệt và
+được triển khai cho observer mặc định tắt:
 
 | Key | Proposed value | Cơ sở/rủi ro |
 |---|---:|---|
@@ -2779,9 +2780,9 @@ Metric vocabulary đề xuất, mọi label dùng allowlist và không chứa ID
 - evidence summary phải tính schema/timeout/calls-per-delivery/queue-wait/live TTFT/full-turn/fallback ratio
   từ explicit denominators, không trộn attempt/public/delivery.
 
-Implementation dự kiến tạo:
+Implementation đã tạo:
 
-- `services/cognition/brain_shadow.py`, `services/cognition/opportunity_scheduler.py`;
+- `services/cognition/brain_shadow.py`, `services/cognition/shadow_scheduler.py`;
 - `orchestrator/runtime_cognition.py` làm composition helper để không nhét business logic vào root;
 - `config/prompts/cognitive_brain_shadow_system.txt`;
 - behavior-named unit/integration/replay tests cho scheduler, structured output, resource priority và runtime
@@ -2811,9 +2812,12 @@ worker rảnh và coarse compatibility mapping tạo metric agreement dễ hiể
 stop/clear observer và bỏ observation tap/helper; compatibility Director/runner/transaction không cần data
 migration và không bị xóa.
 
-**Trạng thái:** docs-first MCB-3 đang chờ owner duyệt contract names/shapes, 13 YAML bounds, shared
-live-over-shadow workload gate và sáu acceptance threshold/protocol. Chưa được triển khai code MCB-3, chưa
-được bật shadow và không tự chuyển MCB-4.
+**Trạng thái:** code MCB-3 đã triển khai trong working tree với Brain observer mặc định tắt, strict structured
+llama.cpp boundary, latest-wins/single-inflight scheduler, live-over-shadow preemption, bounded records và
+metrics. Targeted 91, impacted 361 và full offline 2.437 test đã đạt; shadow chưa được bật để lấy real
+llama.cpp baseline và sáu
+numerical gate vẫn `HOLD` theo protocol đã duyệt. Không có takeover authority, quality tiếp tục `HOLD` và
+không tự chuyển MCB-4.
 
 ### 17.3. Chuỗi mã để lần theo một lượt
 
@@ -2947,8 +2951,9 @@ rollback. Chưa có live audio/VTS/takeover
 canary nên các cờ này chưa phải production evidence. `obs_scene_executor` đã
 được compose qua external transaction boundary nhưng mặc định tắt, chưa có credential/live OBS canary.
 `obs_perception_adapter` dùng chung read-only OBS transport và cũng mặc định tắt, chưa có live sensing
-canary. `cognitive_brain_shadow` còn có `activation_allowed=false`, nên yêu cầu bật phải bị từ chối trước
-khi đổi status, persist hoặc chạy handler; MCB-2 chưa compose Context Builder/Brain consumer.
+canary. `cognitive_brain_shadow` đã compose Context Builder/Brain observer ở MCB-3 và có
+`activation_allowed=true`, nhưng vẫn `enabled=false`; enable chỉ chạy shadow scheduler, không chuyển quyền
+decision/output khỏi compatibility Director.
 Trạng thái bật/tắt không được dùng riêng để suy ra mức production.
 
 Dashboard toggle thành công phải persist vào đúng `config/features.yaml` qua atomic replace và chỉ

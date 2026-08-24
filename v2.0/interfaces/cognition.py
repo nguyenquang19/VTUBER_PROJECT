@@ -94,6 +94,18 @@ class CognitionConfig:
 
     schema_version: int
     rollout_mode: str
+    brain_prompt_path: str
+    brain_max_output_tokens: int
+    brain_temperature: float
+    brain_timeout_seconds: float
+    brain_cancel_grace_seconds: float
+    max_brain_opportunity_queue: int
+    max_brain_inflight: int
+    max_brain_shadow_records: int
+    opportunity_debounce_seconds: float
+    opportunity_reconsider_seconds: float
+    max_opportunity_age_seconds: float
+    max_brain_intent_chars: int
     max_id_chars: int
     max_label_chars: int
     max_text_chars: int
@@ -123,7 +135,13 @@ class CognitionConfig:
     speech_source_modes: tuple[str, ...]
 
     _KEYS = frozenset({
-        "schema_version", "rollout_mode", "max_id_chars", "max_label_chars",
+        "schema_version", "rollout_mode", "brain_prompt_path",
+        "brain_max_output_tokens", "brain_temperature", "brain_timeout_seconds",
+        "brain_cancel_grace_seconds", "max_brain_opportunity_queue",
+        "max_brain_inflight", "max_brain_shadow_records",
+        "opportunity_debounce_seconds", "opportunity_reconsider_seconds",
+        "max_opportunity_age_seconds", "max_brain_intent_chars",
+        "max_id_chars", "max_label_chars",
         "max_text_chars", "max_speech_chars", "max_attention_items",
         "max_memory_items", "max_recent_delivered_speech",
         "max_available_actions", "max_evidence_refs", "max_reason_codes",
@@ -140,9 +158,12 @@ class CognitionConfig:
     def __post_init__(self) -> None:
         if _positive_int(self.schema_version, "schema_version") != 1:
             raise ValueError("schema_version must be 1")
-        if self.rollout_mode != "disabled":
-            raise ValueError("rollout_mode must remain disabled through MCB-2")
+        if self.rollout_mode != "shadow":
+            raise ValueError("rollout_mode must be shadow in MCB-3")
         integer_fields = (
+            "brain_max_output_tokens", "max_brain_opportunity_queue",
+            "max_brain_inflight", "max_brain_shadow_records",
+            "max_brain_intent_chars",
             "max_id_chars", "max_label_chars", "max_text_chars",
             "max_speech_chars", "max_attention_items", "max_memory_items",
             "max_recent_delivered_speech", "max_available_actions",
@@ -156,6 +177,29 @@ class CognitionConfig:
         )
         for name in integer_fields:
             _positive_int(getattr(self, name), name)
+        prompt_path = _text(
+            self.brain_prompt_path, "brain_prompt_path", self.max_text_chars,
+        )
+        if not prompt_path.lower().endswith(".txt"):
+            raise ValueError("brain_prompt_path must reference a .txt file")
+        object.__setattr__(self, "brain_prompt_path", prompt_path)
+        object.__setattr__(self, "brain_temperature", _unit_interval(
+            self.brain_temperature, "brain_temperature",
+        ))
+        for name in (
+            "brain_timeout_seconds", "brain_cancel_grace_seconds",
+            "opportunity_debounce_seconds", "opportunity_reconsider_seconds",
+            "max_opportunity_age_seconds",
+        ):
+            _positive_float(getattr(self, name), name)
+        if self.max_brain_inflight != 1:
+            raise ValueError("max_brain_inflight must remain 1 in MCB-3")
+        if self.max_brain_opportunity_queue != 1:
+            raise ValueError("max_brain_opportunity_queue must remain 1 in MCB-3")
+        if self.max_brain_intent_chars > self.max_text_chars:
+            raise ValueError("max_brain_intent_chars must not exceed max_text_chars")
+        if self.max_opportunity_age_seconds > self.max_context_request_age_seconds:
+            raise ValueError("max_opportunity_age_seconds must not exceed context request age")
         if self.max_speech_chars > self.max_text_chars:
             raise ValueError("max_speech_chars must not exceed max_text_chars")
         if self.max_context_serialized_chars < self.max_text_chars:
@@ -811,6 +855,181 @@ class CognitiveTurn:
                 raise ValueError("current action envelope does not allow speech")
 
 
+class CognitiveOpportunityKind(str, Enum):
+    CHAT_INPUT = "CHAT_INPUT"
+    DONATION_OR_OPERATOR = "DONATION_OR_OPERATOR"
+    VERIFIED_OUTCOME = "VERIFIED_OUTCOME"
+    CONVERSATION_CONTINUATION = "CONVERSATION_CONTINUATION"
+    PROACTIVE_READY = "PROACTIVE_READY"
+
+
+class CognitiveShadowOutcome(str, Enum):
+    PROPOSED = "PROPOSED"
+    SKIPPED_DISABLED = "SKIPPED_DISABLED"
+    SKIPPED_HARD_HOLD = "SKIPPED_HARD_HOLD"
+    SKIPPED_NO_CHANGE = "SKIPPED_NO_CHANGE"
+    SKIPPED_BUSY = "SKIPPED_BUSY"
+    SUPERSEDED = "SUPERSEDED"
+    STALE = "STALE"
+    PREFLIGHT_REJECTED = "PREFLIGHT_REJECTED"
+    PREEMPTED = "PREEMPTED"
+    CANCELLED = "CANCELLED"
+    TIMEOUT = "TIMEOUT"
+    PARSE_REJECTED = "PARSE_REJECTED"
+    SCHEMA_REJECTED = "SCHEMA_REJECTED"
+    SERVICE_ERROR = "SERVICE_ERROR"
+
+
+@dataclass(frozen=True)
+class CognitiveCompatibilityObservation:
+    config: InitVar[CognitionConfig]
+    schema_version: int
+    decision_ref: str
+    mode: CognitiveMode
+    action_label: str
+    reason_label: str
+
+    def __post_init__(self, config: CognitionConfig) -> None:
+        _schema(self.schema_version, config)
+        object.__setattr__(self, "decision_ref", _identifier(
+            self.decision_ref, "decision_ref", config,
+        ))
+        _enum(self.mode, CognitiveMode, "mode")
+        if self.mode is CognitiveMode.PROPOSE_ACTION:
+            raise ValueError("MCB-3 compatibility mode must be WAIT or SPEAK")
+        for name in ("action_label", "reason_label"):
+            object.__setattr__(self, name, _text(
+                getattr(self, name), name, config.max_label_chars,
+            ))
+
+
+@dataclass(frozen=True)
+class CognitiveOpportunity:
+    config: InitVar[CognitionConfig]
+    schema_version: int
+    opportunity_id: str
+    kind: CognitiveOpportunityKind
+    opened_at: datetime
+    material_change_ref: str
+    context_request: CognitiveContextRequest
+    compatibility: CognitiveCompatibilityObservation
+
+    def __post_init__(self, config: CognitionConfig) -> None:
+        _schema(self.schema_version, config)
+        object.__setattr__(self, "opportunity_id", _identifier(
+            self.opportunity_id, "opportunity_id", config,
+        ))
+        _enum(self.kind, CognitiveOpportunityKind, "kind")
+        opened = _utc(self.opened_at, "opened_at")
+        object.__setattr__(self, "opened_at", opened)
+        object.__setattr__(self, "material_change_ref", _identifier(
+            self.material_change_ref, "material_change_ref", config,
+        ))
+        _instance(self.context_request, CognitiveContextRequest, "context_request")
+        _instance(
+            self.compatibility, CognitiveCompatibilityObservation, "compatibility",
+        )
+        if self.context_request.requested_at != opened:
+            raise ValueError("opportunity and context request timestamps must match")
+
+
+@dataclass(frozen=True)
+class CognitiveShadowRecord:
+    config: InitVar[CognitionConfig]
+    schema_version: int
+    record_id: str
+    opportunity_id: str
+    context_id: str | None
+    compatibility: CognitiveCompatibilityObservation
+    outcome: CognitiveShadowOutcome
+    turn: CognitiveTurn | None
+    queued_at: datetime
+    started_at: datetime | None
+    completed_at: datetime
+    queue_wait_ms: float | None
+    ttft_ms: float | None
+    generation_ms: float | None
+    input_tokens: int | None
+    output_tokens: int | None
+
+    def __post_init__(self, config: CognitionConfig) -> None:
+        _schema(self.schema_version, config)
+        for name in ("record_id", "opportunity_id"):
+            object.__setattr__(self, name, _identifier(
+                getattr(self, name), name, config,
+            ))
+        context_id = self.context_id
+        if context_id is not None:
+            context_id = _context_hash(context_id, config)
+            object.__setattr__(self, "context_id", context_id)
+        _instance(
+            self.compatibility, CognitiveCompatibilityObservation, "compatibility",
+        )
+        _enum(self.outcome, CognitiveShadowOutcome, "outcome")
+        if self.turn is not None:
+            _instance(self.turn, CognitiveTurn, "turn")
+            if context_id is None or self.turn.context_id != context_id:
+                raise ValueError("shadow turn must match record context_id")
+        if self.outcome is CognitiveShadowOutcome.PROPOSED:
+            if self.turn is None or context_id is None:
+                raise ValueError("PROPOSED shadow record requires context and turn")
+        elif self.turn is not None:
+            raise ValueError("non-PROPOSED shadow record must not retain a turn")
+        queued = _utc(self.queued_at, "queued_at")
+        started = _optional_utc(self.started_at, "started_at")
+        completed = _utc(self.completed_at, "completed_at")
+        if started is not None and not queued <= started <= completed:
+            raise ValueError("shadow record timestamps are out of order")
+        if completed < queued:
+            raise ValueError("shadow record completed_at precedes queued_at")
+        object.__setattr__(self, "queued_at", queued)
+        object.__setattr__(self, "started_at", started)
+        object.__setattr__(self, "completed_at", completed)
+        for name in ("queue_wait_ms", "ttft_ms", "generation_ms"):
+            value = getattr(self, name)
+            if value is not None:
+                object.__setattr__(self, name, _non_negative_float(value, name))
+        for name in ("input_tokens", "output_tokens"):
+            value = getattr(self, name)
+            if value is not None:
+                _non_negative_int(value, name)
+
+
+@dataclass(frozen=True)
+class CognitiveBrainSnapshot:
+    config: InitVar[CognitionConfig]
+    schema_version: int
+    running: bool
+    healthy: bool
+    queue_depth: int
+    inflight_count: int
+    retained_record_count: int
+    last_outcome: CognitiveShadowOutcome | None
+    recent_records: tuple[CognitiveShadowRecord, ...]
+
+    def __post_init__(self, config: CognitionConfig) -> None:
+        _schema(self.schema_version, config)
+        _strict_bool(self.running, "running")
+        _strict_bool(self.healthy, "healthy")
+        for name in ("queue_depth", "inflight_count", "retained_record_count"):
+            _non_negative_int(getattr(self, name), name)
+        if self.queue_depth > config.max_brain_opportunity_queue:
+            raise ValueError("queue_depth exceeds configured capacity")
+        if self.inflight_count > config.max_brain_inflight:
+            raise ValueError("inflight_count exceeds configured capacity")
+        if self.retained_record_count > config.max_brain_shadow_records:
+            raise ValueError("retained_record_count exceeds configured capacity")
+        if self.last_outcome is not None:
+            _enum(self.last_outcome, CognitiveShadowOutcome, "last_outcome")
+        records = _typed_tuple(
+            self.recent_records, CognitiveShadowRecord, "recent_records",
+            config.max_brain_shadow_records,
+        )
+        if len(records) != self.retained_record_count:
+            raise ValueError("retained_record_count must match recent_records")
+        object.__setattr__(self, "recent_records", records)
+
+
 class CognitiveBrainService(Service):
     """Proposal-only Brain boundary; the kernel retains all mutation authority."""
 
@@ -837,6 +1056,26 @@ class CognitiveContextBuilderService(Service):
         """Return the Focus projection paired with the latest successful build."""
 
 
+class CognitiveBrainShadowSchedulerService(Service):
+    """Non-blocking observer scheduler; never owns public decisions or commits."""
+
+    @abstractmethod
+    def offer(self, opportunity: CognitiveOpportunity) -> bool:
+        """Validate/coalesce/enqueue without awaiting context or model I/O."""
+
+    @abstractmethod
+    def preempt_for_live(self) -> None:
+        """Cancel shadow workload without affecting the live request."""
+
+    @abstractmethod
+    def recent(self, limit: int | None = None) -> tuple[CognitiveShadowRecord, ...]:
+        """Return bounded immutable records ordered oldest to newest."""
+
+    @abstractmethod
+    def snapshot(self) -> CognitiveBrainSnapshot:
+        """Return a typed bounded health/queue/record view."""
+
+
 def _schema(value: Any, config: CognitionConfig) -> None:
     if _positive_int(value, "schema_version") != config.schema_version:
         raise ValueError("schema_version does not match cognition config")
@@ -851,6 +1090,29 @@ def _positive_int(value: Any, name: str) -> int:
 def _strict_bool(value: Any, name: str) -> bool:
     if not isinstance(value, bool):
         raise ValueError(f"{name} must be a bool")
+    return value
+
+
+def _positive_float(value: Any, name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, float):
+        raise ValueError(f"{name} must be a strict float")
+    if not math.isfinite(value) or value <= 0:
+        raise ValueError(f"{name} must be finite and positive")
+    return value
+
+
+def _non_negative_float(value: Any, name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{name} must be a finite non-negative number")
+    result = float(value)
+    if not math.isfinite(result) or result < 0:
+        raise ValueError(f"{name} must be a finite non-negative number")
+    return result
+
+
+def _non_negative_int(value: Any, name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"{name} must be a non-negative integer")
     return value
 
 

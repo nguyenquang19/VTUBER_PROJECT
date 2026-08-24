@@ -425,15 +425,15 @@ features:
     name: Capability registry
     description: Read-only declarative availability; never executes actions.
   cognitive_brain_shadow:
-    enabled: false              # MCB-1 contract-only; activation is intentionally blocked
-    activation_allowed: false
+    enabled: false              # MCB-3 observer only; never owns public decision/output
+    activation_allowed: true
     vram_cost_mb: 0
     latency_impact_ms: 0
     category: agent
     depends_on: [world_model_shadow, self_model_projection, capability_registry]
     conflicts_with: []
     name: Cognitive Brain shadow
-    description: Proposal-only Brain boundary; no runtime service exists in MCB-1.
+    description: Low-priority proposal observer; compatibility Director remains authoritative.
   action_mock_closed_loop:
     enabled: true
     vram_cost_mb: 0

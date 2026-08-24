@@ -326,6 +326,29 @@ async def test_same_input_builds_same_context_without_duplicate_retention() -> N
 
 
 @pytest.mark.asyncio
+async def test_donation_trigger_is_projected_as_bounded_chat_evidence() -> None:
+    config = _config()
+    sources = _sources()
+    donation = _event(
+        "donation-1", AgentEventKind.DONATION_RECEIVED,
+        {"text": "Tặng Mai một ly cà phê"}, timestamp=NOW,
+        source=AgentEventSource.YOUTUBE,
+    )
+    agent = sources["agent"]
+    assert isinstance(agent, AgentStateSnapshot)
+    sources["agent"] = AgentStateSnapshot(
+        open_threads=agent.open_threads,
+        recent_events=(*agent.recent_events, donation),
+    )
+    builder = _builder(config, sources)
+    await builder.start()
+    context = await builder.build(_request(config, trigger="donation-1"))
+    assert context is not None and context.chat_digest is not None
+    assert context.chat_digest.evidence_id == "donation-1"
+    assert context.chat_digest.summary == "Tặng Mai một ly cà phê"
+
+
+@pytest.mark.asyncio
 async def test_hard_hold_collapses_modes_to_wait() -> None:
     config = _config()
     builder = _builder(config, _sources())

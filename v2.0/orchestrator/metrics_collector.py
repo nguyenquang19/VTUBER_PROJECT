@@ -35,6 +35,21 @@ COGNITIVE_FOCUS_OUTCOMES = frozenset({
     "present", "absent", "stale", "mismatch", "invalid",
 })
 COGNITIVE_SNAPSHOT_KINDS = frozenset({"context", "focus"})
+COGNITIVE_OPPORTUNITY_KINDS = frozenset({
+    "CHAT_INPUT", "DONATION_OR_OPERATOR", "VERIFIED_OUTCOME",
+    "CONVERSATION_CONTINUATION", "PROACTIVE_READY",
+})
+COGNITIVE_OPPORTUNITY_OUTCOMES = frozenset({
+    "offered", "debounced", "blocked", "superseded",
+})
+COGNITIVE_BRAIN_OUTCOMES = frozenset({
+    "PROPOSED", "SKIPPED_DISABLED", "SKIPPED_HARD_HOLD",
+    "SKIPPED_NO_CHANGE", "SKIPPED_BUSY", "SUPERSEDED", "STALE",
+    "PREFLIGHT_REJECTED", "PREEMPTED", "CANCELLED", "TIMEOUT",
+    "PARSE_REJECTED", "SCHEMA_REJECTED", "SERVICE_ERROR",
+})
+COGNITIVE_BRAIN_MODES = frozenset({"WAIT", "SPEAK"})
+LLM_WORKLOAD_CLASS_PAIRS = frozenset({"live_shadow"})
 
 
 class MetricsCollector:
@@ -88,6 +103,11 @@ class MetricsCollector:
             "mai_llm_parse_total", "Kết quả parse mood block", ["result"],
             registry=self.registry,
         )
+        self.llm_workload_overlap_total_c = Counter(
+            "llm_workload_overlap_total", "LLM workload class overlap after grace",
+            ["classes"], registry=self.registry,
+        )
+        self._llm_workload_overlap: dict[str, int] = {}
         self._last_ttft_ms: float | None = None
         self._last_decode_tps: float | None = None
         self._parse_ok = 0
@@ -503,6 +523,53 @@ class MetricsCollector:
         self._cognitive_context_source: dict[tuple[str, str], int] = {}
         self._cognitive_focus_projection: dict[str, int] = {}
         self._cognitive_snapshot_evicted: dict[str, int] = {}
+        self.cognitive_opportunity_total_c = Counter(
+            "cognitive_opportunity_total", "Bounded Brain opportunity outcomes",
+            ["kind", "outcome"], registry=self.registry,
+        )
+        self.cognitive_brain_queue_depth_g = Gauge(
+            "cognitive_brain_queue_depth", "Current bounded Brain queue depth",
+            registry=self.registry,
+        )
+        self.cognitive_brain_queue_wait_seconds_h = Histogram(
+            "cognitive_brain_queue_wait_seconds", "Brain shadow queue wait",
+            buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0],
+            registry=self.registry,
+        )
+        self.cognitive_brain_request_total_c = Counter(
+            "cognitive_brain_request_total", "Brain shadow request outcomes",
+            ["outcome"], registry=self.registry,
+        )
+        self.cognitive_brain_ttft_seconds_h = Histogram(
+            "cognitive_brain_ttft_seconds", "Brain shadow time to first token",
+            ["outcome"], buckets=[0.05, 0.1, 0.2, 0.5, 1, 2, 4, 6],
+            registry=self.registry,
+        )
+        self.cognitive_brain_generation_seconds_h = Histogram(
+            "cognitive_brain_generation_seconds", "Brain shadow generation duration",
+            ["outcome"], buckets=[0.1, 0.25, 0.5, 1, 2, 4, 6, 8],
+            registry=self.registry,
+        )
+        self.cognitive_brain_input_tokens_h = Histogram(
+            "cognitive_brain_input_tokens", "Brain shadow exact input tokens",
+            buckets=[128, 256, 512, 1024, 2048, 4096, 8192],
+            registry=self.registry,
+        )
+        self.cognitive_brain_output_tokens_h = Histogram(
+            "cognitive_brain_output_tokens", "Brain shadow output tokens",
+            buckets=[8, 16, 32, 64, 96, 128, 192], registry=self.registry,
+        )
+        self.cognitive_brain_turn_total_c = Counter(
+            "cognitive_brain_turn_total", "Validated Brain shadow turn modes",
+            ["mode"], registry=self.registry,
+        )
+        self.cognitive_brain_preemption_total_c = Counter(
+            "cognitive_brain_preemption_total", "Brain shadow preemption outcomes",
+            ["outcome"], registry=self.registry,
+        )
+        self._cognitive_opportunities: dict[tuple[str, str], int] = {}
+        self._cognitive_brain_requests: dict[str, int] = {}
+        self._cognitive_brain_turns: dict[str, int] = {}
 
         # --- Real NVIDIA device metrics for the operator dashboard ---
         self.gpu_util = Gauge(
@@ -620,6 +687,77 @@ class MetricsCollector:
             "focus": dict(sorted(self._cognitive_focus_projection.items())),
             "evicted": dict(sorted(self._cognitive_snapshot_evicted.items())),
         }
+
+    def record_cognitive_brain_opportunity(self, kind: str, outcome: str) -> None:
+        if kind not in COGNITIVE_OPPORTUNITY_KINDS:
+            raise ValueError("unsupported cognitive opportunity kind")
+        if outcome not in COGNITIVE_OPPORTUNITY_OUTCOMES:
+            raise ValueError("unsupported cognitive opportunity outcome")
+        key = (kind, outcome)
+        self._cognitive_opportunities[key] = self._cognitive_opportunities.get(key, 0) + 1
+        self.cognitive_opportunity_total_c.labels(kind=kind, outcome=outcome).inc()
+
+    def set_cognitive_brain_queue_depth(self, depth: int) -> None:
+        if isinstance(depth, bool) or not isinstance(depth, int) or depth not in (0, 1):
+            raise ValueError("cognitive Brain queue depth must be zero or one")
+        self.cognitive_brain_queue_depth_g.set(depth)
+
+    def observe_cognitive_brain_queue_wait(self, seconds: float) -> None:
+        self._observe_non_negative(seconds, self.cognitive_brain_queue_wait_seconds_h)
+
+    def record_cognitive_brain_request(self, outcome: str) -> None:
+        if outcome not in COGNITIVE_BRAIN_OUTCOMES:
+            raise ValueError("unsupported cognitive Brain outcome")
+        self._cognitive_brain_requests[outcome] = self._cognitive_brain_requests.get(outcome, 0) + 1
+        self.cognitive_brain_request_total_c.labels(outcome=outcome).inc()
+        if outcome in {"PREEMPTED", "CANCELLED"}:
+            self.cognitive_brain_preemption_total_c.labels(outcome=outcome).inc()
+
+    def observe_cognitive_brain_generation(self, outcome: str, seconds: float) -> None:
+        if outcome not in COGNITIVE_BRAIN_OUTCOMES:
+            raise ValueError("unsupported cognitive Brain outcome")
+        self._observe_non_negative(
+            seconds, self.cognitive_brain_generation_seconds_h.labels(outcome=outcome),
+        )
+
+    def observe_cognitive_brain_ttft(self, outcome: str, seconds: float) -> None:
+        if outcome not in COGNITIVE_BRAIN_OUTCOMES:
+            raise ValueError("unsupported cognitive Brain outcome")
+        self._observe_non_negative(
+            seconds, self.cognitive_brain_ttft_seconds_h.labels(outcome=outcome),
+        )
+
+    def observe_cognitive_brain_tokens(self, input_tokens: int, output_tokens: int) -> None:
+        for name, value in (("input", input_tokens), ("output", output_tokens)):
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError(f"cognitive Brain {name} tokens must be non-negative")
+        self.cognitive_brain_input_tokens_h.observe(input_tokens)
+        self.cognitive_brain_output_tokens_h.observe(output_tokens)
+
+    def record_cognitive_brain_turn(self, mode: str) -> None:
+        if mode not in COGNITIVE_BRAIN_MODES:
+            raise ValueError("unsupported cognitive Brain mode")
+        self._cognitive_brain_turns[mode] = self._cognitive_brain_turns.get(mode, 0) + 1
+        self.cognitive_brain_turn_total_c.labels(mode=mode).inc()
+
+    def cognition_brain_snapshot(self) -> dict[str, Any]:
+        return {
+            "opportunities": {
+                f"{kind}:{outcome}": count
+                for (kind, outcome), count in sorted(self._cognitive_opportunities.items())
+            },
+            "requests": dict(sorted(self._cognitive_brain_requests.items())),
+            "turns": dict(sorted(self._cognitive_brain_turns.items())),
+        }
+
+    @staticmethod
+    def _observe_non_negative(value: float, histogram: Any) -> None:
+        if (
+            isinstance(value, bool) or not isinstance(value, (int, float))
+            or not math.isfinite(float(value)) or value < 0
+        ):
+            raise ValueError("metric observation must be finite and non-negative")
+        histogram.observe(float(value))
 
     def record_director_action(self, action: str, reason: str) -> None:
         key = (str(action), str(reason))
@@ -1011,6 +1149,12 @@ class MetricsCollector:
         key = (str(outcome), str(reason))
         self._agent_events[key] = self._agent_events.get(key, 0) + 1
         self.agent_events_total_c.labels(outcome=key[0], reason=key[1]).inc()
+
+    def record_llm_workload_overlap(self, classes: str) -> None:
+        if classes not in LLM_WORKLOAD_CLASS_PAIRS:
+            raise ValueError("unsupported LLM workload overlap classes")
+        self._llm_workload_overlap[classes] = self._llm_workload_overlap.get(classes, 0) + 1
+        self.llm_workload_overlap_total_c.labels(classes=classes).inc()
 
     def agent_snapshot(self) -> dict[str, Any]:
         accepted = sum(

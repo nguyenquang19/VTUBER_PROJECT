@@ -32,7 +32,13 @@ from urllib.parse import urlparse
 import httpx
 
 from interfaces.base import HealthStatus
-from interfaces.llm import LLMRequest, LLMService, LLMToken
+from interfaces.llm import (
+    LLMContextOverflowPolicy,
+    LLMRequest,
+    LLMService,
+    LLMToken,
+    LLMWorkloadClass,
+)
 from orchestrator.logger import get_logger
 
 # Giới hạn dòng cho StreamReader (SSE delta nhỏ, nhưng nới rộng phòng câu dài).
@@ -41,6 +47,18 @@ _COMPACTION_MARKER = "\n[…]\n"
 
 
 class LlamaCppError(Exception):
+    pass
+
+
+class LlamaCppBusyError(LlamaCppError):
+    pass
+
+
+class LlamaCppContextBudgetError(LlamaCppError):
+    pass
+
+
+class LlamaCppPreemptedError(LlamaCppError):
     pass
 
 
@@ -59,6 +77,8 @@ class LlamaCppLLMService(LLMService):
         context_min_aux_chars: int = 160,
         context_min_latest_chars: int = 512,
         context_preflight_timeout_s: float = 3.0,
+        shadow_cancel_grace_s: float = 0.25,
+        metrics: Any = None,
     ) -> None:
         self.context_size = _strict_int(context_size, "context_size", minimum=2)
         self.context_safety_tokens = _strict_int(
@@ -72,6 +92,9 @@ class LlamaCppLLMService(LLMService):
         )
         self.context_preflight_timeout_s = _strict_float(
             context_preflight_timeout_s, "context_preflight_timeout_s",
+        )
+        self.shadow_cancel_grace_s = _strict_float(
+            shadow_cancel_grace_s, "shadow_cancel_grace_s",
         )
         if self.context_safety_tokens >= self.context_size - 1:
             raise ValueError("context_safety_tokens must leave at least one input token")
@@ -91,7 +114,9 @@ class LlamaCppLLMService(LLMService):
         self._client = client
         self._owns_client = client is None
         self._log = get_logger("llm")
+        self._metrics = metrics
         self._cancelled: set[str] = set()
+        self._active_writers: dict[str, asyncio.StreamWriter] = {}
 
         # metrics (per-request cập nhật, dashboard 1.F đọc)
         self._requests_total = 0
@@ -106,9 +131,19 @@ class LlamaCppLLMService(LLMService):
         self._context_counter_failures_total = 0
         self._context_counter_calls_total = 0
         self._context_last_input_tokens: int | None = None
+        self._live_active = 0
+        self._shadow_active_request_id: str | None = None
+        self._shadow_rejected_busy_total = 0
+        self._shadow_preempted_total = 0
+        self._workload_overlap_total = 0
+        self._shadow_admission_enabled = True
+        self._shadow_released = asyncio.Event()
+        self._shadow_released.set()
 
     @classmethod
-    def from_loader(cls, loader, client: httpx.AsyncClient | None = None) -> LlamaCppLLMService:
+    def from_loader(
+        cls, loader, client: httpx.AsyncClient | None = None, metrics: Any = None,
+    ) -> LlamaCppLLMService:
         host = loader.get("models", "llm_main.host", "127.0.0.1")
         port = int(loader.get("models", "llm_main.port", 8080))
         # Sampling register — đọc từ config, key thiếu → None (không gửi).
@@ -146,6 +181,11 @@ class LlamaCppLLMService(LLMService):
                 loader.get("models", "llm_main.context_preflight_timeout_s", 3.0),
                 "llm_main.context_preflight_timeout_s",
             ),
+            shadow_cancel_grace_s=_strict_float(
+                loader.get("cognition", "brain_cancel_grace_seconds", 0.25),
+                "brain_cancel_grace_seconds",
+            ),
+            metrics=metrics,
         )
 
     # ---------- Service ----------
@@ -183,12 +223,22 @@ class LlamaCppLLMService(LLMService):
             "llm_context_counter_failures_total": self._context_counter_failures_total,
             "llm_context_counter_calls_total": self._context_counter_calls_total,
             "llm_context_last_input_tokens": self._context_last_input_tokens,
+            "llm_live_active": self._live_active,
+            "llm_shadow_active": self._shadow_active_request_id is not None,
+            "llm_shadow_rejected_busy_total": self._shadow_rejected_busy_total,
+            "llm_shadow_preempted_total": self._shadow_preempted_total,
+            "llm_workload_overlap_total": self._workload_overlap_total,
+            "llm_shadow_admission_enabled": self._shadow_admission_enabled,
         }
 
     def _ensure_client(self) -> httpx.AsyncClient:
         if self._client is None:
             self._client = httpx.AsyncClient(timeout=self.request_timeout_s)
         return self._client
+
+    def set_metrics(self, metrics: Any) -> None:
+        """Attach the runtime collector without changing legacy factory call sites."""
+        self._metrics = metrics
 
     # ---------- generation (raw socket, KHÔNG httpx) ----------
 
@@ -212,34 +262,53 @@ class LlamaCppLLMService(LLMService):
         )
 
     async def generate_stream(self, request: LLMRequest) -> AsyncIterator[LLMToken]:
-        self._cancelled.discard(request.request_id)
-        self._requests_total += 1
-
-        max_tokens = request.max_tokens or self.default_max_tokens
-        payload: dict[str, Any] = {
-            "messages": request.to_messages(),
-            "max_tokens": max_tokens,
-            "temperature": request.temperature,
-            "stream": True,
-            "cache_prompt": True,
-        }
-        if request.seed is not None:
-            payload["seed"] = request.seed
-        # Sampling register toàn cục (min_p/repeat_penalty/presence...) — de-AI giọng.
-        payload.update(self._sampling)
-        if request.stop_sequences:
-            payload["stop"] = request.stop_sequences
-
+        self._admit_workload(request)
         t_start = time.perf_counter()
         t_first: float | None = None
         tokens_out = 0
         writer: asyncio.StreamWriter | None = None
 
         try:
+            if (
+                request.workload_class is LLMWorkloadClass.LIVE
+                and not self._shadow_released.is_set()
+            ):
+                try:
+                    await asyncio.wait_for(
+                        self._shadow_released.wait(),
+                        timeout=self.shadow_cancel_grace_s,
+                    )
+                except asyncio.TimeoutError:
+                    self._shadow_admission_enabled = False
+                    self._workload_overlap_total += 1
+                    _call_metric(
+                        self._metrics, "record_llm_workload_overlap", "live_shadow",
+                    )
+            self._cancelled.discard(request.request_id)
+            self._requests_total += 1
+            max_tokens = request.max_tokens or self.default_max_tokens
+            payload: dict[str, Any] = {
+                "messages": request.to_messages(),
+                "max_tokens": max_tokens,
+                "temperature": request.temperature,
+                "stream": True,
+                "cache_prompt": True,
+            }
+            if request.seed is not None:
+                payload["seed"] = request.seed
+            # Sampling register toàn cục (min_p/repeat_penalty/presence...) — de-AI giọng.
+            payload.update(self._sampling)
+            if request.stop_sequences:
+                payload["stop"] = request.stop_sequences
+            if request.response_format is not None:
+                payload["response_format"] = request.response_format.to_payload()
             payload["messages"] = await self._bounded_messages(
                 payload["messages"], max_tokens=max_tokens, request_id=request.request_id,
+                overflow_policy=request.context_overflow_policy,
             )
+            input_tokens = self._context_last_input_tokens
             reader, writer = await self._open_connection()
+            self._active_writers[request.request_id] = writer
             writer.write(self._build_http_request(payload))
             await writer.drain()
 
@@ -269,10 +338,29 @@ class LlamaCppLLMService(LLMService):
                         request_id=request.request_id,
                         token="",
                         is_final=True,
-                        metadata={"finish_reason": finish, "tokens_predicted": tokens_out},
+                        metadata={
+                            "finish_reason": finish,
+                            "tokens_predicted": tokens_out,
+                            "input_tokens": input_tokens,
+                        },
                     )
                     return
-        except (LlamaCppError, asyncio.CancelledError):
+            if (
+                request.workload_class is LLMWorkloadClass.SHADOW
+                and request.request_id in self._cancelled
+            ):
+                raise LlamaCppPreemptedError("llama.cpp workload was preempted")
+        except LlamaCppError as exc:
+            if (
+                request.workload_class is LLMWorkloadClass.SHADOW
+                and request.request_id in self._cancelled
+                and not isinstance(exc, LlamaCppPreemptedError)
+            ):
+                raise LlamaCppPreemptedError(
+                    "llama.cpp workload was preempted",
+                ) from exc
+            raise
+        except asyncio.CancelledError:
             raise
         except asyncio.TimeoutError as e:
             self._errors_total += 1
@@ -282,9 +370,11 @@ class LlamaCppLLMService(LLMService):
             raise LlamaCppError(f"generate_stream failed: {e}") from e
         finally:
             self._cancelled.discard(request.request_id)
+            self._active_writers.pop(request.request_id, None)
             if writer is not None:
                 writer.close()
             self._record_decode(t_first, tokens_out)
+            self._release_workload(request)
 
     async def _bounded_messages(
         self,
@@ -292,6 +382,7 @@ class LlamaCppLLMService(LLMService):
         *,
         max_tokens: int,
         request_id: str,
+        overflow_policy: LLMContextOverflowPolicy = LLMContextOverflowPolicy.COMPACT,
     ) -> list[dict[str, str]]:
         """Return a copied message list proven to fit the configured context budget."""
         if isinstance(max_tokens, bool) or not isinstance(max_tokens, int) or max_tokens <= 0:
@@ -315,6 +406,12 @@ class LlamaCppLLMService(LLMService):
             return working
 
         initial_tokens = tokens
+        if overflow_policy is LLMContextOverflowPolicy.REJECT:
+            self._context_budget_failures_total += 1
+            self._errors_total += 1
+            raise LlamaCppContextBudgetError(
+                f"context budget exceeded without compaction: input={tokens}, budget={budget}"
+            )
         self._context_compactions_total += 1
 
         # Drop only middle conversational history. The first stable system prefix
@@ -493,8 +590,50 @@ class LlamaCppLLMService(LLMService):
             self._last_decode_tps = tokens_out / decode_s if decode_s > 0 else None
 
     async def cancel(self, request_id: str) -> None:
-        """Đánh dấu cancel; _iter_sse sẽ dừng ở vòng kế → đóng socket ở finally."""
+        """Mark cancellation and close the owned socket to release llama.cpp promptly."""
         self._cancelled.add(request_id)
+        writer = self._active_writers.get(request_id)
+        if writer is not None:
+            writer.close()
+
+    def _admit_workload(self, request: LLMRequest) -> None:
+        if request.workload_class is LLMWorkloadClass.SHADOW:
+            if (
+                not self._shadow_admission_enabled
+                or self._live_active > 0
+                or self._shadow_active_request_id is not None
+            ):
+                self._shadow_rejected_busy_total += 1
+                raise LlamaCppBusyError("shadow workload rejected while llama.cpp is busy")
+            self._shadow_active_request_id = request.request_id
+            self._shadow_released.clear()
+            return
+        self._live_active += 1
+        shadow_id = self._shadow_active_request_id
+        if shadow_id is not None:
+            self._shadow_preempted_total += 1
+            self._cancelled.add(shadow_id)
+            writer = self._active_writers.get(shadow_id)
+            if writer is not None:
+                writer.close()
+
+    def _release_workload(self, request: LLMRequest) -> None:
+        if request.workload_class is LLMWorkloadClass.SHADOW:
+            if self._shadow_active_request_id == request.request_id:
+                self._shadow_active_request_id = None
+                self._shadow_released.set()
+            return
+        self._live_active = max(0, self._live_active - 1)
+
+
+def _call_metric(metrics: Any, method: str, *args: Any) -> None:
+    recorder = getattr(metrics, method, None)
+    if not callable(recorder):
+        return
+    try:
+        recorder(*args)
+    except Exception:
+        pass
 
 
 def _strict_int(value: Any, field_name: str, *, minimum: int) -> int:

@@ -1,4 +1,4 @@
-"""MCB Cognitive Brain contracts remain strict, immutable, and runtime-inactive."""
+"""MCB Cognitive Brain contracts remain strict, immutable, and shadow-only."""
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError, fields
@@ -178,7 +178,8 @@ def _action_proposal(config: CognitionConfig) -> CognitiveActionProposal:
 
 
 def test_canonical_config_loads_strictly(cognition_config: CognitionConfig) -> None:
-    assert cognition_config.rollout_mode == "disabled"
+    assert cognition_config.rollout_mode == "shadow"
+    assert cognition_config.max_brain_inflight == 1
     assert cognition_config.focus_ttl_seconds == 900
     assert cognition_config.max_speech_chars == 512
 
@@ -212,7 +213,7 @@ def test_initial_invalid_cognition_config_fails_closed(tmp_path: Path) -> None:
         lambda raw: raw.update(extra=True),
         lambda raw: raw.pop("max_id_chars"),
         lambda raw: raw.update(schema_version=True),
-        lambda raw: raw.update(rollout_mode="shadow"),
+        lambda raw: raw.update(rollout_mode="disabled"),
         lambda raw: raw.update(reason_codes=["same", "same"]),
         lambda raw: raw.update(max_speech_chars=4096),
     ],
@@ -453,7 +454,7 @@ def test_context_and_proposal_reference_mismatch_fails(cognition_config: Cogniti
 
 
 @pytest.mark.asyncio
-async def test_cognitive_feature_is_uncomposed_and_cannot_be_enabled(tmp_path: Path) -> None:
+async def test_cognitive_feature_can_enable_only_through_attached_handler(tmp_path: Path) -> None:
     (tmp_path / "system.yaml").write_bytes((ROOT / "config" / "system.yaml").read_bytes())
     feature_path = tmp_path / "features.yaml"
     feature_path.write_bytes((ROOT / "config" / "features.yaml").read_bytes())
@@ -470,18 +471,13 @@ async def test_cognitive_feature_is_uncomposed_and_cannot_be_enabled(tmp_path: P
 
     manager.attach_handlers("cognitive_brain_shadow", enable=enable_handler)
     result = await manager.enable("cognitive_brain_shadow", user="owner")
-    assert result.ok is False
-    assert "activation" in result.reason
-    assert await manager.get_status("cognitive_brain_shadow") is FeatureStatus.DISABLED
-    assert handler_called is False
-    assert feature_path.read_bytes() == before
-    assert metrics.cognition_snapshot() == {
-        "contract_rejected": {},
-        "feature_toggle": {"disabled": 1, "enable_rejected": 1},
-    }
+    assert result.ok is True
+    assert await manager.get_status("cognitive_brain_shadow") is FeatureStatus.ENABLED
+    assert handler_called is True
+    assert feature_path.read_bytes() != before
 
 
-def test_cognitive_feature_cannot_start_enabled_or_coerce_activation(tmp_path: Path) -> None:
+def test_cognitive_feature_can_start_enabled_but_cannot_coerce_activation(tmp_path: Path) -> None:
     (tmp_path / "system.yaml").write_bytes((ROOT / "config" / "system.yaml").read_bytes())
     raw = yaml.safe_load((ROOT / "config" / "features.yaml").read_text(encoding="utf-8"))
     raw["features"]["cognitive_brain_shadow"]["enabled"] = True
@@ -490,8 +486,8 @@ def test_cognitive_feature_cannot_start_enabled_or_coerce_activation(tmp_path: P
     )
     loader = ConfigLoader(tmp_path)
     loader.load_all()
-    with pytest.raises(ConfigError, match="activation_allowed=false"):
-        FeatureManager.from_config(loader)
+    manager = FeatureManager.from_config(loader)
+    assert manager is not None
 
     raw["features"]["cognitive_brain_shadow"]["enabled"] = False
     raw["features"]["cognitive_brain_shadow"]["activation_allowed"] = "false"

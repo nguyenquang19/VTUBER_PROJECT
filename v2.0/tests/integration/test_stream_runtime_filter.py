@@ -221,6 +221,17 @@ class TestRuntimeFilterWiring:
             assert dashboard["filter_svc"] is runtime._filter_svc
             assert dashboard["regenerator"] is runtime._regenerator
             assert dashboard["goal_manager"] is runtime.goal_manager
+            assert runtime._cognitive_scheduler.snapshot().running is False
+            cognitive_enabled = await runtime._feature_manager.enable(
+                "cognitive_brain_shadow", user="test",
+            )
+            assert cognitive_enabled.ok is True
+            assert runtime._cognitive_scheduler.snapshot().running is True
+            cognitive_disabled = await runtime._feature_manager.disable(
+                "cognitive_brain_shadow", user="test",
+            )
+            assert cognitive_disabled.ok is True
+            assert runtime._cognitive_scheduler.snapshot().running is False
             assert set(runtime._health_supervisor.snapshot()["targets"]) == {
                 "dashboard", "input_router", "llm_main", "obs_perception_adapter",
                 "obs_websocket",
@@ -289,6 +300,16 @@ class TestRuntimeFilterWiring:
             filter_enabled=False,
         )
         try:
+            cognitive = runtime._cognitive_scheduler.snapshot()
+            assert cognitive.running is False
+            assert cognitive.queue_depth == 0
+            assert cognitive.inflight_count == 0
+            assert cognitive.retained_record_count == 0
+            assert runtime.operations_snapshot()["cognitive_brain_shadow"] == {
+                "running": False, "healthy": False, "queue_depth": 0,
+                "inflight_count": 0, "retained_record_count": 0,
+                "last_outcome": None,
+            }
             parsed, level = await runtime._runner.run_turn("r1", "chào")
             assert level == 0
             assert parsed.text == BAD_OUTPUT

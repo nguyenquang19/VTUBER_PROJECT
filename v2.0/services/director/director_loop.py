@@ -159,6 +159,7 @@ class DirectorLoop:
         self._animation = animation
         self._embodiment_policy = embodiment_policy
         self._action_adapter_boundary = action_adapter_boundary
+        self._cognitive_observer: Any = None
         self._director_v2_shadow = None
         self._director_v2_takeover = None
         self._director_v2_materializer: DirectorV2DecisionMaterializer | None = None
@@ -459,6 +460,7 @@ class DirectorLoop:
         expected_intention_id = self._decision_intention_id(dec, director_input)
         self._record_director_metric(dec)
         decision_id = self._record_decision(dec, director_input, now)
+        self._observe_cognitive_decision(dec, director_input, decision_id)
 
         if dec.action == DirectorAction.WAIT:
             self._record_trajectory_no_action(decision_id, dec.reason)
@@ -526,6 +528,10 @@ class DirectorLoop:
                             reason="not_delivered",
                         )
                 self._record_director_action(dec, now)
+                if committed:
+                    self._observe_cognitive_verified_outcome(
+                        dec, director_input, decision_id,
+                    )
             except asyncio.CancelledError:
                 if transaction_id is not None:
                     try:
@@ -768,6 +774,38 @@ class DirectorLoop:
         self._director.clear_self_talk_defer()
         if self._self_talk_planner is not None:
             self._self_talk_planner.on_chat(self._clock() if now is None else now)
+        observer = self._cognitive_observer
+        if observer is not None:
+            try:
+                observer.preempt_for_live()
+            except Exception:
+                pass
+
+    def configure_cognitive_observer(self, observer: Any = None) -> None:
+        """Attach a fail-isolated observer; it has no decision or execution authority."""
+        self._cognitive_observer = observer
+
+    def _observe_cognitive_decision(
+        self, dec: DirectorDecision, value: DirectorInput, decision_id: str | None,
+    ) -> None:
+        observer = self._cognitive_observer
+        if observer is None:
+            return
+        try:
+            observer.observe_decision(dec, value, decision_id)
+        except Exception as exc:
+            self._log.warning("cognitive_observer_failed", error=str(exc))
+
+    def _observe_cognitive_verified_outcome(
+        self, dec: DirectorDecision, value: DirectorInput, decision_id: str | None,
+    ) -> None:
+        observer = self._cognitive_observer
+        if observer is None:
+            return
+        try:
+            observer.observe_verified_outcome(dec, value, decision_id)
+        except Exception as exc:
+            self._log.warning("cognitive_outcome_observer_failed", error=str(exc))
 
     def _tone_flags(self) -> tuple[str, ...]:
         if self._emotion is None:

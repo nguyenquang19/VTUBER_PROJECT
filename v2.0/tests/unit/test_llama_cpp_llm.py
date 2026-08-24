@@ -13,8 +13,14 @@ from pathlib import Path
 import httpx
 import pytest
 
-from interfaces.llm import ChatMessage, LLMRequest
-from services.llm.llama_cpp_llm import LlamaCppError, LlamaCppLLMService
+from interfaces.llm import (
+    ChatMessage, LLMContextOverflowPolicy, LLMJsonSchemaResponse, LLMRequest,
+    LLMWorkloadClass,
+)
+from services.llm.llama_cpp_llm import (
+    LlamaCppBusyError, LlamaCppContextBudgetError, LlamaCppError,
+    LlamaCppLLMService, LlamaCppPreemptedError,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -96,6 +102,17 @@ def sent_payload(writer: FakeWriter) -> dict:
 
 
 class TestStreaming:
+    async def test_strict_json_schema_is_forwarded_only_when_requested(self) -> None:
+        svc, writer = make_service(http_response(sse_body(chat_stream(["{}"]))))
+        response = LLMJsonSchemaResponse(
+            name="turn", schema={
+                "type": "object", "additionalProperties": False,
+                "properties": {},
+            },
+        )
+        _ = [token async for token in svc.generate_stream(req(response_format=response))]
+        assert sent_payload(writer)["response_format"] == response.to_payload()
+
     async def test_yields_tokens_in_order(self) -> None:
         svc, _ = make_service(http_response(sse_body(chat_stream(["Chào", " ", "cậu"]))))
         tokens = [t async for t in svc.generate_stream(req())]
@@ -214,6 +231,18 @@ class TestCancel:
         assert len(got) < 100
         assert writer.closed is True  # socket được đóng ở finally
 
+    async def test_cancelled_shadow_reports_preemption_instead_of_parse_eof(self) -> None:
+        svc, writer = make_service(http_response(sse_body(chat_stream(["{", "}"]))))
+        shadow = LLMRequest(
+            request_id="shadow-cancel", prompt="context",
+            workload_class=LLMWorkloadClass.SHADOW,
+        )
+        with pytest.raises(LlamaCppPreemptedError):
+            async for token in svc.generate_stream(shadow):
+                if token.token:
+                    await svc.cancel(shadow.request_id)
+        assert writer.closed is True
+
 
 class TestMetrics:
     async def test_ttft_and_tokens_recorded(self) -> None:
@@ -264,6 +293,60 @@ class TestBoundedContext:
         assert bounded == messages
         assert bounded is not messages
         assert service.get_metrics()["llm_context_compactions_total"] == 0
+
+    async def test_shadow_reject_policy_never_compacts_structured_context(self) -> None:
+        service = LlamaCppLLMService(
+            context_size=50, context_safety_tokens=5,
+            context_min_aux_chars=5, context_min_latest_chars=10,
+        )
+        self._char_counter(service)
+        messages = [{"role": "system", "content": "p" * 30},
+                    {"role": "user", "content": "u" * 30}]
+        with pytest.raises(LlamaCppContextBudgetError, match="without compaction"):
+            await service._bounded_messages(
+                messages, max_tokens=10, request_id="shadow",
+                overflow_policy=LLMContextOverflowPolicy.REJECT,
+            )
+        assert service.get_metrics()["llm_context_compactions_total"] == 0
+
+
+class TestWorkloadPriority:
+    _char_counter = staticmethod(TestBoundedContext._char_counter)
+
+    def test_shadow_is_single_inflight_and_rejected_while_live_active(self) -> None:
+        service = LlamaCppLLMService()
+        live = req(workload_class=LLMWorkloadClass.LIVE)
+        shadow = LLMRequest(
+            request_id="shadow", prompt="context",
+            workload_class=LLMWorkloadClass.SHADOW,
+        )
+        service._admit_workload(live)
+        with pytest.raises(LlamaCppBusyError):
+            service._admit_workload(shadow)
+        service._release_workload(live)
+        service._admit_workload(shadow)
+        with pytest.raises(LlamaCppBusyError):
+            service._admit_workload(LLMRequest(
+                request_id="shadow-2", prompt="context",
+                workload_class=LLMWorkloadClass.SHADOW,
+            ))
+        service._release_workload(shadow)
+
+    async def test_live_admission_closes_active_shadow_socket(self) -> None:
+        service = LlamaCppLLMService()
+        shadow = LLMRequest(
+            request_id="shadow", prompt="context",
+            workload_class=LLMWorkloadClass.SHADOW,
+        )
+        writer = FakeWriter()
+        service._admit_workload(shadow)
+        service._active_writers[shadow.request_id] = writer  # type: ignore[assignment]
+        live = req(workload_class=LLMWorkloadClass.LIVE)
+        service._admit_workload(live)
+        assert writer.closed is True
+        assert service.get_metrics()["llm_shadow_preempted_total"] == 1
+        service._release_workload(shadow)
+        service._release_workload(live)
 
     async def test_overflow_drops_oldest_complete_history_pair_first(self) -> None:
         service = LlamaCppLLMService(

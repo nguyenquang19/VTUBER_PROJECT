@@ -257,6 +257,54 @@ def _make(now=0.0, autonomy=None, agent_state=None, goal_manager=None, **dir_ove
 
 
 @pytest.mark.asyncio
+async def test_cognitive_observer_failure_cannot_change_compatibility_wait() -> None:
+    loop, _director, _pool, _pulse, runner, clock = _make()
+
+    class BrokenObserver:
+        def observe_decision(self, *args: object) -> None:
+            raise RuntimeError("observer failed")
+
+        def preempt_for_live(self) -> None:
+            raise RuntimeError("preemption metric failed")
+
+    loop.configure_cognitive_observer(BrokenObserver())
+    for _index in range(100):
+        clock["t"] = 1.0
+        assert await loop.tick_once() is DirectorAction.WAIT
+    loop.on_chat_activity()
+    assert runner.read_calls == []
+    assert runner.ambient_calls == []
+
+
+@pytest.mark.asyncio
+async def test_cognitive_tap_runs_before_public_generation_and_result_is_unread() -> None:
+    loop, _director, pool, _pulse, runner, clock = _make()
+    observed: list[str] = []
+
+    class Observer:
+        def observe_decision(self, decision, value, decision_id) -> bool:
+            del value, decision_id
+            assert runner.read_calls == []
+            observed.append(decision.action.value)
+            return True
+
+        def observe_verified_outcome(self, decision, value, decision_id) -> bool:
+            del value, decision_id
+            observed.append(f"verified:{decision.action.value}")
+            return True
+
+        def preempt_for_live(self) -> None:
+            return None
+
+    loop.configure_cognitive_observer(Observer())
+    pool.add("m-observe", "Mai ơi", now=0.0, kind="mention")
+    clock["t"] = 1.0
+    assert await loop.tick_once() is DirectorAction.READ_CHAT
+    assert observed == ["read_chat", "verified:read_chat"]
+    assert runner.read_calls == ["Mai ơi"]
+
+
+@pytest.mark.asyncio
 class TestDirectorLoop:
     async def test_primary_takeover_materializes_divergent_action_without_compatibility_decide(
         self,
