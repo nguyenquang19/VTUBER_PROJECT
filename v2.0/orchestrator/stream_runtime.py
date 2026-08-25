@@ -1311,8 +1311,8 @@ async def _compose_stream_runtime(
     pm = PromptManager.from_loader(loader)
     canned = CannedResponder.from_loader(loader)
     fb = FallbackManager()
-    from services.agent.context_renderer import AgentContextRenderer
-    agent_context_renderer = AgentContextRenderer.from_loader(loader)
+    from services.cognition.agent_context_projection import AgentContextRenderer
+    agent_context_projection = AgentContextRenderer.from_loader(loader)
     try:
         agent_context_status = await feature_manager.get_status("agent_context")
         agent_context_enabled = agent_context_status in (
@@ -1329,7 +1329,7 @@ async def _compose_stream_runtime(
     except KeyError:
         get_logger("stream_runtime").warning("context_selector_feature_missing")
         context_selector_enabled = False
-    from services.agent.conversation_context import ConversationContextComposer
+    from services.cognition.context_builder import build_compatibility_context_projection
     from services.agent.repair_policy import ConversationRepairPolicy
     repair_policy = ConversationRepairPolicy.from_loader(loader, metrics=metrics)
 
@@ -1347,7 +1347,7 @@ async def _compose_stream_runtime(
             "reason": reason if isinstance(reason, str) else "",
         }
 
-    conversation_context = ConversationContextComposer.from_loader(
+    conversation_context_projection = build_compatibility_context_projection(
         loader, goal_provider=goal_manager.snapshot, metrics=metrics,
         repair_policy=repair_policy, relationship_context=relationship_manager,
         world_snapshot_provider=world_model.snapshot,
@@ -1424,6 +1424,9 @@ async def _compose_stream_runtime(
         memory_extractor = MemoryExtractor.from_loader(loader)
         emotion.set_memory_service(memory)
     relationship_manager.set_memory_service(memory)
+
+    agent_context_renderer = agent_context_projection
+    conversation_context = conversation_context_projection
 
     # ─── Runner ───
     session_id = str(uuid.uuid4())
@@ -2597,12 +2600,12 @@ async def _compose_stream_runtime(
         relationship_manager=relationship_manager,
     )
 
-    # MCB-3: compose a dormant observer. No proposal is routed back to public output.
-    from orchestrator.runtime_cognition import build_cognitive_runtime_stack
-    cognitive_stack = build_cognitive_runtime_stack(
-        loader=loader,
-        feature_manager=feature_manager,
-        llm=llm_svc,
+    # S3: one canonical builder owns both the typed Brain snapshot and the
+    # exact compatibility projections already consumed by the public LLM path.
+    from interfaces.cognition import CognitionConfig
+    from services.cognition.context_builder import CognitiveContextBuilder
+    cognitive_context_builder = CognitiveContextBuilder(
+        CognitionConfig.from_mapping(loader.section("cognition")),
         world_model=world_model,
         self_model=self_model,
         capability_registry=capability_registry,
@@ -2610,6 +2613,19 @@ async def _compose_stream_runtime(
         goal_manager=goal_manager,
         thread_manager=open_thread_manager,
         memory_service=memory,
+        metrics=metrics,
+        agent_context_projection=agent_context_projection,
+        conversation_context_projection=conversation_context_projection,
+    )
+
+    # MCB-3: compose a dormant observer. No proposal is routed back to public output.
+    from orchestrator.runtime_cognition import build_cognitive_runtime_stack
+    cognitive_stack = build_cognitive_runtime_stack(
+        loader=loader,
+        feature_manager=feature_manager,
+        llm=llm_svc,
+        context_builder=cognitive_context_builder,
+        self_model=self_model,
         transactions=action_transactions,
         control_plane=control_plane,
         emergency_controller=emergency_controller,
@@ -2650,7 +2666,7 @@ async def _compose_stream_runtime(
             obs_perception_adapter,
         ),
         thread_extractor=thread_extractor,
-        conversation_context=conversation_context,
+        conversation_context=cognitive_context_builder,
         repair_policy=repair_policy,
         behavior_library=behavior_library,
         relationship_manager=relationship_manager,

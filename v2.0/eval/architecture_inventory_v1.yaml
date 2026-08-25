@@ -6,6 +6,36 @@ checkpoint_scope_clean: true
 structure_gate_eligible: true
 release_gate_eligible: false
 
+s3_docs_first:
+  status: implementation_complete_owner_approved
+  base_revision: "b9aea9ffb8fd638e8b0ceb866f6e2d9875726deb"
+  behavior_change_authorized: false
+  baseline_targeted_tests: 75
+  current_context_service_owners: 3
+  production_legacy_context_imports: 4
+  brain_generation_call_sites: 1
+  resulting_context_service_owners_live: 1
+  resulting_production_legacy_context_imports: 0
+  resulting_brain_generation_call_sites: 1
+  target_context_service_owner: services/cognition/context_builder.py
+  target_model_adapter_owner: services/cognition/model_adapter.py
+  target_config_owner: config/cognition.yaml
+  legacy_context_modules:
+    - services/agent/context_renderer.py
+    - services/agent/conversation_context.py
+  live_and_offline_entrypoints_to_cut:
+    - orchestrator/stream_runtime.py
+    - scripts/stress_youtube_llm.py
+    - scripts/stress_youtube_live_pipeline.py
+  non_goals:
+    - public_authority
+    - delivery_or_action
+    - state_or_memory_commit
+    - scheduler_semantics
+    - prompt_or_sampling_change
+    - product_version_change
+    - mcb5
+
 scope:
   - interfaces/**/*.py
   - orchestrator/**/*.py
@@ -18,15 +48,15 @@ scope:
   - tests/**/*.py
 
 snapshot:
-  production_python_files: 209
-  production_modules: 206
-  static_live_reachable_modules: 156
-  not_static_live_reachable_modules: 50
+  production_python_files: 211
+  production_modules: 208
+  static_live_reachable_modules: 157
+  not_static_live_reachable_modules: 51
   config_yaml_files: 33
   prompt_files: 7
   script_files: 35
   test_python_files_before_s0: 224
-  test_python_files: 224
+  test_python_files: 225
   feature_count: 54
   feature_enabled_count: 37
   feature_disabled_count: 17
@@ -103,9 +133,12 @@ normalization:
     s2_contract_state_config_targeted: 233
     s2_impacted_live_integration: 21
     s2_deterministic_replay_live_pipeline: 14
-    full_offline: 2461
+    s3_impacted_context_cognition_live: 249
+    s3_deterministic_replay_live_pipeline: 36
+    s3_interface_import_config_docs: 256
+    full_offline: 2471
     full_offline_failures: 0
-    full_offline_warnings: 2
+    full_offline_warnings: 1
 
 static_import_graph:
   entrypoints:
@@ -354,11 +387,10 @@ overrides:
     target_owner: services/kernel/opportunity_scheduler.py
     deletion_gate: after_s6_scheduler_canary
     reason: Proactive opportunity selection belongs to one scheduler.
-  - path: services/agent/context_renderer.py
-    disposition: DELETE
+  - path: services/cognition/agent_context_projection.py
+    disposition: MERGE
     target_owner: services/cognition/context_builder.py
-    deletion_gate: after_s3_context_equivalence
-    reason: Duplicate text context renderer.
+    reason: Exact agent-only compatibility projection owned by the canonical builder.
   - path: services/agent/conversation_context.py
     disposition: MERGE
     target_owner: services/cognition/context_builder.py
@@ -460,13 +492,13 @@ features:
   memory_hierarchical: {enabled: false, disposition: DELETE, target_owner: services/state, deletion_gate: after_s6_memory_inventory}
   qc_persona: {enabled: false, disposition: DELETE, target_owner: services/evaluation, deletion_gate: after_s7_offline_split}
   data_collector: {enabled: true, disposition: MERGE, target_owner: services/operations}
-  agent_context: {enabled: true, disposition: DELETE, target_owner: services/cognition/context_builder.py, deletion_gate: after_s3_context_canonical}
+  agent_context: {enabled: true, disposition: DELETE, target_owner: services/cognition/context_builder.py, deletion_gate: after_s8_compatibility_removal}
   goal_proposals: {enabled: false, disposition: MERGE, target_owner: services/state}
   director_goal_arbiter: {enabled: true, disposition: DELETE, target_owner: services/kernel, deletion_gate: after_s6_goal_parity}
   director_chat_gate: {enabled: true, disposition: DELETE, target_owner: services/kernel/opportunity_scheduler.py, deletion_gate: after_s4_read_chat_canary}
   thread_extraction: {enabled: false, disposition: MERGE, target_owner: services/state}
   conversation_continuity: {enabled: true, disposition: DELETE, target_owner: services/state, deletion_gate: after_s6_continuity_canonical}
-  context_selector: {enabled: true, disposition: DELETE, target_owner: services/cognition/context_builder.py, deletion_gate: after_s3_context_canonical}
+  context_selector: {enabled: true, disposition: DELETE, target_owner: services/cognition/context_builder.py, deletion_gate: after_s8_compatibility_removal}
   mood_behavior_policy: {enabled: true, disposition: DELETE, target_owner: services/cognition/brain.py, deletion_gate: after_s6_affect_context_parity}
   mood_v2_shadow: {enabled: true, disposition: DELETE, target_owner: services/state/affect.py, deletion_gate: after_s6_affect_context_parity}
   mood_v2_prompt: {enabled: true, disposition: DELETE, target_owner: services/state/affect.py, deletion_gate: after_s6_affect_context_parity}

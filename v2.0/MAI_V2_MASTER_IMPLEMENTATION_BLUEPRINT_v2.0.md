@@ -1790,7 +1790,92 @@ canonical owner, còn `agent_state.yaml`/`relationships.yaml` là compatibility 
 S8. Goal/Relationship/Self chỉ được bind làm read provider; không mở authority hoặc đổi output. Targeted
 contract/state/config đạt `233 passed`, impacted live integration đạt `21 passed`, deterministic replay/
 live-pipeline group đạt `14 passed`, và full offline đạt `2.461 passed`, `0` lỗi. S2 đã được chốt tại commit
-`d02c84e`; S3/MCB-5 chưa bắt đầu.
+`d02c84e`. S3 bắt đầu từ source checkpoint `b9aea9f`; implementation đã đạt gate và được owner duyệt để
+chốt trong S3 change. MCB-5 chưa bắt đầu.
+
+#### 13.1.5.3. S3 — canonical cognition cut
+
+Read-only audit tại `b9aea9f` xác nhận cognition đang có ba context service owner song song:
+`AgentContextRenderer`, `ConversationContextComposer`/ContextSelector và `CognitiveContextBuilder`. Live runtime
+cùng hai stress/replay entrypoint có bốn production import trực tiếp vào hai module context dưới
+`services.agent`. Brain đã có đúng một `generate_stream()` call cho mỗi `propose()`, nhưng prompt/request,
+backend error và telemetry đang nằm chung trong `brain_shadow.py`; scheduler còn import concrete Brain telemetry
+và exception `llama.cpp`. Context-only bounds đồng thời nằm trong `state.yaml`, `conversation.yaml` và
+`cognition.yaml`. Baseline context/cognition/continuity đạt `75 passed`.
+
+S3 chọn đúng một đường:
+
+```text
+AuthoritativeStateSnapshot + CognitiveContextRequest
+  -> CognitiveContextBuilder
+       -> exact compatibility text projection (public owner vẫn là Director)
+       -> CognitiveContext
+  -> CognitiveBrain
+  -> CognitiveModelAdapter
+  -> llama.cpp LLMService: đúng một generation
+  -> CognitiveTurn (observer record only)
+```
+
+Ownership và file cut được khóa như sau:
+
+- `services/cognition/context_builder.py` là context service owner duy nhất. Trong live process, composition
+  root tạo một instance dùng chung cho `LLMTurnRunner` và Brain scheduler; dry-run/offline phải dùng cùng
+  factory/class và contract, không tự dựng implementation khác.
+- Bounded selection/render algorithm từ `services/agent/context_renderer.py` và
+  `services/agent/conversation_context.py` được merge vào cognition owner dưới dạng pure projection, không có
+  lifecycle/store/service authority riêng. `context_renderer.py` được xóa chỉ sau exact parity;
+  `conversation_context.py` chỉ được giữ như exact import facade không live-reachable đến removal wave S8.
+- `interfaces/cognition.py` sở hữu model-adapter contract, bounded result/telemetry và backend-neutral failure
+  taxonomy. `services/cognition/model_adapter.py` là implementation duy nhất sở hữu persona/Brain prompt,
+  `LLMRequest`, JSON response format, timeout/cancel và một `generate_stream()` call.
+- `CognitiveBrain` chỉ validate/materialize một adapter result thành `CognitiveTurn`; scheduler chỉ phụ thuộc
+  cognition interfaces, không import concrete Brain hoặc exception từ `services.llm.llama_cpp_llm`.
+- `orchestrator/runtime_cognition.py` compose builder/adapter/Brain đúng một lần. Live và offline code không được
+  tự dựng prompt/request/model path thứ hai. `brain_shadow.py` giữ tên compatibility trong S3 vì authority vẫn
+  shadow; rename/promote Brain owner thuộc S4.
+- `cognition.yaml` nhận exact context-only bounds hiện có từ `state.context`, `conversation.context` và
+  `conversation.context_selector`. Các logical read cũ chỉ là ConfigLoader alias read-only đến S8; section cũ
+  không còn là threshold owner. `conversation.yaml` tiếp tục sở hữu Thread/recap/repair và `state.yaml` tiếp tục
+  sở hữu state, không sở hữu cognition projection.
+- `agent_context`, `context_selector` và `conversation_continuity` giữ nguyên enabled state và operator behavior
+  trong S3; handler cũ chỉ chọn compatibility projection mode trên canonical builder. Xóa feature alias thuộc
+  S8, không được trộn vào S3.
+
+S3 không đổi Director/Brain authority, scheduler opportunity semantics, prompt text, model/sampling, output
+filter, transaction, delivery, state mutation, Memory/Focus proposal commit, product version hoặc public speech.
+Brain vẫn `enabled=false`, proposal-only và không có consumer public. Không tạo evaluator/rewriter/judge/fallback
+mới và không hồi sinh MCB-4.
+
+Acceptance bắt buộc:
+
+1. Bốn production import legacy context giảm về `0`; live graph có một `CognitiveContextBuilder` instance và
+   scheduler không còn concrete Brain/llama backend import.
+2. Cùng snapshot/request/time tạo cùng `context_id`; retention, TTL, PII mask, evidence ordering và bounds giữ
+   nguyên.
+3. Compatibility text exact bằng baseline cho agent-only, continuity và selector mode; feature-off fallback và
+   source failure behavior không đổi.
+4. Mỗi `CognitiveBrain.propose()` gọi model adapter đúng một lần; request prompt, sampling, schema, timeout,
+   cancellation, parse rejection và telemetry giữ contract hiện tại. Live/dry-run dùng cùng adapter class.
+5. Không thêm LLM call hoặc public latency khi `cognitive_brain_shadow=false`; Brain record không được đọc bởi
+   Director/LLMTurnRunner/delivery/state.
+6. Interface/import/config/documentation guard, targeted context/cognition, impacted live integration,
+   deterministic replay/live-pipeline và full offline đều xanh. Public text/decision phải exact; nếu khác thì S3
+   fail và rollback, không mở blind/tuning.
+
+Rollback của S3 là quay về checkpoint `b9aea9f`; không có data/storage migration. S3 commit riêng rồi dừng,
+không tự chuyển S4 hoặc MCB-5.
+
+**Implementation evidence ngày 26/08/2026:** live graph hiện compose đúng một `CognitiveContextBuilder`; exact
+compatibility projections nằm dưới `services/cognition`, còn `services/agent/conversation_context.py` chỉ là
+import facade không live-reachable và `services/agent/context_renderer.py` đã được xóa. Prompt/request/schema,
+timeout/cancel và telemetry nằm trong một `CognitiveModelAdapter`; scheduler chỉ dùng backend-neutral cognition
+contract. Context-only thresholds chỉ còn ở `cognition.yaml`; logical reads cũ được ConfigLoader alias read-only.
+Bốn production legacy import giảm `4 -> 0`, cognition `generate_stream()` call site vẫn là `1`. Structure đổi
+production Python `209 -> 211`, module `206 -> 208`, static live-reachable `156 -> 157`, non-live `50 -> 51`.
+Impacted context/Cognition/live đạt `249 passed`, replay/live-pipeline `36 passed`, interface/import/config/docs
+guard `256 passed`, full offline `2.471 passed`, `0` lỗi và một warning deprecation có sẵn. Public authority,
+prompt/sampling, output, decision, delivery và state mutation không đổi; không cần blind review cho exact
+structure cut. Owner đã duyệt closure S3; chưa bắt đầu S4/MCB-5.
 
 ### 13.1.6. Rollout behavior trong quá trình chuẩn hóa
 

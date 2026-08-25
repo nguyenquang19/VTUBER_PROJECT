@@ -40,6 +40,7 @@ from interfaces.state import (
     OpenThread,
 )
 from services.data.sanitize import mask_pii
+from services.cognition.compatibility_context import ConversationContextComposer
 
 
 _WORLD_DOMAINS = ("stream", "social", "call", "media", "physical", "game")
@@ -62,6 +63,13 @@ _SPEECH_MODE = {
 _SENSITIVE_AVAILABILITY_PREFIXES = ("permission:", "executor:", "verifier:")
 
 
+def build_compatibility_context_projection(
+    loader: Any, **kwargs: Any,
+) -> ConversationContextComposer:
+    """Build the exact public projection through the canonical cognition factory."""
+    return ConversationContextComposer.from_loader(loader, **kwargs)
+
+
 class CognitiveContextBuilder(CognitiveContextBuilderService):
     """Build typed snapshots without consuming proposals or mutating sources."""
 
@@ -79,6 +87,8 @@ class CognitiveContextBuilder(CognitiveContextBuilderService):
         thread_manager: Any = None,
         memory_service: Any = None,
         metrics: Any = None,
+        agent_context_projection: Any = None,
+        conversation_context_projection: Any = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         if not isinstance(config, CognitionConfig):
@@ -100,6 +110,8 @@ class CognitiveContextBuilder(CognitiveContextBuilderService):
         self._thread_manager = thread_manager
         self._memory_service = memory_service
         self._metrics = metrics
+        self._agent_context_projection = agent_context_projection
+        self._conversation_context_projection = conversation_context_projection
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._contexts: deque[CognitiveContext] = deque()
         self._focus: FocusState | None = None
@@ -113,12 +125,32 @@ class CognitiveContextBuilder(CognitiveContextBuilderService):
         return cls(CognitionConfig.from_mapping(loader.section("cognition")), **kwargs)
 
     async def start(self) -> None:
+        if self._running:
+            return
+        projection = self._conversation_context_projection
+        if projection is not None:
+            await projection.start()
         self._running = True
 
     async def stop(self) -> None:
+        if not self._running:
+            return
         self._running = False
+        projection = self._conversation_context_projection
+        if projection is not None:
+            await projection.stop()
         self._contexts.clear()
         self._focus = None
+
+    @property
+    def agent_context_view(self) -> Any:
+        """Exact public-path projection owned by this canonical builder."""
+        return self._agent_context_projection
+
+    @property
+    def conversation_context_view(self) -> Any:
+        """Exact continuity projection owned by this canonical builder."""
+        return self._conversation_context_projection
 
     async def health_check(self) -> HealthStatus:
         if not self._running:
@@ -333,7 +365,7 @@ class CognitiveContextBuilder(CognitiveContextBuilderService):
         return self._focus
 
     def get_metrics(self) -> dict[str, Any]:
-        return {
+        values = {
             "cognitive_context_builder_running": self._running,
             "cognitive_context_builder_retained": len(self._contexts),
             "cognitive_context_builder_focus_present": self._focus is not None,
@@ -344,6 +376,10 @@ class CognitiveContextBuilder(CognitiveContextBuilderService):
             },
             "cognitive_context_builder_evicted": dict(sorted(self._evicted.items())),
         }
+        projection = self._conversation_context_projection
+        if projection is not None:
+            values.update(projection.get_metrics())
+        return values
 
     def _validate_request_time(self, requested: datetime, now: datetime) -> None:
         requested = _utc(requested, "requested_at")

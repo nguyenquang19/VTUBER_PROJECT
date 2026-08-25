@@ -237,6 +237,15 @@ class TestRealConfigFiles:
         assert loader.require("conversation", "open_threads.park_after_seconds") == 300
         assert loader.require("conversation", "topic_matcher.min_score") == 0.34
         assert loader.require("conversation", "move_planner.summarize_after_moves") == 2
+        assert loader.require("agent_state", "context.max_items") == 6
+        assert loader.require("conversation", "context.max_chars") == 1400
+        assert loader.require("conversation", "context_selector.memory_items") == 3
+        assert loader.section("agent_state")["context"] == loader.require(
+            "cognition", "agent_context_projection",
+        )
+        assert loader.section("conversation")["context_selector"] == loader.require(
+            "cognition", "context_selector_projection",
+        )
         assert loader.require("director", "director.room_reaction.cooldown_seconds") == 120
         assert loader.require("director", "director.speech_dedup.recent_window") == 64
         assert loader.require("director", "director.speech_style.recent_window") == 12
@@ -245,6 +254,28 @@ class TestRealConfigFiles:
         assert loader.require("director", "director.speech_style.max_regenerations") == 2
         assert loader.require("director", "director.speech_style.max_words") == 32
         assert loader.require("hosting", "behavior_library.behaviors.repair.directive")
+
+    def test_context_thresholds_have_one_physical_owner(self) -> None:
+        cognition = yaml.safe_load(
+            (REPO_ROOT / "config" / "cognition.yaml").read_text(encoding="utf-8")
+        )
+        state = yaml.safe_load(
+            (REPO_ROOT / "config" / "state.yaml").read_text(encoding="utf-8")
+        )
+        legacy_agent = yaml.safe_load(
+            (REPO_ROOT / "config" / "agent_state.yaml").read_text(encoding="utf-8")
+        )
+        conversation = yaml.safe_load(
+            (REPO_ROOT / "config" / "conversation.yaml").read_text(encoding="utf-8")
+        )
+
+        assert "agent_context_projection" in cognition
+        assert "conversation_context_projection" in cognition
+        assert "context_selector_projection" in cognition
+        assert "context" not in state
+        assert "context" not in legacy_agent
+        assert "context" not in conversation
+        assert "context_selector" not in conversation
 
     def test_real_config_has_phase0_keys(self) -> None:
         loader = ConfigLoader(REPO_ROOT / "config")

@@ -19,9 +19,10 @@ Mọi hướng dẫn runtime, component, pipeline, cấu hình, storage, vận h
 
 Blueprint chỉ quy định scope, thứ tự và acceptance gate tương lai; không chứng minh feature đã production.
 
-**Checkpoint cấu trúc hiện tại:** S0–S2 đã commit, gần nhất là `d02c84e`. Canonical ingress và
-authoritative state đã nằm trong live/replay graph; S3 Cognition chưa bắt đầu và Brain chưa có public
-authority. Product version vẫn là `1.4.3`.
+**Checkpoint cấu trúc hiện tại:** S0–S2 đã commit; S2 runtime là `d02c84e` và source base của S3 là
+`b9aea9f`. Canonical ingress/authoritative state đã nằm trong live/replay graph; S3 Cognition đã triển khai,
+đạt full offline và được owner duyệt để chốt. Brain vẫn chỉ là shadow observer, chưa có public authority.
+Product version vẫn là `1.4.3`.
 
 ## Thứ tự đọc
 

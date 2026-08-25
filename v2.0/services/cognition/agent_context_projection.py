@@ -1,4 +1,4 @@
-"""Render a small, relevant set of grounded state items for prompts (M1.5)."""
+"""Exact agent-only compatibility projection owned by canonical cognition."""
 from __future__ import annotations
 
 import re
@@ -29,7 +29,7 @@ class ContextRenderConfig:
 
     @classmethod
     def from_loader(cls, loader: Any) -> "ContextRenderConfig":
-        get = lambda key: loader.get("agent_state", f"context.{key}")  # noqa: E731
+        get = lambda key: loader.get("cognition", f"agent_context_projection.{key}")  # noqa: E731
         config = cls(
             min_items=int(get("min_items")),
             max_items=int(get("max_items")),

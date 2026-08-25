@@ -10,23 +10,20 @@ from typing import Any, Callable
 from interfaces.base import HealthStatus
 from interfaces.cognition import (
     CognitionConfig,
+    CognitiveBrainParseError,
+    CognitiveBrainSchemaError,
     CognitiveBrainService,
     CognitiveBrainShadowSchedulerService,
     CognitiveBrainSnapshot,
     CognitiveContextBuilderService,
     CognitiveOpportunity,
+    CognitiveModelBusyError,
+    CognitiveModelContextError,
+    CognitiveModelPreemptedError,
+    CognitiveModelTelemetry,
+    CognitiveModelTimeoutError,
     CognitiveShadowOutcome,
     CognitiveShadowRecord,
-)
-from services.cognition.brain_shadow import (
-    BrainTelemetry,
-    CognitiveBrainParseError,
-    CognitiveBrainSchemaError,
-)
-from services.llm.llama_cpp_llm import (
-    LlamaCppBusyError,
-    LlamaCppContextBudgetError,
-    LlamaCppPreemptedError,
 )
 
 
@@ -67,7 +64,6 @@ class CognitiveOpportunityScheduler(CognitiveBrainShadowSchedulerService):
     async def start(self) -> None:
         if self._running:
             return
-        await self._context_builder.start()
         await self._brain.start()
         self._running = True
         self._worker = asyncio.create_task(
@@ -104,7 +100,6 @@ class CognitiveOpportunityScheduler(CognitiveBrainShadowSchedulerService):
         self._active_opportunity = None
         self._signal.clear()
         await self._brain.stop()
-        await self._context_builder.stop()
         self._records.clear()
         self._material_seen.clear()
         self._material_completed.clear()
@@ -285,13 +280,13 @@ class CognitiveOpportunityScheduler(CognitiveBrainShadowSchedulerService):
             return
         try:
             turn = await self._brain.propose(context)
-        except LlamaCppBusyError:
+        except CognitiveModelBusyError:
             outcome = CognitiveShadowOutcome.SKIPPED_BUSY
-        except LlamaCppContextBudgetError:
+        except CognitiveModelContextError:
             outcome = CognitiveShadowOutcome.PREFLIGHT_REJECTED
-        except LlamaCppPreemptedError:
+        except CognitiveModelPreemptedError:
             outcome = CognitiveShadowOutcome.PREEMPTED
-        except asyncio.TimeoutError:
+        except CognitiveModelTimeoutError:
             outcome = CognitiveShadowOutcome.TIMEOUT
         except CognitiveBrainParseError:
             outcome = CognitiveShadowOutcome.PARSE_REJECTED
@@ -335,7 +330,7 @@ class CognitiveOpportunityScheduler(CognitiveBrainShadowSchedulerService):
         started_at: datetime | None,
         context_id: str | None,
         turn: Any,
-        telemetry: BrainTelemetry | None,
+        telemetry: CognitiveModelTelemetry | None,
     ) -> None:
         completed_at = _utc(self._clock())
         if completed_at < queued_at:
@@ -424,9 +419,9 @@ def _has_hard_hold(opportunity: CognitiveOpportunity) -> bool:
     ))
 
 
-def _telemetry(brain: CognitiveBrainService) -> BrainTelemetry | None:
+def _telemetry(brain: CognitiveBrainService) -> CognitiveModelTelemetry | None:
     value = getattr(brain, "last_telemetry", None)
-    return value if isinstance(value, BrainTelemetry) else None
+    return value if isinstance(value, CognitiveModelTelemetry) else None
 
 
 def _call_metric(metrics: Any, method: str, *args: Any) -> None:

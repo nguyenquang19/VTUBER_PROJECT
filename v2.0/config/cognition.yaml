@@ -44,6 +44,24 @@ focus_pressure_by_status:
   waiting: 0.75
   parked: 0.25
 
+# S3 canonical owner for exact public compatibility projections.
+agent_context_projection:
+  min_items: 3
+  max_items: 6
+  item_max_chars: 220
+  relevance_window_s: 900
+
+conversation_context_projection:
+  max_chars: 1400
+  evidence_items: 3
+  item_max_chars: 220
+
+context_selector_projection:
+  max_chars: 1800
+  memory_items: 3
+  world_items: 4
+  capability_items: 3
+
 source_failure_codes:
   - context
   - world

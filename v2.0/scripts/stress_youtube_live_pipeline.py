@@ -31,7 +31,7 @@ from orchestrator.metrics_collector import MetricsCollector  # noqa: E402
 from orchestrator.runtime_tts import build_tts_runtime_stack  # noqa: E402
 from interfaces.agent import AgentStateService  # noqa: E402
 from services.agent.agenda_policy import AgendaPolicy  # noqa: E402
-from services.agent.conversation_context import ConversationContextComposer  # noqa: E402
+from services.cognition.context_builder import build_compatibility_context_projection  # noqa: E402
 from services.agent.conversation_move_planner import (  # noqa: E402
     ConversationMovePlanner,
 )
@@ -773,7 +773,7 @@ async def run_stress(args: argparse.Namespace) -> int:
             )
             started_components.append("filter")
 
-        context = ConversationContextComposer.from_loader(
+        context = build_compatibility_context_projection(
             loader,
             goal_provider=goal_manager.snapshot,
         )

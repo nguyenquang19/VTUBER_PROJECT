@@ -10,7 +10,7 @@ from services.llm.canned_response import CannedResponder
 from services.llm.llm_turn import LLMTurnRunner
 from services.llm.prompt_cache import PromptCache
 from services.llm.prompt_manager import PromptManager
-from services.agent.context_renderer import AgentContextRenderer, ContextRenderConfig
+from services.cognition.agent_context_projection import AgentContextRenderer, ContextRenderConfig
 from services.agent.types import (
     AgentEventKind,
     AgentEventSource,

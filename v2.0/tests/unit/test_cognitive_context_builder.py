@@ -430,6 +430,46 @@ async def test_bounded_cache_evicts_and_stop_clears_all_snapshots() -> None:
     assert builder.focus_snapshot() is None
 
 
+class _CompatibilityProjection:
+    def __init__(self) -> None:
+        self.started = 0
+        self.stopped = 0
+
+    async def start(self) -> None:
+        self.started += 1
+
+    async def stop(self) -> None:
+        self.stopped += 1
+
+    def get_metrics(self) -> dict[str, int]:
+        return {"conversation_context_renders_total": 7}
+
+
+@pytest.mark.asyncio
+async def test_builder_owns_exact_compatibility_projection_lifecycle() -> None:
+    config = _config()
+    sources = _sources()
+    projection = _CompatibilityProjection()
+    agent_view = object()
+    builder = CognitiveContextBuilder(
+        config,
+        world_model=_Snapshot(sources["world"]),
+        self_model=_Snapshot(sources["self"]),
+        capability_registry=_Snapshot(sources["capability"]),
+        agent_state=_Snapshot(sources["agent"]),
+        agent_context_projection=agent_view,
+        conversation_context_projection=projection,
+    )
+
+    assert builder.agent_context_view is agent_view
+    assert builder.conversation_context_view is projection
+    await builder.start()
+    assert projection.started == 1
+    assert builder.get_metrics()["conversation_context_renders_total"] == 7
+    await builder.stop()
+    assert projection.stopped == 1
+
+
 def test_config_rejects_invalid_context_and_focus_bounds() -> None:
     with pytest.raises(ValueError, match="memory_query_top_k"):
         _config(memory_query_top_k=17)

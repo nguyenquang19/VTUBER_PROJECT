@@ -131,6 +131,9 @@ class CognitionConfig:
     memory_query_top_k: int
     focus_saturation_move_count: int
     focus_pressure_by_status: Mapping[str, float]
+    agent_context_projection: Mapping[str, int]
+    conversation_context_projection: Mapping[str, int]
+    context_selector_projection: Mapping[str, int]
     source_failure_codes: tuple[str, ...]
     reason_codes: tuple[str, ...]
     speech_source_modes: tuple[str, ...]
@@ -153,7 +156,9 @@ class CognitionConfig:
         "max_context_snapshots", "max_context_request_age_seconds",
         "max_context_future_skew_seconds", "max_recent_speech_age_seconds",
         "memory_query_top_k", "focus_saturation_move_count",
-        "focus_pressure_by_status", "source_failure_codes", "reason_codes",
+        "focus_pressure_by_status", "agent_context_projection",
+        "conversation_context_projection", "context_selector_projection",
+        "source_failure_codes", "reason_codes",
         "speech_source_modes",
     })
 
@@ -223,6 +228,36 @@ class CognitionConfig:
         object.__setattr__(
             self, "focus_pressure_by_status", MappingProxyType(normalized_pressure),
         )
+        projection_shapes = {
+            "agent_context_projection": {
+                "min_items", "max_items", "item_max_chars", "relevance_window_s",
+            },
+            "conversation_context_projection": {
+                "max_chars", "evidence_items", "item_max_chars",
+            },
+            "context_selector_projection": {
+                "max_chars", "memory_items", "world_items", "capability_items",
+            },
+        }
+        for name, expected in projection_shapes.items():
+            projection = getattr(self, name)
+            if not isinstance(projection, Mapping) or set(projection) != expected:
+                raise ValueError(f"{name} must define exact compatibility bounds")
+            normalized_projection: dict[str, int] = {}
+            for key, value in projection.items():
+                normalized_projection[key] = _positive_int(value, f"{name}.{key}")
+            object.__setattr__(self, name, MappingProxyType(normalized_projection))
+        agent_projection = self.agent_context_projection
+        if agent_projection["min_items"] > agent_projection["max_items"]:
+            raise ValueError("agent context projection requires min_items <= max_items")
+        conversation_projection = self.conversation_context_projection
+        selector_projection = self.context_selector_projection
+        if conversation_projection["max_chars"] < 400:
+            raise ValueError("conversation context projection max_chars must be >= 400")
+        if conversation_projection["evidence_items"] != 3:
+            raise ValueError("conversation context projection requires exactly 3 evidence items")
+        if selector_projection["max_chars"] < conversation_projection["max_chars"]:
+            raise ValueError("selector projection must cover conversation context")
         allowlist_caps = {
             "source_failure_codes": self.max_evidence_refs,
             "reason_codes": self.max_reason_codes,
@@ -251,6 +286,14 @@ class CognitionConfig:
         if not isinstance(pressure, Mapping):
             raise ValueError("focus_pressure_by_status must be a YAML mapping")
         payload["focus_pressure_by_status"] = dict(pressure)
+        for name in (
+            "agent_context_projection", "conversation_context_projection",
+            "context_selector_projection",
+        ):
+            projection = payload[name]
+            if not isinstance(projection, Mapping):
+                raise ValueError(f"{name} must be a YAML mapping")
+            payload[name] = dict(projection)
         for name in ("source_failure_codes", "reason_codes", "speech_source_modes"):
             raw = payload[name]
             if not isinstance(raw, list):
@@ -1040,6 +1083,84 @@ class CognitiveBrainService(Service):
     @abstractmethod
     async def propose(self, context: CognitiveContext) -> CognitiveTurn:
         """Return one proposal without executing or committing any side effect."""
+
+
+class CognitiveModelError(RuntimeError):
+    """Backend-neutral failure raised by the single cognition model adapter."""
+
+
+class CognitiveModelBusyError(CognitiveModelError):
+    """The shared model backend is busy with higher-priority work."""
+
+
+class CognitiveModelContextError(CognitiveModelError):
+    """The bounded cognition request cannot fit the configured model context."""
+
+
+class CognitiveModelPreemptedError(CognitiveModelError):
+    """The shadow generation was cancelled for live work."""
+
+
+class CognitiveModelTimeoutError(CognitiveModelError):
+    """The cognition generation exceeded its configured deadline."""
+
+
+class CognitiveBrainParseError(ValueError):
+    """The model output was not exactly one JSON object."""
+
+
+class CognitiveBrainSchemaError(ValueError):
+    """The model output failed the strict cognitive turn contract."""
+
+    def __init__(self, message: str, *, code: str = "contract") -> None:
+        super().__init__(message)
+        self.code = code
+
+
+@dataclass(frozen=True)
+class CognitiveModelTelemetry:
+    request_id: str
+    ttft_ms: float | None
+    generation_ms: float
+    input_tokens: int | None
+    output_tokens: int
+
+    def __post_init__(self) -> None:
+        _text(self.request_id, "request_id", 256)
+        if self.ttft_ms is not None:
+            _non_negative_float(self.ttft_ms, "ttft_ms")
+        _non_negative_float(self.generation_ms, "generation_ms")
+        if self.input_tokens is not None:
+            _non_negative_int(self.input_tokens, "input_tokens")
+        _non_negative_int(self.output_tokens, "output_tokens")
+
+
+@dataclass(frozen=True)
+class CognitiveModelOutput:
+    raw_output: str
+    telemetry: CognitiveModelTelemetry
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.raw_output, str):
+            raise ValueError("raw_output must be a string")
+        if not isinstance(self.telemetry, CognitiveModelTelemetry):
+            raise ValueError("telemetry must be CognitiveModelTelemetry")
+
+
+class CognitiveModelAdapterService(Service):
+    """The only prompt/model boundary used by live shadow and offline dry-run."""
+
+    @abstractmethod
+    async def generate(self, context: CognitiveContext) -> CognitiveModelOutput:
+        """Run exactly one bounded model generation for a cognitive context."""
+
+    @abstractmethod
+    async def cancel_active(self) -> None:
+        """Cancel only the adapter-owned shadow request, if any."""
+
+    @abstractmethod
+    async def reject_last_output(self) -> None:
+        """Reject the last completed request after Brain parse/schema failure."""
 
 
 class CognitiveContextBuilderService(Service):

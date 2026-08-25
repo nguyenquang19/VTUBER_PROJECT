@@ -5,8 +5,9 @@
 > **Inherited runtime release:** `1.4.3` (patch trên frozen baseline `1.0.0`, 2026-08-14).
 >
 > **Implementation status:** Phase 1–15 đã đóng gate kỹ thuật. Structure normalization S0–S2 đã được
-> checkpoint qua commit `d02c84e`: live runtime và replay đưa Agent/World/Perception event qua
-> `CanonicalEventNormalizer → CanonicalEventIngress → AuthoritativeStateReducer`.
+> checkpoint qua commit `d02c84e`; S3 canonical Cognition đã triển khai, đạt full offline và được owner duyệt
+> để chốt trong change này. Live runtime dùng một `CognitiveContextBuilder`, một `CognitiveModelAdapter`, còn
+> Agent/World/Perception event đi qua `CanonicalEventNormalizer → CanonicalEventIngress → AuthoritativeStateReducer`.
 > Director V2 đang ở strict primary mode cho test-cutover; Cognitive Brain chỉ là observer mặc định tắt
 > và chưa có takeover authority.
 > OBS scene/perception, closed-loop canary và release `2.0.0` vẫn chưa đạt live gate.
@@ -88,6 +89,7 @@ Product version lấy duy nhất từ `config/system.yaml::app.version`. Các nh
 M8/M10, `mai-agent-v1`, tên thư mục `v2.0` hoặc version blueprint là version/mốc khác, không phải
 product release.
 
-`config/state.yaml` là canonical owner cho giới hạn ingress/Agent/World/Self/Relationship sau S2.
+`config/state.yaml` là canonical owner cho giới hạn ingress/Agent/World/Self/Relationship sau S2;
+`config/cognition.yaml` là owner duy nhất cho context projection, typed Cognitive Context và Brain adapter.
 `config/agent_state.yaml`, `config/relationships.yaml` và các implementation import path cũ chỉ còn là
 compatibility surface có removal wave S8; không được chỉnh chúng như một bộ cấu hình độc lập.

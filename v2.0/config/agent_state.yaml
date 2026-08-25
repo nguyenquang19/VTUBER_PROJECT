@@ -7,12 +7,6 @@ agent_state:
   payload_text_max_chars: 320
   dedup_ttl_s: 1800
 
-context:
-  min_items: 3
-  max_items: 6
-  item_max_chars: 220
-  relevance_window_s: 900
-
 # Phase 2: bounded shadow state only; not a Director or prompt input.
 world_model:
   allowed_domains: [stream, social, call, media, physical, game]

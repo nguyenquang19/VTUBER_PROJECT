@@ -62,7 +62,7 @@ class ConfigError(Exception):
 
 def _validate_state_config(data: dict[str, Any]) -> None:
     required = {
-        "canonical_event", "authoritative", "agent_state", "context", "world_model",
+        "canonical_event", "authoritative", "agent_state", "world_model",
         "perception", "self_model", "relationships", "notes", "narrative", "running_gags",
     }
     if data.get("schema_version") != 1 or not required.issubset(data):
@@ -227,11 +227,31 @@ class ConfigLoader:
     def get(self, name: str, path: str, default: Any = None) -> Any:
         """Đọc value bằng dotted path, vd get("system", "dashboard.port")."""
         with self._lock:
-            node: Any = (
-                self._data.get("state")
-                if name in {"agent_state", "relationships"} and "state" in self._data
-                else self._data.get(name)
-            )
+            cognition = self._data.get("cognition")
+            if name == "agent_state" and path == "context":
+                node: Any = cognition
+                path = "agent_context_projection"
+            elif name == "agent_state" and path.startswith("context."):
+                node = cognition
+                path = "agent_context_projection." + path.removeprefix("context.")
+            elif name == "conversation" and path.startswith("context_selector."):
+                node = cognition
+                path = "context_selector_projection." + path.removeprefix("context_selector.")
+            elif name == "conversation" and path.startswith("context."):
+                node = cognition
+                path = "conversation_context_projection." + path.removeprefix("context.")
+            elif name == "conversation" and path == "context_selector":
+                node = cognition
+                path = "context_selector_projection"
+            elif name == "conversation" and path == "context":
+                node = cognition
+                path = "conversation_context_projection"
+            else:
+                node = (
+                    self._data.get("state")
+                    if name in {"agent_state", "relationships"} and "state" in self._data
+                    else self._data.get(name)
+                )
         if node is None:
             return default
         for part in path.split("."):
@@ -255,15 +275,30 @@ class ConfigLoader:
             if name == "agent_state" and isinstance(state, dict):
                 data = {
                     key: state[key]
-                    for key in ("agent_state", "context", "world_model", "perception", "self_model")
+                    for key in ("agent_state", "world_model", "perception", "self_model")
                     if key in state
                 }
+                cognition = self._data.get("cognition")
+                if isinstance(cognition, dict) and isinstance(
+                    cognition.get("agent_context_projection"), dict,
+                ):
+                    data["context"] = dict(cognition["agent_context_projection"])
             elif name == "relationships" and isinstance(state, dict):
                 data = {
                     key: state[key]
                     for key in ("relationships", "notes", "narrative", "running_gags")
                     if key in state
                 }
+            elif name == "conversation":
+                data = dict(self._data.get(name, {}))
+                cognition = self._data.get("cognition")
+                if isinstance(cognition, dict):
+                    context = cognition.get("conversation_context_projection")
+                    selector = cognition.get("context_selector_projection")
+                    if isinstance(context, dict):
+                        data["context"] = dict(context)
+                    if isinstance(selector, dict):
+                        data["context_selector"] = dict(selector)
             else:
                 data = self._data.get(name, {})
             return dict(data)

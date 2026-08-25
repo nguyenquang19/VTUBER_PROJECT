@@ -9,6 +9,7 @@ from orchestrator.cognitive_observer import CognitiveDirectorObserver
 from orchestrator.runtime_feature_bindings import attach_boolean_feature
 from services.cognition.brain_shadow import CognitiveBrain
 from services.cognition.context_builder import CognitiveContextBuilder
+from services.cognition.model_adapter import CognitiveModelAdapter
 from services.cognition.shadow_scheduler import CognitiveOpportunityScheduler
 
 
@@ -23,13 +24,8 @@ def build_cognitive_runtime_stack(
     loader: Any,
     feature_manager: Any,
     llm: Any,
-    world_model: Any,
+    context_builder: CognitiveContextBuilder,
     self_model: Any,
-    capability_registry: Any,
-    agent_state: Any,
-    goal_manager: Any,
-    thread_manager: Any,
-    memory_service: Any,
     transactions: Any,
     control_plane: Any,
     emergency_controller: Any,
@@ -38,18 +34,12 @@ def build_cognitive_runtime_stack(
 ) -> CognitiveRuntimeStack:
     """Build dormant services and attach lifecycle to the disabled feature."""
     config = CognitionConfig.from_mapping(loader.section("cognition"))
-    context_builder = CognitiveContextBuilder(
-        config,
-        world_model=world_model,
-        self_model=self_model,
-        capability_registry=capability_registry,
-        agent_state=agent_state,
-        goal_manager=goal_manager,
-        thread_manager=thread_manager,
-        memory_service=memory_service,
-        metrics=metrics,
+    model_adapter = CognitiveModelAdapter.from_loader(
+        loader, llm=llm, config=config,
     )
-    brain = CognitiveBrain.from_loader(loader, llm=llm, config=config)
+    brain = CognitiveBrain(
+        config=config, model_adapter=model_adapter,
+    )
     scheduler = CognitiveOpportunityScheduler(
         config=config, context_builder=context_builder, brain=brain, metrics=metrics,
     )

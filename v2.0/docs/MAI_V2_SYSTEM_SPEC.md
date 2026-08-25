@@ -34,7 +34,8 @@ truy vấn độc lập và rollback có điều kiện; feature vẫn mặc đ�
 Phase 10 đã đóng canonical perception ingress cho Chat/System và read-only OBS sensing; OBS sensing vẫn
 mặc định tắt và chưa có live canary.
 
-Structure normalization S0–S2 đã được chốt. Agent/World/Perception writes trong live runtime và hai replay
+Structure normalization S0–S2 đã được chốt; S3 canonical Cognition đã đạt full offline và được owner duyệt
+để chốt. Agent/World/Perception writes trong live runtime và hai replay
 entrypoint hiện cùng đi qua `CanonicalEventNormalizer → CanonicalEventIngress →
 AuthoritativeStateReducer`; aggregate state được đọc qua `AuthoritativeStateSnapshot`. Đây là thay đổi
 ownership/structure giữ exact behavior, không phải Brain takeover hoặc bằng chứng Mai nói người hơn.
@@ -100,10 +101,10 @@ Các cột dưới đây độc lập với nhau. “Có mã” không thay th�
 | Embodiment Policy | Có | LOW/MID/HIGH strict arbitration đã compose và bật test | Unit, integration, deterministic replay và full offline regression | Chưa live VTS canary |
 | Human-like calibration và trajectory | Có | Trajectory bật read-only theo Director V2; MAI-HLC là workflow offline tách sealed manifest | Unit, integration, deterministic replay, tamper/negative paths, full offline regression và owner blind review 20 pair đã finalize; quality vẫn `HOLD` | Trajectory bật test; human review không tự tạo release decision |
 | Product `2.0.0` release gates | Có strict tooling source-bound, fixed runner và canary/operations aggregator | Contract kỹ thuật đã triển khai; chưa có closed-loop/live/human/operations bundle hiện hành | Full regression xanh; external Gate D/E và release-commit verification chưa hoàn tất | Không |
-| Cognitive Brain | MCB-1 contract, MCB-2 Context/Focus và MCB-3 Brain observer đã có; MCB-4 offline A/B đã retire | Brain observer đã compose nhưng feature vẫn `enabled=false`; compatibility Director giữ toàn quyền | Brain observer có contract/negative-path tests; chất lượng và live authority vẫn `HOLD` | Không |
+| Cognitive Brain | MCB-1 contract, MCB-2 Context/Focus và MCB-3 Brain observer đã có; MCB-4 offline A/B đã retire | Một ContextBuilder và một ModelAdapter đã compose; Brain feature vẫn `enabled=false`, compatibility Director giữ toàn quyền | Contract/negative-path, exact context, replay/live-pipeline và full offline xanh; chất lượng và live authority vẫn `HOLD` | Không |
 
 Ma trận chỉ được nâng trạng thái khi có đường code tương ứng, test phù hợp và evidence máy đọc hoặc vận
-hành. Blueprint tiếp tục giữ scope/phase order; bảng này mô tả checkpoint sau S2 ngày 26/08/2026.
+hành. Blueprint tiếp tục giữ scope/phase order; bảng này mô tả working tree sau implementation S3 ngày 26/08/2026.
 
 ---
 
@@ -3402,6 +3403,95 @@ Targeted Brain/config/metric/inventory/documentation đạt `179 passed`; full o
 và hai warning có sẵn. Không chạy replay/blind/canary vì live composition, output, decision, delivery và state
 không đổi. Brain MCB-3 và generic MAI-HLC vẫn được giữ nguyên.
 
+##### 17.2.19.14. S3 docs-first — canonical cognition
+
+Owner yêu cầu bắt đầu S3 ngày 26/08/2026 từ source checkpoint `b9aea9f`; sau docs-first owner đã duyệt code và
+implementation hiện đã hoàn tất, đạt gate và được owner duyệt closure. Baseline targeted gồm context renderer,
+continuity, selector, cognition contracts, Brain, scheduler và impacted continuity integration đạt `75 passed`;
+warning duy nhất là pytest cache permission của môi trường.
+
+Audit xác nhận ba context service owner đang cùng tồn tại:
+
+| Current owner | Live use | Vấn đề cần đóng trong S3 |
+|---|---|---|
+| `services/agent/context_renderer.py::AgentContextRenderer` | Fallback khi agent context bật nhưng continuity không sở hữu render | Algorithm/context config riêng, trùng canonical cognition owner |
+| `services/agent/conversation_context.py::ConversationContextComposer` | Public LLM compatibility context và ContextSelector | Service/lifecycle/metric/config owner thứ hai; hai stress entrypoint import trực tiếp |
+| `services/cognition/context_builder.py::CognitiveContextBuilder` | Brain observer khi feature shadow chạy | Typed owner đúng nhưng được compose riêng và chưa phục vụ compatibility projection |
+
+`StreamRuntime` có hai legacy context import và `stress_youtube_llm.py`/
+`stress_youtube_live_pipeline.py` mỗi file có một import, tổng cộng bốn production import cần về `0`. Brain
+hiện đã gọi đúng một `generate_stream()` cho mỗi `propose()`, nhưng `brain_shadow.py` đang đồng thời sở hữu
+prompt/model request, backend cancellation, telemetry, strict parse và `CognitiveTurn`; shadow scheduler còn
+import concrete Brain telemetry/parse errors và exception trực tiếp từ llama.cpp. Context-only threshold nằm ở
+`state.context`, `conversation.context`, `conversation.context_selector` và typed bounds trong
+`cognition.yaml`, nên chưa có một cognition config owner.
+
+Canonical S3 flow được khóa:
+
+```text
+Authoritative state/read providers
+  -> one CognitiveContextBuilder instance
+       -> exact compatibility text projection -> existing LLMTurnRunner/Director public path
+       -> CognitiveContext -> CognitiveBrain
+  -> one CognitiveModelAdapter -> llama.cpp one generation
+  -> CognitiveTurn -> shadow record only
+```
+
+Contract/file cut đã triển khai sau khi owner duyệt code:
+
+| File/contract | Thay đổi S3 được phép |
+|---|---|
+| `interfaces/cognition.py` | Thêm backend-neutral model-adapter/result/telemetry/failure contract; ContextBuilder tiếp tục read-only |
+| `services/cognition/context_builder.py` | Merge bounded agent/continuity/selector projection; một service instance, không duplicate store |
+| `services/cognition/model_adapter.py` | File mới duy nhất sở hữu persona/Brain prompt, request/schema, timeout/cancel, one-generation và telemetry |
+| `services/cognition/brain_shadow.py` | Chỉ parse/validate/materialize `CognitiveTurn`; giữ shadow name/authority đến S4 |
+| `services/cognition/shadow_scheduler.py` | Chỉ phụ thuộc cognition interface/failure taxonomy; không import concrete Brain hoặc llama backend |
+| `orchestrator/runtime_cognition.py`, `stream_runtime.py` | Compose builder/adapter/Brain một lần; dùng cùng builder cho public compatibility và shadow |
+| `services/agent/context_renderer.py` | Xóa sau exact parity và zero production importer |
+| `services/agent/conversation_context.py` | Algorithm chuyển sang cognition; old path chỉ exact import facade, không live-reachable, removal S8 |
+| `cognition.yaml` | Nhận exact context-only bounds; old logical reads là read-only alias, không có threshold copy thứ hai |
+| `state.yaml`, `agent_state.yaml`, `conversation.yaml` | Bỏ ownership context-only; vẫn giữ đúng state và Thread/recap/repair ownership hiện có |
+| hai stress entrypoint | Dùng cùng canonical builder/factory; không tạo Brain/eval adapter riêng |
+
+Feature `agent_context`, `context_selector`, `conversation_continuity` giữ nguyên enabled state và operator
+behavior trong S3; chúng chỉ điều khiển compatibility projection mode trên canonical builder. Feature alias
+chỉ được xóa ở S8. `cognitive_brain_shadow` tiếp tục mặc định tắt; khi tắt không được thêm task, LLM call hoặc
+public latency. Khi bật, Brain chỉ proposal/dry-run, không được delivery, action, Focus/Memory commit, history
+commit hoặc state mutation.
+
+Implementation scope:
+
+- tạo `services/cognition/model_adapter.py` và behavior-named test cho adapter;
+- sửa cognition interface/package, ContextBuilder/Brain/scheduler, runtime composition, config loader/validation,
+  exact compatibility facades, hai stress scripts và impacted behavior tests;
+- không sửa Director decision policy, prompt text, model/sampling value, output filter, transaction/delivery,
+  state reducer, product version hoặc changelog; không bắt đầu S4/MCB-5.
+
+Rủi ro khóa gate gồm: text context đổi một ký tự làm public prompt/output drift; feature toggle không còn exact
+fallback; adapter split làm đổi timeout/cancel/error/telemetry; cùng source bị snapshot hai lần tạo context ID
+khác; memory query tăng; hoặc offline tự dựng request khác live. Vì vậy acceptance phải chứng minh exact text
+cho agent-only/continuity/selector, deterministic context identity, một model call, zero extra call khi feature
+tắt, same adapter live/dry-run, zero legacy live import, targeted + impacted + full offline và deterministic
+replay/live-pipeline. Bất kỳ public output/decision drift nào làm S3 fail; không dùng blind review để hợp thức hóa
+structure regression.
+
+S3 rollback về `b9aea9f`, không migrate data/storage.
+
+Implementation evidence: public runtime compose đúng một `CognitiveContextBuilder`, hai stress entrypoint dùng
+cùng canonical compatibility factory, production legacy context import là `0` và cognition chỉ có một
+`generate_stream()` call site. `CognitiveModelAdapter` sở hữu prompt/request/schema/timeout/cancel/telemetry;
+Brain chỉ parse/materialize và scheduler không còn import concrete Brain/llama exception. Exact context bounds
+đã chuyển khỏi `state.yaml`, `agent_state.yaml` và `conversation.yaml` sang `cognition.yaml`; ConfigLoader giữ
+logical alias read-only. Feature enabled state, Brain shadow authority, prompt/sampling, public decision/text,
+delivery và state mutation không đổi.
+
+Structure trước/sau là production Python `209 -> 211`, importable module `206 -> 208`, static live-reachable
+`156 -> 157`, non-live `50 -> 51`; tăng hai file là canonical model adapter và compatibility facade split có
+removal wave S8, không tạo soft owner mới. Impacted context/Cognition/live đạt `249 passed`, deterministic
+replay/live-pipeline `36 passed`, interface/import/config/documentation guard `256 passed`, full offline
+`2.471 passed`, `0` lỗi và một Starlette deprecation warning có sẵn. Vì exact output/decision không đổi nên
+không chạy blind review. S3 đã được owner duyệt để chốt; chưa bắt đầu S4 hoặc MCB-5.
+
 ### 17.3. Chuỗi mã để lần theo một lượt
 
 ```mermaid
@@ -3481,13 +3571,13 @@ shape/type trước khi runtime compose service.
 | `models.yaml` | `llama.cpp`, tham số sinh, VieNeu-TTS, phụ đề và mô hình ký ức |
 | `features.yaml` | bật/tắt, phụ thuộc, xung đột và chi phí tài nguyên |
 | `capabilities.yaml` | năng lực, quyền, sức khỏe và hành động mô phỏng |
-| `cognition.yaml` | schema, bounds, prompt và scheduler MCB-1–3; rollout mode `shadow`, feature vẫn `enabled=false` |
+| `cognition.yaml` | owner duy nhất cho compatibility context projection, typed context, Brain prompt/model adapter và scheduler; rollout `shadow`, feature vẫn `enabled=false` |
 | `chat_sources.yaml` | YouTube và Discord |
 | `director.yaml`, `chat_salience.yaml` | nhịp quyết định, phân xử, chấm điểm, giao dịch và V2 |
 | `state.yaml`, `agent_goals.yaml` | canonical ingress/state/world/self/relationship bounds; mục tiêu và thời hạn |
 | `agent_state.yaml`, `relationships.yaml` | compatibility files; ConfigLoader alias về `state.yaml` đến S8 |
 | `hosting.yaml`, `autonomy.yaml`, `autonomy_content_pool.yaml`, `self_talk.yaml` | dẫn phiên, thôi thúc, kho nội dung và tự nói |
-| `conversation.yaml` | mạch hội thoại, khớp chủ đề, ngữ cảnh và sửa mâu thuẫn |
+| `conversation.yaml` | mạch hội thoại, khớp chủ đề, recap và sửa mâu thuẫn; context bounds đã thuộc `cognition.yaml` |
 | `mood_engine.yaml`, `emotion_appraisal.yaml`, `mood_style.yaml`, `affect_v2.yaml`, `mood_ab_cases.yaml` | hệ cảm xúc, cách nói và ca phát lại A/B |
 | `pacing.yaml`, `filters.yaml` | nhịp nói và luật an toàn nội dung |
 | `animation.yaml` | nhân vật ảo |

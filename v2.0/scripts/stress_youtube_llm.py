@@ -23,7 +23,7 @@ from scripts.simulate_youtube_replay import (  # noqa: E402
     generation_turn_id,
     simulate_replay,
 )
-from services.agent.conversation_context import ConversationContextComposer  # noqa: E402
+from services.cognition.context_builder import build_compatibility_context_projection  # noqa: E402
 from services.llm.canned_response import CannedResponder  # noqa: E402
 from services.llm.llama_cpp_llm import LlamaCppLLMService  # noqa: E402
 from services.llm.process_manager import (  # noqa: E402
@@ -1098,7 +1098,7 @@ async def _run(args: argparse.Namespace) -> int:
     def runner_factory(agent_state: Any, goal_manager: Any) -> InstrumentedLLMRunner:
         nonlocal instrumented
         prompt_manager = PromptManager.from_loader(loader)
-        context = ConversationContextComposer.from_loader(
+        context = build_compatibility_context_projection(
             loader, goal_provider=goal_manager.snapshot,
         )
         delegate = LLMTurnRunner.from_loader(
