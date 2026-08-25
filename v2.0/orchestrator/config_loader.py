@@ -23,6 +23,7 @@ CONFIG_FILES: dict[str, str] = {
     "models": "models.yaml",
     "logging": "logging.yaml",
     "data_privacy": "data_privacy.yaml",          # M0.4 privacy/retention
+    "state": "state.yaml",                       # S2 canonical state/config owner
     "agent_state": "agent_state.yaml",            # M1 grounded working state
     "agent_goals": "agent_goals.yaml",            # M2 goal/agenda policy
     "conversation": "conversation.yaml",           # bounded thread/context/repair policy
@@ -57,6 +58,35 @@ ReloadCallback = Callable[[str, dict[str, Any]], None]
 
 class ConfigError(Exception):
     """Config không load được (file thiếu, YAML sai cú pháp)."""
+
+
+def _validate_state_config(data: dict[str, Any]) -> None:
+    required = {
+        "canonical_event", "authoritative", "agent_state", "context", "world_model",
+        "perception", "self_model", "relationships", "notes", "narrative", "running_gags",
+    }
+    if data.get("schema_version") != 1 or not required.issubset(data):
+        raise ConfigError("state.yaml: schema_version hoặc section bắt buộc không hợp lệ")
+    for section in required:
+        if not isinstance(data.get(section), dict):
+            raise ConfigError(f"state.yaml: {section} phải là mapping")
+    canonical = data["canonical_event"]
+    authoritative = data["authoritative"]
+    for section, key in (
+        (canonical, "max_payload_items"),
+        (canonical, "max_payload_chars"),
+        (authoritative, "max_dedup_keys"),
+    ):
+        value = section.get(key)
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise ConfigError(f"state.yaml: {key} phải là số nguyên dương")
+    dedup_ttl_s = authoritative.get("dedup_ttl_s")
+    if (
+        isinstance(dedup_ttl_s, bool)
+        or not isinstance(dedup_ttl_s, (int, float))
+        or dedup_ttl_s <= 0
+    ):
+        raise ConfigError("state.yaml: dedup_ttl_s phải là số dương")
 
 
 class _ReloadHandler(FileSystemEventHandler):
@@ -147,6 +177,8 @@ class ConfigLoader:
                 CognitionConfig.from_mapping(data)
             except ValueError as exc:
                 raise ConfigError(f"{path.name}: config không hợp lệ: {exc}") from exc
+        if path.name == CONFIG_FILES["state"]:
+            _validate_state_config(data)
         return data
 
     def load_all(self) -> None:
@@ -195,7 +227,11 @@ class ConfigLoader:
     def get(self, name: str, path: str, default: Any = None) -> Any:
         """Đọc value bằng dotted path, vd get("system", "dashboard.port")."""
         with self._lock:
-            node: Any = self._data.get(name)
+            node: Any = (
+                self._data.get("state")
+                if name in {"agent_state", "relationships"} and "state" in self._data
+                else self._data.get(name)
+            )
         if node is None:
             return default
         for part in path.split("."):
@@ -215,7 +251,22 @@ class ConfigLoader:
     def section(self, name: str) -> dict[str, Any]:
         """Trả về copy shallow của toàn bộ 1 config file."""
         with self._lock:
-            return dict(self._data.get(name, {}))
+            state = self._data.get("state")
+            if name == "agent_state" and isinstance(state, dict):
+                data = {
+                    key: state[key]
+                    for key in ("agent_state", "context", "world_model", "perception", "self_model")
+                    if key in state
+                }
+            elif name == "relationships" and isinstance(state, dict):
+                data = {
+                    key: state[key]
+                    for key in ("relationships", "notes", "narrative", "running_gags")
+                    if key in state
+                }
+            else:
+                data = self._data.get(name, {})
+            return dict(data)
 
     def loaded_names(self) -> list[str]:
         with self._lock:

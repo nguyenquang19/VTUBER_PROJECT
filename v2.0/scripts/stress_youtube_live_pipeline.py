@@ -29,13 +29,24 @@ from orchestrator.emotion_orchestrator import EmotionOrchestrator  # noqa: E402
 from orchestrator.fallback_manager import FallbackManager  # noqa: E402
 from orchestrator.metrics_collector import MetricsCollector  # noqa: E402
 from orchestrator.runtime_tts import build_tts_runtime_stack  # noqa: E402
-from services.agent.agent_state import AgentState  # noqa: E402
+from interfaces.agent import AgentStateService  # noqa: E402
 from services.agent.agenda_policy import AgendaPolicy  # noqa: E402
 from services.agent.conversation_context import ConversationContextComposer  # noqa: E402
 from services.agent.conversation_move_planner import (  # noqa: E402
     ConversationMovePlanner,
 )
-from services.agent.event_ledger import EventLedger  # noqa: E402
+from services.state.agent import AgentState  # noqa: E402
+from services.state.event_ledger import EventLedger  # noqa: E402
+from services.state.world import WorldModelShadow  # noqa: E402
+from services.state.authoritative import (  # noqa: E402
+    AuthoritativeStateConfig,
+    AuthoritativeStateReducer,
+)
+from services.ingress.adapters import (  # noqa: E402
+    CanonicalAgentStateAdapter,
+    CanonicalEventIngress,
+)
+from services.ingress.normalizer import CanonicalEventNormalizer  # noqa: E402
 from services.agent.goal_manager import GoalManager  # noqa: E402
 from services.agent.open_thread_manager import OpenThreadManager  # noqa: E402
 from services.agent.thread_detector import RuleThreadDetector  # noqa: E402
@@ -372,7 +383,7 @@ class TrackingAudioPlayer:
 
 
 class _ReadOnlyAgentState:
-    def __init__(self, state: AgentState) -> None:
+    def __init__(self, state: AgentStateService) -> None:
         self._state = state
 
     def snapshot(self) -> Any:
@@ -675,10 +686,22 @@ async def run_stress(args: argparse.Namespace) -> int:
         matcher=topic_matcher,
         move_planner=move_planner,
     )
-    agent_state = AgentState.from_loader(
+    agent_state_store = AgentState.from_loader(
         loader,
         EventLedger.from_loader(loader),
         thread_manager=thread_manager,
+    )
+    world_state_store = WorldModelShadow.from_loader(loader, enabled=False)
+    canonical_normalizer = CanonicalEventNormalizer.from_loader(loader)
+    authoritative_state = AuthoritativeStateReducer(
+        AuthoritativeStateConfig.from_loader(loader),
+        agent_state=agent_state_store,
+        world_model=world_state_store,
+    )
+    agent_state = CanonicalAgentStateAdapter(
+        agent_state_store,
+        canonical_normalizer,
+        CanonicalEventIngress(authoritative_state),
     )
     goal_manager = GoalManager.from_loader(
         loader,

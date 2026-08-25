@@ -37,10 +37,21 @@ from orchestrator.config_loader import ConfigLoader  # noqa: E402
 from orchestrator.autonomy_engine import AutonomyConfig, AutonomyEngine  # noqa: E402
 from services.autonomy.material_provider import MaterialProvider, RuntimeContext  # noqa: E402
 from services.autonomy.self_talk_planner import SelfTalkPlanner  # noqa: E402
-from services.agent.agent_state import AgentState  # noqa: E402
+from interfaces.agent import AgentStateService  # noqa: E402
 from services.agent.agenda_policy import AgendaPolicy  # noqa: E402
 from services.agent.conversation_move_planner import ConversationMovePlanner  # noqa: E402
-from services.agent.event_ledger import EventLedger  # noqa: E402
+from services.state.agent import AgentState  # noqa: E402
+from services.state.event_ledger import EventLedger  # noqa: E402
+from services.state.world import WorldModelShadow  # noqa: E402
+from services.state.authoritative import (  # noqa: E402
+    AuthoritativeStateConfig,
+    AuthoritativeStateReducer,
+)
+from services.ingress.adapters import (  # noqa: E402
+    CanonicalAgentStateAdapter,
+    CanonicalEventIngress,
+)
+from services.ingress.normalizer import CanonicalEventNormalizer  # noqa: E402
 from services.agent.goal_manager import GoalManager  # noqa: E402
 from services.agent.open_thread_manager import OpenThreadManager  # noqa: E402
 from services.agent.thread_detector import RuleThreadDetector  # noqa: E402
@@ -246,7 +257,7 @@ async def simulate_replay(
     loader: ConfigLoader,
     tick_window_ms: int,
     max_trace_items: int,
-    runner_factory: Callable[[AgentState, GoalManager], Any] | None = None,
+    runner_factory: Callable[[AgentStateService, GoalManager], Any] | None = None,
 ) -> dict[str, Any]:
     if tick_window_ms <= 0 or max_trace_items <= 0:
         raise ValueError("simulation bounds must be positive")
@@ -280,8 +291,23 @@ async def simulate_replay(
         matcher=topic_matcher, move_planner=move_planner,
     )
     ledger = EventLedger.from_loader(loader, clock=datetime_clock)
-    agent_state = AgentState.from_loader(
+    agent_state_store = AgentState.from_loader(
         loader, ledger, clock=datetime_clock, thread_manager=thread_manager,
+    )
+    world_state_store = WorldModelShadow.from_loader(
+        loader, enabled=False, clock=datetime_clock,
+    )
+    canonical_normalizer = CanonicalEventNormalizer.from_loader(loader)
+    authoritative_state = AuthoritativeStateReducer(
+        AuthoritativeStateConfig.from_loader(loader),
+        agent_state=agent_state_store,
+        world_model=world_state_store,
+        clock=datetime_clock,
+    )
+    agent_state = CanonicalAgentStateAdapter(
+        agent_state_store,
+        canonical_normalizer,
+        CanonicalEventIngress(authoritative_state),
     )
     agenda = AgendaPolicy.from_loader(loader, clock=datetime_clock)
     goal_manager = GoalManager.from_loader(

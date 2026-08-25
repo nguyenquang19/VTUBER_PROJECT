@@ -1,6 +1,7 @@
 """Canonical immutable state, proposal, and crossing-decision contracts."""
 from __future__ import annotations
 
+from abc import abstractmethod
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from enum import Enum
@@ -10,7 +11,16 @@ from typing import Any, Mapping
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
-from interfaces.events import AgentEventKind, AgentEventSource, EventProvenance, GroundedEvent
+from interfaces.base import Service
+from interfaces.compatibility import SelfSnapshot, WorldSnapshot
+from interfaces.events import (
+    AgentEventKind,
+    AgentEventSource,
+    CanonicalEvent,
+    EventProvenance,
+    GroundedEvent,
+)
+from interfaces.relationship import RelationshipSnapshot
 
 
 class StreamPhase(str, Enum):
@@ -272,6 +282,59 @@ class AgentStateSnapshot:
             "last_spoken_summary": self.last_spoken_summary,
             "session_recap": self.session_recap.to_dict() if self.session_recap else None,
         }
+
+
+@dataclass(frozen=True)
+class AuthoritativeStateSnapshot:
+    revision: int
+    created_at: datetime
+    last_event_id: str | None
+    agent: AgentStateSnapshot
+    world: WorldSnapshot
+    self_state: SelfSnapshot | None = None
+    goals: "GoalSnapshot | None" = None
+    relationships: RelationshipSnapshot | None = None
+
+    def __post_init__(self) -> None:
+        if isinstance(self.revision, bool) or not isinstance(self.revision, int) or self.revision < 0:
+            raise ValueError("authoritative state revision must be non-negative")
+        object.__setattr__(self, "created_at", _state_as_utc(self.created_at))
+        if self.last_event_id is not None and not self.last_event_id.strip():
+            raise ValueError("authoritative last_event_id must not be blank")
+        if not isinstance(self.agent, AgentStateSnapshot):
+            raise ValueError("authoritative agent snapshot is invalid")
+        if not isinstance(self.world, WorldSnapshot):
+            raise ValueError("authoritative world snapshot is invalid")
+        if self.self_state is not None and not isinstance(self.self_state, SelfSnapshot):
+            raise ValueError("authoritative self snapshot is invalid")
+        if self.goals is not None and not isinstance(self.goals, GoalSnapshot):
+            raise ValueError("authoritative goal snapshot is invalid")
+        if self.relationships is not None and not isinstance(
+            self.relationships, RelationshipSnapshot,
+        ):
+            raise ValueError("authoritative relationship snapshot is invalid")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "revision": self.revision,
+            "created_at": self.created_at.isoformat(),
+            "last_event_id": self.last_event_id,
+            "agent": self.agent.to_dict(),
+            "world": self.world.to_dict(),
+            "self": self.self_state.to_dict() if self.self_state else None,
+            "goals": self.goals.to_dict() if self.goals else None,
+            "relationships": self.relationships.to_dict() if self.relationships else None,
+        }
+
+
+class AuthoritativeStateService(Service):
+    @abstractmethod
+    def apply(self, event: CanonicalEvent) -> bool:
+        """Apply one canonical event to exactly one domain reducer."""
+
+    @abstractmethod
+    def snapshot(self) -> AuthoritativeStateSnapshot:
+        """Return the immutable aggregate view of authoritative domain owners."""
 
 
 class GoalKind(str, Enum):
@@ -632,7 +695,8 @@ def _goal_thaw(value: Any) -> Any:
 
 
 __all__ = [
-    "AgentEventKind", "AgentEventSource", "AgentStateSnapshot", "BehaviorDecision",
+    "AgentEventKind", "AgentEventSource", "AgentStateSnapshot", "AuthoritativeStateService",
+    "AuthoritativeStateSnapshot", "BehaviorDecision",
     "BehaviorKind", "ConversationMove", "EventProvenance", "GroundedEvent",
     "Goal", "GoalKind", "GoalProposal", "GoalSnapshot", "GoalSource", "GoalStatus",
     "OpenThread", "SessionRecap", "SessionRecapItem", "ShortIntention",

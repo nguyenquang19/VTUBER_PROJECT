@@ -1738,27 +1738,29 @@ YouTube/Discord/System/OBS/verified outcome
   -> AuthoritativeStateReducer.apply(CanonicalEvent)
        -> Agent/Thread/Goal/Recap projection
        -> World projection khi event_type thuộc world domain
-       -> relationship observer chỉ từ pseudonymous viewer_ref
+       -> Goal/Relationship/Self immutable read providers
   -> AuthoritativeStateSnapshot
 ```
 
 `CanonicalEvent` là immutable DTO mới trong `interfaces/events.py`, có `schema_version`, `event_id`,
-`event_type`, `source`, UTC `occurred_at`, bounded JSON-safe `payload`, provenance, confidence và `dedup_key`.
+route, `event_type`, `source`, UTC `timestamp`, bounded JSON-safe `payload`, provenance, confidence và
+`dedup_key`.
 Normalizer là nơi duy nhất chuyển `InputEvent`, `GroundedEvent` hoặc `PerceptionEvent` cũ sang shape này.
 Không producer nào được tự tạo state-specific event rồi gọi store/reducer trực tiếp sau cutover.
 
 `AuthoritativeStateSnapshot` và `AuthoritativeStateService` thuộc `interfaces/state.py`. Snapshot aggregate chỉ
 tham chiếu immutable Agent/World/Self/Goal/Relationship projections hiện có; không tạo bản mutable thứ hai.
-Reducer định tuyến theo `event_type`, giữ exact event id/timestamp/confidence/evidence, và listener phụ như
-relationship/goal phải failure-isolated như behavior hiện tại. Raw viewer identity chỉ tồn tại trong source
-adapter đủ lâu để tạo pseudonymous `viewer_ref`; không được vào CanonicalEvent, ledger, metric hoặc log.
+Reducer định tuyến theo route/event type, giữ exact event id/timestamp/confidence/evidence. Goal, Relationship
+và Self tiếp tục là domain owner hiện hữu nhưng chỉ xuất immutable projection vào aggregate snapshot; mutation
+của chúng chưa được nhập vào reducer ở S2. Raw viewer identity chỉ tồn tại trong source adapter/relationship
+privacy boundary hiện hữu; không được vào CanonicalEvent, ledger, metric hoặc log.
 
 Package cut của S2:
 
 - tạo `services/ingress/normalizer.py`, `services/ingress/adapters.py` và chuyển canonical admission khỏi
   `services/perception`;
-- tạo `services/state/authoritative.py`; move cơ học AgentState/EventLedger, World reducer và Self projection
-  vào `services/state`;
+- tạo `services/state/authoritative.py`; thêm canonical import facade cho AgentState/EventLedger, World reducer
+  và Self projection trong `services/state`;
 - giữ old `services.agent`, `services.perception`, `services.world` và `services.self_model` path dưới dạng
   exact compatibility re-export/adapter đến S8; Goal/Thread/Relationship/Memory implementation chưa move hàng
   loạt trong S2 vì continuity/store ownership được đóng ở S6;
@@ -1772,12 +1774,21 @@ memory semantics, Brain/Director/kernel authority, scheduler, LLM prompt/model/s
 product version hoặc public output. Mock/evaluation path không được trở thành live owner. `event_bus.py` và
 `state_machine.py` không được hồi sinh; chúng giữ disposition S0 và chưa được xóa.
 
-Acceptance bắt buộc: zero production state writer ngoài canonical reducer; zero live importer của compatibility
-implementation path; one dedup decision per canonical event; old/new snapshot serialization và event ordering
+Acceptance bắt buộc: zero live Agent/World/Perception event writer ngoài canonical ingress; zero live importer
+trực tiếp của compatibility implementation path; one dedup decision per canonical event; old/new snapshot serialization và event ordering
 equivalent cho chat, donation, environment, speech, goal audit; relationship privacy/idempotency giữ nguyên;
 interface/import guard, targeted/impacted/full offline xanh. Vì reducer path đổi, deterministic replay so sánh
 event lineage + snapshot là bắt buộc dù public text không đổi; blind review chỉ cần khi output/decision đổi.
 Rollback đổi composition về compatibility ingress/state adapter từ checkpoint S1, không migrate hoặc rewrite data.
+
+S2 implementation đã được owner cho phép sau checkpoint cleanup `295e5a8`. Live runtime, deterministic replay
+và live-pipeline stress cùng dùng `CanonicalEventNormalizer -> CanonicalEventIngress ->
+AuthoritativeStateReducer`; facade Agent/World/Perception giữ exact domain behavior. `config/state.yaml` là
+canonical owner, còn `agent_state.yaml`/`relationships.yaml` là compatibility files được ConfigLoader alias đến
+S8. Goal/Relationship/Self chỉ được bind làm read provider; không mở authority hoặc đổi output. Targeted
+contract/state/config đạt `233 passed`, impacted live integration đạt `21 passed`, deterministic replay/
+live-pipeline group đạt `14 passed`, và full offline đạt `2.461 passed`, `0` lỗi. S2 dừng ở source dirty để
+owner review; chưa commit và chưa bắt đầu S3/MCB-5.
 
 ### 13.1.6. Rollout behavior trong quá trình chuẩn hóa
 

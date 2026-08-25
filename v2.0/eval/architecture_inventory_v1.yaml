@@ -1,7 +1,7 @@
 schema_version: 2
-status: s1_implemented_mcb4_retired_source_dirty
-generated_at_utc: "2026-08-25T19:23:48Z"
-head_revision: "6d47b2b42085bc23364185ac73245c0c21ee60bf"
+status: s2_implemented_source_dirty
+generated_at_utc: "2026-08-25T20:10:18Z"
+head_revision: "295e5a8b36ebcc5ee18db42a800ea6a1227dfc21"
 source_clean: false
 gate_eligible: false
 
@@ -17,15 +17,15 @@ scope:
   - tests/**/*.py
 
 snapshot:
-  production_python_files: 200
-  production_modules: 197
-  static_live_reachable_modules: 147
+  production_python_files: 209
+  production_modules: 206
+  static_live_reachable_modules: 156
   not_static_live_reachable_modules: 50
-  config_yaml_files: 32
+  config_yaml_files: 33
   prompt_files: 7
   script_files: 35
   test_python_files_before_s0: 224
-  test_python_files: 223
+  test_python_files: 224
   feature_count: 54
   feature_enabled_count: 37
   feature_disabled_count: 17
@@ -53,7 +53,7 @@ snapshot:
     - tests/unit/test_cognitive_ab_source.py
 
 normalization:
-  completed_waves: [S0, S1]
+  completed_waves: [S0, S1, S2]
   active_wave: null
   retired_components:
     - mcb4_offline_dual_path_harness
@@ -72,11 +72,20 @@ normalization:
   canonical_contracts_added:
     - interfaces/events.py
     - interfaces/state.py
+  canonical_runtime_owners:
+    - services/ingress/normalizer.py
+    - services/ingress/adapters.py
+    - services/state/authoritative.py
+    - config/state.yaml
   compatibility_re_exports:
     - services/agent/types.py
     - services/agent/goal_types.py
     - services/relationship/types.py
     - services/evaluation/types.py
+    - services/state/agent.py
+    - services/state/event_ledger.py
+    - services/state/world.py
+    - services/state/self_projection.py
   compatibility_removal_wave: S8
   behavior_change_authorized: false
   test_evidence:
@@ -85,7 +94,10 @@ normalization:
     unit: 2166
     integration: 298
     mcb4_retirement_targeted: 179
-    full_offline: 2452
+    s2_contract_state_config_targeted: 233
+    s2_impacted_live_integration: 21
+    s2_deterministic_replay_live_pipeline: 14
+    full_offline: 2461
     full_offline_failures: 0
     full_offline_warnings: 2
 
@@ -111,6 +123,14 @@ static_import_graph:
       targets:
         - services/evaluation/cognitive_ab.py
       note: Retiring the offline dual-path harness removed its config block and the live ConfigLoader import.
+    - id: multiple_event_state_writers
+      resolved_in: S2
+      source: orchestrator/stream_runtime.py
+      targets:
+        - services/ingress/normalizer.py
+        - services/ingress/adapters.py
+        - services/state/authoritative.py
+      note: Live and replay Agent/World/Perception writes now enter through one canonical normalizer/ingress; deterministic domain reducers remain exact compatibility implementations until S8.
   known_boundary_findings:
     - id: live_imports_offline_evaluation
       severity: high
@@ -200,6 +220,18 @@ overrides:
     disposition: MERGE
     target_owner: orchestrator/runtime_config.py
     reason: Canonical loader remains but must not import evaluation implementations.
+  - path: config/state.yaml
+    disposition: KEEP
+    target_owner: config/state.yaml
+    reason: Canonical owner for state, ingress, World, Self and relationship bounds.
+  - path: config/agent_state.yaml
+    disposition: MERGE
+    target_owner: config/state.yaml
+    reason: Legacy compatibility file; ConfigLoader resolves reads through state.yaml until S8.
+  - path: config/relationships.yaml
+    disposition: MERGE
+    target_owner: config/state.yaml
+    reason: Legacy compatibility file; ConfigLoader resolves reads through state.yaml until S8.
   - path: orchestrator/metrics_collector.py
     disposition: MERGE
     target_owner: services/operations/metrics.py
@@ -254,6 +286,22 @@ overrides:
     target_owner: services/kernel/turn_kernel.py
     deletion_gate: after_s5_verified_read_chat
     reason: No second turn execution shell.
+  - path: services/agent/agent_state.py
+    disposition: MERGE
+    target_owner: services/state/agent.py
+    reason: Deterministic reducer is exposed through the canonical state path; old path remains until S8.
+  - path: services/agent/event_ledger.py
+    disposition: MERGE
+    target_owner: services/state/event_ledger.py
+    reason: Bounded ledger is exposed through the canonical state path; old path remains until S8.
+  - path: services/world/world_model.py
+    disposition: MERGE
+    target_owner: services/state/world.py
+    reason: World reducer is reached through authoritative state while its old import remains compatible.
+  - path: services/self_model/projection.py
+    disposition: MERGE
+    target_owner: services/state/self_projection.py
+    reason: Self remains a read-only projection exposed through the canonical state path.
   - path: services/cognition/brain_shadow.py
     disposition: MERGE
     target_owner: services/cognition/brain.py

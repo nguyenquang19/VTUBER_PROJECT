@@ -993,7 +993,8 @@ Gate Phase 2 yêu cầu:
 - `StateValue.evidence_refs` phải bảo toàn trace về perception/source event bên cạnh evidence do producer
   gửi, khử trùng lặp và áp dụng `max_evidence_refs` theo thứ tự deterministic.
 - Toàn bộ payload World, gồm path, value và evidence, phải qua giới hạn item/character từ
-  `agent_state.yaml`; state, dedup cache, snapshot và dashboard đều bounded/read-only.
+  `state.yaml::world_model`; `agent_state.yaml` chỉ còn là compatibility file đến S8. State, dedup cache,
+  snapshot và dashboard đều bounded/read-only.
 - Invalid/duplicate/stale/lower-authority/capacity outcomes phải fail isolated và có metric; không exception
   nào từ shadow reducer được làm hỏng grounded-event production path.
 - `world_model_shadow` tiếp tục do `FeatureManager` sở hữu và có health/metrics; World snapshot không được
@@ -1024,7 +1025,7 @@ Nguồn và quy tắc projection:
   shape không hợp lệ, target `unknown/stopped/degraded/unhealthy`, hoặc animation đã bật nhưng mất
   kết nối đều phải cho `degraded=true`; không được bịa state thay thế.
 - `recent_action_ids` sắp theo `updated_at` rồi `transaction_id`, mới nhất trước, không
-  trùng lặp và bị giới hạn bởi `agent_state.yaml::self_model.max_recent_action_ids`.
+  trùng lặp và bị giới hạn bởi `state.yaml::self_model.max_recent_action_ids`.
   Threshold này phải là `int` thật dương; không nhận `bool`, chuỗi hay float qua coercion.
 - `SelfSnapshot` và mọi mapping lồng nhau phải immutable. `snapshot_id` là hash nội dung ổn định,
   không phụ thuộc `created_at`: source state không đổi thì ID không đổi; source state thay đổi
@@ -1580,7 +1581,7 @@ Gate Phase 10 yêu cầu:
   `enabled=false`; nó độc lập với quyền ghi `obs_scene_executor`. Tắt feature phải ngừng I/O mới, hủy poll
   task an toàn và xóa recent/dedup/last-seen cache chứa dữ liệu; bật lại không được replay cache cũ.
 - Threshold, TTL, interval, timeout, route allowlist, producer/path mapping và mọi capacity production nằm
-  trong `config/agent_state.yaml`/`config/features.yaml`; không hardcode. Credential OBS tiếp tục chỉ đọc
+  trong `config/state.yaml`/`config/features.yaml`; không hardcode. Credential OBS tiếp tục chỉ đọc
   theo environment variable Phase 9 và không được lưu trong Perception event, evidence, metric, exception,
   health, snapshot hoặc log.
 - World trả về chỉ được coi accepted khi là `bool` chính xác; malformed return, exception hoặc projection
@@ -3321,18 +3322,19 @@ Exact contract/file scope:
 | `services/ingress/adapters.py` | chat/system/OBS perception adapters | Chỉ submit canonical event; raw identity không qua boundary |
 | `interfaces/state.py::AuthoritativeStateSnapshot/Service` | Agent/World/Self/Goal/Relationship snapshot contracts | Một immutable read surface, không duplicate store |
 | `services/state/authoritative.py` | AgentState reducer/listeners + World routing | Một mutation boundary và một dedup decision |
-| `services/state/{agent,event_ledger,world,self_projection}.py` | mechanical move từ implementation hiện tại | Domain reduce/projection giữ exact behavior |
+| `services/state/{agent,event_ledger,world,self_projection}.py` | canonical import facade đến implementation hiện tại | Domain reduce/projection giữ exact behavior; physical move hoãn đến S8 |
 | `config/state.yaml` | agent/perception/world/self/relationship values hiện có | Một canonical config owner; legacy read alias đến S8 |
 
-Goal/Thread/Relationship/Memory algorithms chưa bị rewrite hoặc move hàng loạt trong S2; chúng nằm sau state
-coordinator hoặc tiếp tục là read/provider owner cho tới S6. `services.agent`, `services.perception`,
-`services.world`, `services.self_model` path cũ chỉ được giữ làm exact compatibility adapter/re-export có removal
+Goal/Thread/Relationship/Memory algorithms chưa bị rewrite hoặc move hàng loạt trong S2. Goal, Relationship và
+Self được bind làm immutable read provider của aggregate snapshot; mutation của chúng vẫn thuộc domain owner
+hiện hữu đến S6. `services.agent`, `services.perception`, `services.world`, `services.self_model` path cũ tiếp
+tục chứa compatibility implementation, nhưng live composition chỉ import qua canonical facade và có removal
 wave S8. Không xóa `event_bus.py`, `state_machine.py` hoặc legacy config trong S2; deletion vẫn khóa.
 
-Canonical event không được chứa raw viewer ID/name, secret hoặc CoT. Chat adapter tạo pseudonymous `viewer_ref`
-trước submit. Reducer giữ exact `event_id`, source evidence, timestamp, confidence và thứ tự; relationship/goal
-listener failure vẫn isolated như hiện tại. Không được commit một phần world/state do schema lỗi, và duplicate
-event không được chạy listener lần hai.
+Canonical event không được chứa raw viewer ID/name, secret hoặc CoT. Raw identity chỉ tồn tại trong source hoặc
+relationship privacy boundary hiện hữu; InputEvent normalizer loại nó trước canonical submit. Reducer giữ exact
+`event_id`, source evidence, timestamp, confidence và thứ tự. Không được commit một phần world/state do schema
+lỗi, và duplicate event không được chạy domain reducer lần hai.
 
 Evidence cần có: AST writer/import guard; old/new object and snapshot equivalence; deterministic replay cho
 chat/donation/environment/speech/goal audit; relationship privacy/idempotency; targeted Agent/World/Self/
@@ -3340,10 +3342,15 @@ Perception/Goal/Thread/Relationship tests, impacted live regression và full off
 nếu output/decision đổi thì S2 fail thay vì mở blind/tuning. Config/feature/metric/prompt/model/scheduler/
 transaction/delivery/product version không đổi.
 
-Trạng thái hiện tại là **docs-first only** tại checkpoint `6d47b2b`. S1 đã được commit; code S2 chưa bắt đầu.
-Owner yêu cầu retire harness MCB-4 trước khi S2 triển khai để live/config dependency surface không tiếp tục kéo
-offline dual-path evaluation. Sau khi cleanup được review và commit riêng, S2 mới được code; chưa bắt đầu
-S3/MCB-5.
+Cleanup MCB-4 đã được commit riêng tại `295e5a8`; S2 sau đó được triển khai trong working tree nhưng chưa commit.
+Live runtime, deterministic replay và live-pipeline stress cùng đi qua
+`CanonicalEventNormalizer -> CanonicalEventIngress -> AuthoritativeStateReducer`; Agent, World và Perception
+adapter giữ exact domain behavior. `config/state.yaml` là canonical config owner; ConfigLoader alias các read cũ
+từ `agent_state.yaml` và `relationships.yaml` đến S8. Goal/Relationship/Self chỉ là immutable read provider,
+không mở mutation authority. Targeted contract/state/config đạt `233 passed`, impacted live integration đạt
+`21 passed`, deterministic replay/live-pipeline group đạt `14 passed`, và full offline đạt `2.461 passed`, `0`
+lỗi với hai warning môi trường/deprecation có sẵn. S2 dừng ở source dirty để owner review; chưa commit và chưa
+bắt đầu S3/MCB-5.
 
 ##### 17.2.19.13. Retire MCB-4 offline dual-path harness
 
@@ -3457,12 +3464,13 @@ shape/type trước khi runtime compose service.
 | `cognition.yaml` | schema, bounds và allowlist MCB-1/2 cho Cognitive Context/Focus; rollout vẫn `disabled` |
 | `chat_sources.yaml` | YouTube và Discord |
 | `director.yaml`, `chat_salience.yaml` | nhịp quyết định, phân xử, chấm điểm, giao dịch và V2 |
-| `agent_state.yaml`, `agent_goals.yaml` | trạng thái tác nhân, mục tiêu và thời hạn |
+| `state.yaml`, `agent_goals.yaml` | canonical ingress/state/world/self/relationship bounds; mục tiêu và thời hạn |
+| `agent_state.yaml`, `relationships.yaml` | compatibility files; ConfigLoader alias về `state.yaml` đến S8 |
 | `hosting.yaml`, `autonomy.yaml`, `autonomy_content_pool.yaml`, `self_talk.yaml` | dẫn phiên, thôi thúc, kho nội dung và tự nói |
 | `conversation.yaml` | mạch hội thoại, khớp chủ đề, ngữ cảnh và sửa mâu thuẫn |
 | `mood_engine.yaml`, `emotion_appraisal.yaml`, `mood_style.yaml`, `affect_v2.yaml`, `mood_ab_cases.yaml` | hệ cảm xúc, cách nói và ca phát lại A/B |
 | `pacing.yaml`, `filters.yaml` | nhịp nói và luật an toàn nội dung |
-| `animation.yaml`, `relationships.yaml` | nhân vật ảo và dữ liệu quan hệ |
+| `animation.yaml` | nhân vật ảo |
 | `logging.yaml`, `data_privacy.yaml` | nhật ký, ẩn danh, sao lưu và bộ dữ liệu |
 | `operations.yaml`, `evaluation.yaml` | vận hành, kiểm tra dài, đánh giá và phát hành |
 | `data_schema_registry.yaml` | dấu vân tay lược đồ bản ghi |

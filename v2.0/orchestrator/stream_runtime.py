@@ -165,6 +165,7 @@ class StreamRuntime:
         filler: Any = None,   # A3 FillerManager (metrics only; wiring ở speak wrapper)
         director_loop: Any = None,   # C0.4 DirectorLoop — turn driver (thay autonomy loop)
         agent_state: Any = None,
+        authoritative_state: Any = None,
         perception_ingress: Any = None,
         perception_adapters: tuple[Any, ...] = (),
         world_model: Any = None,
@@ -217,6 +218,7 @@ class StreamRuntime:
         self._filler = filler
         self._director_loop = director_loop
         self._agent_state = agent_state
+        self._authoritative_state = authoritative_state
         self._perception_ingress = perception_ingress
         self._perception_adapters = tuple(perception_adapters)
         self._world_model = world_model
@@ -268,6 +270,8 @@ class StreamRuntime:
         self._shutdown_coordinator_started = False
         self._shutdown_completed = False
         try:
+            if self._authoritative_state is not None:
+                await self._authoritative_state.start()
             if self._capability_registry is not None:
                 await self._capability_registry.start()
             if self._action_mock_loop is not None:
@@ -542,6 +546,9 @@ class StreamRuntime:
         if self._agent_state is not None:
             with contextlib.suppress(Exception):
                 await self._agent_state.stop()
+        if self._authoritative_state is not None:
+            with contextlib.suppress(Exception):
+                await self._authoritative_state.stop()
 
     async def _stop_all_components(self) -> None:
         await self._run_shutdown_steps(
@@ -597,6 +604,10 @@ class StreamRuntime:
             },
             "agent": (
                 self._agent_state.snapshot().to_dict() if self._agent_state is not None else None
+            ),
+            "authoritative_state": (
+                self._authoritative_state.snapshot().to_dict()
+                if self._authoritative_state is not None else None
             ),
             "world": (
                 self._world_model.snapshot().to_dict() if self._world_model is not None else None
@@ -863,6 +874,9 @@ class StreamRuntime:
         if self._agent_state is not None:
             with contextlib.suppress(Exception):
                 m.update(self._agent_state.get_metrics())
+        if self._authoritative_state is not None:
+            with contextlib.suppress(Exception):
+                m.update(self._authoritative_state.get_metrics())
         if self._world_model is not None:
             with contextlib.suppress(Exception):
                 m.update(self._world_model.get_metrics())
@@ -1072,8 +1086,8 @@ async def _compose_stream_runtime(
     feature_manager = FeatureManager.from_config(loader, persist=True, metrics=metrics)
 
     # M1: one shared grounded working state for every stream producer.
-    from services.agent.agent_state import AgentState
-    from services.agent.event_ledger import EventLedger
+    from services.state.agent import AgentState
+    from services.state.event_ledger import EventLedger
     from services.agent.agenda_policy import AgendaPolicy
     from services.agent.goal_manager import GoalManager
     from services.agent.open_thread_manager import OpenThreadManager
@@ -1094,12 +1108,20 @@ async def _compose_stream_runtime(
         move_planner=conversation_move_planner, matcher=topic_matcher,
     )
     session_recap = SessionRecapManager.from_loader(loader, metrics=metrics)
-    agent_state = AgentState.from_loader(
+    agent_state_store = AgentState.from_loader(
         loader, event_ledger, thread_manager=open_thread_manager,
         recap_manager=session_recap,
     )
     # Phase 10: one canonical ingress; it remains outside the Director path.
-    from services.world.world_model import WorldModelShadow
+    from services.state.world import WorldModelShadow
+    from services.ingress.adapters import (
+        CanonicalAgentStateAdapter,
+        CanonicalEventIngress,
+        CanonicalPerceptionIngressAdapter,
+        CanonicalWorldModelAdapter,
+    )
+    from services.ingress.normalizer import CanonicalEventNormalizer
+    from services.state.authoritative import AuthoritativeStateConfig, AuthoritativeStateReducer
     from services.perception.adapters import (
         ChatCompatibilityAdapter,
         OBSPerceptionAdapter,
@@ -1112,7 +1134,22 @@ async def _compose_stream_runtime(
     except KeyError:
         get_logger("stream_runtime").warning("world_model_shadow_feature_missing")
         world_enabled = False
-    world_model = WorldModelShadow.from_loader(loader, metrics=metrics, enabled=world_enabled)
+    world_model_store = WorldModelShadow.from_loader(
+        loader, metrics=metrics, enabled=world_enabled,
+    )
+    canonical_normalizer = CanonicalEventNormalizer.from_loader(loader)
+    authoritative_state = AuthoritativeStateReducer(
+        AuthoritativeStateConfig.from_loader(loader),
+        agent_state=agent_state_store,
+        world_model=world_model_store,
+    )
+    canonical_ingress = CanonicalEventIngress(authoritative_state)
+    agent_state = CanonicalAgentStateAdapter(
+        agent_state_store, canonical_normalizer, canonical_ingress,
+    )
+    world_model = CanonicalWorldModelAdapter(
+        world_model_store, canonical_normalizer, canonical_ingress,
+    )
     try:
         perception_status = await feature_manager.get_status("perception_expansion")
         perception_enabled = perception_status in (FeatureStatus.ENABLED, FeatureStatus.DEGRADED)
@@ -1120,8 +1157,17 @@ async def _compose_stream_runtime(
         get_logger("stream_runtime").warning("perception_expansion_feature_missing")
         perception_enabled = False
     perception_config = PerceptionIngressConfig.from_loader(loader)
-    perception_ingress = PerceptionIngress(
-        perception_config, world_model=world_model, metrics=metrics, enabled=perception_enabled,
+    perception_ingress_store = PerceptionIngress(
+        perception_config,
+        world_model=world_model_store,
+        metrics=metrics,
+        enabled=perception_enabled,
+    )
+    authoritative_state.bind_perception_ingress(perception_ingress_store)
+    perception_ingress = CanonicalPerceptionIngressAdapter(
+        perception_ingress_store,
+        canonical_normalizer,
+        canonical_ingress,
     )
     chat_perception_adapter = ChatCompatibilityAdapter(
         perception_config, perception_ingress, enabled=perception_enabled, metrics=metrics,
@@ -1196,6 +1242,10 @@ async def _compose_stream_runtime(
 
     attach_set_enabled_feature(
         feature_manager, "relationship_memory", relationship_manager,
+    )
+    authoritative_state.bind_read_providers(
+        goal_manager=goal_manager,
+        relationship_manager=relationship_manager,
     )
 
     # ─── LLM stack ───
@@ -2015,7 +2065,7 @@ async def _compose_stream_runtime(
 
 
     # Phase 3: read-only aggregate. No SelfSnapshot is supplied to Director or prompt code.
-    from services.self_model.projection import SelfModelProjection
+    from services.state.self_projection import SelfModelProjection
     try:
         self_model_status = await feature_manager.get_status("self_model_projection")
         self_model_enabled = self_model_status in (FeatureStatus.ENABLED, FeatureStatus.DEGRADED)
@@ -2541,6 +2591,11 @@ async def _compose_stream_runtime(
         emergency_ref=emergency_ref,
         dashboard_server=dashboard_server,
     )
+    authoritative_state.bind_read_providers(
+        self_model=self_model,
+        goal_manager=goal_manager,
+        relationship_manager=relationship_manager,
+    )
 
     # MCB-3: compose a dormant observer. No proposal is routed back to public output.
     from orchestrator.runtime_cognition import build_cognitive_runtime_stack
@@ -2573,7 +2628,8 @@ async def _compose_stream_runtime(
         filter_svc=filter_svc, regenerator=regenerator,
         metrics=metrics, dashboard_task=dashboard_task,
         speak=speak_callback, filler=filler, director_loop=director_loop,
-        agent_state=agent_state, world_model=world_model, self_model=self_model,
+        agent_state=agent_state, authoritative_state=authoritative_state,
+        world_model=world_model, self_model=self_model,
         capability_registry=capability_registry, action_mock_loop=action_mock_loop,
         action_adapter_boundary=action_adapter_boundary,
         embodiment_policy=embodiment_policy,

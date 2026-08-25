@@ -1,0 +1,94 @@
+# Canonical S2 state owner. Legacy agent_state.yaml/relationships.yaml are read aliases until S8.
+schema_version: 1
+
+canonical_event:
+  max_payload_items: 64
+  max_payload_chars: 4096
+
+authoritative:
+  dedup_ttl_s: 1800
+  max_dedup_keys: 512
+
+agent_state:
+  recent_events_max: 64
+  recent_event_ttl_s: 1800
+  open_threads_max: 8
+  open_thread_ttl_s: 900
+  payload_text_max_chars: 320
+  dedup_ttl_s: 1800
+
+context:
+  min_items: 3
+  max_items: 6
+  item_max_chars: 220
+  relevance_window_s: 900
+
+world_model:
+  allowed_domains: [stream, social, call, media, physical, game]
+  default_ttl_s: 300
+  source_authority:
+    operator: 100
+    environment: 80
+    runtime: 60
+  max_state_entries: 64
+  max_evidence_refs: 8
+  max_payload_items: 32
+  max_payload_chars: 2048
+  dedup_ttl_s: 1800
+  max_dedup_keys: 128
+
+perception:
+  max_payload_items: 16
+  max_payload_chars: 1024
+  max_recent_events: 128
+  max_event_age_s: 300
+  max_future_skew_s: 5
+  dedup_ttl_s: 1800
+  max_dedup_keys: 256
+  chat:
+    producer: chat_perception_adapter
+    sources: [chat_twitch, chat_youtube, chat_discord]
+  system:
+    producer: system_perception_adapter
+    input_sources: [system_timer, dashboard]
+    grounded_routes:
+      - producer: stream_runtime
+        event_source: runtime
+        canonical_source: runtime
+        world_path: stream.runtime
+        payload_mode: snapshot
+  obs:
+    producer: obs_perception_adapter
+    source: environment
+    world_path: stream.current_scene
+    poll_interval_s: 2
+    query_timeout_s: 2
+
+self_model:
+  max_recent_action_ids: 8
+
+relationships:
+  profile_ttl_days: 30
+  seen_event_ttl_days: 30
+  max_profiles_snapshot: 100
+  max_preferences: 5
+  max_boundaries: 5
+  max_text_chars: 240
+  consent_mode: operator_notice
+  auto_delete: false
+
+notes:
+  max_per_viewer: 20
+  ttl_days: 30
+
+narrative:
+  max_items: 50
+  ttl_days: 30
+  prompt_max_items: 2
+  prompt_max_chars: 360
+
+running_gags:
+  positive_interactions_required: 3
+  positive_emotion_categories: [chat_compliment, chat_mention_direct, donation_small, donation_large]
+  reference_cooldown_seconds: 1800
+  max_per_viewer: 5
