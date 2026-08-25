@@ -1422,7 +1422,6 @@ quality acceptance, takeover, canary hoặc release cho tới khi một candidat
 | MCB-1 | Contract foundation | Contract/config/disabled feature only | Immutable strict shape, feature-off, no LLM/no mutation |
 | MCB-2 | Context + Focus shadow | Read-only context/projection | Deterministic ID/order/bounds/freshness; no domain commit |
 | MCB-3 | Brain shadow | Proposal observation only | llama.cpp schema/latency/opportunity gates; no delivery/action/state side effect |
-| MCB-4 | Offline A/B | Không có live authority | Same-input comparison và ít nhất 30 blind discovery pairs |
 | MCB-5 | READ_CHAT takeover | `WAIT`/`READ_CHAT` trong accepted envelope | Limited canary, exact rollback và ít nhất 60 blind pairs |
 | MCB-6 | SELF_TALK/FOLLOW_UP takeover | Bounded conversational scope | Focus commit only after delivery; interrupt/recovery evidence |
 | MCB-7 | Memory/carryover | Proposal only; kernel commits | Provenance/privacy/outcome/TTL/idempotency gates |
@@ -1434,6 +1433,12 @@ MCB-1 non-goals được khóa: không context builder runtime, không Brain ada
 không Director/TTS/action/memory/Focus takeover hoặc mutation, không đổi model/sampling/persona, không xóa
 compatibility component và không tăng product version. Sau mỗi slice phải dừng để owner review; không tự
 chuyển sang slice kế tiếp.
+
+MCB-4 là mốc lịch sử đã **retire** theo quyết định owner ngày 26/08/2026. Harness hai đường
+`cognitive_ab` không có live authority, không chứng minh Brain thắng và không còn thuộc migration path đang
+hoạt động. Source/config/corpus/CLI/metric/test chỉ phục vụ harness này sẽ bị gỡ. Evidence và kết quả blind đã
+tạo vẫn là lịch sử chẩn đoán; không được dùng làm release gate. Brain observer MCB-3, cognition contracts,
+MAI-HLC dùng chung và temporal blind contract không thuộc phần retire.
 
 Owner đã duyệt docs-first MCB-2 và implementation read-only đạt ngày 24/08/2026: typed request, Context
 Builder, Focus projection, strict cognition config, bounded metrics/tests đã có nhưng chưa compose consumer
@@ -1794,13 +1799,15 @@ MCB không quyết định cấu trúc; nó chỉ xác minh các wave khi behavi
 
 | Gate | Wave được kiểm chứng |
 |---|---|
-| MCB-4 | S0–S3: inventory, boundary, exact-live Context/Brain dry-run |
 | MCB-5 | S4–S5 cho `READ_CHAT` |
 | MCB-6 | S6 cho scheduler, `SELF_TALK`, `FOLLOW_UP`, Thread/Focus |
 | MCB-7 | S6 cho Memory proposal/commit |
 | MCB-8 | S5 cho embodiment/external action |
 | MCB-9 | Tối ưu model/context trong S3 đã khóa, không đổi cấu trúc |
 | MCB-10 | S7–S8, full cutover, delete và release |
+
+S0–S3 được kiểm chứng trực tiếp bằng structure metrics, exact compatibility replay và Brain dry-run theo gate
+chung tại 13.1.8; không còn phụ thuộc một gate hoặc harness mang tên MCB-4.
 
 ### 13.1.8. Gate chung và stop condition
 

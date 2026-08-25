@@ -147,18 +147,6 @@ class ConfigLoader:
                 CognitionConfig.from_mapping(data)
             except ValueError as exc:
                 raise ConfigError(f"{path.name}: config không hợp lệ: {exc}") from exc
-        if path.name == CONFIG_FILES["evaluation"]:
-            from services.evaluation.cognitive_ab import CognitiveABConfig
-
-            try:
-                evaluation = data.get("evaluation")
-                value = (
-                    evaluation.get("cognitive_ab")
-                    if isinstance(evaluation, dict) else None
-                )
-                CognitiveABConfig.from_mapping(value)
-            except ValueError as exc:
-                raise ConfigError(f"{path.name}: cognitive A/B config không hợp lệ: {exc}") from exc
         return data
 
     def load_all(self) -> None:

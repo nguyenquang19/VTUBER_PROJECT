@@ -64,26 +64,6 @@ class TestRecorders:
         assert 'mai_human_like_reviews_total{outcome="finalized"} 1.0' in text
         assert 'mai_trajectory_records_total{outcome="replay_match"} 1.0' in text
 
-    def test_cognitive_ab_labels_are_bounded_and_snapshotted(self) -> None:
-        metrics = MetricsCollector()
-        metrics.record_cognitive_ab_case("direct_chat", "validated")
-        metrics.record_cognitive_ab_candidate("compatibility", "COMPLETED")
-        metrics.record_cognitive_ab_candidate("brain", "SCHEMA_REJECTED")
-        metrics.record_cognitive_ab_mode("compatibility", "SPEAK")
-        metrics.record_cognitive_ab_mode("brain", "WAIT")
-        metrics.record_cognitive_ab_pair("built")
-        assert metrics.cognition_ab_snapshot() == {
-            "cases": {"direct_chat:validated": 1},
-            "candidates": {
-                "brain:SCHEMA_REJECTED": 1,
-                "compatibility:COMPLETED": 1,
-            },
-            "modes": {"brain:WAIT": 1, "compatibility:SPEAK": 1},
-            "pairs": {"built": 1},
-        }
-        with pytest.raises(ValueError, match="candidate"):
-            metrics.record_cognitive_ab_candidate("unknown", "COMPLETED")
-
     def test_phase15_closed_loop_canary_outcomes_are_observable(self) -> None:
         m = fresh()
         m.record_closed_loop_canary("passed")

@@ -94,7 +94,7 @@ Các cột dưới đây độc lập với nhau. “Có mã” không thay th�
 | Embodiment Policy | Có | LOW/MID/HIGH strict arbitration đã compose và bật test | Unit, integration, deterministic replay và full offline regression | Chưa live VTS canary |
 | Human-like calibration và trajectory | Có | Trajectory bật read-only theo Director V2; MAI-HLC là workflow offline tách sealed manifest | Unit, integration, deterministic replay, tamper/negative paths, full offline regression và owner blind review 20 pair đã finalize; quality vẫn `HOLD` | Trajectory bật test; human review không tự tạo release decision |
 | Product `2.0.0` release gates | Có strict tooling source-bound, fixed runner và canary/operations aggregator | Contract kỹ thuật đã triển khai; chưa có closed-loop/live/human/operations bundle hiện hành | Full regression xanh; external Gate D/E và release-commit verification chưa hoàn tất | Không |
-| Cognitive Brain MCB | MCB-1 contract, MCB-2 Context/Focus, MCB-3 Brain observer và MCB-4 offline A/B producer/harness đã có | Brain observer đã compose nhưng feature vẫn `enabled=false`; compatibility Director giữ toàn quyền; A/B chỉ chạy qua CLI offline | Producer fake-LLM/negative-path và artifact tests đạt; real llama.cpp clean-SHA A/B cùng human review còn chờ | Không |
+| Cognitive Brain | MCB-1 contract, MCB-2 Context/Focus và MCB-3 Brain observer đã có; MCB-4 offline A/B đã retire | Brain observer đã compose nhưng feature vẫn `enabled=false`; compatibility Director giữ toàn quyền | Brain observer có contract/negative-path tests; chất lượng và live authority vẫn `HOLD` | Không |
 
 Ma trận chỉ được nâng trạng thái khi có đường code tương ứng, test phù hợp và evidence máy đọc hoặc vận
 hành. Blueprint tiếp tục giữ scope/phase order; bảng này chỉ mô tả working tree ngày 24/08/2026.
@@ -3340,8 +3340,40 @@ Perception/Goal/Thread/Relationship tests, impacted live regression và full off
 nếu output/decision đổi thì S2 fail thay vì mở blind/tuning. Config/feature/metric/prompt/model/scheduler/
 transaction/delivery/product version không đổi.
 
-Trạng thái hiện tại là **docs-first only**. Blocker duy nhất trước code S2 là tạo checkpoint S1 độc lập mà không
-nuốt WIP MCB-4 ngoài scope. Sau checkpoint, owner duyệt exact scope này rồi code S2; chưa bắt đầu S3/MCB-5.
+Trạng thái hiện tại là **docs-first only** tại checkpoint `6d47b2b`. S1 đã được commit; code S2 chưa bắt đầu.
+Owner yêu cầu retire harness MCB-4 trước khi S2 triển khai để live/config dependency surface không tiếp tục kéo
+offline dual-path evaluation. Sau khi cleanup được review và commit riêng, S2 mới được code; chưa bắt đầu
+S3/MCB-5.
+
+##### 17.2.19.13. Retire MCB-4 offline dual-path harness
+
+Owner quyết định retire MCB-4 ngày 26/08/2026 vì nó chỉ là phép đo chẩn đoán hai đường, không có live authority,
+không chứng minh Brain tốt hơn compatibility và không còn cần thiết sau khi kiến trúc đích đã khóa thành một
+Brain-on-Kernel path. Đây là cleanup trước S2, không phải MCB-5 và không đổi runtime behavior.
+
+Phạm vi xóa được phép chỉ gồm owner độc quyền của `cognitive_ab`: `services/evaluation/cognitive_ab.py`,
+`services/evaluation/cognitive_ab_source.py`, `scripts/run_cognitive_ab_replay.py`, corpus
+`eval/corpora/cognitive_ab_story_v2.yaml`, block `evaluation.cognitive_ab`, validation/import tương ứng trong
+`ConfigLoader`, bốn metric family `cognitive_ab_*`, snapshot/recorder tương ứng và ba test module chuyên biệt.
+Inventory S0 và documentation guard phải được cập nhật theo file/config/metric count mới.
+
+Không được xóa `services/cognition/brain_shadow.py`, scheduler/context/cognition contracts, generic evaluation
+harness, `HumanLikeCalibration`, sealed blind-review workflow hoặc temporal evidence contract. Những phần này
+không thuộc MCB-4 và vẫn cần cho Brain dry-run, quality regression và timing review sau chuẩn hóa. Artifact/log
+đã tạo không được coi là runtime source hoặc release evidence; cleanup không sửa hay tái diễn giải điểm owner.
+
+Acceptance: production không còn import hoặc config reference tới `cognitive_ab`; không còn metric/test/corpus/
+CLI orphan; Brain MCB-3 và generic evaluation tests vẫn xanh; documentation/inventory guard và full offline
+regression xanh. Không cần replay/blind/canary vì đường live và public output phải exact không đổi. Nếu cleanup
+làm đổi composition, decision, delivery hoặc state thì rollback toàn cleanup thay vì vá behavior.
+
+**Trạng thái implementation:** cleanup đã hoàn tất trong working tree ngày 26/08/2026. Hai production module,
+một CLI, một corpus và ba test module chuyên biệt đã được xóa; `evaluation.cognitive_ab`, ConfigLoader import,
+bốn metric family cùng recorder/snapshot đã được gỡ. Static production surface giảm `202 -> 200` Python file,
+script `36 -> 35`, test source `226 -> 223`; live ConfigLoader không còn phụ thuộc offline evaluation MCB-4.
+Targeted Brain/config/metric/inventory/documentation đạt `179 passed`; full offline đạt `2.452 passed`, `0` lỗi
+và hai warning có sẵn. Không chạy replay/blind/canary vì live composition, output, decision, delivery và state
+không đổi. Brain MCB-3 và generic MAI-HLC vẫn được giữ nguyên.
 
 ### 17.3. Chuỗi mã để lần theo một lượt
 

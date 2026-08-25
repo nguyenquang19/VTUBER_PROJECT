@@ -1,7 +1,7 @@
 schema_version: 2
-status: s1_implemented_source_dirty
-generated_at_utc: "2026-08-25T18:51:53Z"
-head_revision: "a5b867a15c78a62e4b71a942be777a44d758adc7"
+status: s1_implemented_mcb4_retired_source_dirty
+generated_at_utc: "2026-08-25T19:23:48Z"
+head_revision: "6d47b2b42085bc23364185ac73245c0c21ee60bf"
 source_clean: false
 gate_eligible: false
 
@@ -17,15 +17,15 @@ scope:
   - tests/**/*.py
 
 snapshot:
-  production_python_files: 202
-  production_modules: 199
-  static_live_reachable_modules: 148
-  not_static_live_reachable_modules: 51
+  production_python_files: 200
+  production_modules: 197
+  static_live_reachable_modules: 147
+  not_static_live_reachable_modules: 50
   config_yaml_files: 32
   prompt_files: 7
-  script_files: 36
+  script_files: 35
   test_python_files_before_s0: 224
-  test_python_files: 226
+  test_python_files: 223
   feature_count: 54
   feature_enabled_count: 37
   feature_disabled_count: 17
@@ -55,6 +55,16 @@ snapshot:
 normalization:
   completed_waves: [S0, S1]
   active_wave: null
+  retired_components:
+    - mcb4_offline_dual_path_harness
+  owner_approved_deleted_paths:
+    - eval/corpora/cognitive_ab_story_v2.yaml
+    - scripts/run_cognitive_ab_replay.py
+    - services/evaluation/cognitive_ab.py
+    - services/evaluation/cognitive_ab_source.py
+    - tests/unit/test_cognitive_ab_cli.py
+    - tests/unit/test_cognitive_ab_evaluation.py
+    - tests/unit/test_cognitive_ab_source.py
   interface_to_implementation_modules_before: 7
   interface_to_implementation_imports_after: 0
   canonical_production_legacy_type_imports_after: 0
@@ -74,8 +84,10 @@ normalization:
     impacted_contracts: 201
     unit: 2166
     integration: 298
-    full_offline: 2464
+    mcb4_retirement_targeted: 179
+    full_offline: 2452
     full_offline_failures: 0
+    full_offline_warnings: 2
 
 static_import_graph:
   entrypoints:
@@ -93,6 +105,12 @@ static_import_graph:
         - services/agent/goal_types.py
         - services/agent/types.py
       note: Canonical types now live in interfaces/events.py and interfaces/state.py; legacy paths are exact-identity compatibility re-exports scheduled for S8 removal.
+    - id: live_config_imports_offline_evaluation
+      resolved_in: mcb4_retirement
+      source: orchestrator/config_loader.py
+      targets:
+        - services/evaluation/cognitive_ab.py
+      note: Retiring the offline dual-path harness removed its config block and the live ConfigLoader import.
   known_boundary_findings:
     - id: live_imports_offline_evaluation
       severity: high
@@ -102,12 +120,6 @@ static_import_graph:
         - services/evaluation/human_like.py
         - services/evaluation/release_gate.py
       note: Evaluation/canary/release services are composed into the live graph and must move behind offline or operator tooling boundaries.
-    - id: live_config_imports_offline_evaluation
-      severity: medium
-      source: orchestrator/config_loader.py
-      targets:
-        - services/evaluation/cognitive_ab.py
-      note: Live config loading imports an offline A/B implementation for validation; validation shape must move to a neutral contract/config owner.
   not_static_live_reachable_non_package_files:
     - interfaces/evaluation.py
     - interfaces/stt.py
@@ -123,7 +135,6 @@ static_import_graph:
     - services/agent/goal_types.py
     - services/agent/types.py
     - services/evaluation/acceptance.py
-    - services/evaluation/cognitive_ab_source.py
     - services/evaluation/data_quality.py
     - services/evaluation/harness.py
     - services/evaluation/mood_ab.py
@@ -341,10 +352,6 @@ overrides:
     disposition: OFFLINE
     target_owner: services/evaluation
     reason: Operator evaluation tool must not be composed into live runtime.
-  - path: services/evaluation/cognitive_ab.py
-    disposition: OFFLINE
-    target_owner: services/evaluation
-    reason: A/B harness remains offline and live config must not import it.
   - path: services/evaluation/human_like.py
     disposition: OFFLINE
     target_owner: services/evaluation
