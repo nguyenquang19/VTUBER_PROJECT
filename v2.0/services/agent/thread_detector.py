@@ -5,7 +5,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from services.agent.types import (
+from interfaces.state import (
     AgentEventKind, ConversationMove, GroundedEvent, OpenThread, ThreadEvidence,
     ThreadKind, ThreadOperation, ThreadSignal, ThreadSpeaker, ThreadStatus,
 )

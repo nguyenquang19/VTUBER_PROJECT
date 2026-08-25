@@ -7,7 +7,7 @@ from typing import Any, Callable
 
 from interfaces.agent import OpenThreadManagerService
 from interfaces.base import HealthStatus
-from services.agent.types import (
+from interfaces.state import (
     ConversationMove, GroundedEvent, OpenThread, ThreadContribution, ThreadEvidence,
     ThreadKind, ThreadOperation, ThreadSignal, ThreadSpeaker, ThreadStatus,
 )

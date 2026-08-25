@@ -7,7 +7,7 @@ from typing import Any, Callable
 
 from interfaces.agent import AgentStateService
 from interfaces.base import HealthStatus
-from services.agent.types import (
+from interfaces.state import (
     AgentEventKind,
     AgentStateSnapshot,
     GroundedEvent,

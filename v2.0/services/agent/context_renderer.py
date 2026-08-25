@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
-from services.agent.types import AgentEventKind, AgentStateSnapshot, GroundedEvent
+from interfaces.state import AgentEventKind, AgentStateSnapshot, GroundedEvent
 
 _WORD_RE = re.compile(r"[\wÀ-ỹ]+", re.UNICODE)
 _KIND_WEIGHT = {

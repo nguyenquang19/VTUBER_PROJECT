@@ -45,6 +45,10 @@ class CognitiveBrainParseError(ValueError):
 class CognitiveBrainSchemaError(ValueError):
     """The model output failed the strict cognitive contract."""
 
+    def __init__(self, message: str, *, code: str = "contract") -> None:
+        super().__init__(message)
+        self.code = code
+
 
 @dataclass(frozen=True)
 class BrainTelemetry:
@@ -148,7 +152,9 @@ class CognitiveBrain(CognitiveBrainService):
             request_id=request_id,
             messages=[
                 ChatMessage(role="system", content=self._system_prompt),
-                ChatMessage(role="user", content=_canonical_json(context)),
+                ChatMessage(role="user", content=_canonical_json(
+                    _brain_decision_view(context),
+                )),
             ],
             max_tokens=self._config.brain_max_output_tokens,
             temperature=self._config.brain_temperature,
@@ -237,17 +243,7 @@ def _response_schema(context: CognitiveContext, config: CognitionConfig) -> dict
             if evidence_refs else {"type": "string"}
         ),
     }
-    properties = {
-        "mode": {"type": "string", "enum": ["WAIT", "SPEAK"]},
-        "attention_target_id": nullable_attention,
-        "intent": {"anyOf": [
-            {"type": "null"},
-            {"type": "string", "minLength": 1, "maxLength": config.max_brain_intent_chars},
-        ]},
-        "speech_text": {"anyOf": [
-            {"type": "null"},
-            {"type": "string", "minLength": 1, "maxLength": config.max_speech_chars},
-        ]},
+    shared = {
         "evidence_refs": refs_schema,
         "uncertainty": {"type": "string", "enum": [item.value for item in CognitiveUncertainty]},
         "reason_codes": {
@@ -256,17 +252,48 @@ def _response_schema(context: CognitiveContext, config: CognitionConfig) -> dict
             "items": {"type": "string", "enum": list(config.reason_codes)},
         },
     }
-    return {
-        "type": "object",
-        "additionalProperties": False,
-        "required": sorted(_OUTPUT_KEYS),
-        "properties": properties,
-    }
+
+    def branch(mode: str) -> dict[str, Any]:
+        wait = mode == "WAIT"
+        properties = {
+            "mode": {"type": "string", "const": mode},
+            "attention_target_id": ({"type": "null"} if wait else nullable_attention),
+            "intent": (
+                {"type": "null"} if wait else {
+                    "type": "string", "minLength": 1,
+                    "maxLength": config.max_brain_intent_chars,
+                }
+            ),
+            "speech_text": (
+                {"type": "null"} if wait else {
+                    "type": "string", "minLength": 1,
+                    "maxLength": config.max_brain_speech_chars,
+                }
+            ),
+            **shared,
+        }
+        return {
+            "type": "object",
+            "additionalProperties": False,
+            "required": sorted(_OUTPUT_KEYS),
+            "properties": properties,
+        }
+
+    modes = [
+        mode.value for mode in context.available_modes
+        if mode in (CognitiveMode.WAIT, CognitiveMode.SPEAK)
+    ]
+    if not modes:
+        raise CognitiveBrainSchemaError(
+            "context has no MCB-3 response mode", code="mode_unavailable",
+        )
+    return {"oneOf": [branch(mode) for mode in modes]}
 
 
 def _parse_exact_object(raw: str) -> dict[str, Any]:
-    if not isinstance(raw, str) or not raw or raw != raw.strip():
-        raise CognitiveBrainParseError("Brain output must be one trimmed JSON object")
+    if not isinstance(raw, str) or not raw.strip():
+        raise CognitiveBrainParseError("Brain output must be one JSON object")
+    raw = raw.strip()
 
     def pairs(values: list[tuple[str, Any]]) -> dict[str, Any]:
         result: dict[str, Any] = {}
@@ -283,7 +310,9 @@ def _parse_exact_object(raw: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise CognitiveBrainParseError("Brain output must be a JSON object")
     if set(value) != _OUTPUT_KEYS:
-        raise CognitiveBrainSchemaError("Brain output keys do not match the contract")
+        raise CognitiveBrainSchemaError(
+            "Brain output keys do not match the contract", code="key_set",
+        )
     return value
 
 
@@ -295,15 +324,29 @@ def _materialize_turn(
         if mode not in (CognitiveMode.WAIT, CognitiveMode.SPEAK):
             raise ValueError("MCB-3 allows only WAIT or SPEAK")
         uncertainty = CognitiveUncertainty(value["uncertainty"])
-        evidence_refs = _strict_string_tuple(value["evidence_refs"], "evidence_refs")
-        reason_codes = _strict_string_tuple(value["reason_codes"], "reason_codes")
+        evidence_refs = _strict_string_tuple(
+            value["evidence_refs"], "evidence_refs", deduplicate=True,
+        )
+        reason_codes = _strict_string_tuple(
+            value["reason_codes"], "reason_codes", deduplicate=True,
+        )
         target = _nullable_string(value["attention_target_id"], "attention_target_id")
         intent = _nullable_string(value["intent"], "intent")
         speech = _nullable_string(value["speech_text"], "speech_text")
         if intent is not None and len(intent) > config.max_brain_intent_chars:
             raise ValueError("intent exceeds Brain bound")
+        if speech is not None and len(speech) > config.max_brain_speech_chars:
+            raise ValueError("speech_text exceeds Brain bound")
+        normalized = dict(value)
+        normalized.update({
+            "attention_target_id": target,
+            "intent": intent,
+            "speech_text": speech,
+            "evidence_refs": list(evidence_refs),
+            "reason_codes": list(reason_codes),
+        })
         digest = hashlib.sha256(
-            f"{context.context_id}\n{_canonical_json(value)}".encode("utf-8")
+            f"{context.context_id}\n{_canonical_json(normalized)}".encode("utf-8")
         ).hexdigest()[:64]
         return CognitiveTurn(
             config=config,
@@ -325,23 +368,46 @@ def _materialize_turn(
     except (KeyError, TypeError, ValueError) as exc:
         if isinstance(exc, CognitiveBrainSchemaError):
             raise
-        raise CognitiveBrainSchemaError(str(exc)) from exc
+        raise CognitiveBrainSchemaError(
+            str(exc), code=_schema_failure_code(exc),
+        ) from exc
 
 
 def _nullable_string(value: Any, name: str) -> str | None:
     if value is None:
         return None
-    if not isinstance(value, str) or not value or value != value.strip():
-        raise ValueError(f"{name} must be null or a trimmed non-empty string")
-    return value
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{name} must be null or a non-empty string")
+    return value.strip()
 
 
-def _strict_string_tuple(value: Any, name: str) -> tuple[str, ...]:
+def _schema_failure_code(exc: BaseException) -> str:
+    message = str(exc)
+    if "mode is not available" in message:
+        return "mode_unavailable"
+    if "stale reference" in message or "stale or mismatched" in message:
+        return "stale_reference"
+    if "WAIT" in message:
+        return "wait_invariant"
+    if "SPEAK" in message:
+        return "speak_invariant"
+    if "reason_codes" in message:
+        return "reason_code"
+    if "exceeds Brain bound" in message or "configured bound" in message:
+        return "bound"
+    if "trimmed" in message or "non-empty string" in message:
+        return "text_shape"
+    return "contract"
+
+
+def _strict_string_tuple(
+    value: Any, name: str, *, deduplicate: bool = False,
+) -> tuple[str, ...]:
     if not isinstance(value, list):
         raise ValueError(f"{name} must be an array")
     if any(not isinstance(item, str) for item in value):
         raise ValueError(f"{name} must contain only strings")
-    return tuple(value)
+    return tuple(dict.fromkeys(value)) if deduplicate else tuple(value)
 
 
 def _context_refs(context: CognitiveContext) -> set[str]:
@@ -362,6 +428,71 @@ def _context_refs(context: CognitiveContext) -> set[str]:
         refs.add(item.availability_ref)
         refs.update(item.evidence_refs)
     return refs
+
+
+def _brain_decision_view(context: CognitiveContext) -> dict[str, Any]:
+    """Project the typed context into the complete MCB-3 WAIT/SPEAK surface."""
+
+    def evidence(item: Any) -> dict[str, Any]:
+        return {
+            "evidence_id": item.evidence_id,
+            "source": item.source.value,
+            "summary": item.summary,
+            "provenance_refs": list(item.provenance_refs),
+            "observed_at": item.observed_at.isoformat(),
+            "expires_at": None if item.expires_at is None else item.expires_at.isoformat(),
+        }
+
+    hard = context.operator_state
+    conversation = context.conversation_state
+    return {
+        "context_id": context.context_id,
+        "created_at": context.created_at.isoformat(),
+        "hard_state": {
+            "emergency": hard.emergency,
+            "operator_hold": hard.operator_hold,
+            "safety_hold": hard.safety_hold,
+            "permission_hold": hard.permission_hold,
+            "transaction_conflict": hard.transaction_conflict,
+            "critical_state": hard.critical_state,
+            "source_failure_codes": list(hard.source_failure_codes),
+        },
+        "available_modes": [item.value for item in context.available_modes],
+        "chat_digest": None if context.chat_digest is None else evidence(context.chat_digest),
+        "attention_items": [evidence(item) for item in context.attention_items],
+        "conversation_state": {
+            "topic": conversation.topic,
+            "thread_ref": conversation.thread_ref,
+            "goal_ref": conversation.goal_ref,
+            "intention_ref": conversation.intention_ref,
+            "summary": conversation.summary,
+            "evidence_refs": list(conversation.evidence_refs),
+        },
+        "memory_items": [
+            {
+                "memory_ref": item.memory_ref,
+                "kind": item.kind.value,
+                "summary": item.summary,
+                "scope": item.scope.value,
+                "viewer_ref": item.viewer_ref,
+                "provenance_refs": list(item.provenance_refs),
+                "observed_at": item.observed_at.isoformat(),
+                "expires_at": None if item.expires_at is None else item.expires_at.isoformat(),
+                "confidence": item.confidence,
+            }
+            for item in context.memory_items
+        ],
+        "recent_delivered_speech": [
+            {
+                "delivery_id": item.delivery_id,
+                "speech_text": item.speech_text,
+                "delivered_at": item.delivered_at.isoformat(),
+                "source_mode": item.source_mode,
+                "evidence_refs": list(item.evidence_refs),
+            }
+            for item in context.recent_delivered_speech
+        ],
+    }
 
 
 def _wire(value: Any) -> Any:

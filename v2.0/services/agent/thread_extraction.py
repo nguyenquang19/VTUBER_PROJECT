@@ -7,36 +7,16 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
+from pydantic import ValidationError
 
 from interfaces.agent import ThreadExtractionService
 from interfaces.base import HealthStatus
 from interfaces.llm import ChatMessage, LLMRequest
-from services.agent.types import (
-    AgentEventKind, AgentStateSnapshot, GroundedEvent, ThreadEvidence, ThreadKind,
-    ThreadOperation, ThreadSignal,
+from interfaces.events import AgentEventKind, GroundedEvent
+from interfaces.state import (
+    AgentStateSnapshot, ThreadEvidence, ThreadExtraction, ThreadKind, ThreadOperation,
+    ThreadSignal,
 )
-
-
-class ThreadExtraction(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    operation: ThreadOperation
-    kind: ThreadKind
-    topic: str
-    summary: str
-    source_event_id: str
-    evidence_excerpt: str
-    target_thread_id: str | None = None
-    reason: str | None = None
-
-    @field_validator("topic", "summary", "source_event_id", "evidence_excerpt")
-    @classmethod
-    def _not_blank(cls, value: str) -> str:
-        compact = " ".join(value.split())
-        if not compact:
-            raise ValueError("must not be blank")
-        return compact
 
 
 class PostHocThreadExtractor(ThreadExtractionService):

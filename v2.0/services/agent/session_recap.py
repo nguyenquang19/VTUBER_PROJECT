@@ -6,7 +6,7 @@ from typing import Any
 
 from interfaces.agent import SessionRecapService
 from interfaces.base import HealthStatus
-from services.agent.types import (
+from interfaces.state import (
     AgentEventKind, GroundedEvent, SessionRecap, SessionRecapItem,
 )
 

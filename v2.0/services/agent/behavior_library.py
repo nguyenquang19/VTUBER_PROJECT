@@ -2,21 +2,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
 from typing import Any
 
 from interfaces.agent import BehaviorLibraryService
 from interfaces.base import HealthStatus
-
-
-class BehaviorKind(str, Enum):
-    CURIOUS = "curious"
-    DEFLECT = "deflect"
-    TEASE = "tease"
-    ACKNOWLEDGE = "acknowledge"
-    REPAIR = "repair"
-    INVITE = "invite"
-    TRANSITION = "transition"
+from interfaces.state import BehaviorDecision, BehaviorKind
 
 
 @dataclass(frozen=True)
@@ -25,14 +15,6 @@ class BehaviorSpec:
     directive: str
     actions: tuple[str, ...]
     forbidden_flags: tuple[str, ...]
-
-
-@dataclass(frozen=True)
-class BehaviorDecision:
-    kind: BehaviorKind
-    directive: str
-    reason: str
-    applicable: bool = True
 
 
 @dataclass(frozen=True)

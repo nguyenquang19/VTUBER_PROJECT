@@ -11,7 +11,7 @@ from interfaces.relationship import RelationshipService
 from services.data.sanitize import hash_viewer_id
 from services.data.sanitize import mask_pii
 from services.relationship.store import RelationshipStore
-from services.relationship.types import (
+from interfaces.relationship import (
     RelationshipNote,
     RelationshipSnapshot,
     NarrativeItem,

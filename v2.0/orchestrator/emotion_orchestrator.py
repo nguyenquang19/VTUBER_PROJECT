@@ -36,7 +36,7 @@ from services.emotion.affect_style import AffectStyleRenderer
 from services.emotion.affect_v2 import AffectV2
 from services.emotion.hybrid_affect import HybridAffectComposer
 from services.emotion.mood_style import MoodStyleTable
-from services.agent.types import (
+from interfaces.state import (
     AgentEventKind,
     AgentEventSource,
     EventProvenance,

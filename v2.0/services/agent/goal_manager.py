@@ -8,7 +8,7 @@ import uuid
 
 from interfaces.agent import GoalManagerService
 from interfaces.base import HealthStatus
-from services.agent.goal_types import (
+from interfaces.state import (
     Goal,
     GoalKind,
     GoalSnapshot,
@@ -17,7 +17,7 @@ from services.agent.goal_types import (
     ShortIntention,
     ShortIntentionStatus,
 )
-from services.agent.types import (
+from interfaces.state import (
     AgentEventKind, AgentEventSource, AgentStateSnapshot, EventProvenance, GroundedEvent,
     ThreadStatus,
 )

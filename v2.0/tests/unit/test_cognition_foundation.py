@@ -216,6 +216,7 @@ def test_initial_invalid_cognition_config_fails_closed(tmp_path: Path) -> None:
         lambda raw: raw.update(rollout_mode="disabled"),
         lambda raw: raw.update(reason_codes=["same", "same"]),
         lambda raw: raw.update(max_speech_chars=4096),
+        lambda raw: raw.update(max_brain_speech_chars=513),
     ],
 )
 def test_cognition_config_rejects_unknown_missing_coercion_and_invalid_bounds(mutator) -> None:

@@ -1,6 +1,7 @@
 """Strict structured-output behavior for the proposal-only shadow Brain."""
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -126,6 +127,16 @@ async def test_brain_uses_shadow_reject_schema_and_returns_no_side_effect_propos
     assert request.response_format is not None
     assert request.response_format.to_payload()["json_schema"]["strict"] is True
     assert "compatibility" not in request.messages[-1].content
+    assert "world_snapshot_id" not in request.messages[-1].content
+    assert "chat_digest" in request.messages[-1].content
+    schema = request.response_format.schema
+    assert [item["properties"]["mode"]["const"] for item in schema["oneOf"]] == [
+        "WAIT", "SPEAK",
+    ]
+    assert schema["oneOf"][0]["properties"]["speech_text"] == {"type": "null"}
+    assert schema["oneOf"][1]["properties"]["speech_text"]["maxLength"] == (
+        config.max_brain_speech_chars
+    )
     assert brain.last_telemetry is not None
     assert brain.last_telemetry.input_tokens == 120
 
@@ -169,3 +180,80 @@ async def test_wait_requires_null_content_and_never_invents_safe_speech() -> Non
     await brain.start()
     with pytest.raises(CognitiveBrainSchemaError, match="WAIT"):
         await brain.propose(_context(config))
+
+
+@pytest.mark.asyncio
+async def test_brain_accepts_outer_json_whitespace_but_not_non_whitespace_suffix() -> None:
+    config = _config()
+    brain = CognitiveBrain(
+        config=config, llm=_LLM(f"\r\n  {_speak_json()}  \n"),
+        persona_prompt="Mai", shadow_prompt="strict",
+    )
+    await brain.start()
+    assert (await brain.propose(_context(config))).mode is CognitiveMode.SPEAK
+
+
+@pytest.mark.asyncio
+async def test_brain_canonicalizes_intent_and_speech_outer_whitespace() -> None:
+    config = _config()
+    output = _speak_json().replace(
+        '"intent":"trả lời ngắn","speech_text":"Có chứ, nhất là cà phê đậm."',
+        '"intent":"  trả lời ngắn  ","speech_text":"  Có chứ, nhất là cà phê đậm.  "',
+    )
+    brain = CognitiveBrain(
+        config=config, llm=_LLM(output), persona_prompt="Mai", shadow_prompt="strict",
+    )
+    await brain.start()
+    turn = await brain.propose(_context(config))
+    assert turn.intent == "trả lời ngắn"
+    assert turn.speech_text == "Có chứ, nhất là cà phê đậm."
+
+
+@pytest.mark.asyncio
+async def test_brain_deduplicates_set_arrays_before_turn_identity() -> None:
+    config = _config()
+    canonical = CognitiveBrain(
+        config=config, llm=_LLM(_speak_json()),
+        persona_prompt="Mai", shadow_prompt="strict",
+    )
+    duplicated_output = _speak_json().replace(
+        '"evidence_refs":["agent:chat:m1"]',
+        '"evidence_refs":["agent:chat:m1","agent:chat:m1"]',
+    ).replace(
+        '"reason_codes":["propose_speech"]',
+        '"reason_codes":["propose_speech","propose_speech"]',
+    )
+    duplicated = CognitiveBrain(
+        config=config, llm=_LLM(duplicated_output),
+        persona_prompt="Mai", shadow_prompt="strict",
+    )
+    await canonical.start()
+    await duplicated.start()
+    first = await canonical.propose(_context(config))
+    second = await duplicated.propose(_context(config))
+    assert second.evidence_refs == ("agent:chat:m1",)
+    assert second.reason_codes == ("propose_speech",)
+    assert second.turn_id == first.turn_id
+
+
+@pytest.mark.asyncio
+async def test_brain_schema_exposes_only_modes_available_in_context() -> None:
+    config = _config()
+    context = replace(
+        _context(config), config=config, available_modes=(CognitiveMode.WAIT,),
+    )
+    output = (
+        '{"mode":"WAIT","attention_target_id":null,"intent":null,'
+        '"speech_text":null,"evidence_refs":[],"uncertainty":"UNKNOWN",'
+        '"reason_codes":["intentional_wait"]}'
+    )
+    llm = _LLM(output)
+    brain = CognitiveBrain(
+        config=config, llm=llm, persona_prompt="Mai", shadow_prompt="strict",
+    )
+    await brain.start()
+    assert (await brain.propose(context)).mode is CognitiveMode.WAIT
+    schema = llm.requests[0].response_format.schema
+    assert [item["properties"]["mode"]["const"] for item in schema["oneOf"]] == [
+        "WAIT",
+    ]

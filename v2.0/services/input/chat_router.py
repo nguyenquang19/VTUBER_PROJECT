@@ -22,7 +22,7 @@ from orchestrator.emotion_orchestrator import EmotionOrchestrator
 from orchestrator.logger import get_logger
 from services.emotion.classifier import EmotionEvent, EventKind
 from services.llm.llm_turn import LLMTurnRunner
-from services.agent.types import (
+from interfaces.state import (
     AgentEventKind,
     AgentEventSource,
     EventProvenance,

@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from interfaces.animation import MoodState
-from services.agent.goal_types import GoalKind
+from interfaces.state import GoalKind
 
 
 @dataclass(frozen=True)

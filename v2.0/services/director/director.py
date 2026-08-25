@@ -27,8 +27,8 @@ from typing import Any
 from services.director.chat_pulse import ChatPulse, PulseState
 from services.director.salience import PooledMessage, SaliencePool
 from services.director.action_types import DirectorChatRef, DirectorInput
-from services.agent.goal_types import Goal, GoalKind, GoalSnapshot
-from services.agent.types import AgentStateSnapshot
+from interfaces.state import Goal, GoalKind, GoalSnapshot
+from interfaces.state import AgentStateSnapshot
 
 
 class DirectorAction(str, Enum):

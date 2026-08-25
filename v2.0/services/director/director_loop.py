@@ -56,9 +56,9 @@ from services.director.action_prompts import (
     stage_direction_for as _stage_direction_for,
     timestamp as _timestamp,
 )
-from services.agent.goal_types import GoalSnapshot
-from services.agent.types import AgentStateSnapshot
-from services.agent.types import (
+from interfaces.state import GoalSnapshot
+from interfaces.state import AgentStateSnapshot
+from interfaces.state import (
     AgentEventKind,
     AgentEventSource,
     EventProvenance,

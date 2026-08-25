@@ -106,6 +106,7 @@ class CognitionConfig:
     opportunity_reconsider_seconds: float
     max_opportunity_age_seconds: float
     max_brain_intent_chars: int
+    max_brain_speech_chars: int
     max_id_chars: int
     max_label_chars: int
     max_text_chars: int
@@ -141,6 +142,7 @@ class CognitionConfig:
         "max_brain_inflight", "max_brain_shadow_records",
         "opportunity_debounce_seconds", "opportunity_reconsider_seconds",
         "max_opportunity_age_seconds", "max_brain_intent_chars",
+        "max_brain_speech_chars",
         "max_id_chars", "max_label_chars",
         "max_text_chars", "max_speech_chars", "max_attention_items",
         "max_memory_items", "max_recent_delivered_speech",
@@ -163,7 +165,7 @@ class CognitionConfig:
         integer_fields = (
             "brain_max_output_tokens", "max_brain_opportunity_queue",
             "max_brain_inflight", "max_brain_shadow_records",
-            "max_brain_intent_chars",
+            "max_brain_intent_chars", "max_brain_speech_chars",
             "max_id_chars", "max_label_chars", "max_text_chars",
             "max_speech_chars", "max_attention_items", "max_memory_items",
             "max_recent_delivered_speech", "max_available_actions",
@@ -198,6 +200,8 @@ class CognitionConfig:
             raise ValueError("max_brain_opportunity_queue must remain 1 in MCB-3")
         if self.max_brain_intent_chars > self.max_text_chars:
             raise ValueError("max_brain_intent_chars must not exceed max_text_chars")
+        if self.max_brain_speech_chars > self.max_speech_chars:
+            raise ValueError("max_brain_speech_chars must not exceed max_speech_chars")
         if self.max_opportunity_age_seconds > self.max_context_request_age_seconds:
             raise ValueError("max_opportunity_age_seconds must not exceed context request age")
         if self.max_speech_chars > self.max_text_chars:

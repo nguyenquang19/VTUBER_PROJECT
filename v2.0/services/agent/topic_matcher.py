@@ -8,7 +8,7 @@ from typing import Any
 
 from interfaces.agent import TopicMatcherService
 from interfaces.base import HealthStatus
-from services.agent.types import OpenThread, TopicMatch
+from interfaces.state import OpenThread, TopicMatch
 
 _WORD_RE = re.compile(r"\w+", re.UNICODE)
 _DEFAULT_STOPWORDS = frozenset({

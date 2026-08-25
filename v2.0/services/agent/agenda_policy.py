@@ -7,14 +7,14 @@ from typing import Any, Callable
 
 from interfaces.animation import MoodState
 
-from services.agent.goal_types import (
+from interfaces.state import (
     Goal,
     GoalKind,
     GoalSnapshot,
     GoalSource,
     GoalStatus,
 )
-from services.agent.types import AgentEventKind, AgentStateSnapshot, GroundedEvent
+from interfaces.state import AgentEventKind, AgentStateSnapshot, GroundedEvent
 
 
 @dataclass(frozen=True)

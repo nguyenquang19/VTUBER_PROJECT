@@ -60,7 +60,7 @@ from services.llm.llama_cpp_llm import LlamaCppLLMService
 from services.llm.llm_turn import LLMTurnRunner
 from services.llm.process_manager import LlamaServerConfig, LlamaServerProcessManager
 from services.llm.prompt_manager import PromptManager
-from services.agent.types import (
+from interfaces.state import (
     AgentEventKind,
     AgentEventSource,
     EventProvenance,

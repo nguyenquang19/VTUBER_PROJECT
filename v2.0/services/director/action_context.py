@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from services.agent.goal_types import Goal
-from services.agent.types import ConversationMove
+from interfaces.state import Goal
+from interfaces.state import ConversationMove
 from services.director.action_types import DirectorInput
 from services.director.director import DirectorAction, DirectorDecision
 

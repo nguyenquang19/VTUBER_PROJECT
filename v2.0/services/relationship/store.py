@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-from services.relationship.types import (
+from interfaces.relationship import (
     NarrativeItem,
     NarrativeStatus,
     RelationshipNote,

@@ -7,31 +7,12 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
+from pydantic import ValidationError
 
 from interfaces.agent import GoalProposalService
 from interfaces.base import HealthStatus
 from interfaces.llm import ChatMessage, LLMRequest
-from services.agent.goal_types import GoalKind
-from services.agent.types import AgentStateSnapshot
-
-
-class GoalProposal(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    kind: GoalKind
-    reason: str
-    success_condition: str
-    source_event_id: str
-    parent_thread_id: str | None = None
-
-    @field_validator("reason", "success_condition", "source_event_id")
-    @classmethod
-    def _not_blank(cls, value: str) -> str:
-        compact = " ".join(value.split())
-        if not compact:
-            raise ValueError("must not be blank")
-        return compact
+from interfaces.state import AgentStateSnapshot, GoalKind, GoalProposal
 
 
 class GoalProposalGenerator(GoalProposalService):

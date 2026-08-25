@@ -49,6 +49,18 @@ COGNITIVE_BRAIN_OUTCOMES = frozenset({
     "PARSE_REJECTED", "SCHEMA_REJECTED", "SERVICE_ERROR",
 })
 COGNITIVE_BRAIN_MODES = frozenset({"WAIT", "SPEAK"})
+COGNITIVE_AB_STRATA = frozenset({
+    "direct_chat", "continuation", "proactive_wait", "vague_unknown",
+    "unsupported_claim", "repetition_contradiction", "priority_interrupt",
+    "adversarial_grounding",
+})
+COGNITIVE_AB_OUTCOMES = frozenset({
+    "COMPLETED", "PREFLIGHT_REJECTED", "TIMEOUT", "PARSE_REJECTED",
+    "SCHEMA_REJECTED", "FILTER_REJECTED", "STALE", "CANCELLED",
+    "SERVICE_ERROR",
+})
+COGNITIVE_AB_ROLES = frozenset({"compatibility", "brain"})
+COGNITIVE_AB_PAIR_OUTCOMES = frozenset({"built", "finalized", "failed"})
 LLM_WORKLOAD_CLASS_PAIRS = frozenset({"live_shadow"})
 
 
@@ -570,6 +582,26 @@ class MetricsCollector:
         self._cognitive_opportunities: dict[tuple[str, str], int] = {}
         self._cognitive_brain_requests: dict[str, int] = {}
         self._cognitive_brain_turns: dict[str, int] = {}
+        self.cognitive_ab_case_total_c = Counter(
+            "cognitive_ab_case_total", "Offline cognitive A/B case outcomes",
+            ["stratum", "outcome"], registry=self.registry,
+        )
+        self.cognitive_ab_candidate_total_c = Counter(
+            "cognitive_ab_candidate_total", "Offline cognitive A/B candidate outcomes",
+            ["role", "outcome"], registry=self.registry,
+        )
+        self.cognitive_ab_mode_total_c = Counter(
+            "cognitive_ab_mode_total", "Offline cognitive A/B candidate modes",
+            ["role", "mode"], registry=self.registry,
+        )
+        self.cognitive_ab_pair_total_c = Counter(
+            "cognitive_ab_pair_total", "Offline cognitive A/B review artifact outcomes",
+            ["outcome"], registry=self.registry,
+        )
+        self._cognitive_ab_cases: dict[tuple[str, str], int] = {}
+        self._cognitive_ab_candidates: dict[tuple[str, str], int] = {}
+        self._cognitive_ab_modes: dict[tuple[str, str], int] = {}
+        self._cognitive_ab_pairs: dict[str, int] = {}
 
         # --- Real NVIDIA device metrics for the operator dashboard ---
         self.gpu_util = Gauge(
@@ -748,6 +780,50 @@ class MetricsCollector:
             },
             "requests": dict(sorted(self._cognitive_brain_requests.items())),
             "turns": dict(sorted(self._cognitive_brain_turns.items())),
+        }
+
+    def record_cognitive_ab_case(self, stratum: str, outcome: str) -> None:
+        if stratum not in COGNITIVE_AB_STRATA or outcome != "validated":
+            raise ValueError("unsupported cognitive A/B case metric")
+        key = (stratum, outcome)
+        self._cognitive_ab_cases[key] = self._cognitive_ab_cases.get(key, 0) + 1
+        self.cognitive_ab_case_total_c.labels(stratum=stratum, outcome=outcome).inc()
+
+    def record_cognitive_ab_candidate(self, role: str, outcome: str) -> None:
+        if role not in COGNITIVE_AB_ROLES or outcome not in COGNITIVE_AB_OUTCOMES:
+            raise ValueError("unsupported cognitive A/B candidate metric")
+        key = (role, outcome)
+        self._cognitive_ab_candidates[key] = self._cognitive_ab_candidates.get(key, 0) + 1
+        self.cognitive_ab_candidate_total_c.labels(role=role, outcome=outcome).inc()
+
+    def record_cognitive_ab_mode(self, role: str, mode: str) -> None:
+        if role not in COGNITIVE_AB_ROLES or mode not in COGNITIVE_BRAIN_MODES:
+            raise ValueError("unsupported cognitive A/B mode metric")
+        key = (role, mode)
+        self._cognitive_ab_modes[key] = self._cognitive_ab_modes.get(key, 0) + 1
+        self.cognitive_ab_mode_total_c.labels(role=role, mode=mode).inc()
+
+    def record_cognitive_ab_pair(self, outcome: str) -> None:
+        if outcome not in COGNITIVE_AB_PAIR_OUTCOMES:
+            raise ValueError("unsupported cognitive A/B pair metric")
+        self._cognitive_ab_pairs[outcome] = self._cognitive_ab_pairs.get(outcome, 0) + 1
+        self.cognitive_ab_pair_total_c.labels(outcome=outcome).inc()
+
+    def cognition_ab_snapshot(self) -> dict[str, dict[str, int]]:
+        return {
+            "cases": {
+                f"{stratum}:{outcome}": count
+                for (stratum, outcome), count in sorted(self._cognitive_ab_cases.items())
+            },
+            "candidates": {
+                f"{role}:{outcome}": count
+                for (role, outcome), count in sorted(self._cognitive_ab_candidates.items())
+            },
+            "modes": {
+                f"{role}:{mode}": count
+                for (role, mode), count in sorted(self._cognitive_ab_modes.items())
+            },
+            "pairs": dict(sorted(self._cognitive_ab_pairs.items())),
         }
 
     @staticmethod

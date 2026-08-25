@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 from interfaces.director_v2 import DirectorV2Proposal
-from services.agent.goal_types import Goal, GoalKind
+from interfaces.state import Goal, GoalKind
 from services.director.action_types import DirectorChatRef, DirectorInput
 from services.director.director import (
     Director,

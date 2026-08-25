@@ -3,21 +3,26 @@ from __future__ import annotations
 
 from abc import abstractmethod
 from datetime import datetime
-from typing import TYPE_CHECKING, Callable
+from typing import Callable
 
 from interfaces.base import Service
-
-if TYPE_CHECKING:
-    from services.agent.types import AgentStateSnapshot, GroundedEvent
-    from services.agent.goal_types import Goal, GoalSnapshot
-    from services.agent.goal_proposal import GoalProposal
-    from services.agent.types import (
-        ConversationMove, OpenThread, ThreadEvidence, ThreadKind, ThreadSpeaker,
-        ThreadStatus, TopicMatch,
-    )
-    from services.agent.types import SessionRecap
-    from services.agent.thread_extraction import ThreadExtraction
-    from services.agent.behavior_library import BehaviorDecision
+from interfaces.events import GroundedEvent
+from interfaces.state import (
+    AgentStateSnapshot,
+    BehaviorDecision,
+    ConversationMove,
+    Goal,
+    GoalProposal,
+    GoalSnapshot,
+    OpenThread,
+    SessionRecap,
+    ThreadEvidence,
+    ThreadExtraction,
+    ThreadKind,
+    ThreadSpeaker,
+    ThreadStatus,
+    TopicMatch,
+)
 
 
 class EventLedgerService(Service):

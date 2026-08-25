@@ -6,7 +6,7 @@ from typing import Any
 
 from interfaces.agent import ConversationMovePlannerService
 from interfaces.base import HealthStatus
-from services.agent.types import ConversationMove, OpenThread, ThreadStatus
+from interfaces.state import ConversationMove, OpenThread, ThreadStatus
 
 
 @dataclass(frozen=True)

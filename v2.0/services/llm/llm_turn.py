@@ -29,7 +29,7 @@ from orchestrator.logger import TurnLogger, get_logger
 from services.llm.canned_response import CannedResponder
 from services.llm.parser import ParsedResponse, parse_response
 from services.llm.prompt_manager import PromptManager
-from services.agent.types import (
+from interfaces.state import (
     AgentEventKind,
     AgentEventSource,
     EventProvenance,

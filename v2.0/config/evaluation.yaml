@@ -11,7 +11,7 @@ evaluation:
     min_pairs: 20
     max_pairs: 100
     max_output_chars: 800
-    max_context_chars: 400
+    max_context_chars: 800
     max_note_chars: 400
     max_ref_chars: 120
     dimensions:
@@ -29,6 +29,39 @@ evaluation:
       - context_miss
       - character_drift
       - unnatural_timing
+  cognitive_ab:
+    schema_version: 1
+    corpus_file: ".\\eval\\corpora\\cognitive_ab_story_v2.yaml"
+    seed: 20260824
+    minimum_cases: 30
+    minimum_blind_pairs: 30
+    maximum_blind_pairs: 30
+    minimum_selected_per_arc: 2
+    max_prior_turns: 8
+    wait_display_marker: "[WAIT — không nói]"
+    max_context_summary_chars: 800
+    max_candidate_output_chars: 800
+    generation_max_tokens: 256
+    generation_temperature: 0.75
+    strict_source_clean_for_gate: true
+    required_strata:
+      - direct_chat
+      - continuation
+      - proactive_wait
+      - vague_unknown
+      - unsupported_claim
+      - repetition_contradiction
+      - priority_interrupt
+      - adversarial_grounding
+    required_arcs:
+      - plushie_mystery
+      - dessert_debate
+      - song_practice
+      - returning_viewer
+      - quiet_room
+      - rough_day
+      - priority_shift
+      - identity_attack
   youtube_replay:
     burst_window_ms: 1500
     clock_start_epoch: 1767225600

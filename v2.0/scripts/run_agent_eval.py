@@ -13,7 +13,7 @@ from orchestrator.config_loader import ConfigLoader  # noqa: E402
 from services.evaluation.acceptance import TextAcceptanceRunner  # noqa: E402
 from services.evaluation.harness import ScenarioEvaluationHarness  # noqa: E402
 from services.evaluation.review import build_live_artifact, finalize_human_review  # noqa: E402
-from services.evaluation.types import ObservedOutcome  # noqa: E402
+from interfaces.evaluation import ObservedOutcome  # noqa: E402
 
 
 def _read_observed(path: Path) -> tuple[ObservedOutcome, ...]:

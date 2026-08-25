@@ -11,7 +11,7 @@ from interfaces.decision_record import DecisionCandidateSummary
 from interfaces.evaluation import EvaluationSimulationService
 from services.director.action_transaction import ActionTransactionManager
 from services.director.decision_record import DecisionRecordManager
-from services.evaluation.types import (
+from interfaces.evaluation import (
     EvaluationFault,
     ObservedOutcome,
     ScenarioSuite,

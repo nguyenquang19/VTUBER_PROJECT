@@ -9,7 +9,7 @@ from typing import Any, Callable
 
 from interfaces.agent import ConversationRepairService
 from interfaces.base import HealthStatus
-from services.agent.types import AgentEventKind, AgentStateSnapshot, GroundedEvent
+from interfaces.state import AgentEventKind, AgentStateSnapshot, GroundedEvent
 
 _REFERENCE_RE = re.compile(
     r"\b(nãy cậu (?:bảo|nói)|lúc nãy cậu (?:bảo|nói)|cậu vừa (?:bảo|nói)|"

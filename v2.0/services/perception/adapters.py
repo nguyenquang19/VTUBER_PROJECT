@@ -10,7 +10,7 @@ from interfaces.compatibility import EventProvenance, PerceptionEvent, perceptio
 from interfaces.external_executor import OBSSceneState, OBSSceneTransportService
 from interfaces.input import EventSource, InputEvent
 from interfaces.perception import PerceptionAdapterService, PerceptionIngressService
-from services.agent.types import AgentEventKind, GroundedEvent
+from interfaces.state import AgentEventKind, GroundedEvent
 from services.perception.ingress import PerceptionIngressConfig, SystemGroundedRoute
 
 

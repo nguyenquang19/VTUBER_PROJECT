@@ -7,7 +7,7 @@ from typing import Any
 from interfaces.base import HealthStatus
 from interfaces.evaluation import EvaluationService
 from services.evaluation.scenario_loader import load_scenario_suite
-from services.evaluation.types import (
+from interfaces.evaluation import (
     EvalOutcome,
     ObservedOutcome,
     ScenarioResult,

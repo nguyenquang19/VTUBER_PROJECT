@@ -40,7 +40,7 @@ from services.agent.goal_manager import GoalManager  # noqa: E402
 from services.agent.open_thread_manager import OpenThreadManager  # noqa: E402
 from services.agent.thread_detector import RuleThreadDetector  # noqa: E402
 from services.agent.topic_matcher import LexicalTopicMatcher  # noqa: E402
-from services.agent.types import AgentEventKind  # noqa: E402
+from interfaces.state import AgentEventKind  # noqa: E402
 from services.autonomy.dedup import DedupBuffer  # noqa: E402
 from services.autonomy.material_provider import RuntimeContext  # noqa: E402
 from services.autonomy.self_talk_planner import SelfTalkPlanner  # noqa: E402

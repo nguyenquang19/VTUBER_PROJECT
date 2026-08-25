@@ -228,7 +228,8 @@ class HumanLikeCalibration(HumanLikeCalibrationService):
         required = {
             "build_identity", "output", "director_score", "prompt_ref", "memory_refs",
         }
-        if set(value) != required:
+        optional = {"sealed_metadata"}
+        if not required <= set(value) or set(value) - required - optional:
             raise ValueError(f"{role} candidate keys are invalid")
         output = _sanitized_text(value["output"], self.config.max_output_chars)
         if not output:
@@ -247,7 +248,7 @@ class HumanLikeCalibration(HumanLikeCalibrationService):
         )
         if len(memory_refs) != len(set(memory_refs)):
             raise ValueError("memory_refs must be unique")
-        return {
+        candidate = {
             "role": role,
             "build_identity": _strict_label(
                 value["build_identity"], "build_identity", self.config.max_ref_chars,
@@ -259,16 +260,24 @@ class HumanLikeCalibration(HumanLikeCalibrationService):
             ),
             "memory_refs": memory_refs,
         }
+        if "sealed_metadata" in value:
+            candidate["sealed_metadata"] = _sealed_metadata(
+                value["sealed_metadata"], self.config.max_ref_chars,
+            )
+        return candidate
 
     @staticmethod
     def _sealed_candidate(value: Mapping[str, Any]) -> dict[str, Any]:
-        return {
+        candidate = {
             "role": value["role"],
             "build_identity": value["build_identity"],
             "director_score": value["director_score"],
             "prompt_ref": value["prompt_ref"],
             "memory_refs": list(value["memory_refs"]),
         }
+        if "sealed_metadata" in value:
+            candidate["sealed_metadata"] = value["sealed_metadata"]
+        return candidate
 
     def _empty_score(self) -> dict[str, Any]:
         return {
@@ -405,6 +414,8 @@ class HumanLikeCalibration(HumanLikeCalibrationService):
                     "prompt_ref": identity.get("prompt_ref"),
                     "memory_refs": list(identity.get("memory_refs") or []),
                 }
+                if "sealed_metadata" in identity:
+                    reveals[key]["sealed_metadata"] = identity["sealed_metadata"]
             revealed_rows.append({
                 "pair_ref": ref,
                 "scores": scores,
@@ -568,3 +579,25 @@ def _blind_content(rows: list[Any]) -> list[dict[str, Any]]:
             "candidate_b": row.get("candidate_b"),
         })
     return result
+
+
+def _sealed_metadata(value: Any, limit: int) -> dict[str, Any]:
+    """Keep bounded scalar identity metadata sealed until human scores persist."""
+    if not isinstance(value, Mapping) or not value or len(value) > 20:
+        raise ValueError("sealed_metadata must be a bounded non-empty mapping")
+    output: dict[str, Any] = {}
+    for raw_key, raw_value in value.items():
+        key = _strict_label(raw_key, "sealed_metadata key", 60)
+        if key in output:
+            raise ValueError("sealed_metadata keys must be unique")
+        if isinstance(raw_value, bool) or raw_value is None:
+            output[key] = raw_value
+        elif isinstance(raw_value, int) and not isinstance(raw_value, bool):
+            output[key] = raw_value
+        elif isinstance(raw_value, float) and math.isfinite(raw_value):
+            output[key] = raw_value
+        elif isinstance(raw_value, str):
+            output[key] = _strict_label(raw_value, f"sealed_metadata.{key}", limit)
+        else:
+            raise ValueError("sealed_metadata values must be bounded JSON scalars")
+    return output

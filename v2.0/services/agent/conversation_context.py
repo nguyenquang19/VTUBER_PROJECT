@@ -9,8 +9,8 @@ from typing import Any, Callable, Mapping
 from interfaces.agent import ContextSelectorService, ConversationContextService
 from interfaces.base import HealthStatus
 from interfaces.memory import MemoryEntry
-from services.agent.goal_types import GoalSnapshot
-from services.agent.types import AgentStateSnapshot, GroundedEvent
+from interfaces.state import GoalSnapshot
+from interfaces.state import AgentStateSnapshot, GroundedEvent
 
 _WORD_RE = re.compile(r"\w+", re.UNICODE)
 _WORLD_DOMAINS = ("stream", "social", "call", "media", "physical", "game")

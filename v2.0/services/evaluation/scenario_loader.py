@@ -6,7 +6,7 @@ from typing import Any
 
 import yaml
 
-from services.evaluation.types import (
+from interfaces.evaluation import (
     EvaluationScenario,
     ExpectedOutcome,
     HumanRubric,

@@ -3,17 +3,18 @@ schema_version: 1
 rollout_mode: shadow
 
 brain_prompt_path: ".\\config\\prompts\\cognitive_brain_shadow_system.txt"
-brain_max_output_tokens: 192
+brain_max_output_tokens: 256
 brain_temperature: 0.75
-brain_timeout_seconds: 6.0
+brain_timeout_seconds: 10.0
 brain_cancel_grace_seconds: 0.25
 max_brain_opportunity_queue: 1
 max_brain_inflight: 1
 max_brain_shadow_records: 128
 opportunity_debounce_seconds: 1.5
 opportunity_reconsider_seconds: 15.0
-max_opportunity_age_seconds: 10.0
-max_brain_intent_chars: 160
+max_opportunity_age_seconds: 12.0
+max_brain_intent_chars: 80
+max_brain_speech_chars: 240
 
 max_id_chars: 128
 max_label_chars: 64

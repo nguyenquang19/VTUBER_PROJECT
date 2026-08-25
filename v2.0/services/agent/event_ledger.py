@@ -6,7 +6,7 @@ from typing import Any, Callable
 
 from interfaces.agent import EventLedgerService
 from interfaces.base import HealthStatus
-from services.agent.types import GroundedEvent
+from interfaces.state import GroundedEvent
 
 
 class EventLedger(EventLedgerService):

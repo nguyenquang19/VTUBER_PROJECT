@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Any, Mapping
 
 from services.data.sanitize import mask_pii
-from services.evaluation.types import EvalOutcome, ScenarioResult, ScenarioSuite
+from interfaces.evaluation import EvalOutcome, ScenarioResult, ScenarioSuite
 
 
 def build_live_artifact(

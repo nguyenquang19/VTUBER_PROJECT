@@ -31,8 +31,8 @@ from interfaces.cognition import (
 )
 from interfaces.compatibility import SelfSnapshot, StateValue, WorldSnapshot
 from interfaces.memory import MemoryEntry
-from services.agent.goal_types import GoalSnapshot
-from services.agent.types import (
+from interfaces.state import GoalSnapshot
+from interfaces.state import (
     AgentEventKind,
     AgentEventSource,
     AgentStateSnapshot,

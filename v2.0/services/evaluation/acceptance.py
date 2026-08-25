@@ -8,7 +8,7 @@ from interfaces.base import HealthStatus
 from interfaces.evaluation import EvaluationAcceptanceService
 from services.evaluation.harness import ScenarioEvaluationHarness
 from services.evaluation.simulator import TextScenarioSimulator
-from services.evaluation.types import EvalOutcome
+from interfaces.evaluation import EvalOutcome
 
 
 class TextAcceptanceRunner(EvaluationAcceptanceService):

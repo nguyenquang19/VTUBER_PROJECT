@@ -1461,6 +1461,403 @@ path `WAIT` dùng marker hiển thị canonical trong review; cặp cả hai `WA
 độn số pair chất lượng. Automated precheck và aggregate không tự tạo go/no-go. MCB-3 gate còn `HOLD` hoặc
 human review chưa hoàn tất đều chặn MCB-5; chỉ owner mới quyết định controlled takeover.
 
+Code MCB-4 trong working tree đã có cả artifact harness và source producer ngoại tuyến. Corpus strict có 40
+case thuộc 8 strata, gồm evidence fresh/stale/missing/malformed để vẫn còn đủ 30 pair sau exclusion. Producer
+chạy compatibility qua Director/PromptManager/configured hard filter và Brain qua chính
+`CognitiveContextBuilder`/`CognitiveBrain`; cùng case/seed/sampling, hoán đổi thứ tự deterministic, không canned,
+regeneration, delivery hoặc state write. CLI có thể collect source rồi nối thẳng build/finalize artifact chain;
+full offline `2.448 passed`. Dirty-source llama.cpp diagnostic cuối chạy đủ 40 case nhưng chỉ có 18 informative
+pair: Brain 20 completed, 7 timeout, 5 schema reject, 5 parse reject, 2 preflight reject và 1 stale. Harness
+đã fail-closed trước blind build. Clean-SHA evidence, 30 persisted human score và reveal vẫn chưa có, nên
+MCB-4 tiếp tục `HOLD`; phải rework MCB-3 reliability riêng trước khi MCB-4 có thể đạt gate.
+
+Rework này là một lát căn chỉnh MCB-1→MCB-4, không phải MCB-5 và không mở authority mới. Typed
+`CognitiveContext`/`CognitiveTurn` vẫn là kernel contract; Brain adapter chỉ serialize decision-view gồm toàn
+bộ item đã được Context Builder chọn nhưng bỏ metadata vận chuyển không giúp quyết định. JSON Schema phải
+encode cùng invariant `WAIT`/`SPEAK` mà `CognitiveTurn` validator đang enforce; surrounding whitespace được
+phép, duplicate array member được order-preserving deduplicate vì llama.cpp hiện không enforce
+`uniqueItems`, nhưng duplicate object key, markdown/prefix/suffix/unknown key vẫn fail-closed.
+Output/intent/speech budget và
+timeout/opportunity-age phải đồng bộ với latency/token evidence thật, không tiếp tục suy từ MCB-0B public
+turn vốn có wire shape khác. A/B producer dùng đúng các bound mới cho cả hai candidate, chạy lại toàn bộ 40
+case và vẫn phải đạt ít nhất 30 informative pair trước khi tạo blind artifact. Không được sửa persona để
+chữa từng sample, không thêm retry/fallback và không dùng kết quả dirty-source làm gate.
+
+Kết quả implementation/replay của lát căn chỉnh: full offline `2.453 passed`; dirty-source llama.cpp run v3
+có 40 case, compatibility `40/40 COMPLETED`, Brain `37/40 COMPLETED`, 2 preflight reject chủ đích và 1 stale
+chủ đích, không còn timeout/parse/schema reject. Có 35 informative pair và harness đã persist đúng 30 pair
+blind cùng sealed manifest; zero delivery/state mutation. Đây là closure kỹ thuật của source producer, nhưng
+không phải MCB-4 acceptance vì còn thiếu clean exact-SHA replay và owner human review/reveal. MCB-4 vẫn
+`HOLD`, MCB-5 vẫn chưa được bắt đầu.
+
+Owner yêu cầu rework blind corpus vì các case độc lập chưa phản ánh khả năng theo mạch của Mai. MCB-4 vì vậy
+được phép thay corpus bằng 8 mini-arc × 5 beat, nhưng không được biến evaluation thành closed-loop simulation:
+mọi beat dùng một canonical prior transcript chung, không dùng output của candidate trước làm input beat sau.
+Corpus phải bind `arc_id/title`, exact `turn_index/arc_length`, bounded typed prior turns và cùng authoritative
+OpenThread/recent-delivery snapshot cho hai path. Blind selection vẫn stratified nhưng sau khi chọn phải nhóm
+theo canonical arc order + turn order; A/B role vẫn swap độc lập từng pair. Gate bổ sung là mỗi required arc
+có ít nhất số pair do YAML quy định, context review hiển thị đủ episode/beat/prior transcript/current chat,
+và manifest tiếp tục che role/build/prompt. Rework vẫn là MCB-4 offline, không mở Brain authority hoặc MCB-5.
+
+Implementation story-arc đã thay corpus rời bằng `cognitive_ab_story_v2.yaml`: 40 case thuộc đúng 8 arc × 5
+beat, giữ 8 strata kỹ thuật và materialize canonical prior transcript thành grounded events, verified recent
+speech cùng `OpenThread` dùng chung. Blind selection dành trước tối thiểu 2 pair cho mỗi arc rồi mới fill theo
+stratum, sau đó sắp đúng arc/turn order. Dirty-source llama.cpp diagnostic story v1 đạt compatibility `40/40
+COMPLETED`, Brain `36/40 COMPLETED`, 3 preflight reject + 1 stale chủ đích, không timeout/parse/schema reject;
+có 33 informative pair và persist đúng 30 blind pair, phủ cả 8 arc từ 2–5 pair/arc, zero delivery/state
+mutation. Đây chỉ xác nhận fidelity và độ đủ của bộ review mới; chưa chứng minh Brain nói người hơn vì artifact
+vẫn `pending_human_review` và source không sạch. Targeted story/evaluation đạt `68 passed`, impacted đạt `381
+passed` và full offline đạt `2.454 passed`. MCB-4 tiếp tục `HOLD`, MCB-5 chưa được bắt đầu.
+
+Owner đã hoàn tất và finalize blind story-arc review. Sau reveal, compatibility thắng `11`, Brain thắng `9`
+và có `10` tie; weighted score chỉ dịch từ `3.5833` lên `3.5967` (`+0.0134`), AI-smell giữ nguyên
+`33.33%`. Brain tăng Character nhưng giảm Timing, Spontaneity và Liveness; đây là tín hiệu kiến trúc chứ
+không phải bằng chứng candidate tổng thể tốt hơn. Artifact vẫn từ dirty source nên không có gate authority.
+
+Owner sau đó yêu cầu dừng việc bồi thêm tầng và audit toàn dự án để chọn một đường duy nhất. Target được chọn
+là **single-generation Brain-on-Kernel**: một llama.cpp Brain là soft decision owner và đồng thời tạo exact
+`CognitiveTurn`; kernel chỉ sở hữu hard precedence, capability/permission, transaction, output validation,
+delivery verification và state commit. Không thêm decision/voice generation thứ hai. Kernel không được dùng
+rule/template để viết lại câu, clamp số từ/câu hỏi hoặc regenerate style; hard-invalid output bị reject và
+fallback duy nhất trước takeover đầy đủ là `WAIT`, không phải một conversational policy song song.
+
+Đường đích duy nhất là:
+
+```text
+canonical event -> authoritative state -> kernel preflight -> one Brain generation
+-> strict CognitiveTurn validation -> transaction/delivery -> verified state/Focus/Memory commit
+```
+
+Migration phải loại dần, không duy trì vĩnh viễn, các lớp trùng owner: legacy Director, Director V2 shadow/
+takeover/materializer, Cognitive observer shadow wrapper, Autonomy/SelfTalk planning song song, text context
+renderer song song với `CognitiveContext`, style regeneration/clamping và mock-only runtime services. Chỉ được
+xóa từng owner sau khi đường Brain tương ứng đã có exact-live shadow evidence, controlled takeover, rollback
+artifact và owner approval; trước đó component cũ là rollback tạm thời chứ không phải kiến trúc đích.
+
+MCB-4 được thu hẹp thành nơi sửa fidelity phép đo: candidate cũ phải là exact live-equivalent public path,
+candidate mới là single-generation Brain dùng cùng canonical pre-turn state; không dùng harness giản lược để
+kết luận production. MCB-5/6/7/8 lần lượt chuyển speech scheduling, conversational continuity, memory và
+action proposal sang đường duy nhất này. MCB-10 mới được xóa toàn bộ compatibility/migration scaffolding đã
+được thay thế. Kết quả blind cũ chỉ là baseline chẩn đoán; MCB-4 tiếp tục `HOLD`, MCB-5 chưa được bắt đầu.
+
+## 13.1. Kế hoạch chuẩn hóa toàn bộ cấu trúc Brain-on-Kernel
+
+Mục tiêu của kế hoạch này là biến working tree hiện tại thành một cấu trúc source/runtime duy nhất, có ranh
+giới package rõ, dependency một chiều và không còn nhiều owner cho cùng một quyết định. Đây là kế hoạch
+**tái cấu trúc hệ thống**, không phải roadmap thêm feature. MCB chỉ cung cấp gate để chuyển dần behavior đang
+chạy; cấu trúc đích dưới đây mới là thứ dẫn dắt mọi thao tác move/merge/delete.
+
+### 13.1.1. Cấu trúc repository đích
+
+```text
+v2.0/
+├── interfaces/                 # DTO/Protocol thuần, không import implementation
+│   ├── events.py               # CanonicalEvent + provenance
+│   ├── state.py                # Authoritative snapshots/proposals
+│   ├── cognition.py            # CognitiveContext/CognitiveTurn/Brain contract
+│   ├── execution.py            # Action/Delivery/Verification contracts
+│   └── operations.py           # Health/metric/control contracts
+├── orchestrator/               # Chỉ composition, lifecycle và entrypoint
+│   ├── stream_runtime.py       # Dựng graph, start/stop; không chứa behavior policy
+│   ├── runtime_config.py       # Load/validate config canonical
+│   └── entrypoints/            # YouTube, Discord và combined launch
+├── services/
+│   ├── ingress/                # YouTube/Discord/System/OBS adapters -> CanonicalEvent
+│   ├── state/                  # Reducer + World/Self/Thread/Focus/Goal/Memory/Affect owners
+│   ├── cognition/              # ContextBuilder + one-generation Brain + prompt/model adapter
+│   ├── kernel/                 # Scheduler, preflight, validator, transaction, outcome commit
+│   ├── execution/              # Speech/TTS/subtitle/avatar/OBS/external executors + verifiers
+│   └── operations/             # Metrics, journal, health, emergency, control plane, dashboard
+├── services/evaluation/        # Library offline; không được compose vào live runtime
+├── eval/corpora/               # Corpus/data versioned, sanitized
+├── scripts/                    # CLI launch/replay/evaluation/maintenance
+├── config/                     # Một owner YAML cho mỗi domain
+│   ├── system.yaml
+│   ├── model.yaml
+│   ├── cognition.yaml
+│   ├── state.yaml
+│   ├── execution.yaml
+│   ├── operations.yaml
+│   └── evaluation.yaml
+└── tests/
+    ├── unit/                   # Mirror package owner
+    ├── integration/            # Vertical Brain->Kernel->Delivery->Commit slices
+    ├── regression/             # Compatibility/release behavior
+    └── acceptance/             # Replay, canary, soak và release gate
+```
+
+Tên file cuối có thể được điều chỉnh ở docs-first của lát cắt, nhưng không được tạo thêm top-level runtime
+package hoặc một composition root thứ hai. `services/evaluation` và `scripts` có thể import public contract/
+adapter của live; live runtime không được import evaluation harness, corpus hoặc release tooling.
+
+### 13.1.2. Luật dependency và ownership
+
+```text
+entrypoint -> orchestrator -> services -> interfaces
+                              |
+                              +-> external libraries/devices
+
+evaluation -> public live contracts/adapters
+live runtime -X-> evaluation/corpus/release tooling
+domain service -X-> orchestrator
+interface -X-> service implementation
+```
+
+| Concern | Owner cuối | Phần phải bị gộp/xóa |
+|---|---|---|
+| Chuẩn hóa sự kiện | `services/ingress` | Adapter tự dựng state hoặc gọi Director |
+| Sự thật hiện tại | `services/state` | Bản mutable thứ hai trong Director/context/dashboard |
+| Context quyết định | `CognitiveContextBuilder` | AgentContextRenderer và context composer song song |
+| Quyết định mềm + exact speech | `CognitiveBrainService` | Legacy Director/V2 soft scorer, behavior/style writer |
+| Hard gate | Turn Kernel | Hard rule nằm trong prompt hoặc output rewriter |
+| Side effect | `services/execution` | Director/Brain gọi thiết bị trực tiếp |
+| Success/failure | Verifier | Model hoặc executor tự tuyên bố success |
+| State/history commit | Outcome Committer | Pre-delivery commit và writer rải rác |
+| Quan sát/vận hành | `services/operations` | Metric/dashboard trở thành policy |
+| Đánh giá | `services/evaluation` | Harness giản lược hoặc được compose live |
+
+Mỗi concern chỉ có một mutable owner. Service khác chỉ nhận immutable snapshot hoặc typed proposal. Brain
+được tạo `WAIT | SPEAK | PROPOSE_ACTION` và exact `speech_text` trong một generation, nhưng không có quyền
+permission, execute, verify hoặc commit.
+
+### 13.1.3. Chín wave chuẩn hóa cấu trúc
+
+| Wave | Thay đổi cấu trúc | Kết quả bắt buộc | Chưa được làm |
+|---|---|---|---|
+| S0 — Inventory/freeze | Lập import graph từ entrypoint; gắn mọi file/config/feature/metric/test vào `KEEP/MERGE/DELETE/OFFLINE/ARCHIVE` | Có replacement owner và deletion gate cho từng phần dư thừa; clean checkpoint tái lập được | Move/delete hoặc đổi behavior |
+| S1 — Interface boundary | Gom DTO/Protocol crossing subsystem vào `interfaces`; loại import implementation khỏi contract | Import-boundary tests; không cycle; shape hiện tại vẫn tương thích | Thay live owner |
+| S2 — State + ingress | Gom adapter vào ingress; gom reducer/store/projection theo một authoritative state layer | CanonicalEvent đi vào một reducer; dashboard/context chỉ đọc snapshot | Brain/Director ghi state trực tiếp |
+| S3 — Cognition | Giữ một ContextBuilder, một prompt/model adapter và một Brain service; offline dùng cùng adapter | Cùng pre-turn state tạo cùng context identity; một generation tạo CognitiveTurn | Delivery/action/state mutation |
+| S4 — Turn Kernel | Tách execution shell/hard arbiter/transaction khỏi DirectorLoop; hợp nhất Brain scheduler | Kernel chỉ opportunity/preflight/validate/route; đúng một public owner mỗi lượt | Kernel viết lại câu hoặc fallback conversational |
+| S5 — Execution + outcome | Gom TTS/subtitle/avatar/OBS/action vào typed executor/verifier; gom writer thành Outcome Committer | `reserve -> execute/deliver -> verify -> commit/release`; verified history feedback | Commit success trước verifier |
+| S6 — Continuity | Đưa Thread/Focus/recent speech/Memory vào state layer và proposal/commit flow duy nhất | Lượt sau đọc exact verified outcome lượt trước; TTL/privacy/idempotency có owner | Planner/context writer song song |
+| S7 — Operations + offline split | Hợp nhất journal/metric/health/control/dashboard; tách eval/canary/soak/release khỏi live graph | Một lineage bounded; live dependency graph không chứa offline tooling | Operations chọn soft action |
+| S8 — Delete + compact | Xóa wrapper, re-export, toggle, config, metric, dashboard panel và test superseded theo dependency closure | Zero live importer của owner cũ; StreamRuntime chỉ composition/lifecycle; config/test tree khớp package đích | Giữ dead path “để phòng” sau release |
+
+Wave phải chạy theo thứ tự. Trong S1–S7 có thể giữ compatibility import adapter tạm thời, nhưng adapter phải
+có owner, removal wave và test chứng minh exact behavior. Không tạo wrapper không có hạn xóa.
+
+### 13.1.4. Cách xử lý source hiện tại
+
+| Nhóm hiện tại | Disposition đích |
+|---|---|
+| YouTube/Discord/chat router/perception adapters | `MERGE` vào ingress canonical |
+| AgentState, World, Self, Goal, Thread, Focus, Memory, Affect | `KEEP/MERGE` vào state owners; xóa projection mutable trùng |
+| Cognitive context/Brain contracts và llama.cpp adapter | `KEEP`, đổi từ shadow naming sang canonical sau cutover |
+| DirectorLoop execution shell, hard arbiter, transactions | `MERGE` vào Turn Kernel/execution boundary |
+| Legacy Director soft policy và Director V2 selector/materializer/takeover | `DELETE` sau Brain canary cho toàn mode tương ứng |
+| AutonomyEngine, ProactiveHosting, SelfTalkPlanner, BehaviorLibrary decision logic | `MERGE` state/opportunity hữu ích; sau đó `DELETE` soft owner trùng |
+| AgentContextRenderer, ConversationContextComposer, ContextSelector | `MERGE` vào một `CognitiveContextBuilder`, rồi xóa renderer trùng |
+| RuleFilter correctness guard | `MERGE` hard-invalid checks vào validator |
+| Style/dedup regenerator và word/sentence/question clamp | `DELETE`; kernel chỉ reject/suppress, không rewrite |
+| TTS/subtitle/audio/VTS/OBS adapters và verifier | `KEEP/MERGE` dưới execution |
+| DecisionRecord, trajectory, cognitive observer records | `MERGE` thành turn/outcome journal |
+| A/B, replay, blind review, soak, release scripts | `OFFLINE`; không compose live |
+| Mock loop, dormant observer, migration dashboard/toggle/config | `DELETE` khi consumer/gate tương ứng đóng |
+| Frozen `ver/v1.0` và sanitized historical evidence | `ARCHIVE`; không sửa hoặc import production |
+
+Inventory S0 mới có quyền kết luận file cụ thể thuộc dòng nào; bảng này không cấp quyền xóa theo tên đoán.
+
+### 13.1.5. Quy trình một wave
+
+Mỗi wave là một change độc lập:
+
+1. đọc owner/source/import/config/test hiện tại và chụp baseline;
+2. docs-first ghi exact file move/merge/delete, compatibility adapter và rollback;
+3. owner duyệt;
+4. move cơ học trước, giữ behavior và dùng compatibility re-export có hạn nếu cần;
+5. gộp owner sau khi import graph đã ổn;
+6. chạy import-boundary, targeted, impacted và full regression;
+7. replay/canary nếu behavior/output/decision thay đổi;
+8. báo before/after về live-reachable file, dependency, feature toggle, config owner và duplicate owner;
+9. commit đúng một wave rồi dừng.
+
+Không trộn move hàng loạt, đổi behavior, tune model và xóa fallback trong cùng commit. Nếu move cơ học làm
+thay output thì wave fail và phải tách lại.
+
+#### 13.1.5.1. S1 — exact interface-boundary cut
+
+S1 là một lần chuyển quyền sở hữu **type/contract**, không phải chuyển quyền sở hữu behavior. Exact scope được
+khóa như sau:
+
+- tạo `interfaces/events.py` làm canonical owner cho event enums, provenance và `GroundedEvent` hiện nằm tại
+  `services/agent/types.py`;
+- tạo `interfaces/state.py` làm canonical owner cho immutable agent/thread/goal snapshots, proposals và các
+  crossing decision DTO hiện nằm tại `services/agent/types.py`, `services/agent/goal_types.py`,
+  `services/agent/goal_proposal.py`, `services/agent/thread_extraction.py` và
+  `services/agent/behavior_library.py`;
+- chuyển relationship DTO từ `services/relationship/types.py` vào `interfaces/relationship.py`, và chuyển
+  evaluation DTO từ `services/evaluation/types.py` vào `interfaces/evaluation.py`;
+- `interfaces/agent.py` chỉ được import từ `interfaces`; toàn bộ production consumer của các DTO trên phải dùng
+  canonical interface import;
+- giữ các module type cũ làm compatibility re-export cùng object identity tới S8; module implementation chứa
+  `GoalProposal`, `ThreadExtraction`, `BehaviorKind` và `BehaviorDecision` cũng re-export canonical type để
+  caller cũ không vỡ trong S1.
+
+Compatibility adapter không được copy class, subclass, convert payload hoặc đổi validation/default/enum value.
+Test phải chứng minh old/new symbols là cùng object (`is`), serialized shape và exception behavior giữ nguyên.
+Adapter có removal wave `S8` và chưa được xóa khi repository còn importer bên ngoài canonical production path.
+
+S1 bổ sung AST dependency guard với các invariant: mọi module `interfaces` không import `services` hoặc
+`orchestrator`; canonical production source không mở thêm import type từ compatibility module; interface graph
+không có strongly-connected component nhiều hơn một module. Inventory S0 được cập nhật theo file/test count và
+boundary finding, nhưng `source_deletion_authorized` tiếp tục `false`.
+
+Implementation S1 ngày 26/08/2026 đã áp dụng exact scope này: dependency interface→implementation giảm từ bảy
+module xuống `0`; bốn compatibility type module còn tồn tại nhưng đều có `0` live-reachable importer. Production
+module tăng `197 -> 199` do thêm hai canonical contract owner, trong khi static live-reachable giảm `149 -> 148`.
+Full offline đạt `2.464 passed`, `0` lỗi; không có replay/blind vì không đổi behavior/output/decision. Source vẫn
+dirty từ WIP trước S1 nên evidence không mở release gate và compatibility adapter chưa được xóa.
+
+Không đổi trong S1: entrypoint/composition, feature state, YAML/prompt/metric, Director/Brain/kernel authority,
+LLM call, scheduler, transaction, delivery, state mutation, public speech hoặc product version. Vì là exact move,
+không cần replay/blind nếu targeted, impacted và full offline regression chứng minh equivalence. Rollback là đổi
+production import về compatibility paths; không có data/config migration.
+
+#### 13.1.5.2. S2 — canonical ingress và authoritative state cut
+
+S2 chỉ bắt đầu code từ một checkpoint S1 riêng có thể rollback. Audit sau S1 ghi nhận live còn ba event shape
+(`InputEvent`, `GroundedEvent`, `PerceptionEvent`), hai admission/dedup history (`EventLedger` và
+`PerceptionIngress`) và hai reducer mutable chính (`AgentStateReducer`, `WorldModelShadow`). Ngoài GoalManager
+audit callback, có tám call site trực tiếp ghi `GroundedEvent` vào AgentState, ba call site trực tiếp gọi
+World `apply_event` và một relationship write từ ChatRouter. Đây là nhiều cửa ghi state, không phải một
+authoritative state layer.
+
+Contract đích của S2:
+
+```text
+YouTube/Discord/System/OBS/verified outcome
+  -> source adapter
+  -> CanonicalEventNormalizer
+  -> CanonicalEventIngress.submit(CanonicalEvent)
+  -> AuthoritativeStateReducer.apply(CanonicalEvent)
+       -> Agent/Thread/Goal/Recap projection
+       -> World projection khi event_type thuộc world domain
+       -> relationship observer chỉ từ pseudonymous viewer_ref
+  -> AuthoritativeStateSnapshot
+```
+
+`CanonicalEvent` là immutable DTO mới trong `interfaces/events.py`, có `schema_version`, `event_id`,
+`event_type`, `source`, UTC `occurred_at`, bounded JSON-safe `payload`, provenance, confidence và `dedup_key`.
+Normalizer là nơi duy nhất chuyển `InputEvent`, `GroundedEvent` hoặc `PerceptionEvent` cũ sang shape này.
+Không producer nào được tự tạo state-specific event rồi gọi store/reducer trực tiếp sau cutover.
+
+`AuthoritativeStateSnapshot` và `AuthoritativeStateService` thuộc `interfaces/state.py`. Snapshot aggregate chỉ
+tham chiếu immutable Agent/World/Self/Goal/Relationship projections hiện có; không tạo bản mutable thứ hai.
+Reducer định tuyến theo `event_type`, giữ exact event id/timestamp/confidence/evidence, và listener phụ như
+relationship/goal phải failure-isolated như behavior hiện tại. Raw viewer identity chỉ tồn tại trong source
+adapter đủ lâu để tạo pseudonymous `viewer_ref`; không được vào CanonicalEvent, ledger, metric hoặc log.
+
+Package cut của S2:
+
+- tạo `services/ingress/normalizer.py`, `services/ingress/adapters.py` và chuyển canonical admission khỏi
+  `services/perception`;
+- tạo `services/state/authoritative.py`; move cơ học AgentState/EventLedger, World reducer và Self projection
+  vào `services/state`;
+- giữ old `services.agent`, `services.perception`, `services.world` và `services.self_model` path dưới dạng
+  exact compatibility re-export/adapter đến S8; Goal/Thread/Relationship/Memory implementation chưa move hàng
+  loạt trong S2 vì continuity/store ownership được đóng ở S6;
+- tạo `config/state.yaml` làm canonical owner cho giá trị hiện có của agent/perception/world/self/relationship;
+  loader alias cũ chỉ đọc và có removal wave S8, không được tạo hai bộ threshold khác nhau;
+- cập nhật StreamRuntime và mọi production writer để chỉ nhận canonical ingress/state interface. Dashboard và
+  context lấy immutable projection từ authoritative snapshot, không gọi mutable implementation.
+
+Không đổi trong S2: event meaning, ordering, TTL, capacities, feature enabled state, relationship privacy,
+memory semantics, Brain/Director/kernel authority, scheduler, LLM prompt/model/sampling, speech/action delivery,
+product version hoặc public output. Mock/evaluation path không được trở thành live owner. `event_bus.py` và
+`state_machine.py` không được hồi sinh; chúng giữ disposition S0 và chưa được xóa.
+
+Acceptance bắt buộc: zero production state writer ngoài canonical reducer; zero live importer của compatibility
+implementation path; one dedup decision per canonical event; old/new snapshot serialization và event ordering
+equivalent cho chat, donation, environment, speech, goal audit; relationship privacy/idempotency giữ nguyên;
+interface/import guard, targeted/impacted/full offline xanh. Vì reducer path đổi, deterministic replay so sánh
+event lineage + snapshot là bắt buộc dù public text không đổi; blind review chỉ cần khi output/decision đổi.
+Rollback đổi composition về compatibility ingress/state adapter từ checkpoint S1, không migrate hoặc rewrite data.
+
+### 13.1.6. Rollout behavior trong quá trình chuẩn hóa
+
+| Trạng thái | Public soft owner | Brain | Compatibility | Failure trước reservation |
+|---|---|---|---|---|
+| `OFF` | Compatibility | Không chạy | Public | Compatibility xử lý |
+| `SHADOW` | Compatibility | Read-only | Public | Observer record |
+| `CANARY` | Owner đã chọn trước lượt | Public trong exact scope | Chỉ rollback cho lượt sau | `WAIT` nếu Brain là owner |
+| `PRIMARY` | Brain | Public | Không gọi trên cùng lượt | `WAIT` |
+| `RELEASED` | Brain | Public | Đã rời live graph | `WAIT` |
+
+Một lượt không được có hai soft owner. Rollback trước `RELEASED` chuyển toàn scope về compatibility từ lượt
+kế tiếp. Sau `RELEASED`, rollback bằng release artifact/tag, không giữ legacy implementation được compose
+vĩnh viễn.
+
+### 13.1.7. Ánh xạ sang gate MCB hiện hữu
+
+MCB không quyết định cấu trúc; nó chỉ xác minh các wave khi behavior được chuyển:
+
+| Gate | Wave được kiểm chứng |
+|---|---|
+| MCB-4 | S0–S3: inventory, boundary, exact-live Context/Brain dry-run |
+| MCB-5 | S4–S5 cho `READ_CHAT` |
+| MCB-6 | S6 cho scheduler, `SELF_TALK`, `FOLLOW_UP`, Thread/Focus |
+| MCB-7 | S6 cho Memory proposal/commit |
+| MCB-8 | S5 cho embodiment/external action |
+| MCB-9 | Tối ưu model/context trong S3 đã khóa, không đổi cấu trúc |
+| MCB-10 | S7–S8, full cutover, delete và release |
+
+### 13.1.8. Gate chung và stop condition
+
+- `0` false commit, duplicate delivery/action, permission bypass, hard-safety violation hoặc fabricated
+  success;
+- interface/import graph không cycle và không vi phạm chiều dependency;
+- live runtime không import evaluation/corpus/release tooling;
+- invalid/stale/timeout trước reservation tạo `WAIT`, không tạo fallback text hoặc mutate state;
+- targeted, impacted V1 regression và full offline suite xanh;
+- cùng adapter cho live/replay; output change phải qua blind review và canary;
+- mỗi wave không được tăng duplicate owner; nếu chưa giảm được phải chứng minh đó là adapter tạm có removal
+  gate;
+- quality không thắng chỉ được tune model/prompt/sampling/context, cấm thêm rewriter/Director/judge;
+- file chỉ được xóa khi replacement owner, live importer, config/metric/dashboard/test consumer và rollback đã
+  được xác minh.
+
+### 13.1.9. Chuẩn hóa blind review có thời gian
+
+Evaluation đích phải tách hai phép đo độc lập:
+
+1. **Content blind:** chấm language, context, character, spontaneity, grounding và AI-smell từ cùng canonical
+   pre-turn state. Artifact văn bản tĩnh không được chấm live timing; field cũ `timing` phải là `N/A` hoặc đổi
+   thành `situational_appropriateness` để không tuyên bố quá bằng chứng.
+2. **Temporal blind:** chấm response delay, interruption, turn spacing, follow-up, self-talk timing và cảm giác
+   nhịp hội thoại từ temporal replay/audio A/B. Hai candidate dùng cùng event timeline, TTS voice, playback
+   rate, hardware profile và initial state; role A/B được seal/swap trước review.
+
+Turn/outcome journal phải ghi timestamp monotonic/UTC và lineage tối thiểu:
+
+```text
+event_received_at -> opportunity_opened_at -> brain_started_at -> first_token_at
+-> turn_completed_at -> delivery_reserved_at -> audio_started_at -> audio_finished_at
+-> interrupted_at? -> outcome_committed_at
+```
+
+Temporal artifact chỉ công bố relative timeline, current/prior event, khoảng im lặng và audio/text đã
+sanitized; không lộ build role, prompt, raw identity, secret hoặc internal failure detail. `WAIT` phải được
+review trong cửa sổ sự kiện tiếp theo, không hiển thị như một dòng tĩnh: chờ để nhận chat tiếp là behavior khác
+với bỏ quên câu hỏi trực tiếp.
+
+Automated metrics và human score không thay thế nhau. Máy tính event-to-opportunity, opportunity-to-first-token,
+event-to-first-audio, audio-finish-to-next-speech, event age, interrupt reaction và silence/follow-up delay;
+người chấm đánh giá nhịp đó có tự nhiên trong ngữ cảnh hay không. S4–S6 hoặc bất kỳ wave nào đổi scheduler,
+latency, delivery hay continuity đều phải chạy temporal replay/blind tương ứng; content blind cũ không được
+dùng làm timing gate.
+
+### 13.1.10. Definition of Done
+
+Chuẩn hóa hoàn tất khi repository khớp cấu trúc đích; live graph có một ingress boundary, một authoritative
+state layer, một ContextBuilder, một Brain, một Turn Kernel, một execution/verification boundary, một Outcome
+Committer và một operations surface; `StreamRuntime` chỉ composition/lifecycle; evaluation hoàn toàn offline;
+không còn post-generation rewrite hoặc soft owner cũ; config/test tree khớp owner; migration toggle/wrapper đã
+xóa; full regression, clean replay, content + temporal blind review, live canary, soak và rollback artifact
+đều đạt. Giảm LOC
+không phải mục tiêu độc lập, nhưng duplicate owner/live dependency/toggle/config phải giảm đo được sau mỗi
+wave.
+
 ---
 
 # 14. Coding-agent starter prompt

@@ -4,8 +4,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from interfaces.animation import MoodState
-from services.agent.goal_types import GoalSnapshot
-from services.agent.types import AgentStateSnapshot
+from interfaces.state import GoalSnapshot
+from interfaces.state import AgentStateSnapshot
 
 
 @dataclass(frozen=True)
