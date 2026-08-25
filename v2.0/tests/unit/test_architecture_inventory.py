@@ -34,6 +34,33 @@ def test_architecture_inventory_snapshot_matches_current_tree() -> None:
     assert len(tuple((ROOT / "tests").rglob("*.py"))) == snapshot["test_python_files"]
 
 
+def test_architecture_inventory_records_committed_s2_ownership() -> None:
+    inventory = _inventory()
+    normalization = inventory["normalization"]
+    assert isinstance(normalization, dict)
+
+    assert inventory["status"] == "s2_committed"
+    assert inventory["checkpoint_revision"] == (
+        "d02c84e9f46a9e9e11442659af7f2574c364b031"
+    )
+    assert inventory["checkpoint_scope_clean"] is True
+    assert inventory["structure_gate_eligible"] is True
+    assert inventory["release_gate_eligible"] is False
+    assert normalization["completed_waves"] == ["S0", "S1", "S2"]
+    assert normalization["active_wave"] is None
+    assert normalization["canonical_config_owner"] == "config/state.yaml"
+    assert normalization["compatibility_config_files"] == [
+        "config/agent_state.yaml",
+        "config/relationships.yaml",
+    ]
+
+    canonical_facades = set(normalization["canonical_import_facades"])
+    compatibility_re_exports = set(normalization["compatibility_re_exports"])
+    assert canonical_facades.isdisjoint(compatibility_re_exports)
+    for relative in canonical_facades | compatibility_re_exports:
+        assert (ROOT / relative).is_file(), relative
+
+
 def test_architecture_inventory_rules_cover_every_scoped_file() -> None:
     inventory = _inventory()
     rules = inventory["path_rules"]

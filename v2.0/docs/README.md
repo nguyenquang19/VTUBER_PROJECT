@@ -4,7 +4,7 @@
 
 **Product version:** lấy duy nhất từ `config/system.yaml::app.version`, hiện là `1.4.3`
 
-**Ngày đối chiếu:** 20/08/2026
+**Ngày đối chiếu:** 26/08/2026
 
 Toàn dự án chỉ có ba nguồn tài liệu chính thức. Tệp mục lục này chỉ điều hướng, không phải nguồn thứ tư.
 Mọi hướng dẫn runtime, component, pipeline, cấu hình, storage, vận hành, bảo mật, kiểm thử và known gaps
@@ -18,6 +18,10 @@ Mọi hướng dẫn runtime, component, pipeline, cấu hình, storage, vận h
 | [baselines/](baselines/) | Evidence máy đọc đã làm sạch; không phải hướng dẫn runtime |
 
 Blueprint chỉ quy định scope, thứ tự và acceptance gate tương lai; không chứng minh feature đã production.
+
+**Checkpoint cấu trúc hiện tại:** S0–S2 đã commit, gần nhất là `d02c84e`. Canonical ingress và
+authoritative state đã nằm trong live/replay graph; S3 Cognition chưa bắt đầu và Brain chưa có public
+authority. Product version vẫn là `1.4.3`.
 
 ## Thứ tự đọc
 
@@ -41,6 +45,8 @@ Phải báo conflict trước khi sửa; không âm thầm chọn tài liệu th
 - Sửa scope/thứ tự tương lai thì cập nhật blueprint, không đưa kế hoạch vào System Spec như production.
 - Không sửa capability inventory lịch sử trong `V1_BASELINE.md`.
 - Evidence JSON tiếp tục nằm trong `docs/baselines/`; không sao chép số liệu vào nhiều tài liệu.
+- Chi tiết của component/harness đã retire chỉ giữ dưới dạng lịch sử ngắn; không giữ một active contract
+  hoặc hướng dẫn vận hành cho source không còn tồn tại.
 - Comment/docstring trong code và YAML chỉ giải thích invariant, ownership, failure semantics hoặc lý do
   hiện tại; không dùng lời hứa triển khai tương lai hay nhãn công việc đã hoàn tất làm tài liệu runtime.
 - Link, version, feature inventory và config inventory phải qua documentation guard.

@@ -4,7 +4,7 @@
 
 **Phiên bản sản phẩm hiện tại:** `1.4.3`
 
-**Ngày xác minh:** 20/08/2026
+**Ngày xác minh:** 26/08/2026
 
 **Vai trò:** nguồn sự thật duy nhất cho behavior đã triển khai, ownership, vận hành, kiểm thử, an toàn,
 tiến độ và known gaps.
@@ -33,6 +33,11 @@ commit rồi mới project Mô hình Thế giới. Phase 9 đã bổ sung lát c
 truy vấn độc lập và rollback có điều kiện; feature vẫn mặc định tắt và chưa có live OBS canary.
 Phase 10 đã đóng canonical perception ingress cho Chat/System và read-only OBS sensing; OBS sensing vẫn
 mặc định tắt và chưa có live canary.
+
+Structure normalization S0–S2 đã được chốt. Agent/World/Perception writes trong live runtime và hai replay
+entrypoint hiện cùng đi qua `CanonicalEventNormalizer → CanonicalEventIngress →
+AuthoritativeStateReducer`; aggregate state được đọc qua `AuthoritativeStateSnapshot`. Đây là thay đổi
+ownership/structure giữ exact behavior, không phải Brain takeover hoặc bằng chứng Mai nói người hơn.
 
 Tuy nhiên, **V2 chưa phải một vòng tự chủ hoàn chỉnh đang chạy trong thực tế**. Các phần quan sát thế
 giới, mô hình bản thân, năng lực, lựa chọn hành động và khung thực thi đã được xây dựng ở nhiều mức độ
@@ -88,7 +93,8 @@ Các cột dưới đây độc lập với nhau. “Có mã” không thay th�
 | Speech action adapter | Có | `DirectorDeliveryBoundary` đi qua local typed boundary; exact legacy là rollback switch | Unit, negative-path, transaction integration và full offline regression | Bật cho test; chưa live audio canary |
 | Avatar action adapter | Có | Local typed intentional-gesture boundary; không giả automatic mood thành action | Unit, VTS fail-safe, composition và full offline regression | Bật cho test; unavailable/fail-safe khi chưa có VTS |
 | External OBS scene executor | Có | Compose tại `StreamRuntime`, chỉ callable qua typed boundary khi feature/permission/health đạt | Unit, transaction integration, deterministic fake-OBS replay và full offline regression | Không; mặc định tắt, chưa live canary |
-| Perception expansion | Có | Chat/System qua canonical ingress; OBS read-only compose nhưng mặc định tắt | Unit, negative-path, runtime composition, deterministic replay và full offline regression | Không; OBS chưa live canary |
+| Canonical ingress + authoritative state | Có | Agent/World/Perception writes dùng một canonical admission/reducer; Goal/Relationship/Self là read providers | Contract, equivalence, import guard, deterministic replay, impacted và full offline regression | Chưa phát hành riêng; là structure checkpoint S2 |
+| Perception expansion | Có | Chat/System/OBS adapters submit qua canonical ingress; OBS read-only compose nhưng mặc định tắt | Unit, negative-path, runtime composition, deterministic replay và full offline regression | Không; OBS chưa live canary |
 | Goals và short intentions | Có | Có, qua GoalManager/Director/Self/dashboard | Unit, integration, replay và full offline regression | Không |
 | Memory và ContextSelector V2 | Có | ContextSelector/agent context strict bounded được bật; semantic memory vẫn optional | Unit, integration, replay và full offline regression | Bật cho test; chưa live semantic-memory canary |
 | Embodiment Policy | Có | LOW/MID/HIGH strict arbitration đã compose và bật test | Unit, integration, deterministic replay và full offline regression | Chưa live VTS canary |
@@ -97,7 +103,7 @@ Các cột dưới đây độc lập với nhau. “Có mã” không thay th�
 | Cognitive Brain | MCB-1 contract, MCB-2 Context/Focus và MCB-3 Brain observer đã có; MCB-4 offline A/B đã retire | Brain observer đã compose nhưng feature vẫn `enabled=false`; compatibility Director giữ toàn quyền | Brain observer có contract/negative-path tests; chất lượng và live authority vẫn `HOLD` | Không |
 
 Ma trận chỉ được nâng trạng thái khi có đường code tương ứng, test phù hợp và evidence máy đọc hoặc vận
-hành. Blueprint tiếp tục giữ scope/phase order; bảng này chỉ mô tả working tree ngày 24/08/2026.
+hành. Blueprint tiếp tục giữ scope/phase order; bảng này mô tả checkpoint sau S2 ngày 26/08/2026.
 
 ---
 
@@ -158,7 +164,8 @@ Nếu bỏ qua lớp này, cùng một tin nhắn có thể được xử lý nh
 
 ### 3.3. Lớp nhận thức và trạng thái
 
-Đây là phần quan trọng nhất của V2, gồm:
+Đây là phần quan trọng nhất của V2. Sau S2, Agent/World/Perception mutation đi qua một canonical reducer;
+Goal, Relationship và Self tiếp tục là domain owner/read provider theo scope hiện tại. Lớp này gồm:
 
 - **Mô hình Thế giới:** hệ thống tin rằng bên ngoài đang xảy ra điều gì;
 - **Mô hình Bản thân:** Mai đang nói hay chờ, đang bận hay rảnh, mục tiêu và ý định hiện tại là gì;
@@ -223,7 +230,7 @@ Một hành động không được xem là thành công chỉ vì đã tạo xo
 flowchart LR
     A["Tin nhắn đến"] --> B["Kiểm tra và làm sạch"]
     B --> C["Tạo ứng viên trả lời"]
-    C --> D["Luồng cũ chọn quyết định"]
+    C --> D["Director compatibility hoặc V2 primary chọn quyết định"]
     D --> E["Mô hình ngôn ngữ tạo câu"]
     E --> F["Đưa câu vào hàng chờ phát"]
     F --> G["Phát giọng nói và biểu cảm"]
@@ -256,7 +263,7 @@ lỗi projection sau commit được ghi riêng, không được đổi transact
 ```mermaid
 flowchart TD
     A["1. Nhận tín hiệu bên ngoài"]
-    B["2. Chuẩn hóa thành Sự kiện Nhận thức"]
+    B["2. Chuẩn hóa thành CanonicalEvent"]
     C["3. Kiểm tra, làm sạch và chống trùng"]
     D["4. Cập nhật Mô hình Thế giới"]
     E["5. Chiếu sang Mô hình Bản thân"]
@@ -409,6 +416,7 @@ Hiện hệ thống chưa có bộ thực thi thật cho ví dụ này. Vì vậ
 | Khối chức năng | Trạng thái | Nhận định |
 |---|---|---|
 | Hợp đồng tương thích | Đã có | Tạo nền để V1 và V2 cùng tồn tại |
+| Canonical ingress và authoritative state | Đã chốt S2 | Live/replay dùng chung admission, dedup và aggregate snapshot; không đổi output |
 | Mô hình Thế giới | Đã có ở chế độ an toàn | Có nguồn, độ tin cậy, thời hạn và quyền cập nhật |
 | Mô hình Bản thân | Đã có một phần | Chưa nối đầy đủ ý định hiện tại |
 | Danh mục năng lực | Đã có | Từ chối mặc định, phù hợp yêu cầu an toàn |
@@ -577,7 +585,8 @@ sập khi phát sóng, nhưng mật độ cao làm giảm khả năng phát hi�
 
 ### 9.11. Cấu hình phân tán — mức trung bình
 
-Có khoảng 31 tệp YAML và gần 50 cờ chức năng nhưng chưa có các hồ sơ cấu hình chuẩn theo mục đích chạy.
+Có 33 tệp YAML và 54 cờ chức năng. S2 đã gom owner Agent/World/Self/Relationship vào `state.yaml`, nhưng
+hai compatibility YAML vẫn phải tồn tại đến S8 và repository chưa có các profile chạy canonical theo mục đích.
 
 **Hậu quả:** khó biết tổ hợp nào là an toàn cho phát triển, thử nghiệm, quan sát V2 hoặc phát sóng thật.
 
@@ -886,16 +895,18 @@ Không chạy `python -m orchestrator.main`. Đây là lệnh cũ và hiện ch�
 
 | Nhóm | Tệp chính | Trách nhiệm |
 |---|---|---|
-| Đầu vào | `services/input/youtube_chat.py`, `discord_chat.py`, `chat_router.py` | Nhận tin, chuẩn hóa và chuyển vào hệ thống |
+| Đầu vào nền tảng | `services/input/youtube_chat.py`, `discord_chat.py`, `chat_router.py` | Nhận tin và giữ platform/relationship privacy boundary |
+| Canonical ingress | `services/ingress/normalizer.py`, `services/ingress/adapters.py` | Chuẩn hóa `InputEvent`/`GroundedEvent`/`PerceptionEvent`, sanitize và submit một cửa |
+| Authoritative state | `services/state/authoritative.py` cùng facade `agent.py`, `world.py`, `self_projection.py` | Một admission/dedup boundary cho Agent/World/Perception và aggregate immutable snapshot |
 | Cảm xúc | `services/emotion/`, `orchestrator/emotion_orchestrator.py`, `mood_engine.py` | Phân loại, cập nhật cảm xúc và tạo chỉ dẫn phản hồi |
-| Trạng thái tác nhân | `services/agent/` | Sự kiện có căn cứ, mục tiêu, chủ đề, mạch hội thoại và ngữ cảnh |
+| Trạng thái tác nhân compatibility | `services/agent/` | Reducer/goal/thread/recap hiện hữu nằm sau canonical facade; physical move hoãn đến S8 |
 | Tự nói | `services/autonomy/self_talk_planner.py`, `lore_material.py` | Chọn nguyên nhân, ý định, chặng nói và chống lặp |
 | Điều phối V1 | `services/director/director.py`, `director_loop.py` | Chọn hành động, mở giao dịch, gọi tạo câu và xác nhận kết quả |
 | Điều phối V2 | `services/director/v2_shadow.py`, `v2_takeover.py` | Tạo đề xuất V2, so sánh và tiếp quản có điều kiện |
-| Mô hình Thế giới | `services/world/world_model.py` | Lưu sự thật ngoài tác nhân cùng nguồn, độ tin cậy và thời hạn |
-| Mô hình Bản thân | `services/self_model/projection.py` | Chiếu trạng thái đang nói, bận, suy giảm, mục tiêu và chủ đề |
+| Mô hình Thế giới compatibility | `services/world/world_model.py` qua `services/state/world.py` | Reducer deterministic nằm sau authoritative boundary; old import giữ đến S8 |
+| Mô hình Bản thân compatibility | `services/self_model/projection.py` qua `services/state/self_projection.py` | Projection read-only được aggregate vào authoritative snapshot |
 | Năng lực | `services/capability/registry.py` | Khai báo và tính khả dụng của hành động |
-| Nhận thức V2 | `services/perception/ingress.py` | Nhận, kiểm tra và chống trùng sự kiện nhận thức |
+| Perception retention compatibility | `services/perception/ingress.py` | Giữ route/freshness/recent history sau canonical admission; không còn là live cửa ghi độc lập |
 | Hành động chung | `services/action/mock_loop.py`, `mock_backend.py` | Chứng minh vòng giao dịch bằng mô phỏng |
 | Chuyển đổi hành động | `services/action/legacy_adapters.py` | Đưa giọng nói và nhân vật cũ về hợp đồng hành động V2 |
 | Bộ thực thi ngoài | `services/action/external_registry.py` | Đăng ký bộ thực thi và kiểm chứng bên ngoài |
@@ -913,6 +924,9 @@ Không chạy `python -m orchestrator.main`. Đây là lệnh cũ và hiện ch�
 
 - Bộ chuyển đổi nền tảng sở hữu kết nối và hàng chờ đầu vào.
 - `ChatRouter` đưa tin nhắn vào hệ thống, không sở hữu quyết định.
+- `CanonicalEventNormalizer` là nơi duy nhất chuyển ba event shape hiện hữu sang `CanonicalEvent`.
+- `AuthoritativeStateReducer` sở hữu admission/dedup cho Agent/World/Perception. Goal, Relationship và Self
+  vẫn giữ domain semantics hiện tại nhưng chỉ cung cấp immutable projection vào aggregate snapshot.
 - `Director` sở hữu luật chọn hành động.
 - `LLMTurnRunner` sở hữu một lần tạo, phân tích và lọc câu.
 - `TTSPipeline` sở hữu kết quả giao nhận giọng nói hoặc phụ đề.
@@ -944,6 +958,8 @@ Các kiểu dữ liệu qua ranh giới nằm trong `interfaces/`. Đây là ngu
 
 | Kiểu | Nội dung |
 |---|---|
+| `CanonicalEvent` | Event S2 có route, identity, timestamp, provenance, confidence, dedup key và payload JSON-safe đã sanitize |
+| `AuthoritativeStateSnapshot` | Aggregate immutable của Agent/World và các Self/Goal/Relationship read provider hiện có |
 | `PerceptionEvent` | sự kiện nhận thức có nguồn tạo, phiên, nền tảng, thực thể, độ tin cậy và khóa chống trùng |
 | `StateValue` | giá trị trạng thái kèm nguồn, độ tin cậy, thời gian, bằng chứng, thời hạn và thẩm quyền |
 | `WorldSnapshot` | ảnh chụp Thế giới: phiên phát, xã hội, cuộc gọi, nội dung, vật lý và trò chơi |
@@ -2849,6 +2865,10 @@ và owner decision còn thiếu. Trạng thái MCB-3/4 vẫn `HOLD` và không b
 
 #### 17.2.19. MCB-4 — Offline cognitive A/B
 
+> **Lịch sử, không còn là contract đang hoạt động:** owner đã retire toàn bộ source/config/test/corpus/CLI
+> riêng của harness này tại commit `295e5a8`. Các đoạn dưới chỉ giữ evidence và lý do quyết định; không được
+> dùng để suy ra package, config owner hoặc compatibility path hiện tại.
+
 MCB-4 là discovery harness ngoại tuyến giữa compatibility conversational path hiện tại và Brain MCB-3. Nó
 không phải shadow activation, takeover, canary hoặc release gate. Harness được phép gọi llama.cpp thật trên
 một corpus đã khóa nhưng không được compose consumer mới vào `StreamRuntime`, không được delivery/TTS/action,
@@ -3209,11 +3229,12 @@ rewriter/judge/fallback; phase giữ `REWORK` và chỉ tune model/prompt/sampli
 khóa. Ba lần rework cùng nguyên nhân mà không tiến bộ buộc owner xét `DROP` candidate/model, không dựng thêm
 decision owner.
 
-##### 17.2.19.10. Current checkpoint và structure wave được phép tiếp theo
+##### 17.2.19.10. Historical S0 checkpoint và structure wave kế tiếp tại thời điểm audit
 
-Checkpoint hiện tại vẫn là product `1.4.3`, commit `a5b867a` cùng working tree MCB-4/rework chưa sạch.
-Full offline hiện tại đạt `2.454 passed`; story blind diagnostic đã finalize nhưng source dirty và Brain không
-thắng compatibility. Vì vậy không được dùng artifact này để mở `CANARY` hoặc MCB-5.
+Phần này giữ snapshot S0 để audit lại quyết định ban đầu; không phải current status. Tại thời điểm đó,
+checkpoint là product `1.4.3`, commit `a5b867a` cùng working tree MCB-4/rework chưa sạch. Full offline đạt
+`2.454 passed`; story blind diagnostic đã finalize nhưng source dirty và Brain không thắng compatibility,
+nên artifact không được dùng mở `CANARY` hoặc MCB-5. Current structure checkpoint nằm tại phần S2 bên dưới.
 
 Owner đã duyệt bắt đầu chuẩn hóa ngày 26/08/2026. S0 tạo inventory machine-checkable
 `eval/architecture_inventory_v1.yaml` và behavior-named coverage guard
@@ -3342,15 +3363,14 @@ Perception/Goal/Thread/Relationship tests, impacted live regression và full off
 nếu output/decision đổi thì S2 fail thay vì mở blind/tuning. Config/feature/metric/prompt/model/scheduler/
 transaction/delivery/product version không đổi.
 
-Cleanup MCB-4 đã được commit riêng tại `295e5a8`; S2 sau đó được triển khai trong working tree nhưng chưa commit.
+Cleanup MCB-4 đã được commit riêng tại `295e5a8`; S2 sau đó được triển khai và chốt tại `d02c84e`.
 Live runtime, deterministic replay và live-pipeline stress cùng đi qua
 `CanonicalEventNormalizer -> CanonicalEventIngress -> AuthoritativeStateReducer`; Agent, World và Perception
 adapter giữ exact domain behavior. `config/state.yaml` là canonical config owner; ConfigLoader alias các read cũ
 từ `agent_state.yaml` và `relationships.yaml` đến S8. Goal/Relationship/Self chỉ là immutable read provider,
 không mở mutation authority. Targeted contract/state/config đạt `233 passed`, impacted live integration đạt
 `21 passed`, deterministic replay/live-pipeline group đạt `14 passed`, và full offline đạt `2.461 passed`, `0`
-lỗi với hai warning môi trường/deprecation có sẵn. S2 dừng ở source dirty để owner review; chưa commit và chưa
-bắt đầu S3/MCB-5.
+lỗi với hai warning môi trường/deprecation có sẵn. S2 đã commit; S3/MCB-5 chưa bắt đầu.
 
 ##### 17.2.19.13. Retire MCB-4 offline dual-path harness
 
@@ -3461,7 +3481,7 @@ shape/type trước khi runtime compose service.
 | `models.yaml` | `llama.cpp`, tham số sinh, VieNeu-TTS, phụ đề và mô hình ký ức |
 | `features.yaml` | bật/tắt, phụ thuộc, xung đột và chi phí tài nguyên |
 | `capabilities.yaml` | năng lực, quyền, sức khỏe và hành động mô phỏng |
-| `cognition.yaml` | schema, bounds và allowlist MCB-1/2 cho Cognitive Context/Focus; rollout vẫn `disabled` |
+| `cognition.yaml` | schema, bounds, prompt và scheduler MCB-1–3; rollout mode `shadow`, feature vẫn `enabled=false` |
 | `chat_sources.yaml` | YouTube và Discord |
 | `director.yaml`, `chat_salience.yaml` | nhịp quyết định, phân xử, chấm điểm, giao dịch và V2 |
 | `state.yaml`, `agent_goals.yaml` | canonical ingress/state/world/self/relationship bounds; mục tiêu và thời hạn |
@@ -3826,7 +3846,12 @@ Danh tính lưu lâu dài dùng muối cục bộ tại `data/privacy_salt.bin`.
 
 ### 24.2. Kết quả xác minh gần nhất
 
-Ngày 20–21/08/2026:
+Ngày 20–26/08/2026:
+
+- cleanup MCB-4 commit `295e5a8`: targeted `179 passed`, full offline `2.452 passed`, `0` lỗi;
+- S2 canonical ingress/authoritative state commit `d02c84e`: targeted contract/state/config `233 passed`,
+  impacted live integration `21 passed`, deterministic replay/live-pipeline `14 passed`, full offline
+  `2.461 passed`, `0` lỗi; live/replay legacy implementation imports bằng `0`;
 
 - `compileall` source chính: đạt;
 - CPython `3.11.15`, 125 dependency từ lock và `pip check`: đạt;
@@ -4370,4 +4395,6 @@ Nhánh hội thoại V1 đã đi được phần lớn vòng này. V2 đã có c
 
 Sau khi bổ sung, tài liệu này có thể dùng để hiểu mục tiêu và kiến trúc Mai; lần theo luồng tin nhắn, tự nói và V2; tìm tệp chịu trách nhiệm; hiểu hợp đồng và thời điểm ghi dữ liệu; đọc cấu hình; cài đặt, khởi động, theo dõi và tắt; xử lý lỗi; hiểu sao lưu, quay lui và kiểm thử; đồng thời xác định chính xác vì sao V2 chưa hoàn chỉnh.
 
-Tài liệu mô tả hiện trạng đã đối chiếu ngày 20/08/2026. Khi mã, cấu hình, phiên bản hoặc trạng thái ghép nối thay đổi, phần tương ứng phải được cập nhật cùng thay đổi đó. Nếu có mâu thuẫn, áp dụng thứ tự nguồn sự thật ở đầu tài liệu và báo conflict trước khi sửa.
+Tài liệu mô tả hiện trạng đã đối chiếu ngày 26/08/2026 tại checkpoint S2 `d02c84e`. Khi mã, cấu hình,
+phiên bản hoặc trạng thái ghép nối thay đổi, phần tương ứng phải được cập nhật cùng thay đổi đó. Nếu có
+mâu thuẫn, áp dụng thứ tự nguồn sự thật ở đầu tài liệu và báo conflict trước khi sửa.

@@ -1435,6 +1435,8 @@ compatibility component và không tăng product version. Sau mỗi slice phải
 chuyển sang slice kế tiếp.
 
 MCB-4 là mốc lịch sử đã **retire** theo quyết định owner ngày 26/08/2026. Harness hai đường
+và các đoạn evidence chi tiết bên dưới chỉ còn giá trị audit lịch sử, không phải package/config/contract
+đang hoạt động trong target architecture.
 `cognitive_ab` không có live authority, không chứng minh Brain thắng và không còn thuộc migration path đang
 hoạt động. Source/config/corpus/CLI/metric/test chỉ phục vụ harness này sẽ bị gỡ. Evidence và kết quả blind đã
 tạo vẫn là lịch sử chẩn đoán; không được dùng làm release gate. Brain observer MCB-3, cognition contracts,
@@ -1578,7 +1580,7 @@ v2.0/
 ├── scripts/                    # CLI launch/replay/evaluation/maintenance
 ├── config/                     # Một owner YAML cho mỗi domain
 │   ├── system.yaml
-│   ├── model.yaml
+│   ├── models.yaml
 │   ├── cognition.yaml
 │   ├── state.yaml
 │   ├── execution.yaml
@@ -1787,8 +1789,8 @@ AuthoritativeStateReducer`; facade Agent/World/Perception giữ exact domain beh
 canonical owner, còn `agent_state.yaml`/`relationships.yaml` là compatibility files được ConfigLoader alias đến
 S8. Goal/Relationship/Self chỉ được bind làm read provider; không mở authority hoặc đổi output. Targeted
 contract/state/config đạt `233 passed`, impacted live integration đạt `21 passed`, deterministic replay/
-live-pipeline group đạt `14 passed`, và full offline đạt `2.461 passed`, `0` lỗi. S2 dừng ở source dirty để
-owner review; chưa commit và chưa bắt đầu S3/MCB-5.
+live-pipeline group đạt `14 passed`, và full offline đạt `2.461 passed`, `0` lỗi. S2 đã được chốt tại commit
+`d02c84e`; S3/MCB-5 chưa bắt đầu.
 
 ### 13.1.6. Rollout behavior trong quá trình chuẩn hóa
 

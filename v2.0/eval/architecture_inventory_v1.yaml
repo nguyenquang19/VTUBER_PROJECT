@@ -1,9 +1,10 @@
 schema_version: 2
-status: s2_implemented_source_dirty
-generated_at_utc: "2026-08-25T20:10:18Z"
-head_revision: "295e5a8b36ebcc5ee18db42a800ea6a1227dfc21"
-source_clean: false
-gate_eligible: false
+status: s2_committed
+generated_at_utc: "2026-08-25T20:26:16Z"
+checkpoint_revision: "d02c84e9f46a9e9e11442659af7f2574c364b031"
+checkpoint_scope_clean: true
+structure_gate_eligible: true
+release_gate_eligible: false
 
 scope:
   - interfaces/**/*.py
@@ -77,15 +78,20 @@ normalization:
     - services/ingress/adapters.py
     - services/state/authoritative.py
     - config/state.yaml
+  canonical_import_facades:
+    - services/state/agent.py
+    - services/state/event_ledger.py
+    - services/state/world.py
+    - services/state/self_projection.py
   compatibility_re_exports:
     - services/agent/types.py
     - services/agent/goal_types.py
     - services/relationship/types.py
     - services/evaluation/types.py
-    - services/state/agent.py
-    - services/state/event_ledger.py
-    - services/state/world.py
-    - services/state/self_projection.py
+  canonical_config_owner: config/state.yaml
+  compatibility_config_files:
+    - config/agent_state.yaml
+    - config/relationships.yaml
   compatibility_removal_wave: S8
   behavior_change_authorized: false
   test_evidence:

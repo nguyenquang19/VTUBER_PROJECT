@@ -275,3 +275,26 @@ def test_canonical_docs_keep_current_phase_and_release_limits_explicit() -> None
     combined = readme + "\n" + spec
     for statement in forbidden:
         assert statement not in combined, f"stale implementation claim returned: {statement}"
+
+
+def test_s2_checkpoint_and_compatibility_boundary_are_current() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    index = (ROOT / "docs" / "README.md").read_text(encoding="utf-8")
+    blueprint = (
+        ROOT / "MAI_V2_MASTER_IMPLEMENTATION_BLUEPRINT_v2.0.md"
+    ).read_text(encoding="utf-8")
+    spec = (ROOT / "docs" / "MAI_V2_SYSTEM_SPEC.md").read_text(encoding="utf-8")
+    combined = "\n".join((readme, index, blueprint, spec))
+
+    for document in (readme, index, blueprint, spec):
+        assert "d02c84e" in document
+    assert "S3/MCB-5 chưa bắt đầu" in combined
+    assert "config/state.yaml" in combined
+    assert "config/agent_state.yaml" in combined
+    assert "config/relationships.yaml" in combined
+    assert "CanonicalEventNormalizer" in spec
+    assert "AuthoritativeStateReducer" in spec
+    assert "│   ├── models.yaml" in blueprint
+    assert "│   ├── model.yaml" not in blueprint
+    assert "s2_implemented_source_dirty" not in combined
+    assert "S2 sau đó được triển khai trong working tree nhưng chưa commit" not in combined
