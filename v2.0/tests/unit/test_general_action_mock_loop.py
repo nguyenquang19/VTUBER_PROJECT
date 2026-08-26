@@ -20,6 +20,7 @@ from services.action.mock_backend import MockCallBackend, MockCallExecutor, Mock
 from services.action.mock_loop import ActionMockConfig, GeneralActionMockLoop
 from services.capability.registry import CapabilityDefinition, CapabilityRegistry, CapabilityRegistryConfig
 from services.director.action_transaction import ActionTransactionManager
+from services.execution.outcome import OutcomeCommitter
 from services.world.world_model import WorldModelConfig, WorldModelShadow
 
 
@@ -113,21 +114,43 @@ def _loop(
     *, outcome: str = "success", world: WorldModelShadow | None = None,
     executor: ActionExecutor | None = None,
     verifier: ActionVerifier | None = None,
+    canonical_outcome: bool = False,
 ) -> tuple[GeneralActionMockLoop, WorldModelShadow, ActionTransactionManager, MetricsCollector]:
     actual_world = world or _world()
     transactions = ActionTransactionManager(clock=lambda: 1.0)
     registry = _registry(actual_world, transactions)
     metrics = MetricsCollector()
+    outcome_committer = (
+        OutcomeCommitter(
+            transactions,
+            max_recent=8,
+            max_reason_chars=64,
+            max_evidence_refs=4,
+            clock=Clock(),
+        )
+        if canonical_outcome else None
+    )
     backend = MockCallBackend(default_outcome=outcome, max_connected_guests=2)
     loop = GeneralActionMockLoop(
         _config(outcome=outcome),
         capability_registry=registry, transactions=transactions, world_model=actual_world,
+        outcome_committer=outcome_committer,
         metrics=metrics, clock=Clock(),
     )
     loop.register_executor("mock_call", executor or MockCallExecutor(backend, clock=Clock()))
     loop.register_verifier("mock_call", verifier or MockCallVerifier(backend))
     asyncio.run(loop.start())
     return loop, actual_world, transactions, metrics
+
+
+def test_mock_live_route_uses_canonical_terminal_outcome_owner() -> None:
+    loop, world, transactions, _metrics = _loop(canonical_outcome=True)
+
+    result = asyncio.run(loop.execute(_request("CALL_GUEST", key="canonical")))
+
+    assert result.verified is True
+    assert transactions.snapshot()["recent"][-1]["state"] == "committed"
+    assert world.query("call.guest_connected").value is True
 
 
 def test_mock_call_success_updates_world_then_switches_capability() -> None:

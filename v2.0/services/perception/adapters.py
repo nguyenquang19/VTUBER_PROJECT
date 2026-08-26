@@ -7,7 +7,7 @@ from typing import Any, Callable, Mapping
 
 from interfaces.base import HealthStatus
 from interfaces.compatibility import EventProvenance, PerceptionEvent, perception_event_from_input
-from interfaces.external_executor import OBSSceneState, OBSSceneTransportService
+from interfaces.execution import OBSSceneState, OBSSceneTransportService
 from interfaces.input import EventSource, InputEvent
 from interfaces.perception import PerceptionAdapterService, PerceptionIngressService
 from interfaces.state import AgentEventKind, GroundedEvent

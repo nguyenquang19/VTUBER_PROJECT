@@ -34,8 +34,8 @@ truy vấn độc lập và rollback có điều kiện; feature vẫn mặc đ�
 Phase 10 đã đóng canonical perception ingress cho Chat/System và read-only OBS sensing; OBS sensing vẫn
 mặc định tắt và chưa có live canary.
 
-Structure normalization S0–S3 đã được chốt; S3 canonical Cognition ở commit `1c6d9d6` đã đạt full offline.
-S4 Turn Kernel đã triển khai trong working tree và đang chờ owner review; Compatibility vẫn là public owner.
+Structure normalization S0–S4 đã được chốt; S4 canonical Turn Kernel ở commit `361bc44` đã đạt full offline.
+S5 canonical execution/outcome đã triển khai và đang chờ owner review; Compatibility vẫn là public owner.
 Agent/World/Perception writes trong live
 runtime và hai replay
 entrypoint hiện cùng đi qua `CanonicalEventNormalizer → CanonicalEventIngress →
@@ -90,14 +90,15 @@ Các cột dưới đây độc lập với nhau. “Có mã” không thay th�
 | World Model | Có | Shadow read-only | Unit, negative-path và full offline regression | Không |
 | Self Model | Có | Shadow read-only | Unit, negative-path, impacted và full offline regression | Không |
 | Capability/permission/health registry | Có | Shadow read-only | Unit, negative-path, impacted và full offline regression | Không |
-| Action transaction | Có | Mock loop và OBS external boundary strict; không nối Director V1 | Unit, negative-path, impacted, replay và full offline regression | External OBS chưa phát hành; mặc định tắt |
+| Action transaction | Có | Director speech, mock loop và OBS external boundary dùng canonical transaction; terminal commit/release live đi qua `OutcomeCommitter` | Unit, negative-path, impacted và ordering tests; full gate ghi ở S5 | External OBS chưa phát hành; mặc định tắt |
+| Canonical execution + outcome | Có; chờ owner review | `services/execution` gom typed executor-verifier, transaction terminal và verified-outcome publication dưới một boundary | Contract, failure isolation, duplicate-side-effect và commit-before-projection tests; full gate ghi ở S5 | Không |
 | Director V2 shadow | Có | Proposal/log read-only strict; không đổi live decision | Unit, negative-path, impacted, replay và full offline regression | Không |
 | Director V2 takeover | Có | V2 strict primary test-cutover stage `SPEECH_SCHEDULING`; tự materialize typed decision, compatibility chỉ là fallback/rollback | Unit, negative-path, impacted, replay và full offline regression | Chưa phát hành; live canary còn thiếu |
 | Speech action adapter | Có | `DirectorDeliveryBoundary` đi qua local typed boundary; exact legacy là rollback switch | Unit, negative-path, transaction integration và full offline regression | Bật cho test; chưa live audio canary |
 | Avatar action adapter | Có | Local typed intentional-gesture boundary; không giả automatic mood thành action | Unit, VTS fail-safe, composition và full offline regression | Bật cho test; unavailable/fail-safe khi chưa có VTS |
 | External OBS scene executor | Có | Compose tại `StreamRuntime`, chỉ callable qua typed boundary khi feature/permission/health đạt | Unit, transaction integration, deterministic fake-OBS replay và full offline regression | Không; mặc định tắt, chưa live canary |
 | Canonical ingress + authoritative state | Có | Agent/World/Perception writes dùng một canonical admission/reducer; Goal/Relationship/Self là read providers | Contract, equivalence, import guard, deterministic replay, impacted và full offline regression | Chưa phát hành riêng; là structure checkpoint S2 |
-| Turn Kernel | Có | Một live tick owner; `OFF`/`SHADOW` luôn chọn Compatibility public, Brain chỉ subordinate shadow | Contract/config/import guard, runtime composition, deterministic temporal replay và full offline regression | Chưa phát hành riêng; S4 đang chờ owner review |
+| Turn Kernel | Có | Một live tick owner; `OFF`/`SHADOW` luôn chọn Compatibility public, Brain chỉ subordinate shadow | Contract/config/import guard, runtime composition, deterministic temporal replay và full offline regression | Chưa phát hành riêng; S4 đã chốt tại `361bc44` |
 | Perception expansion | Có | Chat/System/OBS adapters submit qua canonical ingress; OBS read-only compose nhưng mặc định tắt | Unit, negative-path, runtime composition, deterministic replay và full offline regression | Không; OBS chưa live canary |
 | Goals và short intentions | Có | Có, qua GoalManager/Director/Self/dashboard | Unit, integration, replay và full offline regression | Không |
 | Memory và ContextSelector V2 | Có | ContextSelector/agent context strict bounded được bật; semantic memory vẫn optional | Unit, integration, replay và full offline regression | Bật cho test; chưa live semantic-memory canary |
@@ -3569,6 +3570,80 @@ Runtime composition test xác nhận task duy nhất tên `turn_kernel`, `Direct
 owner là `COMPATIBILITY`. Known transitional boundary: reservation/generation/delivery/commit internals vẫn nằm
 trong compatibility adapter đến S5; Brain chưa có public consumer hoặc state-commit authority.
 Rollback về `1c6d9d6`, không migrate storage. Sau implementation phải dừng chờ owner review, không tự sang S5.
+
+##### 17.2.19.16. S5 — canonical execution, verification và outcome
+
+Owner đã duyệt và commit S4 tại `361bc44`, sau đó duyệt implementation S5. Canonical source/config/test đã
+được triển khai và đang chờ owner review; baseline targeted trước thay đổi là `93 passed`.
+
+Audit hiện trạng:
+
+- `DirectorLoop`, `ExternalActionLoop` và `GeneralActionMockLoop` đang là ba terminal transaction coordinator;
+- contract execution bị chia giữa `interfaces/action_transaction.py`, `interfaces/action_execution.py` và
+  `interfaces/external_executor.py`;
+- local/OBS implementation ở `services/action`, transaction/delivery speech ở `services/director`, TTS ở
+  `services/tts`;
+- speech/local/OBS đều đã có typed executor/verifier và fail-closed tests, nên S5 phải move/merge chúng thay vì
+  tạo executor thứ hai;
+- compatibility speech writers chạy sau verified delivery nhưng một số pool/history/Thread/Director mutations
+  xảy ra trước terminal transaction `COMMITTED`. Đây là ordering cần sửa; chưa ghi nhận false commit trong
+  baseline tests.
+
+Flow đích của S5:
+
+```text
+TurnKernel-selected compatibility action
+  -> reserve exactly once
+  -> compatibility generation/filter
+  -> typed ActionRequest
+  -> canonical executor exactly once
+  -> authoritative verifier
+  -> OutcomeCommitter
+       -> verified: DELIVERED -> COMMITTED -> canonical outcome -> compatibility projection
+       -> invalid/unverified/timeout/error/cancel: RELEASED, no business projection
+       -> duplicate committed: no executor/device call
+```
+
+Contract đã triển khai tại `interfaces/execution.py`:
+
+| Contract | Exact fields/semantics |
+|---|---|
+| `ExecutionReservation` | `schema_version`, `execution_id`, `transaction_id`, `action_type`, `idempotency_key`, `created`, `reserved_at` |
+| `VerifiedExecution` | `schema_version`, `execution_id`, `transaction_id`, typed `request`, typed `result`, typed `verification`, `verified_at`; cả executor result và verifier phải success/ID-match |
+| `OutcomeDisposition` | `COMMITTED`, `RELEASED`, `DUPLICATE_COMMITTED` |
+| `OutcomeCommit` | `schema_version`, `outcome_ref`, `execution_id`, `transaction_id`, `disposition`, `reason_code`, bounded `evidence_refs`, `completed_at` |
+| `ExecutionBoundaryService` | Reserve rồi execute/verify typed request; không project domain state |
+| `OutcomeCommitterService` | Terminalize một reservation; chỉ publish verified outcome sau commit |
+
+Không tạo `ActionRequest`/`ActionResult` thứ hai; S5 tái sử dụng strict types hiện hữu. Canonical package
+là `services/execution/{transaction,local,external,registry,obs,speech,coordinator,outcome}.py`. Module cũ chỉ
+được giữ làm exact re-export facade có deletion gate S8; không được để logic ở cả hai đường. Mock loop vẫn là
+migration/evaluation component đến S7, nhưng phải dùng canonical transaction implementation thay vì trở thành
+terminal owner riêng.
+
+`execution.yaml` tại `config/execution.yaml` sẽ sở hữu transaction capacity, local timeout/idempotency/evidence bounds, external
+execute/verify/rollback bounds và OBS transport bounds. Reads cũ từ `director.transactions` và
+`capabilities.action_adapters|external_actions` chỉ còn compatibility alias đến S8; source key cũ phải được
+gỡ để không có duplicate config owner. Feature flags hiện tại giữ nguyên đến S8.
+
+Outcome Committer chỉ khóa ordering và canonical verified-outcome publication trong S5. Exact legacy projection
+cho pool/history/Director/Thread/SelfTalk chạy qua compatibility adapter sau `COMMITTED`; S6 mới chuyển semantics
+continuity sang state proposal/commit. Lỗi projection sau commit phải có metric/evidence nhưng không được release
+ngược transaction, rollback verified device state hoặc execute lần hai.
+
+Non-goals: không MCB-5/Brain takeover, không đổi public text/action/timing policy, prompt/model/sampling/filter,
+không thêm generation, không commit Focus/Memory proposal, không bật OBS/avatar, không tăng product version và
+không bắt đầu S6. Gate implementation là exact action/text/TTS-call/transaction/state-diff parity, zero false
+commit/duplicate side effect, import/config/docs guard, targeted + impacted + deterministic temporal replay +
+full offline. Human temporal blind chỉ bắt buộc nếu exact replay hoặc latency evidence phát hiện drift.
+
+Implementation đã tạo `interfaces/execution.py`, `config/execution.yaml`, canonical `services/execution/` và
+behavior-named execution/outcome tests; compatibility interface/service path là exact re-export facade.
+`DirectorLoop`, mock/external loop và runtime composition dùng `OutcomeCommitter` làm terminal owner;
+compatibility projection chạy sau `COMMITTED`. Prompt, model config, cognition config, product version và
+changelog không đổi. Owner-review evidence trên cùng working tree: targeted execution/config/docs đạt
+`258 passed`; impacted Director/TTS/state/replay đạt `147 passed`; deterministic live-pipeline/temporal replay
+đạt `14 passed`; full offline đạt `2.488 passed`, `0` lỗi và một Starlette deprecation warning có sẵn.
 
 ### 17.3. Chuỗi mã để lần theo một lượt
 

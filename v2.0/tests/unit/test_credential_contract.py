@@ -132,7 +132,7 @@ class _Loader:
 def test_runtime_references_load_without_string_coercion() -> None:
     loader = _Loader({
         ("chat_sources", "discord.token_env_var"): 123,
-        ("capabilities", "external_actions.obs.password_env"): "OBS_PASSWORD",
+        ("execution", "external.obs.password_env"): "OBS_PASSWORD",
     })
     with pytest.raises(ValueError, match="discord.token_env_var"):
         RuntimeCredentialReferences.from_loader(loader)

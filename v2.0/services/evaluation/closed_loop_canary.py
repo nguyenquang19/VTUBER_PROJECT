@@ -9,7 +9,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Mapping
 
-from interfaces.action_execution import ActionRequest, ActionResult, VerificationResult
+from interfaces.compatibility import ActionRequest, ActionResult
+from interfaces.execution import VerificationResult
 from interfaces.base import HealthStatus
 from interfaces.director_v2 import DirectorV2Context, DirectorV2Proposal
 from interfaces.release_readiness import ClosedLoopCanaryRecord, ClosedLoopCanaryService

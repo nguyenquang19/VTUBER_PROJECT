@@ -58,7 +58,9 @@ from services.agent.goal_manager import GoalManager  # noqa: E402
 from services.agent.open_thread_manager import OpenThreadManager  # noqa: E402
 from services.agent.thread_detector import RuleThreadDetector  # noqa: E402
 from services.agent.topic_matcher import LexicalTopicMatcher  # noqa: E402
-from services.director.action_transaction import ActionTransactionManager  # noqa: E402
+from services.execution.transaction import ActionTransactionManager  # noqa: E402
+from services.execution.coordinator import ExecutionCoordinator  # noqa: E402
+from services.execution.outcome import OutcomeCommitter  # noqa: E402
 from services.director.action_context import ActionContextBuilder  # noqa: E402
 from services.director.action_types import DirectorInput  # noqa: E402
 from services.director.chat_pulse import ChatPulse  # noqa: E402
@@ -347,6 +349,12 @@ async def simulate_replay(
         proactive_policy=proactive_policy,
     )
     transactions = _transaction_manager(loader, clock_fn)
+    outcome_committer = OutcomeCommitter.from_loader(
+        loader, transactions, clock=datetime_clock,
+    )
+    execution_coordinator = ExecutionCoordinator(
+        local_boundary=object(), outcome_committer=outcome_committer,
+    )
     decisions = _decision_manager(loader, clock_fn)
     self_talk_planner = SelfTalkPlanner.from_loader(
         loader, mood_style=MoodStyleTable.from_loader(loader), enabled=True,
@@ -395,6 +403,8 @@ async def simulate_replay(
         speak=deliver,
         clock=clock_fn,
         transaction_manager=transactions,
+        execution_coordinator=execution_coordinator,
+        outcome_committer=outcome_committer,
         decision_records=decisions,
         self_talk_planner=self_talk_planner,
         agent_state=agent_state,

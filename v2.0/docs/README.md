@@ -19,10 +19,10 @@ Mọi hướng dẫn runtime, component, pipeline, cấu hình, storage, vận h
 
 Blueprint chỉ quy định scope, thứ tự và acceptance gate tương lai; không chứng minh feature đã production.
 
-**Checkpoint cấu trúc hiện tại:** S0–S3 đã commit; S2 tại `d02c84e`, S3 canonical Cognition tại `1c6d9d6`.
-Canonical ingress/authoritative state và một Cognition path đã nằm trong live/replay graph. S4 Turn Kernel
-đã triển khai trong working tree và đang chờ owner review; đúng một live tick owner, Compatibility vẫn public
-và Brain chỉ là subordinate shadow worker. Product version vẫn là `1.4.3`.
+**Checkpoint cấu trúc hiện tại:** S0–S4 đã commit; S2 tại `d02c84e`, S3 canonical Cognition tại `1c6d9d6`,
+S4 Turn Kernel tại `361bc44`. Canonical ingress/authoritative state, một Cognition path và một live tick owner
+đã nằm trong live/replay graph; Compatibility vẫn public và Brain chỉ là subordinate shadow worker. S5
+canonical execution/outcome đã triển khai và đang chờ owner review. Product version vẫn là `1.4.3`.
 
 ## Thứ tự đọc
 

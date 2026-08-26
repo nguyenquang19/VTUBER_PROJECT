@@ -9,7 +9,7 @@ from collections import OrderedDict
 from dataclasses import dataclass, replace
 from typing import Any, Callable, Literal, Mapping
 
-from interfaces.action_execution import VerificationResult
+from interfaces.execution import VerificationResult
 from interfaces.base import HealthStatus
 from interfaces.compatibility import ActionRequest, ActionResult
 from interfaces.director_v2 import DirectorV2Context, DirectorV2Proposal

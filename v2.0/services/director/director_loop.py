@@ -23,9 +23,9 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable
 
-from interfaces.action_execution import VerificationResult
+from interfaces.execution import VerificationResult
 from interfaces.animation import MoodState
-from interfaces.action_execution import ActionRequest, ActionResult
+from interfaces.execution import ActionRequest, ActionResult
 from interfaces.decision_record import DecisionCandidateSummary
 from interfaces.director_v2 import DirectorV2Proposal, DirectorV2TakeoverSelection
 from interfaces.self_talk import SelfTalkContext, SelfTalkStage
@@ -40,7 +40,7 @@ from services.director.v2_primary import (
 )
 from services.director.action_context import ActionContextBuilder
 from services.director.action_types import DirectorChatRef, DirectorInput
-from services.director.delivery_boundary import DirectorDeliveryBoundary
+from services.execution.speech import DirectorDeliveryBoundary
 from services.director.action_prompts import (
     history_text_for as _history_text_for,
     join_directives as _join_directives,
@@ -100,6 +100,8 @@ class DirectorLoop:
         animation: Any = None,
         embodiment_policy: Any = None,
         action_adapter_boundary: Any = None,
+        execution_coordinator: Any = None,
+        outcome_committer: Any = None,
         room_reaction_recent_window: int = 16,
         room_reaction_similarity_threshold: float = 0.72,
         room_reaction_max_regenerations: int = 1,
@@ -159,6 +161,8 @@ class DirectorLoop:
         self._animation = animation
         self._embodiment_policy = embodiment_policy
         self._action_adapter_boundary = action_adapter_boundary
+        self._execution_coordinator = execution_coordinator
+        self._outcome_committer = outcome_committer
         self._turn_event_sink: Any = None
         self._turn_kernel: Any = None
         self._director_v2_shadow = None
@@ -489,19 +493,30 @@ class DirectorLoop:
 
         async with self._turn_lock:
             transaction_id = None
+            execution_reservation = None
             try:
                 if self._transactions is not None and self._transactions.enabled:
-                    reservation = self._transactions.reserve(
-                        dec.action.value, self._idempotency_key(dec, now),
-                    )
-                    transaction_id = reservation.transaction.transaction_id
+                    if self._execution_coordinator is not None:
+                        execution_reservation = self._execution_coordinator.reserve(
+                            dec.action.value, self._idempotency_key(dec, now),
+                        )
+                        transaction_id = execution_reservation.transaction_id
+                        transaction = self._transactions.get(transaction_id)
+                        created = execution_reservation.created
+                    else:
+                        reservation = self._transactions.reserve(
+                            dec.action.value, self._idempotency_key(dec, now),
+                        )
+                        transaction_id = reservation.transaction.transaction_id
+                        transaction = reservation.transaction
+                        created = reservation.created
                     self._update_decision_transaction(
-                        decision_id, reservation.transaction,
+                        decision_id, transaction,
                         delivery_state="not_started", outcome="reserved",
                     )
-                    if not reservation.created:
+                    if not created:
                         self._update_decision_transaction(
-                            decision_id, reservation.transaction,
+                            decision_id, transaction,
                             delivery_state="delivered", outcome="duplicate_committed",
                         )
                         self._record_director_action(dec, now)
@@ -510,7 +525,37 @@ class DirectorLoop:
                     dec, now, director_input, transaction_id=transaction_id,
                 )
                 if transaction_id is not None:
-                    if committed:
+                    if execution_reservation is not None:
+                        transaction = self._transactions.get(transaction_id)
+                        if committed and (
+                            transaction is None
+                            or transaction.state.value != "COMMITTED"
+                        ):
+                            self._outcome_committer.release(
+                                execution_reservation, "uncommitted_delivery",
+                            )
+                            transaction = self._transactions.get(transaction_id)
+                            committed = False
+                        elif not committed:
+                            self._outcome_committer.release(
+                                execution_reservation, "not_delivered",
+                            )
+                            transaction = self._transactions.get(transaction_id)
+                        self._update_decision_transaction(
+                            decision_id,
+                            transaction,
+                            delivery_state="delivered" if committed else "failed",
+                            outcome="committed" if committed else "released",
+                        )
+                        if not committed:
+                            self._record_goal_action_outcome(
+                                dec,
+                                expected_intention_id,
+                                transaction_id,
+                                outcome="failed",
+                                reason="not_delivered",
+                            )
+                    elif committed:
                         transaction = self._transactions.commit(transaction_id)
                         self._update_decision_transaction(
                             decision_id, transaction,
@@ -553,9 +598,15 @@ class DirectorLoop:
             except asyncio.CancelledError:
                 if transaction_id is not None:
                     try:
-                        transaction = self._transactions.release(
-                            transaction_id, "cancelled",
-                        )
+                        if execution_reservation is not None:
+                            self._outcome_committer.release(
+                                execution_reservation, "cancelled",
+                            )
+                            transaction = self._transactions.get(transaction_id)
+                        else:
+                            transaction = self._transactions.release(
+                                transaction_id, "cancelled",
+                            )
                         self._update_decision_transaction(
                             decision_id, transaction,
                             delivery_state="cancelled", outcome="released",
@@ -587,7 +638,13 @@ class DirectorLoop:
                 self._execute_failed_total += 1
                 if transaction_id is not None:
                     try:
-                        transaction = self._transactions.release(transaction_id, str(e))
+                        if execution_reservation is not None:
+                            self._outcome_committer.release(
+                                execution_reservation, "execution_failed",
+                            )
+                            transaction = self._transactions.get(transaction_id)
+                        else:
+                            transaction = self._transactions.release(transaction_id, str(e))
                         self._update_decision_transaction(
                             decision_id, transaction,
                             delivery_state="failed", outcome="released",
@@ -1614,6 +1671,8 @@ class DirectorLoop:
             animation=self._animation,
             embodiment_policy=self._embodiment_policy,
             action_adapter_boundary=self._action_adapter_boundary,
+            execution_coordinator=self._execution_coordinator,
+            outcome_committer=self._outcome_committer,
             mood_provider=self._current_mood,
             speech_completed=self._record_speech_completed,
             filter_rejected=self._quarantine_filter_rejection,

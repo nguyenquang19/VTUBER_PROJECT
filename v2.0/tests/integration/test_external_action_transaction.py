@@ -25,6 +25,7 @@ from services.capability.registry import (
     CapabilityRegistryConfig,
 )
 from services.director.action_transaction import ActionTransactionManager
+from services.execution.outcome import OutcomeCommitter
 from services.world.world_model import WorldModelConfig, WorldModelShadow
 
 
@@ -191,6 +192,7 @@ async def _build(
     verifier: ActionVerifier | None = None,
     world: Any = None,
     grant_permission: bool = True,
+    canonical_outcome: bool = False,
 ) -> tuple[ExternalActionLoop, Any, ActionTransactionManager, OBSSceneExecutor]:
     actual_world = world or _world()
     transactions = ActionTransactionManager(clock=lambda: 1.0)
@@ -206,11 +208,22 @@ async def _build(
     capabilities = _capabilities(
         actual_world, transactions, executor, grant_permission=grant_permission,
     )
+    outcome_committer = (
+        OutcomeCommitter(
+            transactions,
+            max_recent=8,
+            max_reason_chars=64,
+            max_evidence_refs=4,
+            clock=lambda: NOW,
+        )
+        if canonical_outcome else None
+    )
     loop = ExternalActionLoop(
         _loop_config(),
         capability_registry=capabilities,
         executor_registry=routes,
         transactions=transactions,
+        outcome_committer=outcome_committer,
         world_model=actual_world,
         enabled=enabled,
         clock=lambda: NOW,
@@ -221,6 +234,21 @@ async def _build(
     if enabled:
         assert (await executor.health_check()).is_ok
     return loop, actual_world, transactions, executor
+
+
+def test_external_live_route_uses_canonical_terminal_outcome_owner() -> None:
+    async def scenario() -> None:
+        loop, world, transactions, _executor = await _build(
+            FakeOBS(), canonical_outcome=True,
+        )
+
+        result = await loop.execute(_request(key="canonical"))
+
+        assert result.verified is True
+        assert transactions.snapshot()["recent"][-1]["state"] == "committed"
+        assert world.query("stream.current_scene").value == "Main"
+
+    asyncio.run(scenario())
 
 
 def test_verified_scene_commits_before_world_projection_and_deduplicates() -> None:

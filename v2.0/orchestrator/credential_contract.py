@@ -56,7 +56,7 @@ class RuntimeCredentialReferences:
             self,
             "obs_password",
             validate_environment_reference(
-                self.obs_password, "external_actions.obs.password_env",
+                self.obs_password, "execution.external.obs.password_env",
             ),
         )
         if self.discord_token == self.obs_password:
@@ -69,8 +69,8 @@ class RuntimeCredentialReferences:
                 "chat_sources", "discord.token_env_var", "DISCORD_BOT_TOKEN",
             ),
             obs_password=loader.get(
-                "capabilities",
-                "external_actions.obs.password_env",
+                "execution",
+                "external.obs.password_env",
                 "OBS_WEBSOCKET_PASSWORD",
             ),
         )

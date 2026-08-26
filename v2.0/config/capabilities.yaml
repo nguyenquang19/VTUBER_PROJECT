@@ -146,36 +146,3 @@ mock_action:
   max_idempotency_records: 256
   max_connected_guests: 8
   max_verification_evidence_refs: 8
-
-# Local adapters do not own business transactions. These bounds cover
-# only execute/verify timeout, duplicate suppression and non-PII evidence.
-action_adapters:
-  execution_timeout_s: 120.0
-  max_idempotency_records: 256
-  max_evidence_refs: 8
-
-# Phase 9 external actions remain disabled by feature flag until an operator
-# provides OBS credentials and completes a live canary.
-external_actions:
-  execution_timeout_s: 8.0
-  verification_timeout_s: 4.0
-  rollback_timeout_s: 6.0
-  max_recent_results: 64
-  max_idempotency_records: 256
-  max_verification_evidence_refs: 8
-  max_registry_bindings: 8
-  obs:
-    host: 127.0.0.1
-    port: 4455
-    use_tls: false
-    password_env: OBS_WEBSOCKET_PASSWORD
-    connect_timeout_s: 2.0
-    request_timeout_s: 2.0
-    health_timeout_s: 5.0
-    health_ttl_s: 15.0
-    max_attempts: 2
-    retry_backoff_s: 0.1
-    max_scene_name_chars: 128
-    max_authority_records: 256
-    max_evidence_refs: 8
-    max_message_bytes: 1048576

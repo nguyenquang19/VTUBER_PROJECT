@@ -28,7 +28,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
-from interfaces.action_execution import ActionRequest, ActionResult
+from interfaces.execution import ActionRequest, ActionResult
 from interfaces.animation import MoodState
 from interfaces.input import InputService
 from orchestrator.autonomy_engine import AutonomyEngine
@@ -173,6 +173,8 @@ class StreamRuntime:
         capability_registry: Any = None,
         action_mock_loop: Any = None,
         action_adapter_boundary: Any = None,
+        execution_coordinator: Any = None,
+        outcome_committer: Any = None,
         embodiment_policy: Any = None,
         external_executor_registry: Any = None,
         external_action_loop: Any = None,
@@ -227,6 +229,8 @@ class StreamRuntime:
         self._capability_registry = capability_registry
         self._action_mock_loop = action_mock_loop
         self._action_adapter_boundary = action_adapter_boundary
+        self._execution_coordinator = execution_coordinator
+        self._outcome_committer = outcome_committer
         self._embodiment_policy = embodiment_policy
         self._external_executor_registry = external_executor_registry
         self._external_action_loop = external_action_loop
@@ -276,10 +280,14 @@ class StreamRuntime:
                 await self._authoritative_state.start()
             if self._capability_registry is not None:
                 await self._capability_registry.start()
+            if self._outcome_committer is not None:
+                await self._outcome_committer.start()
             if self._action_mock_loop is not None:
                 await self._action_mock_loop.start()
             if self._action_adapter_boundary is not None:
                 await self._action_adapter_boundary.start()
+            if self._execution_coordinator is not None:
+                await self._execution_coordinator.start()
             if self._external_executor_registry is not None:
                 await self._external_executor_registry.start()
             if self._external_action_loop is not None:
@@ -523,6 +531,9 @@ class StreamRuntime:
         if self._action_mock_loop is not None:
             with contextlib.suppress(Exception):
                 await self._action_mock_loop.stop()
+        if self._execution_coordinator is not None:
+            with contextlib.suppress(Exception):
+                await self._execution_coordinator.stop()
         if self._action_adapter_boundary is not None:
             with contextlib.suppress(Exception):
                 await self._action_adapter_boundary.stop()
@@ -538,6 +549,9 @@ class StreamRuntime:
         if self._capability_registry is not None:
             with contextlib.suppress(Exception):
                 await self._capability_registry.stop()
+        if self._outcome_committer is not None:
+            with contextlib.suppress(Exception):
+                await self._outcome_committer.stop()
         if self._self_model is not None:
             with contextlib.suppress(Exception):
                 await self._self_model.stop()
@@ -631,6 +645,10 @@ class StreamRuntime:
             "local_action_adapters": (
                 self._action_adapter_boundary.snapshot()
                 if self._action_adapter_boundary is not None else None
+            ),
+            "execution_outcomes": (
+                self._outcome_committer.snapshot()
+                if self._outcome_committer is not None else None
             ),
             "embodiment": (
                 self._embodiment_policy.snapshot().to_dict()
@@ -917,6 +935,9 @@ class StreamRuntime:
         if self._action_adapter_boundary is not None:
             with contextlib.suppress(Exception):
                 m.update(self._action_adapter_boundary.get_metrics())
+        if self._outcome_committer is not None:
+            with contextlib.suppress(Exception):
+                m.update(self._outcome_committer.get_metrics())
         if self._embodiment_policy is not None:
             with contextlib.suppress(Exception):
                 m.update(self._embodiment_policy.get_metrics())
@@ -1748,7 +1769,7 @@ async def _compose_stream_runtime(
         health=_director_chat_gate_health,
     )
     action_context_builder = ActionContextBuilder.from_loader(loader)
-    from services.director.action_transaction import ActionTransactionManager
+    from services.execution.transaction import ActionTransactionManager
     try:
         transaction_status = await feature_manager.get_status("action_transactions")
         transactions_enabled = transaction_status in (
@@ -1759,6 +1780,10 @@ async def _compose_stream_runtime(
         transactions_enabled = False
     action_transactions = ActionTransactionManager.from_loader(
         loader, metrics=metrics, enabled=transactions_enabled,
+    )
+    from services.execution.outcome import OutcomeCommitter
+    outcome_committer = OutcomeCommitter.from_loader(
+        loader, action_transactions, metrics=metrics,
     )
     from services.director.decision_record import DecisionRecordManager
     try:
@@ -1842,7 +1867,7 @@ async def _compose_stream_runtime(
 
     # Local typed action boundary owns execute/verify and bounded
     # duplicate suppression only; DirectorLoop remains the business transaction owner.
-    from services.action.legacy_adapters import (
+    from services.execution.local import (
         ActionAdapterConfig,
         AvatarGestureAuthority,
         AvatarGestureExecutor,
@@ -1907,6 +1932,11 @@ async def _compose_stream_runtime(
         avatar_verifier=avatar_action_verifier,
         metrics=metrics,
     )
+    from services.execution.coordinator import ExecutionCoordinator
+    execution_coordinator = ExecutionCoordinator(
+        local_boundary=action_adapter_boundary,
+        outcome_committer=outcome_committer,
+    )
     attach_boolean_feature(
         feature_manager,
         "speech_action_adapter",
@@ -1945,6 +1975,8 @@ async def _compose_stream_runtime(
         animation=animation,
         embodiment_policy=embodiment_policy,
         action_adapter_boundary=action_adapter_boundary,
+        execution_coordinator=execution_coordinator,
+        outcome_committer=outcome_committer,
         room_reaction_recent_window=int(room_reaction.get("recent_window", 16)),
         room_reaction_similarity_threshold=float(
             room_reaction.get("similarity_threshold", 0.72)
@@ -2144,8 +2176,8 @@ async def _compose_stream_runtime(
     attach_set_enabled_feature(feature_manager, "capability_registry", capability_registry)
 
     # Phase 5: idle mock-only closed loop. Current Director and speech remain untouched.
-    from services.action.mock_backend import MockCallBackend, MockCallExecutor, MockCallVerifier
-    from services.action.mock_loop import ActionMockConfig, GeneralActionMockLoop
+    from services.execution.mock_backend import MockCallBackend, MockCallExecutor, MockCallVerifier
+    from services.execution.mock import ActionMockConfig, GeneralActionMockLoop
     try:
         action_mock_status = await feature_manager.get_status("action_mock_closed_loop")
         action_mock_enabled = action_mock_status in (FeatureStatus.ENABLED, FeatureStatus.DEGRADED)
@@ -2161,6 +2193,7 @@ async def _compose_stream_runtime(
         action_mock_config,
         capability_registry=capability_registry,
         transactions=action_transactions,
+        outcome_committer=outcome_committer,
         world_model=world_model,
         metrics=metrics,
         enabled=action_mock_enabled,
@@ -2171,10 +2204,10 @@ async def _compose_stream_runtime(
 
     # Phase 9: one disabled-by-default verified OBS scene route. It is callable
     # only through the typed boundary below and is never supplied to Director.
-    from interfaces.external_executor import ExternalExecutorBinding
-    from services.action.external_loop import ExternalActionConfig, ExternalActionLoop
-    from services.action.external_registry import ExternalExecutorRegistry
-    from services.action.obs_scene import (
+    from interfaces.execution import ExternalExecutorBinding
+    from services.execution.external import ExternalActionConfig, ExternalActionLoop
+    from services.execution.registry import ExternalExecutorRegistry
+    from services.execution.obs import (
         OBSSceneConfig,
         OBSSceneExecutor,
         OBSSceneVerifier,
@@ -2235,6 +2268,7 @@ async def _compose_stream_runtime(
         capability_registry=capability_registry,
         executor_registry=external_executor_registry,
         transactions=action_transactions,
+        outcome_committer=outcome_committer,
         world_model=world_model,
         metrics=metrics,
         enabled=obs_scene_enabled,
@@ -2590,6 +2624,12 @@ async def _compose_stream_runtime(
     )
     if health_supervisor is not None:
         health_supervisor.register_target(
+            "outcome_committer", outcome_committer.health_check,
+        )
+        health_supervisor.register_target(
+            "execution_coordinator", execution_coordinator.health_check,
+        )
+        health_supervisor.register_target(
             "obs_websocket", obs_scene_executor.health_check,
         )
         health_supervisor.register_target(
@@ -2674,6 +2714,8 @@ async def _compose_stream_runtime(
         world_model=world_model, self_model=self_model,
         capability_registry=capability_registry, action_mock_loop=action_mock_loop,
         action_adapter_boundary=action_adapter_boundary,
+        execution_coordinator=execution_coordinator,
+        outcome_committer=outcome_committer,
         embodiment_policy=embodiment_policy,
         external_executor_registry=external_executor_registry,
         external_action_loop=external_action_loop,

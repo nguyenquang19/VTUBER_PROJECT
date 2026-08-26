@@ -44,9 +44,6 @@ director:
     max_words: 32                 # MAI-HLC thật: cắt đuôi giải thích dài; không dùng làm speech-rate gate
     max_regenerations: 2          # tối đa hai style-only retry; vẫn lỗi thì fail-open
 
-  transactions:
-    max_recent: 256               # bounded idempotency/trace cache
-
   decision_records:
     max_recent: 256               # bounded operator trace cache
     max_evidence_refs: 8          # chỉ ID grounded, không raw chat/viewer identity

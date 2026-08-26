@@ -212,6 +212,17 @@ class MetricsCollector:
             registry=self.registry,
         )
         self._action_transactions: dict[str, int] = {}
+        self.execution_outcomes_total_c = Counter(
+            "mai_execution_outcomes_total",
+            "Canonical terminal execution outcomes",
+            ["disposition"],
+            registry=self.registry,
+        )
+        self.execution_projection_failures_total_c = Counter(
+            "mai_execution_projection_failures_total",
+            "Post-commit compatibility or canonical projection failures",
+            registry=self.registry,
+        )
         self.director_decision_records_total_c = Counter(
             "mai_director_decision_records_total",
             "Versioned Director decision record outcomes",
@@ -893,6 +904,16 @@ class MetricsCollector:
         key = str(state)
         self._action_transactions[key] = self._action_transactions.get(key, 0) + 1
         self.action_transactions_total_c.labels(state=key).inc()
+
+    def record_execution_outcome(self, disposition: str, reason: str) -> None:
+        del reason  # Diagnostic detail remains in the bounded outcome snapshot.
+        key = str(disposition).strip().upper()
+        if key not in {"COMMITTED", "RELEASED", "DUPLICATE_COMMITTED"}:
+            key = "RELEASED"
+        self.execution_outcomes_total_c.labels(disposition=key).inc()
+
+    def record_execution_projection_failure(self) -> None:
+        self.execution_projection_failures_total_c.inc()
 
     def record_director_decision_record(self, action: str, outcome: str) -> None:
         key = (str(action), str(outcome))

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
-from interfaces.action_execution import ActionRequest
+from interfaces.compatibility import ActionRequest
 from interfaces.base import Service
 from interfaces.trajectory import TrajectorySnapshotRefs
 

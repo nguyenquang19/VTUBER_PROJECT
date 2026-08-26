@@ -5,11 +5,11 @@ import random
 from dataclasses import dataclass
 from typing import Any
 
-from interfaces.action_transaction import ActionTransactionState
+from interfaces.execution import ActionTransactionState
 from interfaces.base import HealthStatus
 from interfaces.decision_record import DecisionCandidateSummary
 from interfaces.evaluation import EvaluationSimulationService
-from services.director.action_transaction import ActionTransactionManager
+from services.execution.transaction import ActionTransactionManager
 from services.director.decision_record import DecisionRecordManager
 from interfaces.evaluation import (
     EvaluationFault,

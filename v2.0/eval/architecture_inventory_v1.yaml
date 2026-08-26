@@ -1,7 +1,7 @@
 schema_version: 2
-status: s4_implementation_owner_review_pending
-generated_at_utc: "2026-08-25T20:26:16Z"
-checkpoint_revision: "d02c84e9f46a9e9e11442659af7f2574c364b031"
+status: s5_implementation_owner_review_pending
+generated_at_utc: "2026-08-26T04:30:00Z"
+checkpoint_revision: "361bc44c0375610a89933fb13a001595c2847a53"
 checkpoint_scope_clean: true
 structure_gate_eligible: true
 release_gate_eligible: false
@@ -37,7 +37,7 @@ s3_docs_first:
     - mcb5
 
 s4_turn_kernel:
-  status: implementation_owner_review_pending
+  status: implementation_complete_owner_approved
   base_revision: "1c6d9d6"
   public_owner: COMPATIBILITY
   allowed_rollout_modes: [OFF, SHADOW]
@@ -47,6 +47,24 @@ s4_turn_kernel:
   target_config_owner: config/kernel.yaml
   merged_observer: orchestrator/cognitive_observer.py
   public_behavior_change_authorized: false
+
+s5_execution_outcome:
+  status: implementation_complete_owner_review_pending
+  base_revision: "361bc44c0375610a89933fb13a001595c2847a53"
+  baseline_targeted_tests: 93
+  current_terminal_transaction_owners: 3
+  current_execution_contract_files: 3
+  resulting_terminal_transaction_owners_live: 1
+  resulting_execution_contract_files: 1
+  target_contract_owner: interfaces/execution.py
+  target_package_owner: services/execution
+  target_config_owner: config/execution.yaml
+  target_outcome_owner: services/execution/outcome.py
+  compatibility_projection_removal_wave: S6
+  compatibility_import_removal_wave: S8
+  public_behavior_change_authorized: false
+  brain_takeover_authorized: false
+  product_version_change_authorized: false
 
 scope:
   - interfaces/**/*.py
@@ -60,15 +78,15 @@ scope:
   - tests/**/*.py
 
 snapshot:
-  production_python_files: 215
-  production_modules: 211
-  static_live_reachable_modules: 158
-  not_static_live_reachable_modules: 53
-  config_yaml_files: 34
+  production_python_files: 227
+  production_modules: 223
+  static_live_reachable_modules: 160
+  not_static_live_reachable_modules: 63
+  config_yaml_files: 35
   prompt_files: 7
   script_files: 35
   test_python_files_before_s0: 224
-  test_python_files: 225
+  test_python_files: 227
   feature_count: 54
   feature_enabled_count: 37
   feature_disabled_count: 17
@@ -96,8 +114,8 @@ snapshot:
     - tests/unit/test_cognitive_ab_source.py
 
 normalization:
-  completed_waves: [S0, S1, S2, S3]
-  active_wave: S4
+  completed_waves: [S0, S1, S2, S3, S4]
+  active_wave: S5
   retired_components:
     - mcb4_offline_dual_path_harness
   owner_approved_deleted_paths:
@@ -116,6 +134,7 @@ normalization:
     - interfaces/events.py
     - interfaces/state.py
     - interfaces/turn_kernel.py
+    - interfaces/execution.py
   canonical_runtime_owners:
     - services/ingress/normalizer.py
     - services/ingress/adapters.py
@@ -125,6 +144,15 @@ normalization:
     - services/cognition/scheduler.py
     - services/kernel/turn_kernel.py
     - config/kernel.yaml
+    - services/execution/transaction.py
+    - services/execution/local.py
+    - services/execution/external.py
+    - services/execution/registry.py
+    - services/execution/obs.py
+    - services/execution/speech.py
+    - services/execution/coordinator.py
+    - services/execution/outcome.py
+    - config/execution.yaml
   canonical_import_facades:
     - services/state/agent.py
     - services/state/event_ledger.py
@@ -137,8 +165,20 @@ normalization:
     - services/evaluation/types.py
     - services/cognition/brain_shadow.py
     - services/cognition/shadow_scheduler.py
+    - interfaces/action_execution.py
+    - interfaces/action_transaction.py
+    - interfaces/external_executor.py
+    - services/director/action_transaction.py
+    - services/director/delivery_boundary.py
+    - services/action/legacy_adapters.py
+    - services/action/external_loop.py
+    - services/action/external_registry.py
+    - services/action/obs_scene.py
+    - services/action/mock_loop.py
+    - services/action/mock_backend.py
   canonical_config_owner: config/state.yaml
   canonical_kernel_config_owner: config/kernel.yaml
+  canonical_execution_config_owner: config/execution.yaml
   compatibility_config_files:
     - config/agent_state.yaml
     - config/relationships.yaml
@@ -159,9 +199,12 @@ normalization:
     s4_targeted_and_impacted: 414
     s4_director_transaction_replay: 38
     s4_live_pipeline_llm_replay: 32
-    full_offline: 2473
+    s5_execution_config_docs_targeted: 258
+    s5_impacted_director_tts_state_replay: 147
+    s5_deterministic_live_pipeline_temporal_replay: 14
+    full_offline: 2488
     full_offline_failures: 0
-    full_offline_warnings: 2
+    full_offline_warnings: 1
 
 static_import_graph:
   entrypoints:

@@ -494,8 +494,8 @@ def test_runtime_rejects_invalid_embodiment_config_before_composition(value: obj
             "discord.token_env_var",
         ),
         (
-            {("capabilities", "external_actions.obs.password_env"): "OBS-PASSWORD"},
-            "external_actions.obs.password_env",
+            {("execution", "external.obs.password_env"): "OBS-PASSWORD"},
+            "execution.external.obs.password_env",
         ),
         (
             {("animation", "animation.token_file"): " vts_token.txt "},
@@ -508,7 +508,7 @@ def test_runtime_rejects_invalid_embodiment_config_before_composition(value: obj
         (
             {
                 ("chat_sources", "discord.token_env_var"): "SHARED_SECRET",
-                ("capabilities", "external_actions.obs.password_env"): "SHARED_SECRET",
+                ("execution", "external.obs.password_env"): "SHARED_SECRET",
             },
             "distinct",
         ),

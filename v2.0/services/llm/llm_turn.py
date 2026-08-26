@@ -258,7 +258,7 @@ class LLMTurnRunner:
                 )),
             },
             pending_delivery_max=int(loader.get(
-                "director", "director.transactions.max_recent", 256,
+                "execution", "transactions.max_recent", 256,
             )),
             pending_memory_writes_max=loader.get(
                 "system", "memory.pending_writes_max", None,

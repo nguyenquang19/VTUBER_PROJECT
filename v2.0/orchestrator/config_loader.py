@@ -34,6 +34,7 @@ CONFIG_FILES: dict[str, str] = {
     "capabilities": "capabilities.yaml",          # Phase 4 declarative availability
     "cognition": "cognition.yaml",                # MCB strict context/Brain contracts
     "kernel": "kernel.yaml",                      # S4 single turn scheduling owner
+    "execution": "execution.yaml",                # S5 transaction/executor/outcome owner
     "features": "features.yaml",
     "triggers": "triggers.yaml",
     "state_machine": "state_machine.yaml",
@@ -185,6 +186,13 @@ class ConfigLoader:
                 KernelConfig.from_mapping(data)
             except ValueError as exc:
                 raise ConfigError(f"{path.name}: config không hợp lệ: {exc}") from exc
+        if path.name == CONFIG_FILES["execution"]:
+            from interfaces.execution import ExecutionConfig
+
+            try:
+                ExecutionConfig.from_mapping(data)
+            except ValueError as exc:
+                raise ConfigError(f"{path.name}: config không hợp lệ: {exc}") from exc
         if path.name == CONFIG_FILES["state"]:
             _validate_state_config(data)
         return data
@@ -237,9 +245,19 @@ class ConfigLoader:
         with self._lock:
             cognition = self._data.get("cognition")
             kernel = self._data.get("kernel")
+            execution = self._data.get("execution")
             if name == "director" and path == "director.tick_seconds":
                 node: Any = kernel
                 path = "tick_seconds"
+            elif name == "director" and path.startswith("director.transactions."):
+                node = execution
+                path = path.removeprefix("director.")
+            elif name == "capabilities" and path == "action_adapters":
+                node = execution
+                path = "local"
+            elif name == "capabilities" and path.startswith("external_actions"):
+                node = execution
+                path = path.replace("external_actions", "external", 1)
             elif name == "agent_state" and path == "context":
                 node = cognition
                 path = "agent_context_projection"

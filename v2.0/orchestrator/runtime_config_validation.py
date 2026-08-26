@@ -14,6 +14,7 @@ from pydantic import (
 
 from orchestrator.config_loader import ConfigError
 from interfaces.cognition import CognitionConfig
+from interfaces.execution import ExecutionConfig
 from interfaces.turn_kernel import KernelConfig
 from orchestrator.credential_contract import (
     validate_runtime_credential_contract,
@@ -218,6 +219,14 @@ def validate_runtime_config(loader: Any) -> RuntimeCriticalConfig:
         KernelConfig.from_mapping(loader.section("kernel"))
     except (AttributeError, ValueError) as exc:
         raise ConfigError(f"Runtime kernel config không hợp lệ: {exc}") from exc
+    try:
+        execution_section = loader.section("execution")
+        # Compatibility loaders used by offline tools may not expose new section
+        # APIs yet. ConfigLoader itself always registers and validates this file.
+        if execution_section:
+            ExecutionConfig.from_mapping(execution_section)
+    except (AttributeError, ValueError) as exc:
+        raise ConfigError(f"Runtime execution config không hợp lệ: {exc}") from exc
     try:
         validate_runtime_credential_contract(loader)
     except ValueError as exc:
@@ -466,7 +475,7 @@ def validate_runtime_config(loader: Any) -> RuntimeCriticalConfig:
                 "self_talk", "self_talk.lore_material.no_repeat_last_n", 6,
             ),
             transaction_max_recent=loader.get(
-                "director", "director.transactions.max_recent", 256,
+                "execution", "transactions.max_recent", 256,
             ),
             decision_record_max_recent=loader.get(
                 "director", "director.decision_records.max_recent", 256,

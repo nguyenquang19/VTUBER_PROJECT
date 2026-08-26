@@ -34,22 +34,23 @@ def test_architecture_inventory_snapshot_matches_current_tree() -> None:
     assert len(tuple((ROOT / "tests").rglob("*.py"))) == snapshot["test_python_files"]
 
 
-def test_architecture_inventory_records_s4_owner_review_checkpoint() -> None:
+def test_architecture_inventory_records_s5_owner_review_checkpoint() -> None:
     inventory = _inventory()
     normalization = inventory["normalization"]
     assert isinstance(normalization, dict)
 
-    assert inventory["status"] == "s4_implementation_owner_review_pending"
+    assert inventory["status"] == "s5_implementation_owner_review_pending"
     assert inventory["checkpoint_revision"] == (
-        "d02c84e9f46a9e9e11442659af7f2574c364b031"
+        "361bc44c0375610a89933fb13a001595c2847a53"
     )
     assert inventory["checkpoint_scope_clean"] is True
     assert inventory["structure_gate_eligible"] is True
     assert inventory["release_gate_eligible"] is False
-    assert normalization["completed_waves"] == ["S0", "S1", "S2", "S3"]
-    assert normalization["active_wave"] == "S4"
+    assert normalization["completed_waves"] == ["S0", "S1", "S2", "S3", "S4"]
+    assert normalization["active_wave"] == "S5"
     assert normalization["canonical_config_owner"] == "config/state.yaml"
     assert normalization["canonical_kernel_config_owner"] == "config/kernel.yaml"
+    assert normalization["canonical_execution_config_owner"] == "config/execution.yaml"
     assert normalization["compatibility_config_files"] == [
         "config/agent_state.yaml",
         "config/relationships.yaml",

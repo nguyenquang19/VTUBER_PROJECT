@@ -1951,6 +1951,95 @@ Acceptance bắt buộc:
 Rollback S4 là quay về `1c6d9d6`; không có data/storage migration. S4 phải commit riêng và dừng chờ owner
 review; không tự chuyển S5 hoặc MCB-5.
 
+#### 13.1.5.5. S5 — canonical execution, verification và outcome cut
+
+S5 bắt đầu docs-first từ checkpoint sạch `361bc44`. Audit xác nhận các primitive hiện hữu đã đúng hướng nhưng
+authority còn phân tán: `DirectorLoop`, `ExternalActionLoop` và `GeneralActionMockLoop` đều tự điều phối terminal
+transaction; speech/local/external contracts nằm ở ba interface; local/OBS implementation nằm dưới
+`services/action` trong khi speech delivery nằm dưới `services/director`. Trong compatibility speech path,
+delivery đã được verifier xác nhận trước business mutation, nhưng chat/history/Thread/Director counters có thể
+được project trước khi transaction chuyển terminal `COMMITTED`. S5 phải sửa ownership/order này mà giữ exact
+public text, action, TTS callback count và device behavior.
+
+Canonical flow S5:
+
+```text
+TurnKernel-selected compatibility action
+  -> ExecutionCoordinator.reserve(action, idempotency)
+  -> compatibility generation/filter (không side effect)
+  -> typed ActionRequest
+  -> executor exactly once
+  -> authoritative verifier
+  -> OutcomeCommitter
+       -> verified: mark delivered -> commit transaction
+       -> unverified/invalid/cancelled: release transaction
+       -> committed only: publish canonical outcome -> compatibility projection adapter
+```
+
+`interfaces/execution.py` trở thành canonical interface owner và tái sử dụng `ActionRequest`/`ActionResult`
+thay vì tạo action DTO thứ hai. Contract dự kiến:
+
+- immutable `ExecutionReservation`: `schema_version`, `execution_id`, `transaction_id`, `action_type`,
+  `idempotency_key`, `created`, `reserved_at`;
+- immutable `VerifiedExecution`: `schema_version`, `execution_id`, `transaction_id`, `request`, `result`,
+  `verification`, `verified_at`; `verified=true` chỉ hợp lệ khi executor success, ID khớp và authoritative
+  verifier cũng verified;
+- `OutcomeDisposition`: `COMMITTED | RELEASED | DUPLICATE_COMMITTED`;
+- immutable `OutcomeCommit`: `schema_version`, `outcome_ref`, `execution_id`, `transaction_id`,
+  `disposition`, `reason_code`, `evidence_refs`, `completed_at`;
+- `ExecutionBoundaryService`: reserve và execute/verify typed request, không project state;
+- `OutcomeCommitterService`: terminalize đúng một reservation và chỉ publish verified outcome sau commit.
+
+Canonical implementation owner là `services/execution/`: `transaction.py`, `local.py`, `external.py`,
+`registry.py`, `obs.py`, `speech.py`, `coordinator.py` và `outcome.py`. Source hiện hữu phải được move/merge,
+không copy thành implementation song song. Các import path `interfaces/action_execution.py`,
+`interfaces/action_transaction.py`, `interfaces/external_executor.py`, `services/action/*`,
+`services/director/action_transaction.py` và `services/director/delivery_boundary.py` chỉ được giữ làm exact
+re-export facade khi còn consumer, có removal wave S8 và không chứa state/logic riêng.
+
+`config/execution.yaml` là owner duy nhất cho transaction bounds, local speech/avatar execution bounds,
+external execute/verify/rollback bounds và OBS transport bounds. Logical read cũ từ `director.transactions` và
+`capabilities.action_adapters|external_actions` chỉ là compatibility alias đến S8; key cũ phải được xóa khỏi
+file cũ để không có hai owner. Feature flags `action_transactions`, `speech_action_adapter`,
+`avatar_action_adapter` và `obs_scene_executor` vẫn giữ nguyên behavior trong S5; xóa toggle thuộc S8.
+
+Outcome Committer chỉ sở hữu terminal transaction, canonical verified-outcome publication và ordering.
+Domain-specific compatibility projection cho pool/history/Director/Thread/SelfTalk vẫn được gọi qua một adapter
+sau `COMMITTED` để giữ exact behavior; S6 mới chuyển các projection continuity đó sang canonical state proposal/
+commit. Projection hoặc journal lỗi sau commit phải observable nhưng không được release ngược transaction đã
+commit hoặc phát side effect lần hai.
+
+Non-goals S5: không Brain public takeover/MCB-5, không đổi prompt/model/sampling/text filter, không đổi soft
+decision/scheduler, không thêm generation, không commit Focus/Memory proposal, không bật OBS/avatar feature,
+không xóa mock/evaluation runtime trước S7, không đổi product version và không bắt đầu S6.
+
+Acceptance bắt buộc:
+
+1. Live speech/local/external path dùng một canonical transaction/coordinator/outcome implementation; zero
+   production logic trong compatibility facades và không có terminal transaction owner thứ hai.
+2. `COMMITTED` chỉ xuất hiện sau typed executor success + authoritative verifier success; invalid/untyped/stale,
+   timeout, cancellation hoặc exception release active reservation; duplicate committed không execute lần hai.
+3. Không có chat/history/Thread/Director/World business projection trước terminal commit. Projection failure sau
+   commit tạo inconsistency evidence nhưng không release, rollback hoặc gọi thiết bị lần hai.
+4. Compatibility `WAIT`, `READ_CHAT`, `ACK_DONATION`, `SELF_TALK`, `FOLLOW_UP`, `TRANSITION` giữ exact action,
+   text, TTS/subtitle call count, transaction terminal state và state diff; OBS/avatar vẫn feature-gated.
+5. Temporal replay giữ đầy đủ reservation/execution/verification/commit timestamps và lineage. Exact structural
+   move chỉ cần deterministic temporal equivalence; nếu delivery latency/cadence drift thì S5 `HOLD` và phải tạo
+   sealed human temporal blind trước acceptance.
+6. Interface/import/config/docs/inventory guard, targeted execution/transaction/device tests, impacted V1
+   Director/TTS/state regression, deterministic replay và full offline đều xanh; rollback rehearsal về
+   `361bc44` không cần storage migration.
+
+S5 phải commit riêng và dừng chờ owner review; không tự chuyển S6 hoặc mở MCB-5.
+
+Implementation S5 đã hoàn tất trong working tree từ checkpoint `361bc44` và đang ở owner-review gate:
+canonical contract/package/config đã tồn tại; live Director, mock và external terminal commit/release đi qua
+`OutcomeCommitter`; compatibility projection chạy sau `COMMITTED`; module cũ chỉ còn exact re-export facade.
+Không có Brain takeover, prompt/model/sampling, feature default hoặc product-version change. Acceptance cuối
+đang chờ owner review với evidence cùng source state: targeted `258 passed`, impacted V1/replay `147 passed`,
+deterministic live-pipeline/temporal replay `14 passed`, full offline `2.488 passed`, `0` lỗi và một warning
+deprecation có sẵn.
+
 ### 13.1.6. Rollout behavior trong quá trình chuẩn hóa
 
 | Trạng thái | Public soft owner | Brain | Compatibility | Failure trước reservation |

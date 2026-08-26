@@ -61,6 +61,8 @@ from services.director.action_context import ActionContextBuilder  # noqa: E402
 from services.director.chat_pulse import ChatPulse  # noqa: E402
 from services.director.director import DirectorAction  # noqa: E402
 from services.director.director_loop import DirectorLoop  # noqa: E402
+from services.execution.coordinator import ExecutionCoordinator  # noqa: E402
+from services.execution.outcome import OutcomeCommitter  # noqa: E402
 from services.kernel.turn_kernel import TurnKernel  # noqa: E402
 from services.director.salience import SaliencePool  # noqa: E402
 from services.director.speech_style import summarize_speech_style  # noqa: E402
@@ -741,6 +743,10 @@ async def run_stress(args: argparse.Namespace) -> int:
         clock=time.time,
     )
     transactions = _transaction_manager(loader, time.time)
+    outcome_committer = OutcomeCommitter.from_loader(loader, transactions)
+    execution_coordinator = ExecutionCoordinator(
+        local_boundary=object(), outcome_committer=outcome_committer,
+    )
     decisions = _decision_manager(loader, time.time)
     self_talk = SelfTalkPlanner.from_loader(
         loader,
@@ -914,6 +920,8 @@ async def run_stress(args: argparse.Namespace) -> int:
             )),
             clock=time.time,
             transaction_manager=transactions,
+            execution_coordinator=execution_coordinator,
+            outcome_committer=outcome_committer,
             decision_records=decisions,
             self_talk_planner=self_talk,
             agent_state=agent_state,

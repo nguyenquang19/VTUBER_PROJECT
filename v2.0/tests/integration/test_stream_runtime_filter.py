@@ -275,7 +275,7 @@ class TestRuntimeFilterWiring:
             assert runtime._cognitive_scheduler.snapshot().running is False
             assert set(runtime._health_supervisor.snapshot()["targets"]) == {
                 "dashboard", "input_router", "llm_main", "obs_perception_adapter",
-                "obs_websocket",
+                "obs_websocket", "outcome_committer", "execution_coordinator",
             }
             assert [
                 adapter.service_id for adapter in runtime._perception_adapters

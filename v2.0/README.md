@@ -4,9 +4,10 @@
 >
 > **Inherited runtime release:** `1.4.3` (patch trên frozen baseline `1.0.0`, 2026-08-14).
 >
-> **Implementation status:** Phase 1–15 đã đóng gate kỹ thuật. Structure normalization S0–S3 đã được
-> checkpoint; S2 tại `d02c84e`, S3 canonical Cognition tại `1c6d9d6` sau full offline. S4 Turn Kernel đã triển
-> khai trong working tree và đang chờ owner review; Compatibility vẫn là public owner. Live runtime dùng một `CognitiveContextBuilder`,
+> **Implementation status:** Phase 1–15 đã đóng gate kỹ thuật. Structure normalization S0–S4 đã được
+> checkpoint; S2 tại `d02c84e`, S3 canonical Cognition tại `1c6d9d6`, S4 Turn Kernel tại `361bc44`.
+> S5 canonical execution/outcome đã triển khai và đang chờ owner review; Compatibility vẫn là public owner.
+> Live runtime dùng một `CognitiveContextBuilder`,
 > một `CognitiveModelAdapter`, còn
 > Agent/World/Perception event đi qua `CanonicalEventNormalizer → CanonicalEventIngress → AuthoritativeStateReducer`.
 > Director V2 đang ở strict primary mode cho test-cutover; Cognitive Brain là subordinate shadow worker
