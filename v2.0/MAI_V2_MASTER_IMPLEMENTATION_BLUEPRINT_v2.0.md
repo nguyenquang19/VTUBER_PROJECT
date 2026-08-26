@@ -2244,8 +2244,8 @@ OperationsSurface, chuyển DecisionRecord/Trajectory thành compatibility proje
 live evaluation lifecycle/config validation, chuyển soak về `services/evaluation`, và giới hạn dashboard live
 vào OperationsSurface + metrics exposition. Hai feature service offline bị loại khỏi live FeatureManager nhưng
 feature inventory YAML vẫn giữ làm metadata/offline compatibility đến S8. Public Compatibility owner, model,
-prompt, sampling, output, scheduler, transaction, delivery, continuity và product version không đổi. S7 đang
-chờ owner review và chưa commit. Evidence: targeted operations/evaluation `394 passed`; live lineage/composition
+prompt, sampling, output, scheduler, transaction, delivery, continuity và product version không đổi. S7 đã
+được owner duyệt, commit và push tại `1f1b48b`. Evidence: targeted operations/evaluation `394 passed`; live lineage/composition
 `258 passed`; deterministic replay/continuity `32 passed`; documentation/inventory/boundary `28 passed`; full
 offline `2.516 passed`, `0` lỗi, một Starlette deprecation warning có sẵn và một local pytest-cache
 permission warning. Không mở S8/MCB-5.
@@ -2294,9 +2294,47 @@ không có dead owner; targeted import/config/dashboard/state tests, determinist
 offline đều xanh. Vì scope được khóa không đổi output/decision/timing, blind review không bắt buộc; bất kỳ public
 text/action/timing drift nào làm S8 `HOLD`. Rollback nguyên khối về `1f1b48b`; chưa version bump hoặc release.
 
-Trạng thái hiện tại: source/config/dashboard/test migration đã hoàn tất và được owner duyệt; chưa commit,
-chưa push, chưa mở MCB-5. Gate đạt: dashboard/operations `33`, docs/inventory/config/boundary `127`, replay/
+Trạng thái hiện tại: source/config/dashboard/test migration đã hoàn tất, được owner duyệt, commit và push tại
+`723ca33`; chưa mở MCB-5. Gate đạt: dashboard/operations `33`, docs/inventory/config/boundary `127`, replay/
 lineage `45`, unit `2.046`, integration `268`, full offline `2.314 passed`, `0` lỗi, một Starlette warning có sẵn.
+
+#### 13.1.5.9. Hậu kiểm post-S8 — đóng baseline trước tuning
+
+Closure change bắt đầu từ `723ca33c1814a53636ec9adcb2511343bacfa660`, chỉ sửa sai lệch tài liệu và
+debris không còn runtime consumer; không đổi public decision, output, model, prompt, sampling, scheduler,
+transaction, delivery, continuity, Memory authority hoặc Brain rollout. Docs-first phải được owner xác nhận
+trước khi sửa source/config/test.
+
+Phạm vi khóa cứng:
+
+1. Đồng bộ README, docs index, Blueprint, System Spec và inventory với S8 commit `723ca33`; root `AGENTS.md`
+   phải trỏ đúng `docs/V1_BASELINE.md`.
+2. Migrate test importer cuối khỏi `services/agent/conversation_context.py`, rồi xóa facade này; xóa bốn package
+   rỗng chỉ còn `__init__.py`: `services/{action,qc,self_model,world}`.
+3. Xóa khỏi `system.yaml` các section zero-reader không mang safety contract: `ambient_talk`, `health`,
+   `event_bus`; xóa `trigger_manager` và `state_machine` khỏi `system.features.core`. Giữ `emergency_stop`
+   làm operator compatibility contract cho tới khi hotkey có owner thay thế; giữ `smoke`, `config_reload`,
+   resource budget và năm core logical capability còn được dùng.
+4. Phân loại 27 feature từng mang disposition `DELETE` thành ba nhóm: xóa ngay bốn flag zero-production-
+   consumer (`filter_ai`, `memory_hierarchical`, `qc_persona`, `ambient_talk`); giữ ba optional runtime control
+   (`speech_action_adapter`, `avatar_action_adapter`, `live_operations`); merge chín migration control vào
+   canonical owner nhưng chưa xóa flag trước cutover (`agent_context`, `context_selector`, `action_transactions`,
+   `decision_records`, `trajectory_records`, `world_model_shadow`, `perception_expansion`,
+   `self_model_projection`, `capability_registry`). Mười một compatibility/Director flag còn lại phải ghi
+   removal gate `BLOCKED` cho tới Brain/live canary và accepted cutover.
+5. Guard phải fail khi current-status prose nói S7/S8 chưa commit, baseline path không tồn tại, facade/package
+   rỗng quay lại, dead config key quay lại, hoặc feature `DELETE` còn tồn tại mà không có blocked removal gate.
+6. Giữ ba proposal local ngoài source bằng exact root `.gitignore` entries (`MAI_DO_LUONG.md`,
+   `MAI_KIEN_TRUC_MOI.md`, `MAI_UPGRADE_PLAN.md`), không xóa hoặc commit nội dung của chúng. Acceptance:
+   targeted config/import/docs guard, deterministic replay liên quan và full offline xanh; Git tree sạch để
+   evidence tuning đạt `source_clean=true`.
+
+Rollback closure về `723ca33`; không storage migration, version bump, release decision hoặc MCB-5.
+
+Owner đã duyệt implementation closure. Kết quả: facade/package/config/feature debris đã được xử lý theo scope;
+`system.emergency_stop` được giữ làm safety compatibility contract; targeted import/config/docs đạt `139
+passed`, deterministic replay/lineage đạt `50 passed`, full offline đạt `2.316 passed`, `0` lỗi và `2`
+warning có sẵn/local cache. Tracked source đủ điều kiện làm clean tuning baseline sau commit/push closure.
 
 ### 13.1.6. Rollout behavior trong quá trình chuẩn hóa
 

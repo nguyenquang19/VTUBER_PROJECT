@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from services.agent.conversation_context import ConversationContextComposer, ConversationContextConfig
+from services.cognition.compatibility_context import ConversationContextComposer, ConversationContextConfig
 from interfaces.state import AgentStateSnapshot
 
 

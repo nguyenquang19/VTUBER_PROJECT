@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from services.agent.conversation_context import (
+from services.cognition.compatibility_context import (
     ConversationContextComposer, ConversationContextConfig,
 )
 from interfaces.state import Goal, GoalKind, GoalSnapshot, GoalSource, GoalStatus

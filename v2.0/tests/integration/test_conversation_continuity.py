@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from services.operations.metrics import MetricsCollector
-from services.agent.conversation_context import (
+from services.cognition.compatibility_context import (
     ConversationContextComposer, ConversationContextConfig,
 )
 from services.agent.open_thread_manager import OpenThreadLimits, OpenThreadManager

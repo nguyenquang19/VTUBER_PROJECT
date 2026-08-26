@@ -4,7 +4,7 @@
 
 **Phiên bản sản phẩm hiện tại:** `1.4.3`
 
-**Ngày xác minh:** 26/08/2026
+**Ngày xác minh:** 27/08/2026
 
 **Vai trò:** nguồn sự thật duy nhất cho behavior đã triển khai, ownership, vận hành, kiểm thử, an toàn,
 tiến độ và known gaps.
@@ -36,8 +36,9 @@ mặc định tắt và chưa có live canary.
 
 Structure normalization S0–S4 đã được chốt; S4 canonical Turn Kernel ở commit `361bc44` đã đạt full offline.
 S5 canonical execution/outcome đã được owner duyệt, commit và push tại `073352b`. S6 canonical Continuity đã
-được owner duyệt, commit và push tại `ac4b3f3`. S7 Operations + offline split đang ở docs-first và chưa có
-implementation; Compatibility vẫn là public owner.
+được owner duyệt, commit và push tại `ac4b3f3`. S7 Operations + offline split đã được owner duyệt, commit và
+push tại `1f1b48b`; S8 dependency-closed compaction đã được owner duyệt, commit và push tại `723ca33`.
+Compatibility vẫn là public owner.
 Agent/World/Perception writes trong live
 runtime và hai replay
 entrypoint hiện cùng đi qua `CanonicalEventNormalizer → CanonicalEventIngress →
@@ -110,8 +111,8 @@ Các cột dưới đây độc lập với nhau. “Có mã” không thay th�
 | Cognitive Brain | MCB-1 contract, MCB-2 Context/Focus và MCB-3 Brain đã có; MCB-4 offline A/B đã retire | Một ContextBuilder, một ModelAdapter và subordinate Brain scheduler đã compose dưới Turn Kernel; feature vẫn `enabled=false`, Compatibility giữ public authority | Contract/negative-path, exact context, replay/live-pipeline và full offline xanh; chất lượng và live authority vẫn `HOLD` | Không |
 
 Ma trận chỉ được nâng trạng thái khi có đường code tương ứng, test phù hợp và evidence máy đọc hoặc vận
-hành. Blueprint tiếp tục giữ scope/phase order; bảng này mô tả working tree sau implementation S4 chưa commit
-ngày 26/08/2026.
+hành. Blueprint tiếp tục giữ scope/phase order; bảng này mô tả runtime sau structure normalization S8 tại
+`723ca33`, trước Brain public cutover.
 
 ---
 
@@ -593,7 +594,7 @@ sập khi phát sóng, nhưng mật độ cao làm giảm khả năng phát hi�
 
 ### 9.11. Cấu hình phân tán — mức trung bình
 
-Có 31 tệp YAML và 53 cờ chức năng sau S8. Agent/World/Self/Relationship dùng một owner `state.yaml`; hai
+Có 31 tệp YAML và 49 cờ chức năng sau hậu kiểm S8. Agent/World/Self/Relationship dùng một owner `state.yaml`; hai
 compatibility YAML và ConfigLoader alias đã được xóa. Repository vẫn chưa có các profile chạy canonical theo mục đích.
 
 **Hậu quả:** khó biết tổ hợp nào là an toàn cho phát triển, thử nghiệm, quan sát V2 hoặc phát sóng thật.
@@ -3848,9 +3849,36 @@ static live graph vẫn không chạm evaluation; canonical state serialization/
 live chỉ nhận Operations Surface; deterministic replay/lineage và full offline xanh. S8 phải `HOLD` nếu có
 public decision/text/timing drift, state/schema drift, missing rollback owner hoặc test bị xóa mà chưa có
 canonical replacement. Source deletion được owner mở khi bắt đầu S8; implementation đã được owner duyệt,
-chưa commit/push và chưa bắt đầu MCB-5. Gate hiện đạt dashboard/operations `33`, docs/inventory/config/boundary
+commit và push tại `723ca33`; chưa bắt đầu MCB-5. Gate đạt dashboard/operations `33`, docs/inventory/config/boundary
 `127`, deterministic replay/lineage `45`, unit `2.046`, integration `268` và full offline `2.314 passed`, `0`
 lỗi; warning duy nhất là Starlette `httpx` deprecation có sẵn. `git diff --check` sạch.
+
+##### 17.2.19.20. Hậu kiểm post-S8 — closure implementation
+
+Audit read-only sau `723ca33` xác nhận runtime/full regression xanh nhưng phát hiện current-status prose còn
+ghi S7/S8 chưa commit, root `AGENTS.md` trỏ sai tên baseline, một test-only context facade, bốn package rỗng,
+dead `system.yaml` sections và feature inventory dùng `DELETE` như thể removal gate đã mở. Closure này không
+thay đổi behavior; nó đóng một baseline máy đọc sạch trước khi tuning.
+
+Machine-readable scope nằm tại `eval/architecture_inventory_v1.yaml::post_s8_closure`. Bốn feature không có
+production consumer được xóa khỏi registry. Ba optional runtime control được `KEEP`. Chín migration control
+được `MERGE` về canonical owner nhưng còn flag cho tới accepted cutover. Mười một compatibility/Director
+control vẫn có target disposition `DELETE`, song phải mang `removal_gate_state: BLOCKED`; số phase trong tên
+gate không tự chứng minh canary/quality/owner acceptance đã đạt.
+
+Config cleanup chỉ xóa key zero-reader không mang safety contract và hai stale core ids; `system.emergency_stop`
+được giữ cho tới khi operator hotkey có canonical owner thay thế. Không đổi value của config còn được runtime đọc.
+Facade cleanup đã migrate test import sang `services.cognition.compatibility_context`, rồi xóa old path và
+package marker rỗng. Guard mới kiểm current-status phrases, existing canonical baseline path, absence của debris,
+dead config và trạng thái feature-removal. Owner đã duyệt implementation closure.
+
+Ba proposal local ngoài scope được giữ nguyên trên disk nhưng thêm exact filename vào root `.gitignore`; chúng
+không trở thành source, không được commit nội dung và không làm tuning evidence mất `source_clean=true`.
+
+Evidence closure: targeted import/config/docs `139 passed`; deterministic replay/lineage `50 passed`; full
+offline `2.316 passed`, `0` lỗi và `2` warning có sẵn/local pytest cache. Không có old facade importer, dead
+system config key hoặc feature zero-consumer còn trong registry. Đây là structure/tuning baseline, không phải
+Brain quality acceptance, public cutover hoặc product release.
 
 ### 17.3. Chuỗi mã để lần theo một lượt
 
@@ -3958,7 +3986,7 @@ shape/type trước khi runtime compose service.
 
 Một chức năng chỉ thực sự hoạt động khi đã được khai báo, đủ phụ thuộc, không xung đột tài nguyên, có phần cài đặt, được ghép vào `StreamRuntime`, có bộ chuyển đổi bên ngoài nếu cần, sức khỏe đạt và cờ đang bật. “Bật trong YAML” không phải bằng chứng có đầu ra thật.
 
-Ảnh chụp `config/features.yaml` ngày 23/08/2026:
+Ảnh chụp `config/features.yaml` ngày 27/08/2026:
 
 - **Đang bật:** `filter_rule`, `tts_streaming`, `animation_smooth`, `data_collector`,
   `embodiment_policy`, `speech_action_adapter`, `avatar_action_adapter`, `agent_context`,
@@ -3967,11 +3995,11 @@ Một chức năng chỉ thực sự hoạt động khi đã được khai báo,
   `trajectory_records`,
   `proactive_hosting`, `self_talk_planner`, `behavior_library`,
   `natural_timing`, `self_talk_lore`, `relationship_memory`, `evaluation_harness`,
-  `evaluation_acceptance`, `live_operations`, `kv_cache_q8`, `ambient_talk`, `world_model_shadow`,
+  `evaluation_acceptance`, `live_operations`, `kv_cache_q8`, `world_model_shadow`,
   `perception_expansion`, `self_model_projection`, `capability_registry`, `action_mock_closed_loop`,
   `director_v2_shadow`, `director_v2_takeover`.
-- **Đang tắt/tùy chọn:** `input_voice`, `input_emotion_voice`, `filter_ai`, `tts_emotion_aware`,
-  `animation_micro`, `memory_semantic`, `memory_hierarchical`, `qc_persona`,
+- **Đang tắt/tùy chọn:** `input_voice`, `input_emotion_voice`, `tts_emotion_aware`,
+  `animation_micro`, `memory_semantic`,
   `goal_proposals`, `thread_extraction`, `speculative_decoding`, `turn_taking_predictor`,
   `obs_scene_executor`, `obs_perception_adapter`,
   `human_like_calibration`, `closed_loop_canary`, `cognitive_brain_shadow`.

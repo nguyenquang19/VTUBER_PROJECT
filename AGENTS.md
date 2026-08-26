@@ -14,7 +14,7 @@
 
 1. `v2.0/AGENTS.md`.
 2. `v2.0/MAI_V2_MASTER_IMPLEMENTATION_BLUEPRINT_v2.0.md`.
-3. `v2.0/docs/00_V1_0_BASELINE.md` và `v2.0/docs/README.md`.
+3. `v2.0/docs/V1_BASELINE.md` và `v2.0/docs/README.md`.
 4. Tài liệu module, interface, composition root, implementation, YAML và impacted tests của phase.
 
 Blueprint là source of truth cho scope và thứ tự migration. Code/interfaces/tests/config cùng tài liệu

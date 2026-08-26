@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from interfaces.compatibility import SelfSnapshot, StateValue, WorldSnapshot
 from interfaces.memory import MemoryEntry, MemoryTier
-from services.agent.conversation_context import ConversationContextComposer, ConversationContextConfig
+from services.cognition.compatibility_context import ConversationContextComposer, ConversationContextConfig
 from interfaces.state import (
     Goal, GoalKind, GoalSnapshot, GoalSource, GoalStatus,
     ShortIntention, ShortIntentionStatus,

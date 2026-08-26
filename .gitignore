@@ -35,3 +35,8 @@ Desktop.ini
 
 # Claude Code internal (worktrees tạm — không track)
 .claude/worktrees/
+
+# Owner-local architecture proposals (kept on disk, never part of source/evidence)
+MAI_DO_LUONG.md
+MAI_KIEN_TRUC_MOI.md
+MAI_UPGRADE_PLAN.md

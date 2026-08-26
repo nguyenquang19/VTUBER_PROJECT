@@ -92,6 +92,20 @@ def test_implementation_re_exports_are_removed() -> None:
     assert [path for path in retired if (ROOT / path).exists()] == []
 
 
+def test_post_s8_facade_and_empty_packages_are_removed() -> None:
+    retired = (
+        "services/agent/conversation_context.py",
+        "services/action/__init__.py",
+        "services/qc/__init__.py",
+        "services/self_model/__init__.py",
+        "services/world/__init__.py",
+    )
+    assert [path for path in retired if (ROOT / path).exists()] == []
+    for directory in ("orchestrator", "services", "scripts", "tests"):
+        for path in (ROOT / directory).rglob("*.py"):
+            assert "services.agent.conversation_context" not in _imports(path), path
+
+
 def test_implementation_modules_use_canonical_state_objects() -> None:
     assert goal_proposal.GoalProposal is canonical_state.GoalProposal
     assert thread_extraction.ThreadExtraction is canonical_state.ThreadExtraction

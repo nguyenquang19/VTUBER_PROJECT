@@ -8,8 +8,9 @@
 > checkpoint; S2 tại `d02c84e`, S3 canonical Cognition tại `1c6d9d6`, S4 Turn Kernel tại `361bc44`.
 > S5 canonical execution/outcome đã được owner duyệt, commit và push tại `073352b`. S6 canonical Continuity đã
 > được owner duyệt, commit và push tại `ac4b3f3`. S7 canonical Operations Surface + offline split đã được
-> owner duyệt, commit và push tại `1f1b48b`. S8 dependency-closed compaction đã được triển khai và được
-> owner duyệt trong working tree; chưa commit/push S8.
+> owner duyệt, commit và push tại `1f1b48b`. S8 dependency-closed compaction đã được owner duyệt, commit và
+> push tại `723ca33`. Hậu kiểm post-S8 từ checkpoint này đã hoàn tất, được owner duyệt và vượt full regression;
+> tracked source hiện là baseline chuẩn bị cho tuning.
 > Compatibility vẫn là public owner.
 > Live runtime dùng một `CognitiveContextBuilder`,
 > một `CognitiveModelAdapter`, còn

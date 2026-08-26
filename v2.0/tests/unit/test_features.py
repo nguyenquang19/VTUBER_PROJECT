@@ -463,7 +463,10 @@ class TestFromConfig:
         m = FeatureManager.from_config(loader)
         ids = {f.id for f in m._features.values()}
         assert "filter_rule" in ids
-        assert "ambient_talk" in ids
+        assert "ambient_talk" not in ids
+        assert "filter_ai" not in ids
+        assert "memory_hierarchical" not in ids
+        assert "qc_persona" not in ids
         assert "input_voice" in ids
 
     async def test_avatar_adapter_requires_strict_embodiment_policy(self) -> None:
@@ -482,7 +485,8 @@ class TestFromConfig:
         loader.load_all()
         m = FeatureManager.from_config(loader)
         assert m.is_core("llm_main") is True
-        assert m.is_core("trigger_manager") is True
+        assert m.is_core("trigger_manager") is False
+        assert m.is_core("state_machine") is False
         assert m.is_core("filter_rule") is False
 
     def test_vram_budget_computed(self) -> None:

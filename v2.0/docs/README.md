@@ -24,8 +24,9 @@ S4 Turn Kernel tại `361bc44`. Canonical ingress/authoritative state, một Cog
 đã nằm trong live/replay graph; Compatibility vẫn public và Brain chỉ là subordinate shadow worker. S5
 canonical execution/outcome đã được owner duyệt, commit và push tại `073352b`. S6 canonical Continuity đã
 được owner duyệt, commit và push tại `ac4b3f3`. S7 canonical Operations Surface + offline split đã được
-owner duyệt, commit và push tại `1f1b48b`. S8 dependency-closed compaction đã được triển khai và được owner
-duyệt trong working tree; chưa commit/push. Product version vẫn là `1.4.3`.
+owner duyệt, commit và push tại `1f1b48b`. S8 dependency-closed compaction đã được owner duyệt, commit và
+push tại `723ca33`. Hậu kiểm post-S8 từ checkpoint này đã hoàn tất, được owner duyệt và vượt full regression;
+tracked source hiện là baseline chuẩn bị cho tuning. Product version vẫn là `1.4.3`.
 
 ## Thứ tự đọc
 

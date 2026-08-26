@@ -274,8 +274,10 @@ class TestRealConfigFiles:
         assert loader.require("system", "dashboard.port") == 7860
         assert loader.require("system", "emergency_stop.hotkey") == "ctrl+shift+x"
         assert loader.require("system", "conversation.cooldown_ms") == 500
-        # ambient talk: threshold cứng 60s, KHÔNG probability (N1 / spec 7.9.2)
-        assert loader.require("system", "ambient_talk.min_silence_seconds") == 60
+        assert loader.get("system", "ambient_talk") is None
+        assert loader.get("system", "health") is None
+        assert loader.get("system", "event_bus") is None
+        assert loader.require("self_talk", "self_talk.min_silence_seconds") == 20
 
     def test_models_config_matches_preflight(self) -> None:
         loader = ConfigLoader(REPO_ROOT / "config")

@@ -299,3 +299,41 @@ def test_s2_checkpoint_and_s8_canonical_boundary_are_current() -> None:
     assert "│   ├── model.yaml" not in blueprint
     assert "s2_implemented_source_dirty" not in combined
     assert "S2 sau đó được triển khai trong working tree nhưng chưa commit" not in combined
+
+
+def test_post_s8_closure_status_paths_and_config_are_current() -> None:
+    readme_head = "\n".join(
+        (ROOT / "README.md").read_text(encoding="utf-8").splitlines()[:30]
+    )
+    index_head = "\n".join(
+        (ROOT / "docs" / "README.md").read_text(encoding="utf-8").splitlines()[:40]
+    )
+    spec_head = "\n".join(
+        (ROOT / "docs" / "MAI_V2_SYSTEM_SPEC.md")
+        .read_text(encoding="utf-8").splitlines()[:140]
+    )
+    for current in (readme_head, index_head, spec_head):
+        assert "723ca33" in current
+        assert "S8" in current
+        assert "S8 chưa commit" not in current
+        assert "chưa commit/push S8" not in current
+
+    root_agents = (ROOT.parent / "AGENTS.md").read_text(encoding="utf-8")
+    assert "v2.0/docs/V1_BASELINE.md" in root_agents
+    assert "v2.0/docs/00_V1_0_BASELINE.md" not in root_agents
+    assert (ROOT / "docs" / "V1_BASELINE.md").is_file()
+
+    system = _yaml("config/system.yaml")
+    for dead in ("ambient_talk", "health", "event_bus"):
+        assert dead not in system
+    assert system["emergency_stop"]["enabled"] is True
+    assert "trigger_manager" not in system["features"]["core"]
+    assert "state_machine" not in system["features"]["core"]
+
+    features = _yaml("config/features.yaml")["features"]
+    for dead in ("filter_ai", "memory_hierarchical", "qc_persona", "ambient_talk"):
+        assert dead not in features
+
+    ignore = (ROOT.parent / ".gitignore").read_text(encoding="utf-8")
+    for proposal in ("MAI_DO_LUONG.md", "MAI_KIEN_TRUC_MOI.md", "MAI_UPGRADE_PLAN.md"):
+        assert proposal in ignore

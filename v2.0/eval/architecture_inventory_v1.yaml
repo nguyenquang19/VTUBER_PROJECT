@@ -1,7 +1,7 @@
 schema_version: 2
-status: s8_implementation_complete_owner_approved
+status: post_s8_closure_implementation_complete_owner_approved
 generated_at_utc: "2026-08-27T00:00:00Z"
-checkpoint_revision: "1f1b48b39c8504096c007498a995d916fd22a58b"
+checkpoint_revision: "723ca33c1814a53636ec9adcb2511343bacfa660"
 checkpoint_scope_clean: true
 structure_gate_eligible: true
 release_gate_eligible: false
@@ -132,7 +132,7 @@ s7_operations:
     - product_version_change
 
 s8_compaction:
-  status: implementation_complete_owner_approved
+  status: implementation_complete_owner_approved_committed_pushed
   base_revision: "1f1b48b39c8504096c007498a995d916fd22a58b"
   baseline_targeted_tests: 51
   source_deletion_authorized: true
@@ -208,6 +208,76 @@ s8_compaction:
     full_offline_failures: 0
     full_offline_warnings: 1
 
+post_s8_closure:
+  status: implementation_complete_owner_approved
+  base_revision: "723ca33c1814a53636ec9adcb2511343bacfa660"
+  public_behavior_change_authorized: false
+  product_version_change_authorized: false
+  source_cleanup:
+    compatibility_facades:
+      - services/agent/conversation_context.py
+    empty_packages:
+      - services/action/__init__.py
+      - services/qc/__init__.py
+      - services/self_model/__init__.py
+      - services/world/__init__.py
+  dead_system_config_sections: [ambient_talk, health, event_bus]
+  retained_operator_compatibility_sections: [emergency_stop]
+  stale_core_feature_ids: [trigger_manager, state_machine]
+  ignored_local_proposals:
+    - MAI_DO_LUONG.md
+    - MAI_KIEN_TRUC_MOI.md
+    - MAI_UPGRADE_PLAN.md
+  feature_classification:
+    delete_now_zero_production_consumer:
+      - filter_ai
+      - memory_hierarchical
+      - qc_persona
+      - ambient_talk
+    keep_optional_runtime_control:
+      - speech_action_adapter
+      - avatar_action_adapter
+      - live_operations
+    merge_into_canonical_owner_after_cutover:
+      - agent_context
+      - context_selector
+      - action_transactions
+      - decision_records
+      - trajectory_records
+      - world_model_shadow
+      - perception_expansion
+      - self_model_projection
+      - capability_registry
+    delete_after_blocked_brain_or_live_cutover:
+      - director_goal_arbiter
+      - director_chat_gate
+      - conversation_continuity
+      - mood_behavior_policy
+      - mood_v2_shadow
+      - mood_v2_prompt
+      - proactive_hosting
+      - self_talk_planner
+      - behavior_library
+      - director_v2_shadow
+      - director_v2_takeover
+  guard_requirements:
+    - current_status_matches_s8_commit
+    - canonical_baseline_path_exists
+    - zero_post_s8_facade_or_empty_package
+    - zero_dead_system_config_key
+    - retained_delete_feature_has_blocked_removal_gate
+  evidence_required:
+    - targeted_import_config_documentation_guard
+    - deterministic_replay
+    - full_offline_regression
+    - clean_tuning_source
+  evidence:
+    targeted_import_config_documentation_tests: 139
+    deterministic_replay_lineage_tests: 50
+    full_offline_tests: 2316
+    full_offline_failures: 0
+    full_offline_warnings: 2
+
 scope:
   - interfaces/**/*.py
   - orchestrator/**/*.py
@@ -220,16 +290,16 @@ scope:
   - tests/**/*.py
 
 snapshot:
-  production_python_files: 203
-  production_modules: 203
+  production_python_files: 198
+  production_modules: 198
   config_yaml_files: 31
   prompt_files: 7
   script_files: 35
   test_python_files_before_s0: 224
   test_python_files: 220
-  feature_count: 53
-  feature_enabled_count: 36
-  feature_disabled_count: 17
+  feature_count: 49
+  feature_enabled_count: 35
+  feature_disabled_count: 14
   preexisting_tracked_modified_at_s0:
     - MAI_V2_MASTER_IMPLEMENTATION_BLUEPRINT_v2.0.md
     - config/cognition.yaml
@@ -298,7 +368,7 @@ normalization:
     - services/operations/turn_journal.py
     - services/operations/surface.py
     - config/operations.yaml
-  canonical_import_facades:
+  canonical_state_implementations:
     - services/state/agent.py
     - services/state/event_ledger.py
     - services/state/world.py
@@ -330,6 +400,9 @@ normalization:
     s5_execution_config_docs_targeted: 258
     s5_impacted_director_tts_state_replay: 147
     s5_deterministic_live_pipeline_temporal_replay: 14
+    post_s8_closure_targeted: 139
+    post_s8_closure_replay_lineage: 50
+    post_s8_closure_full_offline: 2316
     full_offline: 2488
     full_offline_failures: 0
     full_offline_warnings: 1
@@ -553,9 +626,10 @@ overrides:
     target_owner: services/cognition/context_builder.py
     reason: Exact agent-only compatibility projection owned by the canonical builder.
   - path: services/agent/conversation_context.py
-    disposition: MERGE
+    disposition: DELETE
     target_owner: services/cognition/context_builder.py
-    reason: Preserve bounded selection behavior under one typed context owner.
+    deletion_gate: post_s8_zero_repository_importer
+    reason: Bounded selection behavior lives in cognition; the test-only import facade is retired.
   - path: services/agent/conversation_move_planner.py
     disposition: DELETE
     target_owner: services/cognition/brain.py
@@ -640,56 +714,52 @@ features:
   input_voice: {enabled: false, disposition: KEEP, target_owner: services/ingress}
   input_emotion_voice: {enabled: false, disposition: KEEP, target_owner: services/ingress}
   filter_rule: {enabled: true, disposition: MERGE, target_owner: services/kernel/turn_validator.py}
-  filter_ai: {enabled: false, disposition: DELETE, target_owner: services/kernel/turn_validator.py, deletion_gate: after_s4_hard_validator_acceptance}
   tts_streaming: {enabled: true, disposition: KEEP, target_owner: services/execution}
   tts_emotion_aware: {enabled: false, disposition: KEEP, target_owner: services/execution}
   animation_smooth: {enabled: true, disposition: MERGE, target_owner: services/execution}
   embodiment_policy: {enabled: true, disposition: KEEP, target_owner: services/execution}
   animation_micro: {enabled: false, disposition: KEEP, target_owner: services/execution}
-  speech_action_adapter: {enabled: true, disposition: DELETE, target_owner: services/execution, deletion_gate: after_s5_speech_boundary_canonical}
-  avatar_action_adapter: {enabled: true, disposition: DELETE, target_owner: services/execution, deletion_gate: after_s5_avatar_boundary_canonical}
+  speech_action_adapter: {enabled: true, disposition: KEEP, target_owner: services/execution}
+  avatar_action_adapter: {enabled: true, disposition: KEEP, target_owner: services/execution}
   obs_scene_executor: {enabled: false, disposition: KEEP, target_owner: services/execution}
   memory_semantic: {enabled: false, disposition: KEEP, target_owner: services/state}
-  memory_hierarchical: {enabled: false, disposition: DELETE, target_owner: services/state, deletion_gate: after_s6_memory_inventory}
-  qc_persona: {enabled: false, disposition: DELETE, target_owner: services/evaluation, deletion_gate: after_s7_offline_split}
   data_collector: {enabled: true, disposition: MERGE, target_owner: services/operations}
-  agent_context: {enabled: true, disposition: DELETE, target_owner: services/cognition/context_builder.py, deletion_gate: after_s8_compatibility_removal}
+  agent_context: {enabled: true, disposition: MERGE, target_owner: services/cognition/context_builder.py}
   goal_proposals: {enabled: false, disposition: MERGE, target_owner: services/state}
-  director_goal_arbiter: {enabled: true, disposition: DELETE, target_owner: services/kernel, deletion_gate: after_s6_goal_parity}
-  director_chat_gate: {enabled: true, disposition: DELETE, target_owner: services/kernel/opportunity_scheduler.py, deletion_gate: after_s4_read_chat_canary}
+  director_goal_arbiter: {enabled: true, disposition: DELETE, target_owner: services/kernel, deletion_gate: after_s6_goal_parity, removal_gate_state: BLOCKED}
+  director_chat_gate: {enabled: true, disposition: DELETE, target_owner: services/kernel/opportunity_scheduler.py, deletion_gate: after_s4_read_chat_canary, removal_gate_state: BLOCKED}
   thread_extraction: {enabled: false, disposition: MERGE, target_owner: services/state}
-  conversation_continuity: {enabled: true, disposition: DELETE, target_owner: services/state, deletion_gate: after_s6_continuity_canonical}
-  context_selector: {enabled: true, disposition: DELETE, target_owner: services/cognition/context_builder.py, deletion_gate: after_s8_compatibility_removal}
-  mood_behavior_policy: {enabled: true, disposition: DELETE, target_owner: services/cognition/brain.py, deletion_gate: after_s6_affect_context_parity}
-  mood_v2_shadow: {enabled: true, disposition: DELETE, target_owner: services/state/affect.py, deletion_gate: after_s6_affect_context_parity}
-  mood_v2_prompt: {enabled: true, disposition: DELETE, target_owner: services/state/affect.py, deletion_gate: after_s6_affect_context_parity}
-  action_transactions: {enabled: true, disposition: DELETE, target_owner: services/kernel/transaction_manager.py, deletion_gate: after_s5_transaction_canonical}
-  decision_records: {enabled: true, disposition: DELETE, target_owner: services/operations/turn_journal.py, deletion_gate: after_s7_journal_canonical}
-  trajectory_records: {enabled: true, disposition: DELETE, target_owner: services/operations/turn_journal.py, deletion_gate: after_s7_journal_canonical}
+  conversation_continuity: {enabled: true, disposition: DELETE, target_owner: services/state, deletion_gate: after_s6_continuity_canonical, removal_gate_state: BLOCKED}
+  context_selector: {enabled: true, disposition: MERGE, target_owner: services/cognition/context_builder.py}
+  mood_behavior_policy: {enabled: true, disposition: DELETE, target_owner: services/cognition/brain.py, deletion_gate: after_s6_affect_context_parity, removal_gate_state: BLOCKED}
+  mood_v2_shadow: {enabled: true, disposition: DELETE, target_owner: services/state/affect.py, deletion_gate: after_s6_affect_context_parity, removal_gate_state: BLOCKED}
+  mood_v2_prompt: {enabled: true, disposition: DELETE, target_owner: services/state/affect.py, deletion_gate: after_s6_affect_context_parity, removal_gate_state: BLOCKED}
+  action_transactions: {enabled: true, disposition: MERGE, target_owner: services/execution}
+  decision_records: {enabled: true, disposition: MERGE, target_owner: services/operations/turn_journal.py}
+  trajectory_records: {enabled: true, disposition: MERGE, target_owner: services/operations/turn_journal.py}
   closed_loop_canary: {enabled: false, disposition: OFFLINE, target_owner: services/evaluation}
-  proactive_hosting: {enabled: true, disposition: DELETE, target_owner: services/kernel/opportunity_scheduler.py, deletion_gate: after_s6_scheduler_canary}
-  self_talk_planner: {enabled: true, disposition: DELETE, target_owner: services/kernel/opportunity_scheduler.py, deletion_gate: after_s6_self_talk_temporal_canary}
+  proactive_hosting: {enabled: true, disposition: DELETE, target_owner: services/kernel/opportunity_scheduler.py, deletion_gate: after_s6_scheduler_canary, removal_gate_state: BLOCKED}
+  self_talk_planner: {enabled: true, disposition: DELETE, target_owner: services/kernel/opportunity_scheduler.py, deletion_gate: after_s6_self_talk_temporal_canary, removal_gate_state: BLOCKED}
   self_talk_lore: {enabled: true, disposition: MERGE, target_owner: services/state}
-  behavior_library: {enabled: true, disposition: DELETE, target_owner: services/cognition/brain.py, deletion_gate: after_s6_content_blind_acceptance}
+  behavior_library: {enabled: true, disposition: DELETE, target_owner: services/cognition/brain.py, deletion_gate: after_s6_content_blind_acceptance, removal_gate_state: BLOCKED}
   natural_timing: {enabled: true, disposition: MERGE, target_owner: services/kernel/opportunity_scheduler.py}
   relationship_memory: {enabled: true, disposition: MERGE, target_owner: services/state}
   human_like_calibration: {enabled: false, disposition: OFFLINE, target_owner: services/evaluation}
   evaluation_harness: {enabled: true, disposition: OFFLINE, target_owner: services/evaluation}
   evaluation_acceptance: {enabled: true, disposition: OFFLINE, target_owner: services/evaluation}
-  live_operations: {enabled: true, disposition: DELETE, target_owner: services/operations, deletion_gate: after_s7_operations_always_on}
+  live_operations: {enabled: true, disposition: KEEP, target_owner: services/operations}
   speculative_decoding: {enabled: false, disposition: KEEP, target_owner: services/cognition}
   kv_cache_q8: {enabled: true, disposition: KEEP, target_owner: services/cognition}
   turn_taking_predictor: {enabled: false, disposition: ARCHIVE, target_owner: services/evaluation}
-  ambient_talk: {enabled: true, disposition: DELETE, target_owner: services/kernel/opportunity_scheduler.py, deletion_gate: after_s6_self_talk_temporal_canary}
-  world_model_shadow: {enabled: true, disposition: DELETE, target_owner: services/state, deletion_gate: after_s2_world_state_canonical}
-  perception_expansion: {enabled: true, disposition: DELETE, target_owner: services/ingress, deletion_gate: after_s2_ingress_canonical}
+  world_model_shadow: {enabled: true, disposition: MERGE, target_owner: services/state}
+  perception_expansion: {enabled: true, disposition: MERGE, target_owner: services/ingress}
   obs_perception_adapter: {enabled: false, disposition: KEEP, target_owner: services/ingress}
-  self_model_projection: {enabled: true, disposition: DELETE, target_owner: services/state, deletion_gate: after_s2_self_state_canonical}
-  capability_registry: {enabled: true, disposition: DELETE, target_owner: services/kernel, deletion_gate: after_s4_capability_canonical}
+  self_model_projection: {enabled: true, disposition: MERGE, target_owner: services/state}
+  capability_registry: {enabled: true, disposition: MERGE, target_owner: services/kernel}
   cognitive_brain_shadow: {enabled: false, disposition: MERGE, target_owner: services/cognition/brain.py}
   action_mock_closed_loop: {enabled: true, disposition: OFFLINE, target_owner: services/evaluation}
-  director_v2_shadow: {enabled: true, disposition: DELETE, target_owner: services/evaluation, deletion_gate: after_s6_all_conversation_modes_canary}
-  director_v2_takeover: {enabled: true, disposition: DELETE, target_owner: services/kernel, deletion_gate: after_s6_all_conversation_modes_canary}
+  director_v2_shadow: {enabled: true, disposition: DELETE, target_owner: services/evaluation, deletion_gate: after_s6_all_conversation_modes_canary, removal_gate_state: BLOCKED}
+  director_v2_takeover: {enabled: true, disposition: DELETE, target_owner: services/kernel, deletion_gate: after_s6_all_conversation_modes_canary, removal_gate_state: BLOCKED}
 
 deletion_policy:
   source_deletion_authorized: true

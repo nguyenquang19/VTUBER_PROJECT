@@ -34,14 +34,14 @@ def test_architecture_inventory_snapshot_matches_current_tree() -> None:
     assert len(tuple((ROOT / "tests").rglob("*.py"))) == snapshot["test_python_files"]
 
 
-def test_architecture_inventory_records_s8_docs_first_checkpoint() -> None:
+def test_architecture_inventory_records_post_s8_closure() -> None:
     inventory = _inventory()
     normalization = inventory["normalization"]
     assert isinstance(normalization, dict)
 
-    assert inventory["status"] == "s8_implementation_complete_owner_approved"
+    assert inventory["status"] == "post_s8_closure_implementation_complete_owner_approved"
     assert inventory["checkpoint_revision"] == (
-        "1f1b48b39c8504096c007498a995d916fd22a58b"
+        "723ca33c1814a53636ec9adcb2511343bacfa660"
     )
     assert inventory["checkpoint_scope_clean"] is True
     assert inventory["structure_gate_eligible"] is True
@@ -79,18 +79,33 @@ def test_architecture_inventory_records_s8_docs_first_checkpoint() -> None:
 
     s8 = inventory["s8_compaction"]
     assert isinstance(s8, dict)
-    assert s8["status"] == "implementation_complete_owner_approved"
+    assert s8["status"] == "implementation_complete_owner_approved_committed_pushed"
     assert s8["source_deletion_authorized"] is True
     assert s8["public_behavior_change_authorized"] is False
     assert len(s8["pure_re_exports_to_delete_after_import_migration"]) == 19
     assert len(s8["implementation_moves"]) == 4
     assert len(s8["dead_runtime_files_to_delete"]) == 9
 
-    canonical_facades = set(normalization["canonical_import_facades"])
+    canonical_implementations = set(normalization["canonical_state_implementations"])
     compatibility_re_exports = set(normalization["compatibility_re_exports"])
-    assert canonical_facades.isdisjoint(compatibility_re_exports)
-    for relative in canonical_facades | compatibility_re_exports:
+    assert canonical_implementations.isdisjoint(compatibility_re_exports)
+    for relative in canonical_implementations | compatibility_re_exports:
         assert (ROOT / relative).is_file(), relative
+
+    closure = inventory["post_s8_closure"]
+    assert closure["status"] == "implementation_complete_owner_approved"
+    assert closure["evidence"] == {
+        "targeted_import_config_documentation_tests": 139,
+        "deterministic_replay_lineage_tests": 50,
+        "full_offline_tests": 2316,
+        "full_offline_failures": 0,
+        "full_offline_warnings": 2,
+    }
+    for relative in (
+        *closure["source_cleanup"]["compatibility_facades"],
+        *closure["source_cleanup"]["empty_packages"],
+    ):
+        assert not (ROOT / relative).exists(), relative
 
 
 def test_architecture_inventory_rules_cover_every_scoped_file() -> None:
@@ -119,6 +134,7 @@ def test_architecture_inventory_overrides_are_valid_and_non_destructive() -> Non
     inventory = _inventory()
     overrides = inventory["overrides"]
     s8 = inventory["s8_compaction"]
+    closure = inventory["post_s8_closure"]
     assert isinstance(overrides, list)
     assert isinstance(s8, dict)
     seen: set[str] = set()
@@ -133,6 +149,8 @@ def test_architecture_inventory_overrides_are_valid_and_non_destructive() -> Non
             *s8["dead_runtime_files_to_delete"],
             *(move["from"] for move in s8["implementation_moves"]),
             *(path for path in s8["dashboard_compatibility_to_delete"] if not path.startswith("feature:")),
+            *closure["source_cleanup"]["compatibility_facades"],
+            *closure["source_cleanup"]["empty_packages"],
         }
         if path in retired:
             assert not (ROOT / path).exists(), path
@@ -165,3 +183,24 @@ def test_architecture_inventory_covers_exact_feature_registry() -> None:
         assert item.get("target_owner"), name
         if item["disposition"] == "DELETE":
             assert item.get("deletion_gate"), name
+            assert item.get("removal_gate_state") == "BLOCKED", name
+
+    classification = inventory["post_s8_closure"]["feature_classification"]
+    removed = set(classification["delete_now_zero_production_consumer"])
+    assert removed.isdisjoint(configured)
+    assert set(classification["keep_optional_runtime_control"]) == {
+        name for name, item in feature_inventory.items()
+        if item["disposition"] == "KEEP" and name in {
+            "speech_action_adapter", "avatar_action_adapter", "live_operations",
+        }
+    }
+    merged = set(classification["merge_into_canonical_owner_after_cutover"])
+    assert merged == {
+        name for name, item in feature_inventory.items()
+        if item["disposition"] == "MERGE" and name in merged
+    }
+    blocked = set(classification["delete_after_blocked_brain_or_live_cutover"])
+    assert blocked == {
+        name for name, item in feature_inventory.items()
+        if item["disposition"] == "DELETE"
+    }
