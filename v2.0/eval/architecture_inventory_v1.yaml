@@ -1,7 +1,7 @@
 schema_version: 2
-status: s5_implementation_owner_review_pending
-generated_at_utc: "2026-08-26T04:30:00Z"
-checkpoint_revision: "361bc44c0375610a89933fb13a001595c2847a53"
+status: s6_implementation_owner_review_pending
+generated_at_utc: "2026-08-26T08:00:00Z"
+checkpoint_revision: "073352bd71b9b7e8990004985844561ec469557c"
 checkpoint_scope_clean: true
 structure_gate_eligible: true
 release_gate_eligible: false
@@ -49,7 +49,7 @@ s4_turn_kernel:
   public_behavior_change_authorized: false
 
 s5_execution_outcome:
-  status: implementation_complete_owner_review_pending
+  status: implementation_complete_owner_approved
   base_revision: "361bc44c0375610a89933fb13a001595c2847a53"
   baseline_targeted_tests: 93
   current_terminal_transaction_owners: 3
@@ -66,6 +66,38 @@ s5_execution_outcome:
   brain_takeover_authorized: false
   product_version_change_authorized: false
 
+s6_continuity:
+  status: implementation_complete_owner_review_pending
+  base_revision: "073352bd71b9b7e8990004985844561ec469557c"
+  baseline_targeted_tests: 85
+  current_post_commit_continuity_callers: 4
+  resulting_post_commit_continuity_entrypoints_live: 1
+  target_contract_owner: interfaces/state.py
+  target_commit_owner: services/state/continuity.py
+  target_config_owner: config/state.yaml
+  verified_outcome_owner: services/execution/outcome.py
+  context_reader_owner: services/cognition/context_builder.py
+  public_behavior_change_authorized: false
+  brain_takeover_authorized: false
+  brain_focus_memory_proposal_live_authorized: false
+  memory_persistence_mode: bounded_owned_background_after_core_commit
+  product_version_change_authorized: false
+  evidence:
+    targeted_tests: 207
+    deterministic_replay_tests: 36
+    runtime_wiring_tests: 6
+    full_offline_tests: 2495
+    full_offline_failures: 0
+  non_goals:
+    - mcb5_or_brain_public_takeover
+    - prompt_model_sampling_or_filter_change
+    - scheduler_or_timing_policy_change
+    - new_generation
+    - unverified_or_failed_outcome_commit
+    - second_thread_focus_memory_writer
+    - compatibility_import_removal_before_s8
+    - product_version_change
+
 scope:
   - interfaces/**/*.py
   - orchestrator/**/*.py
@@ -78,15 +110,15 @@ scope:
   - tests/**/*.py
 
 snapshot:
-  production_python_files: 227
-  production_modules: 223
+  production_python_files: 228
+  production_modules: 224
   static_live_reachable_modules: 160
   not_static_live_reachable_modules: 63
   config_yaml_files: 35
   prompt_files: 7
   script_files: 35
   test_python_files_before_s0: 224
-  test_python_files: 227
+  test_python_files: 228
   feature_count: 54
   feature_enabled_count: 37
   feature_disabled_count: 17
@@ -114,8 +146,8 @@ snapshot:
     - tests/unit/test_cognitive_ab_source.py
 
 normalization:
-  completed_waves: [S0, S1, S2, S3, S4]
-  active_wave: S5
+  completed_waves: [S0, S1, S2, S3, S4, S5]
+  active_wave: S6
   retired_components:
     - mcb4_offline_dual_path_harness
   owner_approved_deleted_paths:

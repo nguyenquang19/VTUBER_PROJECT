@@ -142,12 +142,15 @@ class TestPrimarySuccess:
         await runner.run_turn("r1", "chào")
         assert canned.pick() == "V"
 
-    async def test_deferred_delivery_commits_history_only_after_success(self) -> None:
+    async def test_deferred_delivery_exposes_context_without_committing_state(self) -> None:
         runner, pm, *_ = make_runner(FakeLLM(VALID))
         await runner.run_turn("deferred", "chào", defer_delivery_commit=True)
         assert pm.history() == []
+        pending = runner.pending_delivery_context("deferred")
+        assert pending.history_user_text == "chào"
+        assert pending.parsed.text == "Chào cậu."
         assert runner.finalize_delivery("deferred", True) is True
-        assert [item.content for item in pm.history()] == ["chào", "Chào cậu."]
+        assert pm.history() == []
         assert runner.finalize_delivery("deferred", True) is False
 
     async def test_failed_deferred_delivery_discards_history(self) -> None:
@@ -156,7 +159,7 @@ class TestPrimarySuccess:
         assert runner.finalize_delivery("failed", False) is True
         assert pm.history() == []
 
-    async def test_memory_is_written_only_after_verified_delivery(self) -> None:
+    async def test_runner_never_writes_memory_for_deferred_delivery(self) -> None:
         class Memory:
             def __init__(self) -> None:
                 self.entries = []
@@ -172,10 +175,7 @@ class TestPrimarySuccess:
         assert memory.entries == []
         assert runner.finalize_delivery("verified", True) is True
         await asyncio.sleep(0)
-        await asyncio.sleep(0)
-        assert len(memory.entries) == 1
-        assert memory.entries[0].metadata["verified"] is True
-        assert memory.entries[0].metadata["outcome_id"] == "verified"
+        assert memory.entries == []
         assert runner.memory_write_metrics()["memory_background_writes_pending"] == 0
 
     async def test_failed_delivery_never_schedules_success_memory(self) -> None:
@@ -191,7 +191,7 @@ class TestPrimarySuccess:
         await asyncio.sleep(0)
         assert runner.memory_write_metrics()["memory_background_writes_scheduled"] == 0
 
-    async def test_memory_write_tasks_are_bounded_and_cancelled_on_close(self) -> None:
+    async def test_runner_has_no_deferred_memory_task_to_close(self) -> None:
         blocker = asyncio.Event()
 
         class SlowMemory:
@@ -205,7 +205,7 @@ class TestPrimarySuccess:
         await runner.run_turn("slow", "câu đủ dài để ghi nhớ", defer_delivery_commit=True)
         assert runner.finalize_delivery("slow", True) is True
         await asyncio.sleep(0)
-        assert runner.memory_write_metrics()["memory_background_writes_pending"] == 1
+        assert runner.memory_write_metrics()["memory_background_writes_pending"] == 0
         await runner.close_memory_writes()
         assert runner.memory_write_metrics()["memory_background_writes_pending"] == 0
 

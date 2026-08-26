@@ -102,6 +102,7 @@ class DirectorLoop:
         action_adapter_boundary: Any = None,
         execution_coordinator: Any = None,
         outcome_committer: Any = None,
+        continuity_state: Any = None,
         room_reaction_recent_window: int = 16,
         room_reaction_similarity_threshold: float = 0.72,
         room_reaction_max_regenerations: int = 1,
@@ -163,6 +164,7 @@ class DirectorLoop:
         self._action_adapter_boundary = action_adapter_boundary
         self._execution_coordinator = execution_coordinator
         self._outcome_committer = outcome_committer
+        self._continuity_state = continuity_state
         self._turn_event_sink: Any = None
         self._turn_kernel: Any = None
         self._director_v2_shadow = None
@@ -1073,7 +1075,8 @@ class DirectorLoop:
         )
         if not spoken:
             return False
-        self._runner.commit_self_talk(parsed.text)
+        if not self._continuity_committed(req_id):
+            self._runner.commit_self_talk(parsed.text)
         self._director.mark_spoke(dec.action, now)
         return True
 
@@ -1127,7 +1130,8 @@ class DirectorLoop:
         )
         if not spoken:
             return False
-        self._runner.commit_self_talk(parsed.text)
+        if not self._continuity_committed(request_id):
+            self._runner.commit_self_talk(parsed.text)
         self._director.mark_spoke(dec.action, now)
         self._thread_forced_park_total += 1
         return True
@@ -1250,7 +1254,10 @@ class DirectorLoop:
         )
         if not spoken:
             return False
-        if dec.action is DirectorAction.READ_CHAT:
+        if (
+            dec.action is DirectorAction.READ_CHAT
+            and not self._continuity_committed(req_id)
+        ):
             self._focus_delivered_chat(refs)
         for r in refs:
             self._pool.remove(r.msg_id)
@@ -1331,7 +1338,8 @@ class DirectorLoop:
         )
         if not spoken:
             return False
-        self._clear_soft_continuations("room_reaction_delivered")
+        if not self._continuity_committed(req_id):
+            self._clear_soft_continuations("room_reaction_delivered")
         self._room_reaction_dedup.record(str(getattr(parsed, "text", "")))
         self._director.mark_room_reaction(now)
         # SUMMARY clears low-score backlog; VIBE removes the reacted cluster.
@@ -1582,7 +1590,8 @@ class DirectorLoop:
             self._self_talk_planner.commit(plan.plan_id, parsed.text, now)
         if self._autonomy is not None:
             self._autonomy.on_self_spoke(parsed.text)
-        self._runner.commit_self_talk(parsed.text)
+        if not self._continuity_committed(delivery_req_id):
+            self._runner.commit_self_talk(parsed.text)
         self._record_self_talk(delivery_req_id, parsed.text, now)
         self._turns_self += 1
         self._director.mark_spoke(dec.action, now)
@@ -1608,7 +1617,8 @@ class DirectorLoop:
         )
         if not spoken:
             return False
-        self._runner.commit_self_talk(parsed.text)
+        if not self._continuity_committed(req_id):
+            self._runner.commit_self_talk(parsed.text)
         self._director.advance_segment(now)
         self._transitions += 1
         self._director.mark_spoke(DirectorAction.TRANSITION, now)
@@ -1673,11 +1683,24 @@ class DirectorLoop:
             action_adapter_boundary=self._action_adapter_boundary,
             execution_coordinator=self._execution_coordinator,
             outcome_committer=self._outcome_committer,
+            continuity_state=self._continuity_state,
             mood_provider=self._current_mood,
             speech_completed=self._record_speech_completed,
             filter_rejected=self._quarantine_filter_rejection,
             logger=self._log,
         )
+
+    def _continuity_committed(self, delivery_id: str) -> bool:
+        if self._continuity_state is None:
+            return False
+        recent = getattr(self._continuity_state, "recent", None)
+        if not callable(recent):
+            return False
+        try:
+            records = recent(1)
+        except Exception:
+            return False
+        return bool(records and getattr(records[-1], "delivery_id", None) == delivery_id)
 
     def _quarantine_filter_rejection(
         self, *, refs: list[Any], thread_id: str | None, goal_id: str | None,

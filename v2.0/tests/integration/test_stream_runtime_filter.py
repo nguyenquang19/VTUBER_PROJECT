@@ -276,6 +276,7 @@ class TestRuntimeFilterWiring:
             assert set(runtime._health_supervisor.snapshot()["targets"]) == {
                 "dashboard", "input_router", "llm_main", "obs_perception_adapter",
                 "obs_websocket", "outcome_committer", "execution_coordinator",
+                "continuity_state",
             }
             assert [
                 adapter.service_id for adapter in runtime._perception_adapters

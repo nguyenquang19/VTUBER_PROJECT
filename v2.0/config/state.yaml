@@ -9,6 +9,24 @@ authoritative:
   dedup_ttl_s: 1800
   max_dedup_keys: 512
 
+continuity:
+  max_records: 128
+  dedup_ttl_s: 1800
+  max_speech_age_s: 1800
+  max_text_chars: 512
+  max_evidence_refs: 16
+  max_pending_memory_writes: 64
+  memory_write_timeout_s: 5.0
+  allowed_memory_scopes: [session, viewer]
+  self_talk_history_actions:
+    - ack_donation
+    - ask_follow_up
+    - continue_thread
+    - follow_up
+    - self_talk
+    - share_goal_progress
+    - transition
+
 agent_state:
   recent_events_max: 64
   recent_event_ttl_s: 1800

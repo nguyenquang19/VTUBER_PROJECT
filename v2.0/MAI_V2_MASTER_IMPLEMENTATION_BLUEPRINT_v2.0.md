@@ -2032,13 +2032,107 @@ Acceptance bắt buộc:
 
 S5 phải commit riêng và dừng chờ owner review; không tự chuyển S6 hoặc mở MCB-5.
 
-Implementation S5 đã hoàn tất trong working tree từ checkpoint `361bc44` và đang ở owner-review gate:
-canonical contract/package/config đã tồn tại; live Director, mock và external terminal commit/release đi qua
-`OutcomeCommitter`; compatibility projection chạy sau `COMMITTED`; module cũ chỉ còn exact re-export facade.
-Không có Brain takeover, prompt/model/sampling, feature default hoặc product-version change. Acceptance cuối
-đang chờ owner review với evidence cùng source state: targeted `258 passed`, impacted V1/replay `147 passed`,
-deterministic live-pipeline/temporal replay `14 passed`, full offline `2.488 passed`, `0` lỗi và một warning
-deprecation có sẵn.
+Implementation S5 đã được owner duyệt, commit và push tại `073352b`: canonical contract/package/config đã tồn
+tại; live Director, mock và external terminal commit/release đi qua `OutcomeCommitter`; compatibility projection
+chạy sau `COMMITTED`; module cũ chỉ còn exact re-export facade. Không có Brain takeover,
+prompt/model/sampling, feature-default hoặc product-version change. Evidence chốt cùng source state: targeted
+`258 passed`, impacted V1/replay `147 passed`, deterministic live-pipeline/temporal replay `14 passed`, full
+offline `2.488 passed`, `0` lỗi và một warning deprecation có sẵn.
+
+#### 13.1.5.6. S6 — canonical continuity commit và verified feedback
+
+S6 bắt đầu docs-first từ checkpoint sạch `073352b`. Baseline continuity targeted gồm context/focus, Thread,
+Memory extractor và outcome ordering đạt `85 passed`. Audit xác nhận S5 đã có một terminal outcome owner nhưng
+feedback sau commit vẫn phân tán:
+
+- `services/execution/speech.py` commit transaction rồi gọi compatibility callback;
+- `LLMTurnRunner.finalize_delivery()` tự ghi prompt history, tự lên lịch Memory và tự phát `SPEECH_FINAL`;
+- `DirectorLoop` tự ghi self-talk history, tự focus delivered chat và phát `SPEECH_COMPLETED`;
+- `AgentState` fan-out cùng event tới Thread/Goal/recap, còn `CognitiveContextBuilder` dựng recent speech/Focus và
+  query Memory từ các projection đó.
+
+Vì vậy lỗi hiện tại không phải thiếu dữ liệu continuity mà là một verified outcome có nhiều post-commit caller,
+không có một idempotency record chung và Memory background task thuộc sai owner. S6 phải gom mutation entrypoint,
+không tạo Thread/Focus/Memory store thứ hai và không biến `OutcomeCommitter` thành domain reducer.
+
+Canonical flow S6:
+
+```text
+typed executor + authoritative verifier
+  -> OutcomeCommitter: transaction COMMITTED + OutcomeCommit
+  -> ContinuityCommitter.commit_verified(outcome, turn_input)
+       1. validate COMMITTED linkage, provenance, privacy, TTL và idempotency
+       2. append exact delivered-turn record
+       3. emit một canonical SPEECH_COMPLETED event vào AuthoritativeStateReducer
+       4. reducers cập nhật Thread/Goal/Focus projection đúng một lần
+       5. project prompt history/self-talk compatibility đúng một lần
+       6. validate Memory proposal/extraction rồi giao cho bounded task owner
+  -> CognitiveContextBuilder đọc exact committed record + state snapshot ở lượt kế
+```
+
+Contract S6 đặt trong `interfaces/state.py`, không tạo interface continuity rời:
+
+- immutable `DeliveredTurnRecord`: `schema_version`, `continuity_id`, `outcome_ref`, `transaction_id`,
+  `delivery_id`, `session_id`, `source_mode`, `action_type`, `speech_text`, optional `history_input`,
+  `ref_event_ids`, optional `goal_id`/`intention_id`/`thread_id`/`conversation_move`/`viewer_ref`, exact
+  `trigger_type`, `output_ok`, bounded mood name/intensity, `delivered_at` và `evidence_refs`;
+- immutable `ContinuityCommitReceipt`: `continuity_id`, disposition `COMMITTED | DUPLICATE | INCONSISTENT`,
+  bounded committed/failure facets và `completed_at`;
+- `ContinuityStateService`: nhận duy nhất `OutcomeCommit` có disposition `COMMITTED`, commit một
+  `DeliveredTurnRecord` theo `continuity_id` và trả receipt; failed/released/unknown/stale outcome bị reject;
+- `FocusProposal` và `MemoryProposal` tiếp tục dùng canonical type trong `interfaces/cognition.py`; Kernel/state
+  validator mới được chuyển proposal đã được evidence-bind thành reducer input. Brain không bao giờ gọi store.
+
+Canonical implementation owner là `services/state/continuity.py`; `config/state.yaml::continuity` sở hữu
+capacity, speech age, dedup TTL, privacy allowlist, pending Memory capacity và retry/timeout bounds. Không tạo
+`config/continuity.yaml`. `OutcomeCommitter` vẫn chỉ terminalize/publish outcome. `CognitiveContextBuilder` đọc
+recent delivered speech từ continuity snapshot thay vì tự quét một event ledger khác, nhưng Thread/Focus/Memory
+vẫn lấy từ canonical state owners và giữ exact bounded rendering của S3.
+
+Live S6 chỉ chuyển verified Compatibility outcome qua entrypoint mới. Brain vẫn `OFF|SHADOW`, không public,
+không được commit Focus/Memory proposal và không mở MCB-5. Contract proposal được giữ để MCB-6/7 dùng sau khi
+speech scheduling gate đã mở; S6 không compose một proposal consumer chết. Memory compatibility extraction vẫn
+deterministic như hiện tại, nhưng task lifecycle, backpressure, idempotency và failure metric chuyển từ
+`LLMTurnRunner` sang `ContinuityStateService`. Core delivered-turn/Thread/Focus/history commit hoàn tất đồng bộ;
+semantic Memory persistence là bounded owned background work và chỉ được expose sau write success.
+
+Sau S6, `DirectorLoop` chỉ giữ scheduling/business counters, pool consumption và segment/self-talk planner state;
+nó không được tự ghi history, Focus, Thread hay Memory. Synthetic/replay delivery phải đi cùng
+`ContinuityStateService`, không phát `SPEECH_COMPLETED` trực tiếp. Compatibility facade/import chỉ xóa ở S8 sau
+canary; S6 xóa logic writer trùng nhưng không xóa rollback path chưa qua gate.
+
+Non-goals S6: không Brain public takeover/MCB-5, không đổi prompt/model/sampling/filter hoặc public text/action,
+không đổi scheduler/cadence/WAIT policy, không thêm generation, không bật OBS/avatar, không migrate semantic DB,
+không tăng product version và không bắt đầu S7.
+
+Acceptance bắt buộc:
+
+1. Mỗi `OutcomeCommit(COMMITTED)` có tối đa một `DeliveredTurnRecord`; duplicate replay không ghi history,
+   Thread/Focus/Memory hoặc event lần hai; RELEASED/unverified outcome ghi zero continuity state.
+2. Lượt kế đọc đúng exact delivered text/outcome lineage; failed delivery, generated-but-not-delivered text và
+   Memory write chưa thành công không xuất hiện trong context.
+3. Live/replay chỉ có một post-commit continuity mutation entrypoint. Không còn direct history/self-talk,
+   Focus, `SPEECH_COMPLETED` hoặc Memory scheduling trong `DirectorLoop`/`LLMTurnRunner`/synthetic caller.
+4. Thread target/move, Goal completion, Focus TTL, prompt history và enabled/disabled Memory giữ exact state-diff
+   parity; privacy scope/provenance invalid phải reject riêng facet và tạo inconsistency evidence, không rollback
+   transaction đã commit hoặc phát lại speech.
+5. Core commit không chờ embedding; pending Memory queue bounded, lifecycle do runtime stop/drain/cancel, retry
+   idempotent và có metrics `continuity_commit_total`, `continuity_duplicate_total`,
+   `continuity_inconsistency_total`, `continuity_memory_pending`/`failed`.
+6. Import/cycle/config/docs/inventory guard, targeted continuity/outcome tests, impacted V1 Director/LLM/Memory
+   regression, deterministic temporal replay và full offline đều xanh. Vì ownership/timing continuity đổi,
+   temporal trace phải chứng minh không cadence drift; nếu drift vượt baseline thì S6 `HOLD` và cần sealed human
+   timing blind trước acceptance.
+
+Implementation S6 đã hoàn tất trong working tree: canonical state contract/config/service đã được compose vào
+verified speech path; deferred Runner chỉ cung cấp pending metadata; Cognition đọc recent speech từ committed
+continuity record; Memory background lifecycle thuộc continuity service. Compatibility fallback chỉ chạy khi
+không có committed continuity record. Evidence: targeted `207 passed`, deterministic replay/live-pipeline
+`36 passed`, runtime composition `6 passed`, full offline `2.495 passed`, `0` lỗi và một Starlette deprecation
+warning có sẵn.
+
+Rollback S6 là quay về `073352b`; không có storage migration. Implementation phải commit riêng và dừng chờ
+owner review; không tự chuyển S7 hoặc mở MCB-5.
 
 ### 13.1.6. Rollout behavior trong quá trình chuẩn hóa
 

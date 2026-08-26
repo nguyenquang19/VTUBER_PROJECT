@@ -6,12 +6,14 @@ Terminal transaction ownership belongs to the S5 Outcome Committer.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable
 
 from interfaces.animation import AnimationCommand, MoodState
 from interfaces.compatibility import ActionRequest, ActionResult, ActionStatus
 from interfaces.execution import VerificationResult, VerifiedExecution
+from interfaces.state import ContinuityCommitDisposition, DeliveredTurnRecord
 
 SpeakFn = Callable[[str, str], Awaitable[Any]]
 MoodProvider = Callable[[], MoodState]
@@ -37,6 +39,7 @@ class DirectorDeliveryBoundary:
         action_adapter_boundary: Any = None,
         execution_coordinator: Any = None,
         outcome_committer: Any = None,
+        continuity_state: Any = None,
     ) -> None:
         self._runner = runner
         self._speak = speak
@@ -46,6 +49,7 @@ class DirectorDeliveryBoundary:
         self._action_adapter_boundary = action_adapter_boundary
         self._execution_coordinator = execution_coordinator
         self._outcome_committer = outcome_committer
+        self._continuity_state = continuity_state
         self._mood_provider = mood_provider
         self._speech_completed = speech_completed
         self._filter_rejected = filter_rejected
@@ -200,23 +204,47 @@ class DirectorDeliveryBoundary:
                     verified_at=completed_at,
                 )
 
+        outcome = None
         if reservation is not None:
             assert verified_execution is not None
-            self._outcome_committer.commit_verified(reservation, verified_execution)
+            outcome = self._outcome_committer.commit_verified(reservation, verified_execution)
         elif transaction_id is not None:
             self._transactions.mark_delivered(transaction_id)
         try:
+            pending = self._pending_delivery_context(request_id)
             self.finalize_runner_delivery(request_id, True)
-            self._speech_completed(
-                request_id,
-                action,
-                refs,
-                goal_id=goal_id,
-                intention_id=intention_id,
-                text=text,
-                thread_id=thread_id,
-                conversation_move=conversation_move,
-            )
+            if outcome is not None and self._continuity_state is not None:
+                receipt = self._continuity_state.commit_verified(
+                    outcome,
+                    self._continuity_record(
+                        outcome=outcome,
+                        pending=pending,
+                        request_id=request_id,
+                        action=action,
+                        refs=refs,
+                        goal_id=goal_id,
+                        intention_id=intention_id,
+                        text=text,
+                        thread_id=thread_id,
+                        conversation_move=conversation_move,
+                        parsed=parsed,
+                    ),
+                )
+                if receipt.disposition is ContinuityCommitDisposition.INCONSISTENT:
+                    self._outcome_committer.record_projection_failure(
+                        reservation, "continuity_state",
+                    )
+            else:
+                self._speech_completed(
+                    request_id,
+                    action,
+                    refs,
+                    goal_id=goal_id,
+                    intention_id=intention_id,
+                    text=text,
+                    thread_id=thread_id,
+                    conversation_move=conversation_move,
+                )
         except Exception as exc:
             if reservation is None:
                 raise
@@ -245,6 +273,76 @@ class DirectorDeliveryBoundary:
             except Exception as exc:  # pragma: no cover - defensive
                 self._log.warning("animation_express_failed", error=str(exc))
         return True
+
+    def _pending_delivery_context(self, request_id: str) -> Any:
+        getter = getattr(self._runner, "pending_delivery_context", None)
+        if not callable(getter):
+            return None
+        try:
+            return getter(request_id)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _continuity_record(
+        *, outcome: Any, pending: Any, request_id: str, action: Any,
+        refs: list[Any], goal_id: str | None, intention_id: str | None,
+        text: str, thread_id: str | None, conversation_move: str | None,
+        parsed: Any,
+    ) -> DeliveredTurnRecord:
+        action_type = str(getattr(action, "value", action)).strip()
+        session_id = str(
+            getattr(pending, "session_id", None)
+            or getattr(getattr(parsed, "session_id", None), "value", None)
+            or "runtime"
+        ).strip()
+        history_input = (
+            getattr(pending, "history_user_text", None)
+            if bool(getattr(pending, "commit_history", False)) else None
+        )
+        mood = getattr(parsed, "mood", None)
+        mood_name = None
+        mood_intensity = None
+        if mood is not None and callable(getattr(mood, "dominant", None)):
+            mood_name = str(mood.dominant())
+            mood_intensity = 0 if mood_name == "neutral" else int(
+                getattr(mood, mood_name, 0),
+            )
+        identity = f"{outcome.outcome_ref}\n{request_id}"
+        continuity_id = f"continuity:{hashlib.sha256(identity.encode('utf-8')).hexdigest()}"
+        evidence = tuple(dict.fromkeys((
+            outcome.outcome_ref,
+            f"delivery:{request_id}",
+            *tuple(outcome.evidence_refs),
+        )))
+        return DeliveredTurnRecord(
+            schema_version=1,
+            continuity_id=continuity_id,
+            outcome_ref=outcome.outcome_ref,
+            transaction_id=outcome.transaction_id,
+            delivery_id=request_id,
+            session_id=session_id,
+            source_mode=str(getattr(pending, "mode", None) or action_type),
+            action_type=action_type,
+            speech_text=text,
+            history_input=history_input,
+            ref_event_ids=tuple(
+                value for value in (
+                    str(getattr(ref, "msg_id", "") or "") for ref in refs
+                ) if value
+            ),
+            goal_id=goal_id,
+            intention_id=intention_id,
+            thread_id=thread_id,
+            conversation_move=conversation_move,
+            viewer_ref=getattr(pending, "viewer_id", None),
+            trigger_type=getattr(pending, "trigger_type", None),
+            output_ok=bool(getattr(parsed, "ok", False)),
+            mood_dominant=mood_name,
+            mood_intensity=mood_intensity,
+            delivered_at=outcome.completed_at,
+            evidence_refs=evidence,
+        )
 
     @staticmethod
     def _speech_action_type(action: Any) -> str:

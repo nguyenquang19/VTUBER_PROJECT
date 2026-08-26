@@ -6,7 +6,8 @@
 >
 > **Implementation status:** Phase 1–15 đã đóng gate kỹ thuật. Structure normalization S0–S4 đã được
 > checkpoint; S2 tại `d02c84e`, S3 canonical Cognition tại `1c6d9d6`, S4 Turn Kernel tại `361bc44`.
-> S5 canonical execution/outcome đã triển khai và đang chờ owner review; Compatibility vẫn là public owner.
+> S5 canonical execution/outcome đã được owner duyệt, commit và push tại `073352b`. S6 canonical Continuity đã
+> triển khai trong working tree và đang chờ owner review; Compatibility vẫn là public owner.
 > Live runtime dùng một `CognitiveContextBuilder`,
 > một `CognitiveModelAdapter`, còn
 > Agent/World/Perception event đi qua `CanonicalEventNormalizer → CanonicalEventIngress → AuthoritativeStateReducer`.

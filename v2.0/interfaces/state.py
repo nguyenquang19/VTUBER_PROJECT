@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, field_validator
 
 from interfaces.base import Service
 from interfaces.compatibility import SelfSnapshot, WorldSnapshot
+from interfaces.execution import OutcomeCommit
 from interfaces.events import (
     AgentEventKind,
     AgentEventSource,
@@ -335,6 +336,120 @@ class AuthoritativeStateService(Service):
     @abstractmethod
     def snapshot(self) -> AuthoritativeStateSnapshot:
         """Return the immutable aggregate view of authoritative domain owners."""
+
+
+class ContinuityCommitDisposition(str, Enum):
+    COMMITTED = "committed"
+    DUPLICATE = "duplicate"
+    INCONSISTENT = "inconsistent"
+
+
+@dataclass(frozen=True)
+class DeliveredTurnRecord:
+    """Exact verified speech fact consumed by the next cognitive turn."""
+
+    schema_version: int
+    continuity_id: str
+    outcome_ref: str
+    transaction_id: str
+    delivery_id: str
+    session_id: str
+    source_mode: str
+    action_type: str
+    speech_text: str
+    history_input: str | None
+    ref_event_ids: tuple[str, ...]
+    goal_id: str | None
+    intention_id: str | None
+    thread_id: str | None
+    conversation_move: str | None
+    viewer_ref: str | None
+    trigger_type: str | None
+    output_ok: bool
+    mood_dominant: str | None
+    mood_intensity: int | None
+    delivered_at: datetime
+    evidence_refs: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if isinstance(self.schema_version, bool) or self.schema_version != 1:
+            raise ValueError("delivered turn schema_version must be 1")
+        for name in (
+            "continuity_id", "outcome_ref", "transaction_id", "delivery_id",
+            "session_id", "source_mode", "action_type", "speech_text",
+        ):
+            object.__setattr__(
+                self, name, _continuity_required(getattr(self, name), name),
+            )
+        for name in (
+            "history_input", "goal_id", "intention_id", "thread_id",
+            "conversation_move", "viewer_ref", "trigger_type", "mood_dominant",
+        ):
+            object.__setattr__(
+                self, name, _continuity_optional(getattr(self, name), name),
+            )
+        object.__setattr__(
+            self, "ref_event_ids", _continuity_strings(
+                self.ref_event_ids, "ref_event_ids", allow_empty=True,
+            ),
+        )
+        object.__setattr__(
+            self, "evidence_refs", _continuity_strings(
+                self.evidence_refs, "evidence_refs", allow_empty=False,
+            ),
+        )
+        if not isinstance(self.output_ok, bool):
+            raise ValueError("output_ok must be a bool")
+        if self.mood_intensity is not None and (
+            isinstance(self.mood_intensity, bool)
+            or not isinstance(self.mood_intensity, int)
+            or not 0 <= self.mood_intensity <= 10
+        ):
+            raise ValueError("mood_intensity must be an integer from 0 to 10")
+        object.__setattr__(self, "delivered_at", _continuity_utc(self.delivered_at))
+
+
+@dataclass(frozen=True)
+class ContinuityCommitReceipt:
+    schema_version: int
+    continuity_id: str
+    disposition: ContinuityCommitDisposition
+    committed_facets: tuple[str, ...]
+    failed_facets: tuple[str, ...]
+    completed_at: datetime
+
+    def __post_init__(self) -> None:
+        if isinstance(self.schema_version, bool) or self.schema_version != 1:
+            raise ValueError("continuity receipt schema_version must be 1")
+        object.__setattr__(
+            self, "continuity_id",
+            _continuity_required(self.continuity_id, "continuity_id"),
+        )
+        if not isinstance(self.disposition, ContinuityCommitDisposition):
+            raise ValueError("continuity receipt disposition is invalid")
+        object.__setattr__(
+            self, "committed_facets", _continuity_strings(
+                self.committed_facets, "committed_facets", allow_empty=True,
+            ),
+        )
+        object.__setattr__(
+            self, "failed_facets", _continuity_strings(
+                self.failed_facets, "failed_facets", allow_empty=True,
+            ),
+        )
+        object.__setattr__(self, "completed_at", _continuity_utc(self.completed_at))
+
+
+class ContinuityStateService(Service):
+    @abstractmethod
+    def commit_verified(
+        self, outcome: OutcomeCommit, record: DeliveredTurnRecord,
+    ) -> ContinuityCommitReceipt:
+        """Commit one verified turn idempotently after transaction COMMITTED."""
+
+    @abstractmethod
+    def recent(self, limit: int | None = None) -> tuple[DeliveredTurnRecord, ...]:
+        """Return bounded committed speech facts in commit order."""
 
 
 class GoalKind(str, Enum):
@@ -694,10 +809,43 @@ def _goal_thaw(value: Any) -> Any:
     return value
 
 
+def _continuity_required(value: Any, field_name: str) -> str:
+    if not isinstance(value, str) or not value.strip() or value != value.strip():
+        raise ValueError(f"{field_name} must be canonical non-empty text")
+    return value
+
+
+def _continuity_optional(value: Any, field_name: str) -> str | None:
+    if value is None:
+        return None
+    return _continuity_required(value, field_name)
+
+
+def _continuity_strings(
+    value: Any, field_name: str, *, allow_empty: bool,
+) -> tuple[str, ...]:
+    if not isinstance(value, tuple):
+        raise ValueError(f"{field_name} must be a tuple")
+    result = tuple(_continuity_required(item, field_name) for item in value)
+    if not allow_empty and not result:
+        raise ValueError(f"{field_name} must not be empty")
+    if len(result) != len(set(result)):
+        raise ValueError(f"{field_name} must contain unique values")
+    return result
+
+
+def _continuity_utc(value: Any) -> datetime:
+    if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError("continuity timestamps must be timezone-aware")
+    return value.astimezone(timezone.utc)
+
+
 __all__ = [
     "AgentEventKind", "AgentEventSource", "AgentStateSnapshot", "AuthoritativeStateService",
     "AuthoritativeStateSnapshot", "BehaviorDecision",
-    "BehaviorKind", "ConversationMove", "EventProvenance", "GroundedEvent",
+    "BehaviorKind", "ContinuityCommitDisposition", "ContinuityCommitReceipt",
+    "ContinuityStateService", "ConversationMove", "DeliveredTurnRecord",
+    "EventProvenance", "GroundedEvent",
     "Goal", "GoalKind", "GoalProposal", "GoalSnapshot", "GoalSource", "GoalStatus",
     "OpenThread", "SessionRecap", "SessionRecapItem", "ShortIntention",
     "ShortIntentionStatus", "StreamPhase", "ThreadContribution", "ThreadEvidence",

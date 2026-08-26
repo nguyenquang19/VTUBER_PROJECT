@@ -21,6 +21,7 @@ from interfaces.compatibility import (
     WorldSnapshot,
 )
 from interfaces.memory import MemoryEntry, MemoryTier
+from interfaces.state import DeliveredTurnRecord
 from orchestrator.metrics_collector import MetricsCollector
 from services.agent.goal_types import GoalSnapshot
 from services.agent.types import (
@@ -292,6 +293,7 @@ def _builder(
     clock: datetime = NOW,
     metrics: MetricsCollector | None = None,
     memory: _Memory | None = None,
+    continuity: object | None = None,
 ) -> CognitiveContextBuilder:
     return CognitiveContextBuilder(
         config,
@@ -302,6 +304,7 @@ def _builder(
         goal_manager=_Snapshot(sources["goal"]),
         thread_manager=_Snapshot(sources["thread"]),
         memory_service=memory or _Memory(sources["memory"]),  # type: ignore[arg-type]
+        continuity_service=continuity,
         metrics=metrics,
         clock=lambda: clock,
     )
@@ -460,7 +463,6 @@ async def test_builder_owns_exact_compatibility_projection_lifecycle() -> None:
         agent_context_projection=agent_view,
         conversation_context_projection=projection,
     )
-
     assert builder.agent_context_view is agent_view
     assert builder.conversation_context_view is projection
     await builder.start()
@@ -469,6 +471,46 @@ async def test_builder_owns_exact_compatibility_projection_lifecycle() -> None:
     await builder.stop()
     assert projection.stopped == 1
 
+
+@pytest.mark.asyncio
+async def test_recent_speech_reads_verified_continuity_records_when_composed() -> None:
+    config = _config()
+    record = DeliveredTurnRecord(
+        schema_version=1,
+        continuity_id="continuity:verified",
+        outcome_ref="outcome:verified",
+        transaction_id="transaction:verified",
+        delivery_id="delivery-verified",
+        session_id="session-1",
+        source_mode="chat",
+        action_type="read_chat",
+        speech_text="Đây là câu đã tới người xem.",
+        history_input="Cậu nói gì?",
+        ref_event_ids=("chat-1",),
+        goal_id=None,
+        intention_id=None,
+        thread_id="thread-1",
+        conversation_move="deepen",
+        viewer_ref=None,
+        trigger_type="youtube",
+        output_ok=True,
+        mood_dominant="neutral",
+        mood_intensity=0,
+        delivered_at=NOW - timedelta(seconds=1),
+        evidence_refs=("outcome:verified",),
+    )
+
+    class Continuity:
+        def recent(self, _limit=None):
+            return (record,)
+
+    builder = _builder(config, _sources(), continuity=Continuity())
+    await builder.start()
+    context = await builder.build(_request(config))
+    assert context is not None
+    assert len(context.recent_delivered_speech) == 1
+    assert context.recent_delivered_speech[0].delivery_id == "delivery-verified"
+    assert context.recent_delivered_speech[0].speech_text == record.speech_text
 
 def test_config_rejects_invalid_context_and_focus_bounds() -> None:
     with pytest.raises(ValueError, match="memory_query_top_k"):

@@ -175,6 +175,7 @@ class StreamRuntime:
         action_adapter_boundary: Any = None,
         execution_coordinator: Any = None,
         outcome_committer: Any = None,
+        continuity_state: Any = None,
         embodiment_policy: Any = None,
         external_executor_registry: Any = None,
         external_action_loop: Any = None,
@@ -231,6 +232,7 @@ class StreamRuntime:
         self._action_adapter_boundary = action_adapter_boundary
         self._execution_coordinator = execution_coordinator
         self._outcome_committer = outcome_committer
+        self._continuity_state = continuity_state
         self._embodiment_policy = embodiment_policy
         self._external_executor_registry = external_executor_registry
         self._external_action_loop = external_action_loop
@@ -278,6 +280,8 @@ class StreamRuntime:
         try:
             if self._authoritative_state is not None:
                 await self._authoritative_state.start()
+            if self._continuity_state is not None:
+                await self._continuity_state.start()
             if self._capability_registry is not None:
                 await self._capability_registry.start()
             if self._outcome_committer is not None:
@@ -467,6 +471,9 @@ class StreamRuntime:
             with contextlib.suppress(Exception):
                 await self._cognitive_scheduler.stop()
         # Memory
+        if self._continuity_state is not None:
+            with contextlib.suppress(Exception):
+                await self._continuity_state.stop()
         with contextlib.suppress(Exception):
             await self._runner.close_memory_writes()
         if self._memory is not None:
@@ -649,6 +656,10 @@ class StreamRuntime:
             "execution_outcomes": (
                 self._outcome_committer.snapshot()
                 if self._outcome_committer is not None else None
+            ),
+            "continuity": (
+                self._continuity_state.snapshot()
+                if self._continuity_state is not None else None
             ),
             "embodiment": (
                 self._embodiment_policy.snapshot().to_dict()
@@ -938,6 +949,9 @@ class StreamRuntime:
         if self._outcome_committer is not None:
             with contextlib.suppress(Exception):
                 m.update(self._outcome_committer.get_metrics())
+        if self._continuity_state is not None:
+            with contextlib.suppress(Exception):
+                m.update(self._continuity_state.get_metrics())
         if self._embodiment_policy is not None:
             with contextlib.suppress(Exception):
                 m.update(self._embodiment_policy.get_metrics())
@@ -1785,6 +1799,16 @@ async def _compose_stream_runtime(
     outcome_committer = OutcomeCommitter.from_loader(
         loader, action_transactions, metrics=metrics,
     )
+    from services.state.continuity import ContinuityCommitter
+    continuity_state = ContinuityCommitter.from_loader(
+        loader,
+        authoritative_state=authoritative_state,
+        prompt_history=pm,
+        goal_manager=goal_manager,
+        memory=memory,
+        memory_extractor=memory_extractor,
+        metrics=metrics,
+    )
     from services.director.decision_record import DecisionRecordManager
     try:
         decision_record_status = await feature_manager.get_status("decision_records")
@@ -1977,6 +2001,7 @@ async def _compose_stream_runtime(
         action_adapter_boundary=action_adapter_boundary,
         execution_coordinator=execution_coordinator,
         outcome_committer=outcome_committer,
+        continuity_state=continuity_state,
         room_reaction_recent_window=int(room_reaction.get("recent_window", 16)),
         room_reaction_similarity_threshold=float(
             room_reaction.get("similarity_threshold", 0.72)
@@ -2627,6 +2652,9 @@ async def _compose_stream_runtime(
             "outcome_committer", outcome_committer.health_check,
         )
         health_supervisor.register_target(
+            "continuity_state", continuity_state.health_check,
+        )
+        health_supervisor.register_target(
             "execution_coordinator", execution_coordinator.health_check,
         )
         health_supervisor.register_target(
@@ -2667,6 +2695,7 @@ async def _compose_stream_runtime(
         goal_manager=goal_manager,
         thread_manager=open_thread_manager,
         memory_service=memory,
+        continuity_service=continuity_state,
         metrics=metrics,
         agent_context_projection=agent_context_projection,
         conversation_context_projection=conversation_context_projection,
@@ -2716,6 +2745,7 @@ async def _compose_stream_runtime(
         action_adapter_boundary=action_adapter_boundary,
         execution_coordinator=execution_coordinator,
         outcome_committer=outcome_committer,
+        continuity_state=continuity_state,
         embodiment_policy=embodiment_policy,
         external_executor_registry=external_executor_registry,
         external_action_loop=external_action_loop,

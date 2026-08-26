@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from interfaces.execution import ActionTransactionState
+from interfaces.state import ContinuityCommitDisposition
 from services.execution.coordinator import ExecutionCoordinator
 from services.execution.outcome import OutcomeCommitter
 from services.execution.speech import DirectorDeliveryBoundary
@@ -19,6 +20,16 @@ class _Runner:
 
     def finalize_delivery(self, request_id: str, success: bool) -> None:
         self.finalized.append((request_id, success))
+
+    def pending_delivery_context(self, _request_id: str):
+        return SimpleNamespace(
+            session_id="session-1",
+            mode="chat",
+            history_user_text="xin chào",
+            viewer_id="viewer-hash",
+            trigger_type="youtube",
+            commit_history=True,
+        )
 
 
 class _Log:
@@ -113,3 +124,57 @@ async def test_post_commit_projection_error_never_releases_verified_delivery() -
     assert delivered is True
     assert transactions.get(reservation.transaction_id).state is ActionTransactionState.COMMITTED
     assert committer.get_metrics()["outcome_committer_total"]["PROJECTION_FAILED"] == 1
+
+
+@pytest.mark.asyncio
+async def test_committed_delivery_routes_only_through_canonical_continuity() -> None:
+    transactions = ActionTransactionManager()
+    committer = OutcomeCommitter(
+        transactions,
+        max_recent=8,
+        max_reason_chars=32,
+        max_evidence_refs=4,
+    )
+    reservation = committer.reserve("read_chat", "turn:continuity")
+    continuity_calls = []
+    compatibility_calls = []
+
+    class Continuity:
+        def commit_verified(self, outcome, record):
+            continuity_calls.append((outcome, record))
+            return SimpleNamespace(disposition=ContinuityCommitDisposition.COMMITTED)
+
+    async def speak(_request_id: str, _text: str):
+        return SimpleNamespace(delivered=True, mode="audio")
+
+    boundary = DirectorDeliveryBoundary(
+        runner=_Runner(),
+        speak=speak,
+        transactions=transactions,
+        execution_coordinator=ExecutionCoordinator(
+            local_boundary=object(), outcome_committer=committer,
+        ),
+        outcome_committer=committer,
+        continuity_state=Continuity(),
+        mood_provider=lambda: SimpleNamespace(),
+        speech_completed=lambda *_args, **_kwargs: compatibility_calls.append(True),
+        filter_rejected=lambda **_kwargs: None,
+        logger=_Log(),
+    )
+
+    delivered = await boundary.deliver(
+        "speech:continuity",
+        SimpleNamespace(text="Chào nhé.", ok=True, mood=None),
+        "read_chat",
+        [SimpleNamespace(msg_id="chat-1")],
+        transaction_id=reservation.transaction_id,
+    )
+
+    assert delivered is True
+    assert compatibility_calls == []
+    assert len(continuity_calls) == 1
+    outcome, record = continuity_calls[0]
+    assert transactions.get(reservation.transaction_id).state is ActionTransactionState.COMMITTED
+    assert record.outcome_ref == outcome.outcome_ref
+    assert record.history_input == "xin chào"
+    assert record.ref_event_ids == ("chat-1",)

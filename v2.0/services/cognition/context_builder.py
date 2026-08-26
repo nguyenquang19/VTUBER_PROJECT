@@ -86,6 +86,7 @@ class CognitiveContextBuilder(CognitiveContextBuilderService):
         goal_manager: Any = None,
         thread_manager: Any = None,
         memory_service: Any = None,
+        continuity_service: Any = None,
         metrics: Any = None,
         agent_context_projection: Any = None,
         conversation_context_projection: Any = None,
@@ -109,6 +110,7 @@ class CognitiveContextBuilder(CognitiveContextBuilderService):
         self._goal_manager = goal_manager
         self._thread_manager = thread_manager
         self._memory_service = memory_service
+        self._continuity_service = continuity_service
         self._metrics = metrics
         self._agent_context_projection = agent_context_projection
         self._conversation_context_projection = conversation_context_projection
@@ -829,6 +831,10 @@ class CognitiveContextBuilder(CognitiveContextBuilderService):
         events: Mapping[str, GroundedEvent],
         requested_at: datetime,
     ) -> tuple[tuple[CognitiveSpeechSummary, ...], bool]:
+        if self._continuity_service is not None and callable(
+            getattr(self._continuity_service, "recent", None),
+        ):
+            return self._recent_verified_speech(requested_at)
         items: list[CognitiveSpeechSummary] = []
         invalid = False
         for event in events.values():
@@ -857,6 +863,59 @@ class CognitiveContextBuilder(CognitiveContextBuilderService):
                     evidence_refs=_event_refs(event, self._config),
                 ))
             except ValueError:
+                invalid = True
+        items.sort(key=lambda item: (-item.delivered_at.timestamp(), item.delivery_id))
+        deduped = _dedupe_contracts(items, "delivery_id")
+        if deduped is None:
+            return (), True
+        return tuple(deduped[: self._config.max_recent_delivered_speech]), invalid
+
+    def _recent_verified_speech(
+        self, requested_at: datetime,
+    ) -> tuple[tuple[CognitiveSpeechSummary, ...], bool]:
+        try:
+            records = self._continuity_service.recent(
+                self._config.max_recent_delivered_speech,
+            )
+        except Exception:
+            return (), True
+        if not isinstance(records, tuple):
+            return (), True
+        items: list[CognitiveSpeechSummary] = []
+        invalid = False
+        for record in records:
+            delivered_at = getattr(record, "delivered_at", None)
+            if not isinstance(delivered_at, datetime):
+                invalid = True
+                continue
+            age = (requested_at - delivered_at).total_seconds()
+            if age < -self._config.max_context_future_skew_seconds:
+                invalid = True
+                continue
+            if age > self._config.max_recent_speech_age_seconds:
+                continue
+            text = _safe_text(
+                getattr(record, "speech_text", None), self._config.max_speech_chars,
+            )
+            action = str(getattr(record, "action_type", "") or "").casefold()
+            source_mode = _SPEECH_MODE.get(action)
+            refs = _safe_refs(
+                tuple(getattr(record, "evidence_refs", ())), self._config,
+                allow_empty=True,
+            )
+            if text is None or source_mode not in self._config.speech_source_modes:
+                continue
+            try:
+                items.append(CognitiveSpeechSummary(
+                    config=self._config,
+                    schema_version=self._config.schema_version,
+                    delivery_id=str(getattr(record, "delivery_id", "")),
+                    speech_text=text,
+                    delivered_at=delivered_at,
+                    source_mode=source_mode,
+                    evidence_refs=refs,
+                ))
+            except (TypeError, ValueError):
                 invalid = True
         items.sort(key=lambda item: (-item.delivered_at.timestamp(), item.delivery_id))
         deduped = _dedupe_contracts(items, "delivery_id")

@@ -549,7 +549,7 @@ class LLMTurnRunner:
         return parsed
 
     def finalize_delivery(self, request_id: str, success: bool) -> bool:
-        """Finalize a deferred turn exactly once at the delivery boundary."""
+        """Finalize delivery logging; S6 continuity owns successful state commits."""
         pending = self._pending_deliveries.pop(request_id, None)
         if pending is None:
             return False
@@ -562,24 +562,11 @@ class LLMTurnRunner:
         )
         if not success:
             return True
-        if pending.commit_history and pending.history_user_text is not None:
-            self._pm.commit_turn(pending.history_user_text, pending.parsed.text)
-            self._schedule_memory_write(
-                pending.history_user_text,
-                pending.parsed,
-                pending.viewer_id,
-                pending.session_id,
-                pending.trigger_type,
-                outcome_id=request_id,
-            )
-        self._record_speech_event(
-            request_id=request_id,
-            parsed=pending.parsed,
-            session_id=pending.session_id,
-            mode=pending.mode,
-            trigger_type=pending.trigger_type,
-        )
         return True
+
+    def pending_delivery_context(self, request_id: str) -> Any:
+        """Return read-only pending metadata for the canonical continuity boundary."""
+        return self._pending_deliveries.get(request_id)
 
     def _store_pending_delivery(
         self, request_id: str, pending: _PendingDelivery,
