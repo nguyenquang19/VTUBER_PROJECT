@@ -50,6 +50,9 @@ COGNITIVE_BRAIN_OUTCOMES = frozenset({
 })
 COGNITIVE_BRAIN_MODES = frozenset({"WAIT", "SPEAK"})
 LLM_WORKLOAD_CLASS_PAIRS = frozenset({"live_shadow"})
+TURN_KERNEL_MODES = frozenset({"OFF", "SHADOW"})
+TURN_KERNEL_OWNERS = frozenset({"COMPATIBILITY"})
+TURN_KERNEL_PREFLIGHT_OUTCOMES = frozenset({"allowed", "hard_hold"})
 
 
 class MetricsCollector:
@@ -570,6 +573,13 @@ class MetricsCollector:
         self._cognitive_opportunities: dict[tuple[str, str], int] = {}
         self._cognitive_brain_requests: dict[str, int] = {}
         self._cognitive_brain_turns: dict[str, int] = {}
+        self.turn_kernel_selection_total_c = Counter(
+            "turn_kernel_selection_total",
+            "Single-owner Turn Kernel selection outcomes",
+            ["mode", "owner", "preflight"],
+            registry=self.registry,
+        )
+        self._turn_kernel_selections: dict[tuple[str, str, str], int] = {}
         # --- Real NVIDIA device metrics for the operator dashboard ---
         self.gpu_util = Gauge(
             "mai_gpu_util_percent", "NVIDIA GPU utilization",
@@ -747,6 +757,29 @@ class MetricsCollector:
             },
             "requests": dict(sorted(self._cognitive_brain_requests.items())),
             "turns": dict(sorted(self._cognitive_brain_turns.items())),
+        }
+
+    def record_turn_kernel_selection(
+        self, mode: str, owner: str, preflight: str,
+    ) -> None:
+        if mode not in TURN_KERNEL_MODES:
+            raise ValueError("unsupported Turn Kernel mode")
+        if owner not in TURN_KERNEL_OWNERS:
+            raise ValueError("unsupported Turn Kernel owner")
+        if preflight not in TURN_KERNEL_PREFLIGHT_OUTCOMES:
+            raise ValueError("unsupported Turn Kernel preflight outcome")
+        key = (mode, owner, preflight)
+        self._turn_kernel_selections[key] = self._turn_kernel_selections.get(key, 0) + 1
+        self.turn_kernel_selection_total_c.labels(
+            mode=mode, owner=owner, preflight=preflight,
+        ).inc()
+
+    def turn_kernel_snapshot(self) -> dict[str, int]:
+        return {
+            f"{mode}:{owner}:{preflight}": count
+            for (mode, owner, preflight), count in sorted(
+                self._turn_kernel_selections.items()
+            )
         }
 
     @staticmethod

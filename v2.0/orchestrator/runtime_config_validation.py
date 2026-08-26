@@ -14,6 +14,7 @@ from pydantic import (
 
 from orchestrator.config_loader import ConfigError
 from interfaces.cognition import CognitionConfig
+from interfaces.turn_kernel import KernelConfig
 from orchestrator.credential_contract import (
     validate_runtime_credential_contract,
 )
@@ -213,6 +214,10 @@ def validate_runtime_config(loader: Any) -> RuntimeCriticalConfig:
         CognitionConfig.from_mapping(loader.section("cognition"))
     except (AttributeError, ValueError) as exc:
         raise ConfigError(f"Runtime cognition config không hợp lệ: {exc}") from exc
+    try:
+        KernelConfig.from_mapping(loader.section("kernel"))
+    except (AttributeError, ValueError) as exc:
+        raise ConfigError(f"Runtime kernel config không hợp lệ: {exc}") from exc
     try:
         validate_runtime_credential_contract(loader)
     except ValueError as exc:

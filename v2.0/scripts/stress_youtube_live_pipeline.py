@@ -21,8 +21,10 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
 from interfaces.base import HealthStatus  # noqa: E402
+from interfaces.cognition import CognitionConfig, CognitiveHardState  # noqa: E402
 from interfaces.input import InputEvent, InputService  # noqa: E402
 from interfaces.tts import AudioChunk, TTSDeliveryResult  # noqa: E402
+from interfaces.turn_kernel import KernelConfig  # noqa: E402
 from orchestrator.config_loader import ConfigLoader  # noqa: E402
 from orchestrator.autonomy_engine import AutonomyEngine  # noqa: E402
 from orchestrator.emotion_orchestrator import EmotionOrchestrator  # noqa: E402
@@ -59,6 +61,7 @@ from services.director.action_context import ActionContextBuilder  # noqa: E402
 from services.director.chat_pulse import ChatPulse  # noqa: E402
 from services.director.director import DirectorAction  # noqa: E402
 from services.director.director_loop import DirectorLoop  # noqa: E402
+from services.kernel.turn_kernel import TurnKernel  # noqa: E402
 from services.director.salience import SaliencePool  # noqa: E402
 from services.director.speech_style import summarize_speech_style  # noqa: E402
 from services.emotion.mood_style import MoodStyleTable  # noqa: E402
@@ -95,6 +98,20 @@ from scripts.stress_youtube_llm import InstrumentedLLMRunner  # noqa: E402
 
 Clock = Callable[[], float]
 AsyncSleep = Callable[[float], Awaitable[None]]
+
+
+class _DisabledStressBrainScheduler:
+    """Feature-off sink so stress uses the live Kernel without a second LLM call."""
+
+    def __init__(self) -> None:
+        self.offered = 0
+
+    def offer(self, _opportunity: Any) -> bool:
+        self.offered += 1
+        return False
+
+    def preempt_for_live(self) -> None:
+        return None
 
 
 class PacedYouTubeReplayInputService(InputService):
@@ -953,6 +970,31 @@ async def run_stress(args: argparse.Namespace) -> int:
                 "director", "director.speech_style.max_regenerations", 1,
             )),
         )
+        cognition_config = CognitionConfig.from_mapping(loader.section("cognition"))
+        stress_brain = _DisabledStressBrainScheduler()
+
+        def stress_hard_state(value: Any) -> CognitiveHardState:
+            return CognitiveHardState(
+                config=cognition_config,
+                schema_version=cognition_config.schema_version,
+                emergency=False,
+                operator_hold=False,
+                safety_hold=bool(value.safety_hold),
+                permission_hold=False,
+                transaction_conflict=False,
+                critical_state=False,
+                source_failure_codes=(),
+            )
+
+        turn_kernel = TurnKernel(
+            config=KernelConfig.from_mapping(loader.section("kernel")),
+            cognition_config=cognition_config,
+            compatibility=loop,
+            brain_scheduler=stress_brain,
+            hard_state_provider=stress_hard_state,
+            session_id="youtube-live-pipeline-stress",
+        )
+        loop.configure_turn_kernel(turn_kernel)
         recent_context: list[str] = []
         activity = {"last": time.time(), "count": 0}
 
@@ -1028,7 +1070,7 @@ async def run_stress(args: argparse.Namespace) -> int:
             })
             delivery_start = len(deliveries)
             tick_started = time.perf_counter()
-            action = await loop.tick_once()
+            action = await turn_kernel.tick_once()
             tick_finished = time.perf_counter()
             if len(deliveries) > delivery_start:
                 snapshot = agent_state.snapshot()
@@ -1167,6 +1209,7 @@ async def run_stress(args: argparse.Namespace) -> int:
             "input": source.get_metrics(),
             "director": {
                 "metrics": loop.get_metrics(),
+                "turn_kernel": turn_kernel.get_metrics(),
                 "action_counts": dict(sorted(action_counts.items())),
                 "trace_count": len(decision_trace),
                 "trace": decision_trace,

@@ -159,7 +159,8 @@ class DirectorLoop:
         self._animation = animation
         self._embodiment_policy = embodiment_policy
         self._action_adapter_boundary = action_adapter_boundary
-        self._cognitive_observer: Any = None
+        self._turn_event_sink: Any = None
+        self._turn_kernel: Any = None
         self._director_v2_shadow = None
         self._director_v2_takeover = None
         self._director_v2_materializer: DirectorV2DecisionMaterializer | None = None
@@ -395,6 +396,18 @@ class DirectorLoop:
     # ---------- lifecycle ----------
 
     async def start(self) -> None:
+        if self._turn_kernel is not None:
+            await self._turn_kernel.start()
+            return
+        await self.start_compatibility()
+        self._running = True
+        self._task = asyncio.create_task(self._loop(), name="director_loop")
+        self._log.info("director_loop_ready")
+
+    async def start_compatibility(self) -> None:
+        """Start compatibility dependencies without creating a scheduling task."""
+        if self._running:
+            return
         if self._task is not None and not self._task.done():
             return
         if self._transactions is not None:
@@ -405,10 +418,15 @@ class DirectorLoop:
             await self._self_talk_planner.start()
         self._director.start(self._clock())
         self._running = True
-        self._task = asyncio.create_task(self._loop(), name="director_loop")
-        self._log.info("director_loop_ready")
 
     async def stop(self) -> None:
+        if self._turn_kernel is not None:
+            await self._turn_kernel.stop()
+            return
+        await self.stop_compatibility()
+
+    async def stop_compatibility(self) -> None:
+        """Stop compatibility dependencies; the Turn Kernel owns its task."""
         self._running = False
         if self._task is not None:
             self._task.cancel()
@@ -460,7 +478,7 @@ class DirectorLoop:
         expected_intention_id = self._decision_intention_id(dec, director_input)
         self._record_director_metric(dec)
         decision_id = self._record_decision(dec, director_input, now)
-        self._observe_cognitive_decision(dec, director_input, decision_id)
+        self._emit_turn_decision(dec, director_input, decision_id)
 
         if dec.action == DirectorAction.WAIT:
             self._record_trajectory_no_action(decision_id, dec.reason)
@@ -529,7 +547,7 @@ class DirectorLoop:
                         )
                 self._record_director_action(dec, now)
                 if committed:
-                    self._observe_cognitive_verified_outcome(
+                    self._emit_turn_verified_outcome(
                         dec, director_input, decision_id,
                     )
             except asyncio.CancelledError:
@@ -774,38 +792,59 @@ class DirectorLoop:
         self._director.clear_self_talk_defer()
         if self._self_talk_planner is not None:
             self._self_talk_planner.on_chat(self._clock() if now is None else now)
-        observer = self._cognitive_observer
-        if observer is not None:
+        sink = self._turn_event_sink
+        if sink is not None:
             try:
-                observer.preempt_for_live()
+                notify = getattr(sink, "notify_input_activity", None)
+                if callable(notify):
+                    notify()
+                else:
+                    sink.preempt_for_live()
             except Exception:
                 pass
 
+    def configure_turn_kernel(self, kernel: Any) -> None:
+        """Bind the single runtime scheduling owner and its event sink."""
+        if kernel is None:
+            raise ValueError("turn kernel is required")
+        if self._turn_kernel is not None and self._turn_kernel is not kernel:
+            raise RuntimeError("DirectorLoop already has a Turn Kernel")
+        self._turn_kernel = kernel
+        self._turn_event_sink = kernel
+
+    def configure_turn_event_sink(self, sink: Any = None) -> None:
+        """Attach a fail-isolated event sink without scheduling authority."""
+        self._turn_event_sink = sink
+
     def configure_cognitive_observer(self, observer: Any = None) -> None:
-        """Attach a fail-isolated observer; it has no decision or execution authority."""
-        self._cognitive_observer = observer
+        """Compatibility alias for pre-S4 tests; live composition does not use it."""
+        self.configure_turn_event_sink(observer)
 
-    def _observe_cognitive_decision(
+    def _emit_turn_decision(
         self, dec: DirectorDecision, value: DirectorInput, decision_id: str | None,
     ) -> None:
-        observer = self._cognitive_observer
-        if observer is None:
+        sink = self._turn_event_sink
+        if sink is None:
             return
         try:
-            observer.observe_decision(dec, value, decision_id)
+            sink.observe_decision(dec, value, decision_id)
         except Exception as exc:
-            self._log.warning("cognitive_observer_failed", error=str(exc))
+            self._log.warning("turn_event_sink_failed", error=str(exc))
 
-    def _observe_cognitive_verified_outcome(
+    def _emit_turn_verified_outcome(
         self, dec: DirectorDecision, value: DirectorInput, decision_id: str | None,
     ) -> None:
-        observer = self._cognitive_observer
-        if observer is None:
+        sink = self._turn_event_sink
+        if sink is None:
             return
         try:
-            observer.observe_verified_outcome(dec, value, decision_id)
+            sink.observe_verified_outcome(dec, value, decision_id)
         except Exception as exc:
-            self._log.warning("cognitive_outcome_observer_failed", error=str(exc))
+            self._log.warning("turn_outcome_sink_failed", error=str(exc))
+
+    @property
+    def turn_in_progress(self) -> bool:
+        return self._turn_lock.locked()
 
     def _tone_flags(self) -> tuple[str, ...]:
         if self._emotion is None:

@@ -1,0 +1,15 @@
+# S4 canonical owner for live turn scheduling. Brain remains shadow-only.
+schema_version: 1
+rollout_mode: shadow
+tick_seconds: 1.5
+max_recent_selections: 256
+max_reason_codes: 8
+max_id_chars: 128
+reason_codes:
+  - emergency
+  - operator_hold
+  - safety_hold
+  - permission_hold
+  - transaction_conflict
+  - critical_state
+  - source_failure

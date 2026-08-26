@@ -425,7 +425,7 @@ features:
     name: Capability registry
     description: Read-only declarative availability; never executes actions.
   cognitive_brain_shadow:
-    enabled: false              # MCB-3 observer only; never owns public decision/output
+    enabled: false              # S4 subordinate Brain worker; never owns public decision/output
     activation_allowed: true
     vram_cost_mb: 0
     latency_impact_ms: 0

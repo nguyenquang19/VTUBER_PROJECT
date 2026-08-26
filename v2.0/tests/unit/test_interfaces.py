@@ -45,6 +45,7 @@ from interfaces.release_readiness import ClosedLoopCanaryService
 from interfaces.stt import NullSTTService, STTService, TranscriptChunk
 from interfaces.tts import AudioChunk, TTSRequest, TTSService
 from interfaces.trajectory import TrajectoryRecordService
+from interfaces.turn_kernel import TurnKernelService
 
 
 class TestHealthStatus:
@@ -157,6 +158,9 @@ class TestServiceContract:
             (TrajectoryRecordService, "snapshot"),
             (ClosedLoopCanaryService, "run"),
             (ClosedLoopCanaryService, "snapshot"),
+            (TurnKernelService, "tick_once"),
+            (TurnKernelService, "notify_input_activity"),
+            (TurnKernelService, "recent_selections"),
         ],
     )
     def test_interface_declares_spec_method(self, iface, method) -> None:
@@ -185,6 +189,7 @@ class TestServiceContract:
             IncidentLogService,
             HumanLikeCalibrationService,
             TrajectoryRecordService,
+            TurnKernelService,
         ],
     )
     def test_all_interfaces_inherit_service_base(self, iface) -> None:

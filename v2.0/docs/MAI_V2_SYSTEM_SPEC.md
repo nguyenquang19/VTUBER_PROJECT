@@ -34,8 +34,10 @@ truy vấn độc lập và rollback có điều kiện; feature vẫn mặc đ�
 Phase 10 đã đóng canonical perception ingress cho Chat/System và read-only OBS sensing; OBS sensing vẫn
 mặc định tắt và chưa có live canary.
 
-Structure normalization S0–S2 đã được chốt; S3 canonical Cognition đã đạt full offline và được owner duyệt
-để chốt. Agent/World/Perception writes trong live runtime và hai replay
+Structure normalization S0–S3 đã được chốt; S3 canonical Cognition ở commit `1c6d9d6` đã đạt full offline.
+S4 Turn Kernel đã triển khai trong working tree và đang chờ owner review; Compatibility vẫn là public owner.
+Agent/World/Perception writes trong live
+runtime và hai replay
 entrypoint hiện cùng đi qua `CanonicalEventNormalizer → CanonicalEventIngress →
 AuthoritativeStateReducer`; aggregate state được đọc qua `AuthoritativeStateSnapshot`. Đây là thay đổi
 ownership/structure giữ exact behavior, không phải Brain takeover hoặc bằng chứng Mai nói người hơn.
@@ -95,16 +97,18 @@ Các cột dưới đây độc lập với nhau. “Có mã” không thay th�
 | Avatar action adapter | Có | Local typed intentional-gesture boundary; không giả automatic mood thành action | Unit, VTS fail-safe, composition và full offline regression | Bật cho test; unavailable/fail-safe khi chưa có VTS |
 | External OBS scene executor | Có | Compose tại `StreamRuntime`, chỉ callable qua typed boundary khi feature/permission/health đạt | Unit, transaction integration, deterministic fake-OBS replay và full offline regression | Không; mặc định tắt, chưa live canary |
 | Canonical ingress + authoritative state | Có | Agent/World/Perception writes dùng một canonical admission/reducer; Goal/Relationship/Self là read providers | Contract, equivalence, import guard, deterministic replay, impacted và full offline regression | Chưa phát hành riêng; là structure checkpoint S2 |
+| Turn Kernel | Có | Một live tick owner; `OFF`/`SHADOW` luôn chọn Compatibility public, Brain chỉ subordinate shadow | Contract/config/import guard, runtime composition, deterministic temporal replay và full offline regression | Chưa phát hành riêng; S4 đang chờ owner review |
 | Perception expansion | Có | Chat/System/OBS adapters submit qua canonical ingress; OBS read-only compose nhưng mặc định tắt | Unit, negative-path, runtime composition, deterministic replay và full offline regression | Không; OBS chưa live canary |
 | Goals và short intentions | Có | Có, qua GoalManager/Director/Self/dashboard | Unit, integration, replay và full offline regression | Không |
 | Memory và ContextSelector V2 | Có | ContextSelector/agent context strict bounded được bật; semantic memory vẫn optional | Unit, integration, replay và full offline regression | Bật cho test; chưa live semantic-memory canary |
 | Embodiment Policy | Có | LOW/MID/HIGH strict arbitration đã compose và bật test | Unit, integration, deterministic replay và full offline regression | Chưa live VTS canary |
 | Human-like calibration và trajectory | Có | Trajectory bật read-only theo Director V2; MAI-HLC là workflow offline tách sealed manifest | Unit, integration, deterministic replay, tamper/negative paths, full offline regression và owner blind review 20 pair đã finalize; quality vẫn `HOLD` | Trajectory bật test; human review không tự tạo release decision |
 | Product `2.0.0` release gates | Có strict tooling source-bound, fixed runner và canary/operations aggregator | Contract kỹ thuật đã triển khai; chưa có closed-loop/live/human/operations bundle hiện hành | Full regression xanh; external Gate D/E và release-commit verification chưa hoàn tất | Không |
-| Cognitive Brain | MCB-1 contract, MCB-2 Context/Focus và MCB-3 Brain observer đã có; MCB-4 offline A/B đã retire | Một ContextBuilder và một ModelAdapter đã compose; Brain feature vẫn `enabled=false`, compatibility Director giữ toàn quyền | Contract/negative-path, exact context, replay/live-pipeline và full offline xanh; chất lượng và live authority vẫn `HOLD` | Không |
+| Cognitive Brain | MCB-1 contract, MCB-2 Context/Focus và MCB-3 Brain đã có; MCB-4 offline A/B đã retire | Một ContextBuilder, một ModelAdapter và subordinate Brain scheduler đã compose dưới Turn Kernel; feature vẫn `enabled=false`, Compatibility giữ public authority | Contract/negative-path, exact context, replay/live-pipeline và full offline xanh; chất lượng và live authority vẫn `HOLD` | Không |
 
 Ma trận chỉ được nâng trạng thái khi có đường code tương ứng, test phù hợp và evidence máy đọc hoặc vận
-hành. Blueprint tiếp tục giữ scope/phase order; bảng này mô tả working tree sau implementation S3 ngày 26/08/2026.
+hành. Blueprint tiếp tục giữ scope/phase order; bảng này mô tả working tree sau implementation S4 chưa commit
+ngày 26/08/2026.
 
 ---
 
@@ -2195,13 +2199,13 @@ không đủ. Service chưa compose là `stopped`; trạng thái feature `enable
 là lỗi contract. Rollback là giữ/tắt feature và bỏ unconsumed contract/config trước khi slice sau phụ thuộc;
 không có data migration hoặc state cleanup.
 
-Canonical config owner là `config/cognition.yaml` vì bounds thuộc subsystem riêng và không phù hợp
-`director.yaml`/`models.yaml`. Các giá trị đã được owner duyệt và đang binding cho MCB-1:
+Canonical owner của context/Brain bounds là `config/cognition.yaml`; từ S4, operational rollout và tick cadence
+thuộc `config/kernel.yaml`. Bảng dưới ghi contract lịch sử tại MCB-1:
 
 | Key | Proposed value | MCB-1 use |
 |---|---:|---|
 | `schema_version` | `1` | Exact contract version |
-| `rollout_mode` | `disabled` | Chỉ operational enum được phép trong MCB-1 |
+| `rollout_mode` | `disabled` | Giá trị lịch sử MCB-1; đã chuyển owner sang `kernel.yaml` tại S4 |
 | `max_id_chars` / `max_label_chars` | `128` / `64` | ID, enum label và reason bound |
 | `max_text_chars` / `max_speech_chars` | `2048` / `512` | Per text field / `speech_text` field bound, không phải total context budget |
 | `max_attention_items` / `max_memory_items` | `24` / `16` | Immutable tuple capacity |
@@ -2740,7 +2744,7 @@ Feature declaration đã đổi thành:
 feature_id: cognitive_brain_shadow
 enabled: false
 activation_allowed: true
-rollout_mode: shadow
+kernel.rollout_mode: shadow
 depends_on: [world_model_shadow, self_model_projection, capability_registry]
 ```
 
@@ -2761,12 +2765,11 @@ record hoặc dashboard failure cũng không được thoát sang compatibility 
 
 ##### 17.2.18.6. YAML values và owner gates
 
-`config/cognition.yaml` tiếp tục là canonical owner. Các giá trị vận hành dưới đây đã được owner duyệt và
-được triển khai cho observer mặc định tắt:
+`config/cognition.yaml` là canonical owner của context/model/Brain-work bounds; `config/kernel.yaml` sở hữu
+public rollout. Các giá trị Brain dưới đây đã được owner duyệt và triển khai cho worker mặc định tắt:
 
 | Key | Proposed value | Cơ sở/rủi ro |
 |---|---:|---|
-| `rollout_mode` | `shadow` | Chỉ observer; feature vẫn mặc định tắt |
 | `brain_prompt_path` | `.\\config\\prompts\\cognitive_brain_shadow_system.txt` | Dedicated stable prompt; không sửa live persona |
 | `brain_max_output_tokens` | `256` | Diagnostic cho thấy output hợp lệ tới 186 token và reject bị cắt ở 189/192; 256 chừa bounded closing margin |
 | `brain_temperature` | `0.75` | Khớp current main sampling; schema do llama.cpp enforce |
@@ -3491,6 +3494,81 @@ removal wave S8, không tạo soft owner mới. Impacted context/Cognition/live 
 replay/live-pipeline `36 passed`, interface/import/config/documentation guard `256 passed`, full offline
 `2.471 passed`, `0` lỗi và một Starlette deprecation warning có sẵn. Vì exact output/decision không đổi nên
 không chạy blind review. S3 đã được owner duyệt để chốt; chưa bắt đầu S4 hoặc MCB-5.
+
+##### 17.2.19.15. S4 implementation — canonical Turn Kernel
+
+Owner yêu cầu tiếp tục xây dựng sau khi S3 đã commit tại `1c6d9d6`. Read-only audit và baseline targeted
+`109 passed` xác nhận live scheduling hiện đi theo chuỗi `DirectorLoop -> CognitiveDirectorObserver ->
+CognitiveOpportunityScheduler`: Director vừa giữ background tick, hard preflight, soft decision, transaction
+và delivery; observer chỉ tạo Brain opportunity sau quyết định compatibility. Brain vẫn đúng một generation
+cho mỗi `propose()`, nhưng chưa đi qua cùng một owner-selection boundary với compatibility path.
+
+S4 chỉ chuẩn hóa Turn Kernel; public behavior vẫn compatibility:
+
+```text
+StreamRuntime
+  -> one TurnKernel lifecycle/tick
+       -> immutable TurnOpportunity
+       -> immutable hard TurnPreflight
+       -> immutable TurnOwnerSelection before generation
+       -> compatibility adapter -> existing reserve/execute/deliver/commit behavior
+       -> optional Brain scheduler shadow tap -> record only
+```
+
+Contract và source cut đã triển khai:
+
+| Owner/file | S4 responsibility |
+|---|---|
+| `interfaces/turn_kernel.py` | `TurnRolloutMode`, `TurnOwner`, `TurnOpportunity`, `TurnPreflight`, `TurnOwnerSelection`, `TurnKernelService` |
+| `services/kernel/turn_kernel.py` | Một tick/opportunity/preflight/selection/invocation shell; không sinh hoặc sửa speech |
+| `services/director/director_loop.py` | Compatibility decision/execution adapter; không còn background tick hay observer ownership trong live composition; legacy transaction internals giữ exact đến S5 |
+| `services/cognition/scheduler.py` | Một preemptible/latest-wins Brain work scheduler dưới Kernel; không có public authority |
+| `services/cognition/brain.py` | Canonical Brain service dùng model adapter S3; một `propose()` tối đa một generation |
+| `orchestrator/runtime_cognition.py` | Compose canonical builder/model/Brain/scheduler, không compose observer shell |
+| `orchestrator/stream_runtime.py` | Compose/lifecycle đúng một Turn Kernel |
+| `config/kernel.yaml` | Canonical owner cho rollout mode, tick cadence và bounded kernel policy |
+
+`TurnOpportunity` gồm `schema_version`, `opportunity_id`, `opened_at`, `kind`, `material_change_ref`,
+`context_request`. `TurnPreflight` gồm `schema_version`, `opportunity_id`, `checked_at`, `allowed`, `hard_state`,
+bounded `reason_codes`. `TurnOwnerSelection` gồm `schema_version`, `opportunity_id`, `selected_at`,
+`rollout_mode`, `owner`, `selection_ref`. Ba object immutable, có stable identity và không chứa callable,
+exception text hoặc mutable store reference.
+
+S4 runtime chỉ chấp nhận `off|shadow`; `canary|primary|released` được khai báo để ổn định contract nhưng config
+validation phải từ chối cho đến S5. `OFF` từ chối cả thao tác bật Brain feature nên không tạo Brain task;
+`SHADOW` chọn compatibility làm public owner
+rồi enqueue cùng opportunity cho Brain read-only. Không được gọi Brain trước rồi gọi compatibility như fallback,
+không được dùng Brain result để rewrite/rerank/suppress compatibility speech. Feature
+`cognitive_brain_shadow` là compatibility alias trong S4 và có removal wave S8; public rollout chỉ có một owner
+tại `kernel.yaml`.
+
+Files đã tạo: `interfaces/turn_kernel.py`, `services/kernel/__init__.py`,
+`services/kernel/turn_kernel.py`, `services/cognition/brain.py`, `services/cognition/scheduler.py`,
+`config/kernel.yaml` và behavior-named kernel/temporal tests. Files đã sửa có kiểm soát:
+`DirectorLoop`, `StreamRuntime`, runtime Cognition/config loading/validation/metrics, feature/inventory và impacted
+tests/replay. `CognitiveDirectorObserver` đã được merge rồi xóa sau khi static/runtime import về zero;
+`brain_shadow.py` và `shadow_scheduler.py` chỉ còn exact import facade đến removal wave S8.
+
+Non-goals: không Brain public takeover, không prompt/model/sampling change, không thêm generation, không S5
+executor/verifier/outcome committer, không Focus/Memory/history commit, không action authority, không xóa legacy
+soft policy, không version/changelog/release change và không bắt đầu MCB-5.
+
+Acceptance: đúng một live tick owner; đúng một owner selection trước generation; zero false commit/duplicate
+delivery/action; exact compatibility public output/decision/transaction trong `OFF`/`SHADOW`; zero Brain work khi
+feature tắt; tối đa một Brain generation cho mỗi accepted shadow opportunity; hard hold `WAIT` trước reservation;
+interface/import/config/docs guard, targeted + impacted + full offline đều xanh. Deterministic replay phải phủ
+mọi action kind hiện hữu. Temporal evidence phải ghi opportunity/selection/reservation/delivery/commit timestamps,
+interruptions và relative delay. S4 không đổi public timing nên deterministic temporal trace là gate hiện tại;
+sealed human timing blind chỉ bắt buộc nếu trace có drift hoặc khi S5/S6 đổi public owner/scheduler/delivery timing,
+và lúc đó phải giữ stimulus/context ngang nhau, không reveal owner.
+
+Implementation evidence tại owner-review gate: targeted + impacted S4 đạt `414 passed`; nhóm deterministic
+Director/transaction/replay đạt `38 passed`; nhóm live-pipeline/LLM-stress/replay đạt `32 passed`; full offline
+đạt `2.473 passed`, `6 deselected`, `0` lỗi. Hai warning là Starlette deprecation có sẵn và pytest cache permission.
+Runtime composition test xác nhận task duy nhất tên `turn_kernel`, `DirectorLoop` không có task riêng và public
+owner là `COMPATIBILITY`. Known transitional boundary: reservation/generation/delivery/commit internals vẫn nằm
+trong compatibility adapter đến S5; Brain chưa có public consumer hoặc state-commit authority.
+Rollback về `1c6d9d6`, không migrate storage. Sau implementation phải dừng chờ owner review, không tự sang S5.
 
 ### 17.3. Chuỗi mã để lần theo một lượt
 

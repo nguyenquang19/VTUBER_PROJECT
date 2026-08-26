@@ -46,6 +46,14 @@ async def test_replay_simulator_batches_chat_and_uses_real_director(tmp_path: Pa
 
     assert report["input"]["events"] == 3
     assert report["timing"]["ticks_with_chat"] == 1
+    assert report["director"]["turn_kernel"]["turn_kernel_public_owner"] == "COMPATIBILITY"
+    assert report["trace"][0]["temporal"]["decision_offset_ms"] == 1500
+    assert report["trace"][0]["temporal"]["opportunity_offset_ms"] == 1500
+    assert report["trace"][0]["temporal"]["decision_id"]
+    assert report["trace"][0]["temporal"]["transaction_id"]
+    assert report["trace"][0]["temporal"]["reservation_offset_ms"] == 1500
+    assert report["trace"][0]["temporal"]["delivery_offset_ms"] == 1500
+    assert report["trace"][0]["temporal"]["commit_offset_ms"] == 1500
     first = report["trace"][0]
     assert first["incoming_count"] == 3
     assert first["action"] in {"read_chat", "continue_thread"}

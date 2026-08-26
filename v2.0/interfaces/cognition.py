@@ -93,7 +93,6 @@ class CognitionConfig:
     """Strict immutable validation values loaded from ``config/cognition.yaml``."""
 
     schema_version: int
-    rollout_mode: str
     brain_prompt_path: str
     brain_max_output_tokens: int
     brain_temperature: float
@@ -139,7 +138,7 @@ class CognitionConfig:
     speech_source_modes: tuple[str, ...]
 
     _KEYS = frozenset({
-        "schema_version", "rollout_mode", "brain_prompt_path",
+        "schema_version", "brain_prompt_path",
         "brain_max_output_tokens", "brain_temperature", "brain_timeout_seconds",
         "brain_cancel_grace_seconds", "max_brain_opportunity_queue",
         "max_brain_inflight", "max_brain_shadow_records",
@@ -165,8 +164,6 @@ class CognitionConfig:
     def __post_init__(self) -> None:
         if _positive_int(self.schema_version, "schema_version") != 1:
             raise ValueError("schema_version must be 1")
-        if self.rollout_mode != "shadow":
-            raise ValueError("rollout_mode must be shadow in MCB-3")
         integer_fields = (
             "brain_max_output_tokens", "max_brain_opportunity_queue",
             "max_brain_inflight", "max_brain_shadow_records",

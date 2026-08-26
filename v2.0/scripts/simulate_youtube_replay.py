@@ -32,6 +32,8 @@ def generation_turn_id(request_id: str) -> str:
         value = parent
 
 from interfaces.animation import MoodState  # noqa: E402
+from interfaces.cognition import CognitionConfig, CognitiveHardState  # noqa: E402
+from interfaces.turn_kernel import KernelConfig  # noqa: E402
 from interfaces.tts import TTSDeliveryMode, TTSDeliveryResult  # noqa: E402
 from orchestrator.config_loader import ConfigLoader  # noqa: E402
 from orchestrator.autonomy_engine import AutonomyConfig, AutonomyEngine  # noqa: E402
@@ -68,6 +70,7 @@ from services.director.director import (  # noqa: E402
     Segment,
 )
 from services.director.director_loop import DirectorLoop  # noqa: E402
+from services.kernel.turn_kernel import TurnKernel  # noqa: E402
 from services.director.proactive_policy import ProactiveHostingPolicy  # noqa: E402
 from services.director.salience import SaliencePool  # noqa: E402
 from services.director.v2_shadow import (  # noqa: E402
@@ -102,6 +105,21 @@ class _ReplayEmotion:
 
     def get_metrics(self) -> dict[str, Any]:
         return {"replay_emotion_events_total": self.events_total}
+
+
+class _DisabledReplayBrainScheduler:
+    """Feature-off replay sink; it never starts context or model work."""
+
+    def __init__(self) -> None:
+        self.offered = 0
+        self.preempted = 0
+
+    def offer(self, _opportunity: Any) -> bool:
+        self.offered += 1
+        return False
+
+    def preempt_for_live(self) -> None:
+        self.preempted += 1
 
 
 class _ReplayRunner:
@@ -459,6 +477,32 @@ async def simulate_replay(
             "director", "director.speech_style.max_regenerations", 1,
         )),
     )
+    cognition_config = CognitionConfig.from_mapping(loader.section("cognition"))
+    replay_brain = _DisabledReplayBrainScheduler()
+
+    def replay_hard_state(value: DirectorInput) -> CognitiveHardState:
+        return CognitiveHardState(
+            config=cognition_config,
+            schema_version=cognition_config.schema_version,
+            emergency=False,
+            operator_hold=False,
+            safety_hold=bool(value.safety_hold),
+            permission_hold=False,
+            transaction_conflict=False,
+            critical_state=False,
+            source_failure_codes=(),
+        )
+
+    turn_kernel = TurnKernel(
+        config=KernelConfig.from_mapping(loader.section("kernel")),
+        cognition_config=cognition_config,
+        compatibility=loop,
+        brain_scheduler=replay_brain,
+        hard_state_provider=replay_hard_state,
+        session_id="youtube-replay-offline",
+        clock=datetime_clock,
+    )
+    loop.configure_turn_kernel(turn_kernel)
 
     capability_enabled = loader.get(
         "features", "features.capability_registry.enabled", False,
@@ -661,12 +705,20 @@ async def simulate_replay(
             expected = loop.preview_decision(clock["now"])
             calls_before = len(runner.calls)
             deliveries_before = len(deliveries)
+            selections_before = len(turn_kernel.recent_selections())
             moves_before = {
                 thread.thread_id: thread.move_count
                 for thread in agent_state.snapshot().open_threads
             }
-            action = await loop.tick_once()
+            action = await turn_kernel.tick_once()
+            selections_after = turn_kernel.recent_selections()
+            kernel_selection = (
+                selections_after[-1]
+                if len(selections_after) > selections_before else None
+            )
             decision_snapshot = decisions.snapshot().get("current") or {}
+            transaction_id = str(decision_snapshot.get("transaction_id") or "")
+            transaction = transactions.get(transaction_id) if transaction_id else None
             if len(deliveries) == deliveries_before:
                 false_thread_commits += sum(
                     thread.move_count > moves_before.get(thread.thread_id, 0)
@@ -723,6 +775,66 @@ async def simulate_replay(
                     "pool_after": pool.size(),
                     "runner_calls": runner.calls[calls_before:],
                     "deliveries": deliveries[deliveries_before:],
+                    "temporal": {
+                        "stimulus_offset_ms": (
+                            min(
+                                int(event.metadata.get("replay_offset_ms", 0))
+                                for event in incoming
+                            )
+                            if incoming else None
+                        ),
+                        "opportunity_offset_ms": (
+                            round(
+                                (kernel_selection.selected_at.timestamp() - clock_start)
+                                * 1000
+                            )
+                            if kernel_selection is not None else None
+                        ),
+                        "decision_id": decision_snapshot.get("decision_id"),
+                        "decision_offset_ms": round(
+                            (float(decision_snapshot.get("created_at", clock["now"]))
+                             - clock_start) * 1000
+                        ),
+                        "transaction_id": transaction_id or None,
+                        "reservation_offset_ms": (
+                            round((transaction.created_at - clock_start) * 1000)
+                            if transaction is not None else None
+                        ),
+                        "delivery_offset_ms": (
+                            (tick_index + 1) * tick_window_ms
+                            if len(deliveries) > deliveries_before else None
+                        ),
+                        "interrupted_by_input": bool(
+                            incoming and expected.action in {
+                                DirectorAction.SELF_TALK,
+                                DirectorAction.FOLLOW_UP,
+                            }
+                        ),
+                        "opportunity_id": (
+                            kernel_selection.opportunity_id
+                            if kernel_selection is not None else None
+                        ),
+                        "selection_ref": (
+                            kernel_selection.selection_ref
+                            if kernel_selection is not None else None
+                        ),
+                        "selected_at": (
+                            kernel_selection.selected_at.isoformat()
+                            if kernel_selection is not None else None
+                        ),
+                        "public_owner": (
+                            kernel_selection.owner.value
+                            if kernel_selection is not None else "COMPATIBILITY"
+                        ),
+                        "transaction_state": decision_snapshot.get("transaction_state"),
+                        "commit_offset_ms": (
+                            round((transaction.updated_at - clock_start) * 1000)
+                            if transaction is not None
+                            and transaction.state.value == "committed" else None
+                        ),
+                        "delivery_state": decision_snapshot.get("delivery_state"),
+                        "outcome": decision_snapshot.get("outcome"),
+                    },
                     "director_v2": {
                         "proposal": director_v2_shadow.snapshot().get("current"),
                         "selection": director_v2_takeover.snapshot().get("current"),
@@ -840,6 +952,7 @@ async def simulate_replay(
                 "maximum_gap_s": max(delivery_gaps_s) if delivery_gaps_s else None,
             },
             "metrics": loop.get_metrics(),
+            "turn_kernel": turn_kernel.get_metrics(),
             "director_v2": {
                 "shadow": director_v2_shadow.snapshot(),
                 "takeover": director_v2_takeover.snapshot(),

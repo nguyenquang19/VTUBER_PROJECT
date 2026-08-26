@@ -86,7 +86,9 @@ class FakeInputService(InputService):
             yield  # pragma: no cover
 
 
-def _loader(tmp_path: Path, *, filter_enabled: bool) -> ConfigLoader:
+def _loader(
+    tmp_path: Path, *, filter_enabled: bool, kernel_mode: str = "shadow",
+) -> ConfigLoader:
     config_dir = tmp_path / "config"
     shutil.copytree(REPO_ROOT / "config", config_dir)
     features_path = config_dir / "features.yaml"
@@ -94,6 +96,13 @@ def _loader(tmp_path: Path, *, filter_enabled: bool) -> ConfigLoader:
     features["features"]["filter_rule"]["enabled"] = filter_enabled
     features_path.write_text(
         yaml.safe_dump(features, allow_unicode=True, sort_keys=False),
+        encoding="utf-8",
+    )
+    kernel_path = config_dir / "kernel.yaml"
+    kernel = yaml.safe_load(kernel_path.read_text(encoding="utf-8"))
+    kernel["rollout_mode"] = kernel_mode
+    kernel_path.write_text(
+        yaml.safe_dump(kernel, allow_unicode=True, sort_keys=False),
         encoding="utf-8",
     )
     operations_path = config_dir / "operations.yaml"
@@ -118,6 +127,7 @@ async def _build_runtime(
     outputs: list[str],
     *,
     filter_enabled: bool,
+    kernel_mode: str = "shadow",
     dashboard_capture: dict[str, Any] | None = None,
 ) -> tuple[StreamRuntime, ScriptedStreamLLM, CaptureWriter]:
     fake_llm = ScriptedStreamLLM(outputs)
@@ -170,7 +180,9 @@ async def _build_runtime(
         monkeypatch.setattr(dashboard_module, "DashboardServer", FakeDashboard)
 
     runtime = await stream_runtime_module.build_stream_runtime(
-        loader=_loader(tmp_path, filter_enabled=filter_enabled),
+        loader=_loader(
+            tmp_path, filter_enabled=filter_enabled, kernel_mode=kernel_mode,
+        ),
         sources=[FakeInputService()],
         cfg=StreamRuntimeConfig(
             enable_tts=False,
@@ -183,6 +195,28 @@ async def _build_runtime(
 
 
 class TestRuntimeFilterWiring:
+    async def test_kernel_off_rejects_brain_worker_activation(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        runtime, _, _ = await _build_runtime(
+            monkeypatch,
+            tmp_path,
+            [BAD_OUTPUT],
+            filter_enabled=False,
+            kernel_mode="off",
+        )
+        try:
+            result = await runtime._feature_manager.enable(
+                "cognitive_brain_shadow", user="test",
+            )
+            assert result.ok is False
+            assert "kernel rollout is OFF" in result.reason
+            assert runtime._cognitive_scheduler.snapshot().running is False
+        finally:
+            await runtime.stop()
+
     async def test_enabled_filter_regenerates_and_runtime_toggle_is_real(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -198,6 +232,13 @@ class TestRuntimeFilterWiring:
         )
         await runtime.start()
         try:
+            assert runtime._turn_kernel._task is not None
+            assert runtime._turn_kernel._task.get_name() == "turn_kernel"
+            assert runtime._director_loop._task is None
+            assert runtime._director_loop._running is True
+            assert runtime.operations_snapshot()["turn_kernel"][
+                "turn_kernel_public_owner"
+            ] == "COMPATIBILITY"
             parsed, level = await runtime._runner.run_turn("r1", "chào")
             assert level == 0
             assert parsed.text == CLEAN_OUTPUT

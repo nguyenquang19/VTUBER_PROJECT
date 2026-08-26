@@ -1,6 +1,5 @@
-# MCB-3 Brain observer configuration. Feature remains disabled by default.
+# Canonical Cognition configuration. Public rollout belongs to kernel.yaml.
 schema_version: 1
-rollout_mode: shadow
 
 brain_prompt_path: ".\\config\\prompts\\cognitive_brain_shadow_system.txt"
 brain_max_output_tokens: 256

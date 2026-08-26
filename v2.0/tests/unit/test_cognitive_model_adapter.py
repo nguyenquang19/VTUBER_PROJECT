@@ -135,7 +135,7 @@ def test_cognition_has_one_model_call_and_no_legacy_live_context_import() -> Non
             assert not any(item in source for item in legacy_imports), path
 
     scheduler = (
-        ROOT / "services" / "cognition" / "shadow_scheduler.py"
+        ROOT / "services" / "cognition" / "scheduler.py"
     ).read_text(encoding="utf-8")
     assert "services.llm.llama_cpp_llm" not in scheduler
     assert "services.cognition.brain_shadow" not in scheduler

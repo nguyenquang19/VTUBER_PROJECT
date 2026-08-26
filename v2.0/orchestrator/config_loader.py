@@ -33,6 +33,7 @@ CONFIG_FILES: dict[str, str] = {
     "operations": "operations.yaml",              # M9 live operations/recovery
     "capabilities": "capabilities.yaml",          # Phase 4 declarative availability
     "cognition": "cognition.yaml",                # MCB strict context/Brain contracts
+    "kernel": "kernel.yaml",                      # S4 single turn scheduling owner
     "features": "features.yaml",
     "triggers": "triggers.yaml",
     "state_machine": "state_machine.yaml",
@@ -177,6 +178,13 @@ class ConfigLoader:
                 CognitionConfig.from_mapping(data)
             except ValueError as exc:
                 raise ConfigError(f"{path.name}: config không hợp lệ: {exc}") from exc
+        if path.name == CONFIG_FILES["kernel"]:
+            from interfaces.turn_kernel import KernelConfig
+
+            try:
+                KernelConfig.from_mapping(data)
+            except ValueError as exc:
+                raise ConfigError(f"{path.name}: config không hợp lệ: {exc}") from exc
         if path.name == CONFIG_FILES["state"]:
             _validate_state_config(data)
         return data
@@ -228,8 +236,12 @@ class ConfigLoader:
         """Đọc value bằng dotted path, vd get("system", "dashboard.port")."""
         with self._lock:
             cognition = self._data.get("cognition")
-            if name == "agent_state" and path == "context":
-                node: Any = cognition
+            kernel = self._data.get("kernel")
+            if name == "director" and path == "director.tick_seconds":
+                node: Any = kernel
+                path = "tick_seconds"
+            elif name == "agent_state" and path == "context":
+                node = cognition
                 path = "agent_context_projection"
             elif name == "agent_state" and path.startswith("context."):
                 node = cognition

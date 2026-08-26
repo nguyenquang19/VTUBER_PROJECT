@@ -16,6 +16,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 COGNITION_CONFIG = yaml.safe_load(
     (REPO_ROOT / "config" / "cognition.yaml").read_text(encoding="utf-8")
 )
+KERNEL_CONFIG = yaml.safe_load(
+    (REPO_ROOT / "config" / "kernel.yaml").read_text(encoding="utf-8")
+)
 EMBODIMENT_CONFIG = {
     "mid_cooldown_s": 2.0,
     "mid_timeout_s": 1.0,
@@ -143,9 +146,10 @@ class OverrideLoader:
         return self._overrides.get((name, key), default)
 
     def section(self, name: str) -> dict[str, object]:
-        if name != "cognition":
+        defaults = {"cognition": COGNITION_CONFIG, "kernel": KERNEL_CONFIG}
+        if name not in defaults:
             return {}
-        value = self._overrides.get(("cognition", "section"), COGNITION_CONFIG)
+        value = self._overrides.get((name, "section"), defaults[name])
         if not isinstance(value, dict):
             return value  # type: ignore[return-value]
         return dict(value)
@@ -216,11 +220,11 @@ def test_repository_runtime_config_is_valid() -> None:
     assert validated.manage_llama_process is True
 
 
-def test_runtime_rejects_invalid_cognition_config_before_composition() -> None:
-    invalid = dict(COGNITION_CONFIG)
-    invalid["rollout_mode"] = "disabled"
-    with pytest.raises(ConfigError, match="Runtime cognition config"):
-        validate_runtime_config(OverrideLoader({("cognition", "section"): invalid}))
+def test_runtime_rejects_invalid_kernel_config_before_composition() -> None:
+    invalid = dict(KERNEL_CONFIG)
+    invalid["rollout_mode"] = "canary"
+    with pytest.raises(ConfigError, match="Runtime kernel config"):
+        validate_runtime_config(OverrideLoader({("kernel", "section"): invalid}))
 
 
 @pytest.mark.parametrize(

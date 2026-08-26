@@ -4,12 +4,13 @@
 >
 > **Inherited runtime release:** `1.4.3` (patch trên frozen baseline `1.0.0`, 2026-08-14).
 >
-> **Implementation status:** Phase 1–15 đã đóng gate kỹ thuật. Structure normalization S0–S2 đã được
-> checkpoint qua commit `d02c84e`; S3 canonical Cognition đã triển khai, đạt full offline và được owner duyệt
-> để chốt trong change này. Live runtime dùng một `CognitiveContextBuilder`, một `CognitiveModelAdapter`, còn
+> **Implementation status:** Phase 1–15 đã đóng gate kỹ thuật. Structure normalization S0–S3 đã được
+> checkpoint; S2 tại `d02c84e`, S3 canonical Cognition tại `1c6d9d6` sau full offline. S4 Turn Kernel đã triển
+> khai trong working tree và đang chờ owner review; Compatibility vẫn là public owner. Live runtime dùng một `CognitiveContextBuilder`,
+> một `CognitiveModelAdapter`, còn
 > Agent/World/Perception event đi qua `CanonicalEventNormalizer → CanonicalEventIngress → AuthoritativeStateReducer`.
-> Director V2 đang ở strict primary mode cho test-cutover; Cognitive Brain chỉ là observer mặc định tắt
-> và chưa có takeover authority.
+> Director V2 đang ở strict primary mode cho test-cutover; Cognitive Brain là subordinate shadow worker
+> mặc định tắt dưới Turn Kernel và chưa có takeover authority.
 > OBS scene/perception, closed-loop canary và release `2.0.0` vẫn chưa đạt live gate.
 >
 > Mọi thay đổi product được chấp nhận sau baseline phải tăng version và cập nhật `CHANGELOG.md`.

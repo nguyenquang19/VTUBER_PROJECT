@@ -1,5 +1,5 @@
 schema_version: 2
-status: s2_committed
+status: s4_implementation_owner_review_pending
 generated_at_utc: "2026-08-25T20:26:16Z"
 checkpoint_revision: "d02c84e9f46a9e9e11442659af7f2574c364b031"
 checkpoint_scope_clean: true
@@ -36,6 +36,18 @@ s3_docs_first:
     - product_version_change
     - mcb5
 
+s4_turn_kernel:
+  status: implementation_owner_review_pending
+  base_revision: "1c6d9d6"
+  public_owner: COMPATIBILITY
+  allowed_rollout_modes: [OFF, SHADOW]
+  target_tick_owner: services/kernel/turn_kernel.py
+  target_brain_owner: services/cognition/brain.py
+  target_brain_scheduler_owner: services/cognition/scheduler.py
+  target_config_owner: config/kernel.yaml
+  merged_observer: orchestrator/cognitive_observer.py
+  public_behavior_change_authorized: false
+
 scope:
   - interfaces/**/*.py
   - orchestrator/**/*.py
@@ -48,11 +60,11 @@ scope:
   - tests/**/*.py
 
 snapshot:
-  production_python_files: 211
-  production_modules: 208
-  static_live_reachable_modules: 157
-  not_static_live_reachable_modules: 51
-  config_yaml_files: 33
+  production_python_files: 215
+  production_modules: 211
+  static_live_reachable_modules: 158
+  not_static_live_reachable_modules: 53
+  config_yaml_files: 34
   prompt_files: 7
   script_files: 35
   test_python_files_before_s0: 224
@@ -84,8 +96,8 @@ snapshot:
     - tests/unit/test_cognitive_ab_source.py
 
 normalization:
-  completed_waves: [S0, S1, S2]
-  active_wave: null
+  completed_waves: [S0, S1, S2, S3]
+  active_wave: S4
   retired_components:
     - mcb4_offline_dual_path_harness
   owner_approved_deleted_paths:
@@ -103,11 +115,16 @@ normalization:
   canonical_contracts_added:
     - interfaces/events.py
     - interfaces/state.py
+    - interfaces/turn_kernel.py
   canonical_runtime_owners:
     - services/ingress/normalizer.py
     - services/ingress/adapters.py
     - services/state/authoritative.py
     - config/state.yaml
+    - services/cognition/brain.py
+    - services/cognition/scheduler.py
+    - services/kernel/turn_kernel.py
+    - config/kernel.yaml
   canonical_import_facades:
     - services/state/agent.py
     - services/state/event_ledger.py
@@ -118,7 +135,10 @@ normalization:
     - services/agent/goal_types.py
     - services/relationship/types.py
     - services/evaluation/types.py
+    - services/cognition/brain_shadow.py
+    - services/cognition/shadow_scheduler.py
   canonical_config_owner: config/state.yaml
+  canonical_kernel_config_owner: config/kernel.yaml
   compatibility_config_files:
     - config/agent_state.yaml
     - config/relationships.yaml
@@ -136,9 +156,12 @@ normalization:
     s3_impacted_context_cognition_live: 249
     s3_deterministic_replay_live_pipeline: 36
     s3_interface_import_config_docs: 256
-    full_offline: 2471
+    s4_targeted_and_impacted: 414
+    s4_director_transaction_replay: 38
+    s4_live_pipeline_llm_replay: 32
+    full_offline: 2473
     full_offline_failures: 0
-    full_offline_warnings: 1
+    full_offline_warnings: 2
 
 static_import_graph:
   entrypoints:
@@ -280,11 +303,6 @@ overrides:
     target_owner: services/kernel/opportunity_scheduler.py
     deletion_gate: after_s6_scheduler_canary
     reason: Soft opportunity ownership moves to the single Turn Kernel scheduler.
-  - path: orchestrator/cognitive_observer.py
-    disposition: DELETE
-    target_owner: services/operations/turn_journal.py
-    deletion_gate: after_s4_brain_owner_canary
-    reason: Shadow wrapper is migration-only; records merge into the canonical journal.
   - path: orchestrator/emergency_stop.py
     disposition: DELETE
     target_owner: services/operations/emergency.py
@@ -342,17 +360,19 @@ overrides:
     target_owner: services/state/self_projection.py
     reason: Self remains a read-only projection exposed through the canonical state path.
   - path: services/cognition/brain_shadow.py
-    disposition: MERGE
+    disposition: DELETE
     target_owner: services/cognition/brain.py
-    reason: Promote the accepted adapter; remove shadow naming after ownership cutover.
+    deletion_gate: after_s8_compatibility_import_removal
+    reason: Exact import facade only; canonical implementation moved to brain.py.
   - path: services/cognition/context_builder.py
     disposition: KEEP
     target_owner: services/cognition/context_builder.py
     reason: Canonical target context owner.
   - path: services/cognition/shadow_scheduler.py
-    disposition: MERGE
-    target_owner: services/kernel/opportunity_scheduler.py
-    reason: Scheduling moves out of cognition and becomes the only opportunity owner.
+    disposition: DELETE
+    target_owner: services/cognition/scheduler.py
+    deletion_gate: after_s8_compatibility_import_removal
+    reason: Exact import facade only; Turn Kernel is the opportunity owner.
   - path: services/director/director_loop.py
     disposition: MERGE
     target_owner: services/kernel/turn_kernel.py

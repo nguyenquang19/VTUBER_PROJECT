@@ -1877,6 +1877,80 @@ guard `256 passed`, full offline `2.471 passed`, `0` lỗi và một warning dep
 prompt/sampling, output, decision, delivery và state mutation không đổi; không cần blind review cho exact
 structure cut. Owner đã duyệt closure S3; chưa bắt đầu S4/MCB-5.
 
+#### 13.1.5.4. S4 — canonical Turn Kernel cut
+
+S4 bắt đầu docs-first từ checkpoint sạch `1c6d9d6`. Audit xác nhận `DirectorLoop` hiện đồng thời sở hữu
+background tick, legacy soft decision, hard preflight, transaction và delivery routing; sau quyết định public,
+`CognitiveDirectorObserver` mới tạo opportunity cho `CognitiveOpportunityScheduler`. Vì vậy hệ thống có một
+public owner nhưng có hai scheduling shell nối tiếp, còn Brain chưa đứng sau cùng một ranh giới chọn owner.
+
+S4 chọn đúng một flow:
+
+```text
+StreamRuntime
+  -> TurnKernel (one tick owner)
+       -> open TurnOpportunity
+       -> snapshot hard preflight
+       -> select TurnOwner exactly once before generation
+       -> COMPATIBILITY: existing Director decision/execution path
+       -> SHADOW: enqueue the same opportunity to one Brain scheduler, never public
+```
+
+Canonical contracts được thêm tại `interfaces/turn_kernel.py`:
+
+- `TurnRolloutMode`: `OFF | SHADOW | CANARY | PRIMARY | RELEASED`;
+- `TurnOwner`: `COMPATIBILITY | BRAIN`;
+- immutable `TurnOpportunity`: `schema_version`, `opportunity_id`, `opened_at`, `kind`,
+  `material_change_ref` và `context_request`;
+- immutable `TurnPreflight`: `schema_version`, `opportunity_id`, `checked_at`, `allowed`, `hard_state` và
+  bounded `reason_codes`;
+- immutable `TurnOwnerSelection`: `schema_version`, `opportunity_id`, `selected_at`, `rollout_mode`, `owner`
+  và `selection_ref`;
+- `TurnKernelService`: lifecycle, `tick_once()` và input-activity notification; concrete implementation không
+  được import ngược vào interface consumer.
+
+`services/kernel/turn_kernel.py` là owner duy nhất của tick/opportunity/preflight/owner selection và invocation
+shell. `DirectorLoop` tạm thời trở thành compatibility decision/execution adapter; nó không còn được tự mở
+background loop hoặc tự tạo Brain observation. Transaction/delivery internals giữ exact trong adapter đến S5,
+không được diễn giải S4 là đã chuyển transaction authority. `CognitiveDirectorObserver` được merge vào Turn Kernel.
+`services/cognition/scheduler.py` và `services/cognition/brain.py` trở thành tên canonical; hai module
+`shadow_*` chỉ được giữ làm exact re-export nếu còn importer tương thích và phải có deletion gate S8.
+`orchestrator/runtime_cognition.py` chỉ compose Cognition, còn `StreamRuntime` compose/lifecycle đúng một
+Turn Kernel.
+
+`config/kernel.yaml` là owner mới của `rollout_mode`, tick cadence và bounded kernel policy. S4 chỉ cho phép
+runtime `off` hoặc `shadow`; cấu hình `canary`, `primary`, `released` phải fail validation cho tới khi S5 đóng
+execution/verifier/outcome gate. `config/cognition.yaml` tiếp tục sở hữu context/model/Brain-work scheduling,
+không sở hữu public rollout. `config/director.yaml` tiếp tục sở hữu compatibility decision policy trong S4;
+logical read cũ chỉ được giữ bằng alias có removal wave, không được có hai threshold owner.
+
+S4 không cho Brain phát public speech, không đổi prompt/model/sampling, không thêm generation, không xây S5
+executor/verifier/outcome committer, không commit Focus/Memory/history, không mở action authority, không xóa
+legacy soft policy và không tăng product version. Trong `OFF`/`SHADOW`, public text/decision/delivery phải exact;
+Brain failure hoặc backlog không được chặn compatibility path.
+
+Acceptance bắt buộc:
+
+1. Live graph có đúng một tick owner và một owner selection cho mỗi opportunity; owner được khóa trước model
+   generation. `OFF`/`SHADOW` luôn chọn `COMPATIBILITY` làm public owner.
+2. Hard hold kết thúc bằng `WAIT` trước reservation/generation/mutation; không có false commit, duplicate
+   delivery/action hoặc transaction bị bỏ treo.
+3. `cognitive_brain_shadow=false` không tạo Brain task, LLM call hoặc latency. Khi bật, một opportunity chỉ
+   tạo tối đa một Brain generation và kết quả không có public consumer.
+4. Compatibility replay giữ exact action/text/transaction cho `WAIT`, `READ_CHAT`, `ACK_DONATION`,
+   `SELF_TALK`, `FOLLOW_UP` và `TRANSITION`.
+5. Temporal replay giữ lineage `opportunity_id -> selection_ref -> decision_id -> transaction_id`, ghi thời
+   điểm opportunity/selection/reservation/delivery/commit. Vì S4 là exact structural cut không đổi public timing,
+   temporal trace deterministic là gate bắt buộc; sealed human temporal blind chỉ bắt buộc nếu trace phát hiện
+   drift hoặc từ S5/S6 khi public owner/scheduler/delivery timing thay đổi. Khi chạy blind, reviewer phải thấy
+   stimulus, relative delay, interruption state và outcome; không chỉ chấm câu chữ.
+6. Interface/import/config/documentation guard, targeted kernel/Director/Cognition, impacted V1 regression,
+   deterministic compatibility + temporal replay và full offline đều xanh. Bất kỳ public drift không được
+   giải thích bởi fixture clock làm S4 fail và rollback.
+
+Rollback S4 là quay về `1c6d9d6`; không có data/storage migration. S4 phải commit riêng và dừng chờ owner
+review; không tự chuyển S5 hoặc MCB-5.
+
 ### 13.1.6. Rollout behavior trong quá trình chuẩn hóa
 
 | Trạng thái | Public soft owner | Brain | Compatibility | Failure trước reservation |

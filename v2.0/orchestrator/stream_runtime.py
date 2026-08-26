@@ -196,6 +196,7 @@ class StreamRuntime:
         emergency_controller: Any = None,
         incident_log: Any = None,
         cognitive_scheduler: Any = None,
+        turn_kernel: Any = None,
         cfg: StreamRuntimeConfig | None = None,
     ) -> None:
         self._loader = loader
@@ -252,6 +253,7 @@ class StreamRuntime:
         self._emergency_controller = emergency_controller
         self._incident_log = incident_log
         self._cognitive_scheduler = cognitive_scheduler
+        self._turn_kernel = turn_kernel
         self.cfg = cfg or StreamRuntimeConfig()
 
         self._running = False
@@ -337,7 +339,9 @@ class StreamRuntime:
             self._running = True
             # C0.4: DirectorLoop cầm nhịp (thay autonomy loop cũ). Fallback: autonomy loop
             # nếu không có director (backward compat / test).
-            if self._director_loop is not None:
+            if self._turn_kernel is not None:
+                await self._turn_kernel.start()
+            elif self._director_loop is not None:
                 await self._director_loop.start()
             elif self.cfg.enable_autonomy and self._autonomy is not None:
                 self._autonomy_task = asyncio.create_task(
@@ -419,7 +423,10 @@ class StreamRuntime:
 
     async def _stop_driver(self) -> None:
         # Stop director loop (C0.4) hoặc autonomy loop cũ
-        if self._director_loop is not None:
+        if self._turn_kernel is not None:
+            with contextlib.suppress(Exception):
+                await self._turn_kernel.stop()
+        elif self._director_loop is not None:
             with contextlib.suppress(Exception):
                 await self._director_loop.stop()
         if self._autonomy_task is not None and not self._autonomy_task.done():
@@ -676,6 +683,10 @@ class StreamRuntime:
             ),
             "incidents": self._incident_log.snapshot() if self._incident_log is not None else None,
             "cognitive_brain_shadow": self._cognitive_health_snapshot(),
+            "turn_kernel": (
+                self._turn_kernel.get_metrics()
+                if self._turn_kernel is not None else None
+            ),
             "decisions": (
                 self._director_loop.decision_snapshot()
                 if self._director_loop is not None else None
@@ -871,6 +882,9 @@ class StreamRuntime:
         if self._director_loop is not None:
             with contextlib.suppress(Exception):
                 m.update(self._director_loop.get_metrics())
+        if self._turn_kernel is not None:
+            with contextlib.suppress(Exception):
+                m.update(self._turn_kernel.get_metrics())
         if self._agent_state is not None:
             with contextlib.suppress(Exception):
                 m.update(self._agent_state.get_metrics())
@@ -2618,7 +2632,9 @@ async def _compose_stream_runtime(
         conversation_context_projection=conversation_context_projection,
     )
 
-    # MCB-3: compose a dormant observer. No proposal is routed back to public output.
+    # S4: compose Cognition below one Turn Kernel. Brain remains non-public.
+    from interfaces.turn_kernel import KernelConfig
+    kernel_config = KernelConfig.from_mapping(loader.section("kernel"))
     from orchestrator.runtime_cognition import build_cognitive_runtime_stack
     cognitive_stack = build_cognitive_runtime_stack(
         loader=loader,
@@ -2630,10 +2646,20 @@ async def _compose_stream_runtime(
         control_plane=control_plane,
         emergency_controller=emergency_controller,
         metrics=metrics,
-        session_id=session_id,
+        kernel_config=kernel_config,
     )
     cognitive_scheduler = cognitive_stack.scheduler
-    director_loop.configure_cognitive_observer(cognitive_stack.observer)
+    from services.kernel.turn_kernel import TurnKernel
+    turn_kernel = TurnKernel(
+        config=kernel_config,
+        cognition_config=cognitive_stack.config,
+        compatibility=director_loop,
+        brain_scheduler=cognitive_scheduler,
+        hard_state_provider=cognitive_stack.hard_state_provider,
+        metrics=metrics,
+        session_id=session_id,
+    )
+    director_loop.configure_turn_kernel(turn_kernel)
 
     rt = StreamRuntime(
         loader=loader, llm_svc=llm_svc, runner=runner, emotion=emotion,
@@ -2677,6 +2703,7 @@ async def _compose_stream_runtime(
         emergency_controller=emergency_controller,
         incident_log=incident_log,
         cognitive_scheduler=cognitive_scheduler,
+        turn_kernel=turn_kernel,
     )
     configure_shutdown_coordinator(
         enabled=operations_enabled,

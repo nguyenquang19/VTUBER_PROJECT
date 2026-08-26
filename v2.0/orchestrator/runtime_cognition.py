@@ -1,22 +1,23 @@
-"""Composition-only helper for the MCB-3 proposal observer stack."""
+"""Composition-only helper for the canonical Cognition stack."""
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 from interfaces.cognition import CognitionConfig, CognitiveHardState
-from orchestrator.cognitive_observer import CognitiveDirectorObserver
+from interfaces.turn_kernel import KernelConfig, TurnRolloutMode
 from orchestrator.runtime_feature_bindings import attach_boolean_feature
-from services.cognition.brain_shadow import CognitiveBrain
+from services.cognition.brain import CognitiveBrain
 from services.cognition.context_builder import CognitiveContextBuilder
 from services.cognition.model_adapter import CognitiveModelAdapter
-from services.cognition.shadow_scheduler import CognitiveOpportunityScheduler
+from services.cognition.scheduler import CognitiveOpportunityScheduler
 
 
 @dataclass(frozen=True)
 class CognitiveRuntimeStack:
     scheduler: CognitiveOpportunityScheduler
-    observer: CognitiveDirectorObserver
+    config: CognitionConfig
+    hard_state_provider: Callable[[Any], CognitiveHardState]
 
 
 def build_cognitive_runtime_stack(
@@ -30,7 +31,7 @@ def build_cognitive_runtime_stack(
     control_plane: Any,
     emergency_controller: Any,
     metrics: Any,
-    session_id: str,
+    kernel_config: KernelConfig,
 ) -> CognitiveRuntimeStack:
     """Build dormant services and attach lifecycle to the disabled feature."""
     config = CognitionConfig.from_mapping(loader.section("cognition"))
@@ -103,16 +104,25 @@ def build_cognitive_runtime_stack(
             source_failure_codes=tuple(dict.fromkeys(failures)),
         )
 
-    observer = CognitiveDirectorObserver(
-        config=config, scheduler=scheduler, session_id=session_id,
-        hard_state_provider=hard_state,
-    )
+    async def set_scheduler_enabled(enabled: bool) -> None:
+        if enabled and kernel_config.rollout_mode is TurnRolloutMode.OFF:
+            await scheduler.stop()
+            raise RuntimeError("cognitive Brain cannot start while kernel rollout is OFF")
+        if enabled:
+            await scheduler.start()
+        else:
+            await scheduler.stop()
+
     attach_boolean_feature(
         feature_manager,
         "cognitive_brain_shadow",
-        set_enabled=lambda enabled: scheduler.start() if enabled else scheduler.stop(),
+        set_enabled=set_scheduler_enabled,
         is_enabled=lambda: (
             scheduler.snapshot().running and scheduler.snapshot().healthy
         ),
     )
-    return CognitiveRuntimeStack(scheduler=scheduler, observer=observer)
+    return CognitiveRuntimeStack(
+        scheduler=scheduler,
+        config=config,
+        hard_state_provider=hard_state,
+    )
