@@ -12,7 +12,7 @@ from typing import Any, Callable
 
 from orchestrator.fallback_manager import FallbackManager
 from orchestrator.logger import get_logger
-from orchestrator.metrics_collector import MetricsCollector
+from services.operations.metrics import MetricsCollector
 
 
 @dataclass

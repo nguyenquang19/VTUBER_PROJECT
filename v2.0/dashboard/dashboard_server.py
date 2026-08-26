@@ -12,6 +12,7 @@ import asyncio
 import contextlib
 from pathlib import Path
 import secrets
+import uuid
 from typing import Any
 
 from datetime import datetime, timezone
@@ -124,6 +125,7 @@ class DashboardServer:
         state_machine: Any = None,
         trigger_manager: Any = None,
         metrics: Any = None,
+        operations_surface: Any = None,
         emergency_stop: Any = None,
         health_monitor: Any = None,
         watchdog: Any = None,
@@ -145,8 +147,6 @@ class DashboardServer:
         relationship_manager: Any = None,  # M7: audited social record controls
         decision_records: Any = None,      # M10.3: versioned Director decision view
         trajectory_records: Any = None,    # Phase 14: sanitized structured trajectories
-        human_like_calibration: Any = None,  # Phase 14: counters only, no sealed manifest
-        closed_loop_canary: Any = None,  # Phase 15: read-only sanitized evidence
         self_talk_planner: Any = None,     # cause-first thought state, read-only
         control_plane: Any = None,          # M9: pause/resume/action queue/audit
         snapshot_provider: Any = None,      # M9: standalone read-only provider
@@ -166,6 +166,7 @@ class DashboardServer:
         self.sm = state_machine
         self.triggers = trigger_manager
         self.metrics = metrics
+        self.operations_surface = operations_surface
         self.emergency = emergency_stop
         self.health = health_monitor
         self.watchdog = watchdog
@@ -187,8 +188,6 @@ class DashboardServer:
         self.relationship_manager = relationship_manager
         self.decision_records = decision_records
         self.trajectory_records = trajectory_records
-        self.human_like_calibration = human_like_calibration
-        self.closed_loop_canary = closed_loop_canary
         self.self_talk_planner = self_talk_planner
         self.control_plane = control_plane
         self.snapshot_provider = snapshot_provider
@@ -245,6 +244,16 @@ class DashboardServer:
 
     async def build_snapshot(self, source_mode: str = "auto") -> dict[str, Any]:
         snap: dict[str, Any] = {}
+        if self.operations_surface is not None:
+            try:
+                value = await self.operations_surface.snapshot()
+                snap.update(value.to_dict())
+            except Exception as exc:
+                snap["operations_degraded"] = {
+                    "failed_sections": {"operations_surface": type(exc).__name__},
+                }
+            snap["operator_overview"] = _build_operator_overview(snap)
+            return snap
         if self.snapshot_provider is not None:
             with contextlib.suppress(Exception):
                 if hasattr(self.snapshot_provider, "snapshot_for"):
@@ -408,12 +417,6 @@ class DashboardServer:
         if self.trajectory_records is not None:
             with contextlib.suppress(Exception):
                 snap["trajectories"] = self.trajectory_records.snapshot()
-        if self.human_like_calibration is not None:
-            with contextlib.suppress(Exception):
-                snap["human_like_calibration"] = self.human_like_calibration.snapshot()
-        if self.closed_loop_canary is not None:
-            with contextlib.suppress(Exception):
-                snap["closed_loop_canary"] = self.closed_loop_canary.snapshot()
         if self.health_supervisor is not None:
             with contextlib.suppress(Exception):
                 snap["health_supervisor"] = self.health_supervisor.snapshot()
@@ -452,6 +455,8 @@ class DashboardServer:
     # ---------- app ----------
 
     async def _operator_v2_enabled(self) -> bool:
+        if self.operations_surface is not None:
+            return True
         if self.snapshot_provider is not None:
             return True
         if self.features is None:
@@ -554,6 +559,10 @@ class DashboardServer:
 
         @app.post("/api/features/{feature_id}/toggle")
         async def api_toggle(feature_id: str) -> JSONResponse:
+            if self.operations_surface is not None:
+                return await self._surface_response(
+                    "feature.toggle", {"feature_id": feature_id},
+                )
             if self.features is None:
                 return await self._forward_or_unavailable(
                     f"/api/features/{feature_id}/toggle", {}, "no feature manager",
@@ -585,6 +594,10 @@ class DashboardServer:
 
         @app.post("/api/emergency_stop")
         async def api_emergency_stop() -> JSONResponse:
+            if self.operations_surface is not None:
+                return await self._surface_response(
+                    "emergency.trigger", {"reason": "dashboard emergency stop"},
+                )
             if self.emergency_controller is not None:
                 ok = await self.emergency_controller.trigger("dashboard emergency stop")
                 return JSONResponse({"ok": ok, "emergency": self.emergency_controller.snapshot()})
@@ -600,6 +613,10 @@ class DashboardServer:
 
         @app.post("/api/resume")
         async def api_resume() -> JSONResponse:
+            if self.operations_surface is not None:
+                return await self._surface_response(
+                    "emergency.resume", {"reason": "dashboard operator resume"},
+                )
             if self.emergency_controller is not None:
                 ok = await self.emergency_controller.resume("dashboard operator resume")
                 return JSONResponse(
@@ -620,11 +637,13 @@ class DashboardServer:
 
         @app.post("/api/goals/pin")
         async def api_goal_pin(request: Request) -> JSONResponse:
+            body = await _json(request)
+            if self.operations_surface is not None:
+                return await self._surface_response("goal.pin", body)
             if self.goal_manager is None:
                 return await self._forward_or_unavailable(
-                    "/api/goals/pin", await _json(request), "no goal manager",
+                    "/api/goals/pin", body, "no goal manager",
                 )
-            body = await _json(request)
             reason = str(body.get("reason") or "").strip()
             success = str(body.get("success_condition") or "").strip()
             parent = str(body.get("parent_thread_id") or "").strip() or None
@@ -641,11 +660,15 @@ class DashboardServer:
 
         @app.post("/api/goals/{goal_id}/complete")
         async def api_goal_complete(goal_id: str, request: Request) -> JSONResponse:
+            body = await _json(request)
+            if self.operations_surface is not None:
+                return await self._surface_response(
+                    "goal.complete", {**body, "goal_id": goal_id},
+                )
             if self.goal_manager is None:
                 return await self._forward_or_unavailable(
-                    f"/api/goals/{goal_id}/complete", await _json(request), "no goal manager",
+                    f"/api/goals/{goal_id}/complete", body, "no goal manager",
                 )
-            body = await _json(request)
             reason = str(body.get("reason") or "operator complete").strip()
             ok = self.goal_manager.operator_complete(goal_id, reason=reason)
             self._audit_control("complete_goal", goal_id, "completed" if ok else "not_found")
@@ -656,11 +679,15 @@ class DashboardServer:
 
         @app.post("/api/goals/{goal_id}/cancel")
         async def api_goal_cancel(goal_id: str, request: Request) -> JSONResponse:
+            body = await _json(request)
+            if self.operations_surface is not None:
+                return await self._surface_response(
+                    "goal.cancel", {**body, "goal_id": goal_id},
+                )
             if self.goal_manager is None:
                 return await self._forward_or_unavailable(
-                    f"/api/goals/{goal_id}/cancel", await _json(request), "no goal manager",
+                    f"/api/goals/{goal_id}/cancel", body, "no goal manager",
                 )
-            body = await _json(request)
             reason = str(body.get("reason") or "operator cancel").strip()
             ok = self.goal_manager.operator_cancel(goal_id, reason=reason)
             self._audit_control("cancel_goal", goal_id, "completed" if ok else "not_found")
@@ -671,11 +698,13 @@ class DashboardServer:
 
         @app.post("/api/agent/pause")
         async def api_agent_pause(request: Request) -> JSONResponse:
+            body = await _json(request)
+            if self.operations_surface is not None:
+                return await self._surface_response("agent.pause", body)
             if self.control_plane is None:
                 return await self._forward_or_unavailable(
-                    "/api/agent/pause", await _json(request), "runtime_offline",
+                    "/api/agent/pause", body, "runtime_offline",
                 )
-            body = await _json(request)
             ok = await self.control_plane.pause(
                 str(body.get("reason") or "dashboard operator pause"),
             )
@@ -683,11 +712,13 @@ class DashboardServer:
 
         @app.post("/api/agent/resume")
         async def api_agent_resume(request: Request) -> JSONResponse:
+            body = await _json(request)
+            if self.operations_surface is not None:
+                return await self._surface_response("agent.resume", body)
             if self.control_plane is None:
                 return await self._forward_or_unavailable(
-                    "/api/agent/resume", await _json(request), "runtime_offline",
+                    "/api/agent/resume", body, "runtime_offline",
                 )
-            body = await _json(request)
             ok = await self.control_plane.resume(
                 str(body.get("reason") or "dashboard operator resume"),
             )
@@ -695,15 +726,27 @@ class DashboardServer:
 
         @app.get("/api/relationships")
         async def api_relationships() -> JSONResponse:
+            if self.operations_surface is not None:
+                snap = await self.build_snapshot()
+                relationships = snap.get("relationships")
+                if isinstance(relationships, dict):
+                    return JSONResponse({"ok": True, **relationships})
+                return JSONResponse(
+                    {"ok": False, "reason": "no relationship manager"}, status_code=503,
+                )
             if self.relationship_manager is None:
                 return JSONResponse({"ok": False, "reason": "no relationship manager"}, status_code=503)
             return JSONResponse({"ok": True, **self.relationship_manager.snapshot().to_dict()})
 
         @app.post("/api/relationships/{viewer_id}/profile")
         async def api_relationship_profile(viewer_id: str, request: Request) -> JSONResponse:
+            body = await _json(request)
+            if self.operations_surface is not None:
+                return await self._surface_response(
+                    "relationship.profile", {**body, "viewer_id": viewer_id},
+                )
             if self.relationship_manager is None:
                 return JSONResponse({"ok": False, "reason": "no relationship manager"}, status_code=503)
-            body = await _json(request)
             profile = self.relationship_manager.update_profile(
                 viewer_id,
                 preferences=_string_list(body.get("preferences")),
@@ -719,9 +762,13 @@ class DashboardServer:
 
         @app.post("/api/relationships/{viewer_id}/notes")
         async def api_relationship_note(viewer_id: str, request: Request) -> JSONResponse:
+            body = await _json(request)
+            if self.operations_surface is not None:
+                return await self._surface_response(
+                    "relationship.note.create", {**body, "viewer_id": viewer_id},
+                )
             if self.relationship_manager is None:
                 return JSONResponse({"ok": False, "reason": "no relationship manager"}, status_code=503)
-            body = await _json(request)
             note = self.relationship_manager.create_note(
                 viewer_id, summary=str(body.get("summary") or ""),
                 evidence_refs=_string_list(body.get("evidence_refs")),
@@ -734,9 +781,13 @@ class DashboardServer:
 
         @app.post("/api/relationships/notes/{note_id}/review")
         async def api_relationship_note_review(note_id: str, request: Request) -> JSONResponse:
+            body = await _json(request)
+            if self.operations_surface is not None:
+                return await self._surface_response(
+                    "relationship.note.review", {**body, "note_id": note_id},
+                )
             if self.relationship_manager is None:
                 return JSONResponse({"ok": False, "reason": "no relationship manager"}, status_code=503)
-            body = await _json(request)
             approve = body.get("approve") is True
             ok = self.relationship_manager.review_note(
                 note_id, approve=approve, reason=str(body.get("reason") or "").strip(),
@@ -745,9 +796,13 @@ class DashboardServer:
 
         @app.delete("/api/relationships/notes/{note_id}")
         async def api_relationship_note_delete(note_id: str, request: Request) -> JSONResponse:
+            body = await _json(request)
+            if self.operations_surface is not None:
+                return await self._surface_response(
+                    "relationship.note.delete", {**body, "note_id": note_id},
+                )
             if self.relationship_manager is None:
                 return JSONResponse({"ok": False, "reason": "no relationship manager"}, status_code=503)
-            body = await _json(request)
             ok = self.relationship_manager.delete_note(
                 note_id, reason=str(body.get("reason") or "").strip(),
             )
@@ -755,9 +810,11 @@ class DashboardServer:
 
         @app.post("/api/relationships/narratives")
         async def api_relationship_narrative(request: Request) -> JSONResponse:
+            body = await _json(request)
+            if self.operations_surface is not None:
+                return await self._surface_response("relationship.narrative.create", body)
             if self.relationship_manager is None:
                 return JSONResponse({"ok": False, "reason": "no relationship manager"}, status_code=503)
-            body = await _json(request)
             item = self.relationship_manager.create_narrative(
                 summary=str(body.get("summary") or ""),
                 event_refs=_string_list(body.get("event_refs")),
@@ -773,9 +830,14 @@ class DashboardServer:
         async def api_relationship_narrative_resolve(
             narrative_id: str, request: Request,
         ) -> JSONResponse:
+            body = await _json(request)
+            if self.operations_surface is not None:
+                return await self._surface_response(
+                    "relationship.narrative.resolve",
+                    {**body, "narrative_id": narrative_id},
+                )
             if self.relationship_manager is None:
                 return JSONResponse({"ok": False, "reason": "no relationship manager"}, status_code=503)
-            body = await _json(request)
             ok = self.relationship_manager.resolve_narrative(
                 narrative_id, reason=str(body.get("reason") or "").strip(),
             )
@@ -783,9 +845,13 @@ class DashboardServer:
 
         @app.post("/api/relationships/{viewer_id}/running-gags")
         async def api_relationship_running_gag(viewer_id: str, request: Request) -> JSONResponse:
+            body = await _json(request)
+            if self.operations_surface is not None:
+                return await self._surface_response(
+                    "relationship.gag.create", {**body, "viewer_id": viewer_id},
+                )
             if self.relationship_manager is None:
                 return JSONResponse({"ok": False, "reason": "no relationship manager"}, status_code=503)
-            body = await _json(request)
             gag = self.relationship_manager.create_running_gag(
                 viewer_id, summary=str(body.get("summary") or ""),
                 event_refs=_string_list(body.get("event_refs")),
@@ -798,9 +864,13 @@ class DashboardServer:
 
         @app.post("/api/relationships/running-gags/{gag_id}/review")
         async def api_relationship_running_gag_review(gag_id: str, request: Request) -> JSONResponse:
+            body = await _json(request)
+            if self.operations_surface is not None:
+                return await self._surface_response(
+                    "relationship.gag.review", {**body, "gag_id": gag_id},
+                )
             if self.relationship_manager is None:
                 return JSONResponse({"ok": False, "reason": "no relationship manager"}, status_code=503)
-            body = await _json(request)
             ok = self.relationship_manager.review_running_gag(
                 gag_id, approve=body.get("approve") is True,
                 reason=str(body.get("reason") or "").strip(),
@@ -809,6 +879,10 @@ class DashboardServer:
 
         @app.get("/api/relationships/{viewer_id}/export")
         async def api_relationship_export(viewer_id: str) -> JSONResponse:
+            if self.operations_surface is not None:
+                return await self._surface_response(
+                    "relationship.export", {"viewer_id": viewer_id},
+                )
             if self.relationship_manager is None:
                 return JSONResponse({"ok": False, "reason": "no relationship manager"}, status_code=503)
             try:
@@ -819,9 +893,13 @@ class DashboardServer:
 
         @app.delete("/api/relationships/{viewer_id}")
         async def api_relationship_delete(viewer_id: str, request: Request) -> JSONResponse:
+            body = await _json(request)
+            if self.operations_surface is not None:
+                return await self._surface_response(
+                    "relationship.delete", {**body, "viewer_id": viewer_id},
+                )
             if self.relationship_manager is None:
                 return JSONResponse({"ok": False, "reason": "no relationship manager"}, status_code=503)
-            body = await _json(request)
             try:
                 result = await self.relationship_manager.delete_viewer(
                     viewer_id, reason=str(body.get("reason") or "").strip(),
@@ -835,6 +913,8 @@ class DashboardServer:
 
         @app.get("/metrics", response_class=PlainTextResponse)
         async def metrics_endpoint() -> bytes:
+            if self.operations_surface is not None:
+                return self.operations_surface.prometheus_text()
             if self.metrics is None:
                 return b""
             return self.metrics.prometheus_text()
@@ -854,7 +934,7 @@ class DashboardServer:
                     return JSONResponse(
                         {"ok": False, "reason": "thiếu turn_id"}, status_code=400,
                     )
-                identity = self._last_turn_identity()
+                identity = await self._last_turn_identity()
                 if identity is not None:
                     session_id, turn_id = identity
             else:
@@ -930,7 +1010,18 @@ class DashboardServer:
 
     # ---------- T3/T7 data label helpers ----------
 
-    def _last_turn_identity(self) -> tuple[str, int] | None:
+    async def _last_turn_identity(self) -> tuple[str, int] | None:
+        if self.operations_surface is not None:
+            try:
+                data_label = await self.operations_surface.snapshot_section("data_label")
+                latest = data_label.get("latest_turn") if isinstance(data_label, dict) else None
+                session_id = latest.get("session_id") if isinstance(latest, dict) else None
+                turn_id = latest.get("turn_id") if isinstance(latest, dict) else None
+                if isinstance(session_id, str) and session_id and isinstance(turn_id, int) and turn_id:
+                    return session_id, turn_id
+            except Exception:
+                return None
+            return None
         session_id = getattr(self.runner, "session_id", None) if self.runner else None
         tid = getattr(self.runner, "last_turn_id", 0) if self.runner else 0
         if not isinstance(session_id, str) or not session_id or not tid:
@@ -965,6 +1056,19 @@ class DashboardServer:
         if self.control_plane is not None:
             with contextlib.suppress(Exception):
                 self.control_plane.record_operator_action(action, target, outcome)
+
+    async def _surface_response(
+        self, name: str, payload: dict[str, Any],
+    ) -> JSONResponse:
+        from interfaces.operations import OperationsCommand
+
+        result = await self.operations_surface.execute(OperationsCommand(
+            command_id=f"dashboard:{uuid.uuid4().hex}",
+            name=name,
+            issued_at=datetime.now(timezone.utc),
+            payload=payload,
+        ))
+        return JSONResponse(dict(result.payload), status_code=result.status_code)
 
     async def _forward_or_unavailable(
         self, path: str, payload: dict[str, Any], reason: str,

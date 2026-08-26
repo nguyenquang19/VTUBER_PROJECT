@@ -143,6 +143,7 @@ def _fixture(tmp_path: Path) -> tuple[Path, dict[str, Path]]:
     config.mkdir()
     shutil.copy2(REPO_ROOT / "config" / "system.yaml", config / "system.yaml")
     shutil.copy2(REPO_ROOT / "config" / "operations.yaml", config / "operations.yaml")
+    shutil.copy2(REPO_ROOT / "config" / "evaluation.yaml", config / "evaluation.yaml")
     paths = {
         "verification": _write(tmp_path / "verification.json", _verification()),
         "preflight": _write(tmp_path / "preflight.json", _preflight()),

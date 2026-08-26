@@ -30,7 +30,7 @@ from orchestrator.config_loader import ConfigError
 from orchestrator.logger import get_logger
 
 if TYPE_CHECKING:
-    from orchestrator.metrics_collector import MetricsCollector
+    from services.operations.metrics import MetricsCollector
 
 Handler = Callable[[], Awaitable[None]]
 HealthCheck = Callable[[], Awaitable[bool]]
@@ -162,12 +162,14 @@ class FeatureManager:
         core_feature_ids: tuple[str, ...] = (),
         persist_path: Path | None = None,
         metrics: MetricsCollector | None = None,
+        excluded_feature_ids: tuple[str, ...] = (),
     ) -> None:
         self._features: dict[str, Feature] = {}
         self._vram_budget_mb = vram_budget_mb
         self._core_ids = set(core_feature_ids)
         self._persist_path = persist_path
         self._metrics = metrics
+        self._excluded_feature_ids = set(excluded_feature_ids)
         self._lock = asyncio.Lock()
         self._log = get_logger("features")
 
@@ -177,6 +179,8 @@ class FeatureManager:
     def from_config(
         cls, loader, *, persist: bool = False,
         metrics: MetricsCollector | None = None,
+        excluded_categories: tuple[str, ...] = (),
+        excluded_feature_ids: tuple[str, ...] = (),
     ) -> FeatureManager:
         """Build from strict YAML; production composition opts into persistence."""
         total = _strict_int(
@@ -205,6 +209,14 @@ class FeatureManager:
         raw_features = section.get("features")
         if not isinstance(raw_features, Mapping):
             raise ConfigError("features.yaml::features phải là mapping")
+        excluded = {
+            _strict_text(value, "excluded_categories")
+            for value in excluded_categories
+        }
+        excluded_ids = {
+            _strict_feature_id(value, "excluded_feature_ids")
+            for value in excluded_feature_ids
+        }
 
         persist_path: Path | None = None
         if persist:
@@ -218,6 +230,9 @@ class FeatureManager:
             core_feature_ids=core_ids,
             persist_path=persist_path,
             metrics=metrics,
+            excluded_feature_ids=tuple(
+                sorted(excluded_ids & {str(value) for value in raw_features})
+            ),
         )
 
         for raw_feature_id, raw_spec in raw_features.items():
@@ -245,6 +260,8 @@ class FeatureManager:
                 raw_spec.get("category", "uncategorized"),
                 f"features.{feature_id}.category",
             )
+            if category in excluded or feature_id in excluded_ids:
+                continue
             mgr.register(
                 Feature(
                     id=feature_id,
@@ -670,9 +687,10 @@ class FeatureManager:
             raise ConfigError("features.yaml::features phải là mapping khi persist")
         disk_ids = set(parsed["features"])
         runtime_ids = set(self._features)
-        if disk_ids != runtime_ids:
-            missing = sorted(runtime_ids - disk_ids)
-            extra = sorted(disk_ids - runtime_ids)
+        expected_disk_ids = runtime_ids | self._excluded_feature_ids
+        if disk_ids != expected_disk_ids:
+            missing = sorted(expected_disk_ids - disk_ids)
+            extra = sorted(disk_ids - expected_disk_ids)
             raise ConfigError(
                 "feature inventory thay đổi trong lúc chạy; "
                 f"missing={missing}, extra={extra}",

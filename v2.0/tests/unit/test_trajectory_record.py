@@ -12,6 +12,7 @@ from interfaces.trajectory import TrajectorySnapshotRefs
 from orchestrator.metrics_collector import MetricsCollector
 from services.director.trajectory import TrajectoryConfig, TrajectoryRecorder
 from services.director.v2_shadow import DirectorV2Shadow
+from services.operations.turn_journal import TurnJournal, TurnJournalConfig
 from tests.unit.test_director_v2_shadow import _Availability, _Registry, _config as _shadow_config
 
 
@@ -121,6 +122,36 @@ def test_complete_trajectory_is_versioned_bounded_and_value_redacted() -> None:
         assert secret not in rendered
     assert current["chain_of_thought_included"] is False
     assert metrics.trajectory_snapshot()["completed"] == 1
+
+
+def test_live_trajectory_projection_uses_canonical_journal_without_second_store() -> None:
+    journal = TurnJournal(TurnJournalConfig(
+        max_lineages=8,
+        max_events_per_lineage=16,
+        max_reason_codes=8,
+        max_evidence_refs=8,
+        max_label_chars=160,
+        max_projection_bytes=65536,
+    ))
+    recorder = TrajectoryRecorder(
+        _config(),
+        snapshot_provider=_refs,
+        clock=lambda: 2.0,
+        turn_journal=journal,
+        enabled=True,
+    )
+    recorder.begin(_context(), _proposal())
+    recorder.mark_selection("d2-1", owner="director_v2")
+    recorder.record_action("d2-1", _request())
+    recorder.record_result(
+        "d2-1",
+        _result(),
+        VerificationResult(True, "director_delivery", "committed", ("delivery:1",)),
+    )
+    assert recorder._items == {}
+    assert journal.projection("d2-1", "trajectory_record") is not None
+    assert recorder.snapshot()["current"]["lifecycle"] == "completed"
+    assert recorder.replay("d2-1", lambda _context: _proposal()).matched is True
 
 
 def test_wait_and_shadow_paths_never_invent_action_records() -> None:

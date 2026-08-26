@@ -34,7 +34,7 @@ class ClosedLoopCanaryConfig:
 
     @classmethod
     def from_loader(cls, loader: Any) -> "ClosedLoopCanaryConfig":
-        raw = loader.get("operations", "closed_loop_canary", None)
+        raw = loader.get("evaluation", "evaluation.operations.closed_loop_canary", None)
         if not isinstance(raw, Mapping) or set(raw) != _CONFIG_KEYS:
             raise ValueError("closed_loop_canary keys are invalid")
         actions = raw["allowed_actions"]

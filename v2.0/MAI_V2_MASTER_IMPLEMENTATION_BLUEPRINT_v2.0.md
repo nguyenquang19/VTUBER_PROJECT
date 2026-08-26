@@ -2131,8 +2131,124 @@ không có committed continuity record. Evidence: targeted `207 passed`, determi
 `36 passed`, runtime composition `6 passed`, full offline `2.495 passed`, `0` lỗi và một Starlette deprecation
 warning có sẵn.
 
-Rollback S6 là quay về `073352b`; không có storage migration. Implementation phải commit riêng và dừng chờ
-owner review; không tự chuyển S7 hoặc mở MCB-5.
+Rollback S6 là quay về `073352b`; không có storage migration. Owner đã duyệt và S6 được commit/push tại
+`ac4b3f3`; không mở MCB-5.
+
+#### 13.1.5.7. S7 — canonical Operations Surface và offline dependency split
+
+S7 bắt đầu docs-first từ checkpoint sạch `ac4b3f3`. Baseline operations/evaluation targeted gồm inventory,
+runtime-config, metrics, health, incident, dashboard, decision/trajectory journal và closed-loop canary đạt
+`152 passed`; warning Starlette deprecation có sẵn và pytest cache không ghi được không phải test failure.
+Read-only audit xác nhận bốn vấn đề cấu trúc:
+
+1. `orchestrator/metrics_collector.py` vẫn là concrete owner dùng chung cho live services thay vì nằm dưới
+   Operations;
+2. generation/delivery JSONL, DecisionRecord và TrajectoryRecorder giữ ba view lineage riêng, còn dashboard
+   join bằng object graph thay vì một bounded sanitized turn lineage;
+3. `StreamRuntime` compose `HumanLikeCalibration` và `ClosedLoopCanary`, đồng thời đọc release config/source
+   inspector từ `services.evaluation`; `runtime_config_validation.py` cũng import ba implementation offline;
+4. dashboard nhận trực tiếp nhiều mutable domain service và canary object, vì vậy presentation layer có thể
+   trở thành một composition/control plane thứ hai.
+
+Đường S7 duy nhất được khóa:
+
+```text
+LIVE
+StreamRuntime
+  -> OperationsSurface
+       -> MetricsCollector
+       -> TurnJournal
+       -> HealthSupervisor / IncidentLog
+       -> RuntimeControlPlane / EmergencyController / ShutdownCoordinator
+  -> DashboardAdapter -> OperationsSurface snapshot + allowlisted operator command
+
+OFFLINE
+scripts/{eval,replay,canary,soak,release}
+  -> services/evaluation
+  -> public interfaces + sanitized journal/artifact readers
+
+live runtime -X-> services/evaluation / corpus / release / soak implementation
+operations -X-> soft decision, speech generation hoặc domain-state inference
+```
+
+Canonical contract mở rộng trong `interfaces/operations.py`, không tạo interface theo dashboard hoặc phase:
+
+- immutable `TurnJournalStage` allowlist cho event/opportunity/decision/generation/reservation/delivery/
+  terminal/continuity milestone;
+- immutable `TurnLineageRecord` chứa bounded optional IDs
+  `event_id/opportunity_id/decision_id/attempt_id/turn_id/request_id/transaction_id/outcome_ref/`
+  `continuity_id/action_id`, UTC/monotonic timing được biết, public owner/mode, terminal state, verified flag,
+  bounded reason/evidence refs và không chứa prompt, chain-of-thought, raw Memory, secret hoặc raw identity;
+- `TurnJournalService` chỉ append idempotent stage theo một `lineage_id`, reject ID conflict/out-of-order terminal
+  mutation, trả bounded snapshot/query; journal failure không được đổi transaction outcome hoặc làm phát lại;
+- immutable `OperationsSnapshot` gom health/control/emergency/incidents/journal/metrics bằng schema version;
+- `OperationsSurfaceService` chỉ đọc snapshot và dispatch command operator allowlisted sang typed owner hiện hữu;
+  nó không được sinh candidate, sửa speech, chọn soft action hoặc tự commit domain state.
+
+Owner implementation và config:
+
+- `services/operations/metrics.py` là canonical exact owner của MetricsCollector;
+  `orchestrator/metrics_collector.py` chỉ là compatibility re-export đến S8;
+- `services/operations/turn_journal.py` là canonical bounded lineage owner. `turns.jsonl` và
+  `delivery_outcomes.jsonl` vẫn là versioned data/training journals, không đổi schema hoặc bị dùng làm mutable
+  operations state;
+- DecisionRecord/Trajectory legacy API trở thành compatibility projection trên TurnJournal; không giữ mutable
+  lineage store thứ hai. Dashboard và health chỉ đọc OperationsSurface;
+- `services/operations/surface.py` compose snapshot/command routing; health/control/emergency/incident/shutdown
+  implementations hiện hữu giữ exact behavior dưới surface;
+- dashboard server là presentation adapter dưới Operations, chỉ nhận surface, metrics exposition và static
+  assets. Direct domain object/canary wiring bị cắt; compatibility import path giữ đến S8 nếu cần;
+- `config/operations.yaml` chỉ sở hữu live operations bounds, `config/logging.yaml` sở hữu sink/rotation,
+  `config/evaluation.yaml` sở hữu canary/release/soak/human-review bounds. Không duplicate key owner.
+
+Offline split bắt buộc remove `HumanLikeCalibration`, `ClosedLoopCanary`, release source inspection và mọi
+evaluation lifecycle/feature binding khỏi `StreamRuntime`; runtime startup validation không import hoặc validate
+implementation/config offline. Canary/soak/release vẫn chạy được qua explicit offline script và dùng public
+interfaces/canonical adapters; chúng không được gọi từ dashboard live. Các feature chỉ có nghĩa offline rời live
+FeatureManager registry hoặc được loader offline sở hữu, không thể bật để compose service trong process live.
+
+Compatibility và deletion gate:
+
+- import facade metrics/dashboard/journal cũ chỉ exact delegate và có removal wave S8;
+- `orchestrator/health_monitor.py`, `state_watchdog.py`, `emergency_stop.py` chưa bị xóa trong S7; chúng giữ
+  inventory `DELETE after_s7_operations_parity` và chỉ xóa khi zero static/dynamic importer được chứng minh;
+- DecisionRecord/Trajectory public snapshot phải giữ schema/parity cho operator/tests trong S7; S8 mới xóa
+  feature toggle, facade, panel và superseded test;
+- không migrate/rewrite log lịch sử, không thay đổi privacy salt hoặc data schema fingerprint.
+
+Non-goals S7: không Brain takeover/MCB-5, không đổi prompt/model/sampling/filter, public text/action/decision,
+scheduler/cadence/WAIT policy, transaction/delivery/continuity semantics, external OBS authority, product version
+hoặc release decision; không bắt đầu S8.
+
+Acceptance bắt buộc:
+
+1. AST/import graph từ live entrypoint có zero import tới `services.evaluation`, corpus, canary, soak và release
+   implementation; offline entrypoint không được import `StreamRuntime` để lấy object sống.
+2. Một canonical TurnJournal instance cho live/replay; cùng lineage nối được event -> decision -> transaction ->
+   generation/delivery -> outcome -> continuity, bounded/idempotent và không chứa dữ liệu cấm.
+3. Dashboard chỉ phụ thuộc OperationsSurface, snapshot schema/command allowlist giữ exact operator behavior;
+   Operations không tạo soft action hoặc ghi success thay verifier/outcome owner.
+4. Metrics Prometheus names/labels/counters, health recovery bounds, incident/audit persistence, emergency latch,
+   shutdown ordering và dashboard API response giữ parity; failure của journal/dashboard/metric vẫn isolated.
+5. Offline human-like/canary/soak/release unit/integration/CLI tests vẫn chạy từ clean source và cùng public
+   contracts, nhưng zero service được start/stop trong live lifecycle.
+6. Import/cycle/config/docs/inventory guard, targeted operations/dashboard/journal/evaluation tests, impacted V1
+   live regression, deterministic lineage replay và full offline đều xanh. Vì S7 không đổi output/decision/timing,
+   content/temporal blind không bắt buộc; bất kỳ drift nào làm S7 `HOLD` thay vì hợp thức hóa bằng blind review.
+
+Rollback S7 là `ac4b3f3`; không có storage migration. Docs-first phải được owner duyệt trước code; implementation
+phải commit riêng và dừng chờ review, không tự sang S8 hoặc mở MCB-5.
+
+Owner đã duyệt code S7. Implementation trong working tree đã tạo canonical Metrics/TurnJournal/
+OperationsSurface, chuyển DecisionRecord/Trajectory thành compatibility projection trên cùng journal, cắt
+live evaluation lifecycle/config validation, chuyển soak về `services/evaluation`, và giới hạn dashboard live
+vào OperationsSurface + metrics exposition. Hai feature service offline bị loại khỏi live FeatureManager nhưng
+feature inventory YAML vẫn giữ làm metadata/offline compatibility đến S8. Public Compatibility owner, model,
+prompt, sampling, output, scheduler, transaction, delivery, continuity và product version không đổi. S7 đang
+chờ owner review và chưa commit. Evidence: targeted operations/evaluation `394 passed`; live lineage/composition
+`258 passed`; deterministic replay/continuity `32 passed`; documentation/inventory/boundary `28 passed`; full
+offline `2.516 passed`, `0` lỗi, một Starlette deprecation warning có sẵn và một local pytest-cache
+permission warning. Không mở S8/MCB-5.
 
 ### 13.1.6. Rollout behavior trong quá trình chuẩn hóa
 

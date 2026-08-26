@@ -126,3 +126,39 @@ def test_strict_proposal_shapes_survive_compatibility_imports() -> None:
         "source_event_id": "event-1",
         "parent_thread_id": None,
     }
+
+
+def test_live_entrypoint_graph_does_not_reach_offline_evaluation() -> None:
+    roots = ("interfaces", "orchestrator", "services", "dashboard", "scripts")
+    modules: dict[str, Path] = {}
+    for root in roots:
+        for path in (ROOT / root).rglob("*.py"):
+            relative = path.relative_to(ROOT).with_suffix("")
+            parts = relative.parts[:-1] if relative.name == "__init__" else relative.parts
+            modules[".".join(parts)] = path
+
+    graph: dict[str, set[str]] = {}
+    for module, path in modules.items():
+        dependencies: set[str] = set()
+        for imported in _imports(path):
+            if imported in modules:
+                dependencies.add(imported)
+            parts = imported.split(".")
+            for index in range(len(parts), 0, -1):
+                candidate = ".".join(parts[:index])
+                if candidate in modules:
+                    dependencies.add(candidate)
+                    break
+        graph[module] = dependencies
+
+    pending = ["scripts.stream_youtube", "scripts.stream_discord"]
+    reachable: set[str] = set()
+    while pending:
+        module = pending.pop()
+        if module in reachable:
+            continue
+        reachable.add(module)
+        pending.extend(sorted(graph.get(module, ())))
+    assert sorted(
+        module for module in reachable if module.startswith("services.evaluation")
+    ) == []

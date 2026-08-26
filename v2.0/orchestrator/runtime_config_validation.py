@@ -21,9 +21,8 @@ from orchestrator.credential_contract import (
 )
 from services.animation.embodiment_policy import EmbodimentPolicyConfig
 from services.director.trajectory import TrajectoryConfig
-from services.evaluation.closed_loop_canary import ClosedLoopCanaryConfig
-from services.evaluation.human_like import HumanLikeConfig
-from services.evaluation.release_gate import ReleaseReadinessConfig
+from services.operations.surface import OperationsSurfaceConfig
+from services.operations.turn_journal import TurnJournalConfig
 
 
 def _strict_string_tuple(value: Any, field_name: str) -> tuple[str, ...]:
@@ -80,17 +79,7 @@ class RuntimeCriticalConfig(BaseModel):
     director_speech_style_vague_grounding_forbidden_patterns: tuple[str, ...] = Field(
         min_length=1,
     )
-    evaluation_vague_input_max_words: int = Field(ge=0)
-    evaluation_vague_grounding_forbidden_patterns: tuple[str, ...] = Field(
-        min_length=1,
-    )
     director_speech_style_semantic_over_inference_patterns: tuple[str, ...] = Field(
-        min_length=1,
-    )
-    evaluation_malformed_token_fragments: tuple[str, ...] = Field(min_length=1)
-    evaluation_malformed_token_allowlist: tuple[str, ...] = Field(min_length=1)
-    evaluation_malformed_mixed_case_min_prefix_chars: int = Field(ge=1)
-    evaluation_semantic_over_inference_patterns: tuple[str, ...] = Field(
         min_length=1,
     )
     director_speech_style_max_questions: int = Field(ge=0)
@@ -183,27 +172,6 @@ class RuntimeCriticalConfig(BaseModel):
             self.director_speech_style_semantic_over_inference_patterns
         )) != len(self.director_speech_style_semantic_over_inference_patterns):
             raise ValueError("semantic over-inference patterns must be unique")
-        if (
-            self.director_speech_style_vague_input_max_words
-            != self.evaluation_vague_input_max_words
-            or self.director_speech_style_vague_grounding_forbidden_patterns
-            != self.evaluation_vague_grounding_forbidden_patterns
-        ):
-            raise ValueError("runtime and evaluation vague grounding contracts differ")
-        if (
-            self.director_speech_style_malformed_token_fragments
-            != self.evaluation_malformed_token_fragments
-            or self.director_speech_style_malformed_token_allowlist
-            != self.evaluation_malformed_token_allowlist
-            or self.director_speech_style_malformed_mixed_case_min_prefix_chars
-            != self.evaluation_malformed_mixed_case_min_prefix_chars
-        ):
-            raise ValueError("runtime and evaluation malformed token contracts differ")
-        if (
-            self.director_speech_style_semantic_over_inference_patterns
-            != self.evaluation_semantic_over_inference_patterns
-        ):
-            raise ValueError("runtime and evaluation semantic inference contracts differ")
         if self.self_talk_silence_repeat_last_n > self.self_talk_thought_ledger_size:
             raise ValueError("self-talk silence repeat window exceeds thought ledger")
         return self
@@ -237,11 +205,13 @@ def validate_runtime_config(loader: Any) -> RuntimeCriticalConfig:
         raise ConfigError(f"Runtime embodiment config không hợp lệ: {exc}") from exc
     try:
         TrajectoryConfig.from_loader(loader)
-        HumanLikeConfig.from_loader(loader)
-        ClosedLoopCanaryConfig.from_loader(loader)
-        ReleaseReadinessConfig.from_loader(loader)
     except ValueError as exc:
-        raise ConfigError(f"Runtime Phase 14/15 config không hợp lệ: {exc}") from exc
+        raise ConfigError(f"Runtime trajectory config không hợp lệ: {exc}") from exc
+    try:
+        TurnJournalConfig.from_loader(loader)
+        OperationsSurfaceConfig.from_loader(loader)
+    except ValueError as exc:
+        raise ConfigError(f"Runtime operations config không hợp lệ: {exc}") from exc
     try:
         return RuntimeCriticalConfig(
             log_dir=loader.get("logging", "jsonl.dir", "logs"),
@@ -345,53 +315,6 @@ def validate_runtime_config(loader: Any) -> RuntimeCriticalConfig:
                     "director.speech_style.semantic_over_inference_patterns",
                     None,
                 ), "director_speech_style_semantic_over_inference_patterns")
-            ),
-            evaluation_vague_input_max_words=loader.get(
-                "evaluation",
-                "evaluation.youtube_llm_stress.human_like_precheck.vague_input_max_words",
-                1,
-            ),
-            evaluation_vague_grounding_forbidden_patterns=_strict_string_tuple(
-                loader.get(
-                    "evaluation",
-                    "evaluation.youtube_llm_stress.human_like_precheck."
-                    "vague_grounding_forbidden_patterns",
-                    ("chắc chắn",),
-                ),
-                "evaluation_vague_grounding_forbidden_patterns",
-            ),
-            evaluation_malformed_token_fragments=_strict_string_tuple(
-                loader.get(
-                    "evaluation",
-                    "evaluation.youtube_llm_stress.human_like_precheck."
-                    "malformed_token_fragments",
-                    None,
-                ),
-                "evaluation_malformed_token_fragments",
-            ),
-            evaluation_malformed_token_allowlist=_strict_string_tuple(
-                loader.get(
-                    "evaluation",
-                    "evaluation.youtube_llm_stress.human_like_precheck."
-                    "malformed_token_allowlist",
-                    None,
-                ),
-                "evaluation_malformed_token_allowlist",
-            ),
-            evaluation_malformed_mixed_case_min_prefix_chars=loader.get(
-                "evaluation",
-                "evaluation.youtube_llm_stress.human_like_precheck."
-                "malformed_mixed_case_min_prefix_chars",
-                None,
-            ),
-            evaluation_semantic_over_inference_patterns=_strict_string_tuple(
-                loader.get(
-                    "evaluation",
-                    "evaluation.youtube_llm_stress.human_like_precheck."
-                    "semantic_over_inference_patterns",
-                    None,
-                ),
-                "evaluation_semantic_over_inference_patterns",
             ),
             director_speech_style_max_questions=loader.get(
                 "director", "director.speech_style.max_questions", 2,

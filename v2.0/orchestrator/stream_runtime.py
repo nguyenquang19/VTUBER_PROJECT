@@ -25,7 +25,6 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from interfaces.execution import ActionRequest, ActionResult
@@ -36,7 +35,7 @@ from orchestrator.emotion_orchestrator import EmotionOrchestrator
 from orchestrator.fallback_manager import FallbackManager
 from orchestrator.features import FeatureManager, FeatureStatus
 from orchestrator.logger import bind_log_session, get_logger, setup_from_config
-from orchestrator.metrics_collector import MetricsCollector
+from services.operations.metrics import MetricsCollector
 from orchestrator.runtime_tts import (
     TTSRuntimeStack as _TTSRuntimeStack,
     build_tts_runtime_stack as _build_tts_runtime_stack,
@@ -52,6 +51,12 @@ from orchestrator.runtime_operations import (
     build_incident_log,
     configure_shutdown_coordinator,
     start_dashboard,
+)
+from orchestrator.runtime_operations_surface import (
+    bind_emergency_commands,
+    bind_standard_operator_commands,
+    build_operations_surface,
+    standard_snapshot_providers,
 )
 from services.autonomy.material_provider import RuntimeContext
 from services.input.chat_router import ChatRouter
@@ -182,8 +187,6 @@ class StreamRuntime:
         director_v2_shadow: Any = None,
         director_v2_takeover: Any = None,
         trajectory_records: Any = None,
-        human_like_calibration: Any = None,
-        closed_loop_canary: Any = None,
         goal_manager: Any = None,
         goal_proposal: Any = None,
         thread_extractor: Any = None,
@@ -198,6 +201,8 @@ class StreamRuntime:
         control_plane: Any = None,
         emergency_controller: Any = None,
         incident_log: Any = None,
+        turn_journal: Any = None,
+        operations_surface: Any = None,
         cognitive_scheduler: Any = None,
         turn_kernel: Any = None,
         cfg: StreamRuntimeConfig | None = None,
@@ -239,8 +244,6 @@ class StreamRuntime:
         self._director_v2_shadow = director_v2_shadow
         self._director_v2_takeover = director_v2_takeover
         self._trajectory_records = trajectory_records
-        self._human_like_calibration = human_like_calibration
-        self._closed_loop_canary = closed_loop_canary
         self._goal_manager = goal_manager
         self._goal_proposal = goal_proposal
         self._thread_extractor = thread_extractor
@@ -258,6 +261,8 @@ class StreamRuntime:
         self._control_plane = control_plane
         self._emergency_controller = emergency_controller
         self._incident_log = incident_log
+        self._turn_journal = turn_journal
+        self._operations_surface = operations_surface
         self._cognitive_scheduler = cognitive_scheduler
         self._turn_kernel = turn_kernel
         self.cfg = cfg or StreamRuntimeConfig()
@@ -278,6 +283,10 @@ class StreamRuntime:
         self._shutdown_coordinator_started = False
         self._shutdown_completed = False
         try:
+            if self._turn_journal is not None:
+                await self._turn_journal.start()
+            if self._operations_surface is not None:
+                await self._operations_surface.start()
             if self._authoritative_state is not None:
                 await self._authoritative_state.start()
             if self._continuity_state is not None:
@@ -306,14 +315,10 @@ class StreamRuntime:
                 await self._perception_ingress.start()
             for adapter in self._perception_adapters:
                 await adapter.start()
-            if self._human_like_calibration is not None:
-                await self._human_like_calibration.start()
             if self._trajectory_records is not None:
                 await self._trajectory_records.start()
             if self._director_v2_shadow is not None:
                 await self._director_v2_shadow.start()
-            if self._closed_loop_canary is not None:
-                await self._closed_loop_canary.start()
             if self._director_v2_takeover is not None:
                 await self._director_v2_takeover.start()
             if self._agent_state is not None:
@@ -488,6 +493,7 @@ class StreamRuntime:
             self._embodiment_policy,
             self._repair_policy, self._behavior_library, self._relationship_manager,
             self._control_plane, self._emergency_controller, self._incident_log,
+            self._operations_surface, self._turn_journal,
         ):
             if service is not None:
                 with contextlib.suppress(Exception):
@@ -520,9 +526,6 @@ class StreamRuntime:
                 await self._llama_process_manager.stop()
 
     async def _stop_agent_state(self) -> None:
-        if self._closed_loop_canary is not None:
-            with contextlib.suppress(Exception):
-                await self._closed_loop_canary.stop()
         if self._director_v2_takeover is not None:
             with contextlib.suppress(Exception):
                 await self._director_v2_takeover.stop()
@@ -532,9 +535,6 @@ class StreamRuntime:
         if self._trajectory_records is not None:
             with contextlib.suppress(Exception):
                 await self._trajectory_records.stop()
-        if self._human_like_calibration is not None:
-            with contextlib.suppress(Exception):
-                await self._human_like_calibration.stop()
         if self._action_mock_loop is not None:
             with contextlib.suppress(Exception):
                 await self._action_mock_loop.stop()
@@ -605,12 +605,6 @@ class StreamRuntime:
         if self._external_action_loop is None:
             raise RuntimeError("external action boundary is unavailable")
         return await self._external_action_loop.execute(request)
-
-    async def run_closed_loop_canary(self, request: ActionRequest) -> Any:
-        """Run one explicit operator canary; never called by the autonomous Director."""
-        if self._closed_loop_canary is None:
-            raise RuntimeError("closed-loop canary is unavailable")
-        return await self._closed_loop_canary.run(request)
 
     async def execute_avatar_action(self, request: ActionRequest) -> ActionResult:
         """Invoke one typed HIGH gesture without exposing the speech delivery adapter."""
@@ -693,10 +687,6 @@ class StreamRuntime:
                 self._trajectory_records.snapshot()
                 if self._trajectory_records is not None else None
             ),
-            "human_like_calibration": (
-                self._human_like_calibration.snapshot()
-                if self._human_like_calibration is not None else None
-            ),
             "goals": (
                 self._goal_manager.snapshot().to_dict() if self._goal_manager is not None else None
             ),
@@ -711,6 +701,9 @@ class StreamRuntime:
                 if self._emergency_controller is not None else None
             ),
             "incidents": self._incident_log.snapshot() if self._incident_log is not None else None,
+            "turn_journal": (
+                self._turn_journal.snapshot() if self._turn_journal is not None else None
+            ),
             "cognitive_brain_shadow": self._cognitive_health_snapshot(),
             "turn_kernel": (
                 self._turn_kernel.get_metrics()
@@ -970,9 +963,6 @@ class StreamRuntime:
         if self._trajectory_records is not None:
             with contextlib.suppress(Exception):
                 m.update(self._trajectory_records.get_metrics())
-        if self._human_like_calibration is not None:
-            with contextlib.suppress(Exception):
-                m.update(self._human_like_calibration.get_metrics())
         if self._goal_manager is not None:
             with contextlib.suppress(Exception):
                 m.update(self._goal_manager.get_metrics())
@@ -994,6 +984,12 @@ class StreamRuntime:
         if self._incident_log is not None:
             with contextlib.suppress(Exception):
                 m.update(self._incident_log.get_metrics())
+        if self._turn_journal is not None:
+            with contextlib.suppress(Exception):
+                m.update(self._turn_journal.get_metrics())
+        if self._operations_surface is not None:
+            with contextlib.suppress(Exception):
+                m.update(self._operations_surface.get_metrics())
         if self._cognitive_scheduler is not None:
             with contextlib.suppress(Exception):
                 m.update(self._cognitive_scheduler.get_metrics())
@@ -1129,10 +1125,17 @@ async def _compose_stream_runtime(
     assert_no_schema_drift(_registry)
 
     metrics = MetricsCollector()
+    from services.operations.turn_journal import TurnJournal
+    turn_journal = TurnJournal.from_loader(loader)
     # B0: setup structlog + JSONL sinks (turns.jsonl để baseline eval)
     turn_logger = setup_from_config(loader, metrics=metrics)
     pref_logger = _make_pref_logger(loader)   # T2: DPO pairs sink
-    feature_manager = FeatureManager.from_config(loader, persist=True, metrics=metrics)
+    feature_manager = FeatureManager.from_config(
+        loader,
+        persist=True,
+        metrics=metrics,
+        excluded_feature_ids=("human_like_calibration", "closed_loop_canary"),
+    )
 
     # M1: one shared grounded working state for every stream producer.
     from services.state.agent import AgentState
@@ -1819,7 +1822,8 @@ async def _compose_stream_runtime(
         get_logger("stream_runtime").warning("decision_records_feature_missing")
         decision_records_enabled = False
     decision_records = DecisionRecordManager.from_loader(
-        loader, metrics=metrics, enabled=decision_records_enabled,
+        loader, metrics=metrics, turn_journal=turn_journal,
+        enabled=decision_records_enabled,
     )
     from interfaces.trajectory import TrajectorySnapshotRefs
     from services.director.trajectory import TrajectoryRecorder
@@ -1835,19 +1839,8 @@ async def _compose_stream_runtime(
         loader,
         snapshot_provider=lambda: _trajectory_snapshot_refs(),
         metrics=metrics,
+        turn_journal=turn_journal,
         enabled=trajectory_enabled,
-    )
-    from services.evaluation.human_like import HumanLikeCalibration
-    try:
-        human_like_status = await feature_manager.get_status("human_like_calibration")
-        human_like_enabled = human_like_status in (
-            FeatureStatus.ENABLED, FeatureStatus.DEGRADED,
-        )
-    except KeyError:
-        get_logger("stream_runtime").warning("human_like_calibration_feature_missing")
-        human_like_enabled = False
-    human_like_calibration = HumanLikeCalibration.from_loader(
-        loader, metrics=metrics, enabled=human_like_enabled,
     )
     turn_lock = asyncio.Lock()   # 1 lock chung: ChatRouter intake + DirectorLoop
     try:
@@ -2002,6 +1995,7 @@ async def _compose_stream_runtime(
         execution_coordinator=execution_coordinator,
         outcome_committer=outcome_committer,
         continuity_state=continuity_state,
+        turn_journal=turn_journal,
         room_reaction_recent_window=int(room_reaction.get("recent_window", 16)),
         room_reaction_similarity_threshold=float(
             room_reaction.get("similarity_threshold", 0.72)
@@ -2108,9 +2102,6 @@ async def _compose_stream_runtime(
     )
     attach_set_enabled_feature(feature_manager, "decision_records", decision_records)
     attach_set_enabled_feature(feature_manager, "trajectory_records", trajectory_records)
-    attach_set_enabled_feature(
-        feature_manager, "human_like_calibration", human_like_calibration,
-    )
     attach_boolean_feature(
         feature_manager,
         "director_goal_arbiter",
@@ -2547,32 +2538,6 @@ async def _compose_stream_runtime(
         context_provider=_director_v2_context, metrics=metrics, enabled=director_v2_enabled,
     )
     attach_set_enabled_feature(feature_manager, "director_v2_shadow", director_v2_shadow)
-    from services.evaluation.closed_loop_canary import ClosedLoopCanary
-    from services.evaluation.release_gate import ReleaseReadinessConfig, inspect_source_state
-    try:
-        canary_status = await feature_manager.get_status("closed_loop_canary")
-        canary_enabled = canary_status in (
-            FeatureStatus.ENABLED, FeatureStatus.DEGRADED,
-        )
-    except KeyError:
-        get_logger("stream_runtime").warning("closed_loop_canary_feature_missing")
-        canary_enabled = False
-    release_readiness = ReleaseReadinessConfig.from_loader(loader)
-    closed_loop_canary = ClosedLoopCanary.from_loader(
-        loader,
-        current_product_version=str(loader.get("system", "app.version", "")),
-        target_product_version=release_readiness.target_version,
-        context_provider=_director_v2_context,
-        proposal_provider=director_v2_shadow.propose,
-        action_executor=external_action_loop.execute,
-        source_state_provider=lambda: inspect_source_state(
-            Path(__file__).resolve().parents[1],
-        ),
-        trajectory_records=trajectory_records,
-        metrics=metrics,
-        enabled=canary_enabled,
-    )
-    attach_set_enabled_feature(feature_manager, "closed_loop_canary", closed_loop_canary)
     from services.director.v2_takeover import DirectorV2Takeover
     try:
         director_v2_takeover_status = await feature_manager.get_status("director_v2_takeover")
@@ -2599,33 +2564,51 @@ async def _compose_stream_runtime(
     incident_log = build_incident_log(
         enabled=operations_enabled, loader=loader, metrics=metrics,
     )
+    operations_surface = build_operations_surface(
+        loader=loader,
+        metrics=metrics,
+        snapshot_providers=standard_snapshot_providers(
+            loader=loader,
+            metrics=metrics,
+            feature_manager=feature_manager,
+            filter_svc=filter_svc,
+            regenerator=regenerator,
+            tts_svc=tts_svc,
+            audio_player=audio_player,
+            tts_pipeline=tts_pipeline,
+            emotion=emotion,
+            self_talk_planner=self_talk_planner,
+            agent_state=agent_state,
+            world_model=world_model,
+            self_model=self_model,
+            capability_registry=capability_registry,
+            action_mock_loop=action_mock_loop,
+            director_v2_shadow=director_v2_shadow,
+            director_v2_takeover=director_v2_takeover,
+            goal_manager=goal_manager,
+            relationship_manager=relationship_manager,
+            decision_records=decision_records,
+            trajectory_records=trajectory_records,
+            turn_journal=turn_journal,
+            control_plane=control_plane,
+            incident_log=incident_log,
+            runner=runner,
+        ),
+    )
+    bind_standard_operator_commands(
+        operations_surface,
+        feature_manager=feature_manager,
+        control_plane=control_plane,
+        goal_manager=goal_manager,
+        relationship_manager=relationship_manager,
+    )
 
     # ─── Dashboard (optional) ───
     dashboard_task, dashboard_ref, dashboard_server = start_dashboard(
         enabled=cfg.enable_dashboard,
         loader=loader,
-        feature_manager=feature_manager,
         metrics=metrics,
-        filter_svc=filter_svc,
-        regenerator=regenerator,
-        emotion=emotion,
-        runner=runner,
-        agent_state=agent_state,
-        world_model=world_model,
-        self_model=self_model,
-        capability_registry=capability_registry,
-        action_mock_loop=action_mock_loop,
-        director_v2_shadow=director_v2_shadow,
-        director_v2_takeover=director_v2_takeover,
-        goal_manager=goal_manager,
-        relationship_manager=relationship_manager,
-        decision_records=decision_records,
-        trajectory_records=trajectory_records,
-        human_like_calibration=human_like_calibration,
-        closed_loop_canary=closed_loop_canary,
-        self_talk_planner=self_talk_planner,
-        control_plane=control_plane,
-        incident_log=incident_log,
+        operations_surface=operations_surface,
         control_token=dashboard_control_token,
     )
     if dashboard_task is not None:
@@ -2648,6 +2631,12 @@ async def _compose_stream_runtime(
         dashboard_server=dashboard_server,
     )
     if health_supervisor is not None:
+        health_supervisor.register_target(
+            "turn_journal", turn_journal.health_check,
+        )
+        health_supervisor.register_target(
+            "operations_surface", operations_surface.health_check,
+        )
         health_supervisor.register_target(
             "outcome_committer", outcome_committer.health_check,
         )
@@ -2676,6 +2665,16 @@ async def _compose_stream_runtime(
         emergency_ref=emergency_ref,
         dashboard_server=dashboard_server,
     )
+    operations_surface.register_snapshot_provider(
+        "health_supervisor",
+        health_supervisor.snapshot if health_supervisor is not None else lambda: {},
+    )
+    operations_surface.register_snapshot_provider(
+        "emergency",
+        emergency_controller.snapshot if emergency_controller is not None else lambda: {},
+    )
+    if emergency_controller is not None:
+        bind_emergency_commands(operations_surface, emergency_controller)
     authoritative_state.bind_read_providers(
         self_model=self_model,
         goal_manager=goal_manager,
@@ -2726,6 +2725,7 @@ async def _compose_stream_runtime(
         brain_scheduler=cognitive_scheduler,
         hard_state_provider=cognitive_stack.hard_state_provider,
         metrics=metrics,
+        turn_journal=turn_journal,
         session_id=session_id,
     )
     director_loop.configure_turn_kernel(turn_kernel)
@@ -2752,8 +2752,6 @@ async def _compose_stream_runtime(
         director_v2_shadow=director_v2_shadow,
         director_v2_takeover=director_v2_takeover,
         trajectory_records=trajectory_records,
-        human_like_calibration=human_like_calibration,
-        closed_loop_canary=closed_loop_canary,
         cfg=cfg,
         goal_manager=goal_manager,
         goal_proposal=goal_proposal,
@@ -2774,6 +2772,8 @@ async def _compose_stream_runtime(
         control_plane=control_plane,
         emergency_controller=emergency_controller,
         incident_log=incident_log,
+        turn_journal=turn_journal,
+        operations_surface=operations_surface,
         cognitive_scheduler=cognitive_scheduler,
         turn_kernel=turn_kernel,
     )

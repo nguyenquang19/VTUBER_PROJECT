@@ -10,7 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from orchestrator.config_loader import ConfigLoader  # noqa: E402
-from services.operations.soak_monitor import ControlledSoakMonitor, SoakConfig  # noqa: E402
+from services.evaluation.soak import ControlledSoakMonitor, SoakConfig  # noqa: E402
 
 
 async def run(argv: list[str] | None = None) -> int:

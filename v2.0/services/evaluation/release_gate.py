@@ -41,7 +41,7 @@ class ReleaseReadinessConfig:
 
     @classmethod
     def from_loader(cls, loader: Any) -> "ReleaseReadinessConfig":
-        raw = loader.get("operations", "release_readiness", None)
+        raw = loader.get("evaluation", "evaluation.operations.release_readiness", None)
         if not isinstance(raw, Mapping) or set(raw) != _CONFIG_KEYS:
             raise ValueError("release_readiness keys are invalid")
         human = raw.get("human_quality")

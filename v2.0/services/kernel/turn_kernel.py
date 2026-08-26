@@ -26,6 +26,7 @@ from interfaces.turn_kernel import (
     TurnPreflight,
     TurnRolloutMode,
 )
+from interfaces.operations import TurnJournalEvent, TurnJournalStage
 from orchestrator.logger import get_logger
 from services.director.action_types import DirectorInput
 from services.director.director import DirectorAction, DirectorDecision
@@ -48,6 +49,7 @@ class TurnKernel(TurnKernelService):
         brain_scheduler: Any,
         hard_state_provider: HardStateProvider,
         metrics: Any = None,
+        turn_journal: Any = None,
         session_id: str = "stream:runtime",
         clock: Callable[[], datetime] | None = None,
     ) -> None:
@@ -57,6 +59,7 @@ class TurnKernel(TurnKernelService):
         self._brain_scheduler = brain_scheduler
         self._hard_state_provider = hard_state_provider
         self._metrics = metrics
+        self._turn_journal = turn_journal
         self._session_id = session_id
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._running = False
@@ -227,6 +230,49 @@ class TurnKernel(TurnKernelService):
             action_label=decision.action.value,
             reason_label=decision.reason,
         )
+        lineage_id = decision_id or opportunity_id
+        if event_ref is not None:
+            self._append_journal(TurnJournalEvent(
+                schema_version=1,
+                lineage_id=lineage_id,
+                stage=TurnJournalStage.EVENT_RECEIVED,
+                occurred_at=opened_at,
+                session_id=self._session_id,
+                event_id=event_ref,
+                opportunity_id=opportunity_id,
+                decision_id=decision_id,
+                owner=TurnOwner.COMPATIBILITY.value,
+                mode=compatibility_mode.value,
+                evidence_refs=(event_ref,),
+            ))
+        self._append_journal(TurnJournalEvent(
+            schema_version=1,
+            lineage_id=lineage_id,
+            stage=TurnJournalStage.OPPORTUNITY_OPENED,
+            occurred_at=opened_at,
+            session_id=self._session_id,
+            event_id=event_ref,
+            opportunity_id=opportunity_id,
+            decision_id=decision_id,
+            owner=TurnOwner.COMPATIBILITY.value,
+            mode=compatibility_mode.value,
+            reason_codes=reasons,
+            evidence_refs=((material_ref,) if material_ref else ()),
+        ))
+        self._append_journal(TurnJournalEvent(
+            schema_version=1,
+            lineage_id=lineage_id,
+            stage=TurnJournalStage.DECISION_RECORDED,
+            occurred_at=opened_at,
+            session_id=self._session_id,
+            event_id=event_ref,
+            opportunity_id=opportunity_id,
+            decision_id=decision_id,
+            owner=TurnOwner.COMPATIBILITY.value,
+            mode=compatibility_mode.value,
+            terminal_state=("WAIT" if compatibility_mode is CognitiveMode.WAIT else None),
+            reason_codes=((decision.reason,) if decision.reason else ()),
+        ))
         self._pending = (opportunity, preflight, observation)
         return True
 
@@ -248,6 +294,18 @@ class TurnKernel(TurnKernelService):
 
     def preempt_for_live(self) -> None:
         self.notify_input_activity()
+
+    def _append_journal(self, event: TurnJournalEvent) -> None:
+        if self._turn_journal is None:
+            return
+        try:
+            self._turn_journal.append(event)
+        except Exception as exc:
+            self._log.warning(
+                "turn_journal_observation_failed",
+                stage=event.stage.value,
+                error=type(exc).__name__,
+            )
 
     def recent_selections(
         self, limit: int | None = None,

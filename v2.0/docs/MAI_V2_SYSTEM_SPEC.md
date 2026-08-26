@@ -36,7 +36,8 @@ mặc định tắt và chưa có live canary.
 
 Structure normalization S0–S4 đã được chốt; S4 canonical Turn Kernel ở commit `361bc44` đã đạt full offline.
 S5 canonical execution/outcome đã được owner duyệt, commit và push tại `073352b`. S6 canonical Continuity đã
-triển khai trong working tree và đang chờ owner review; Compatibility vẫn là public owner.
+được owner duyệt, commit và push tại `ac4b3f3`. S7 Operations + offline split đang ở docs-first và chưa có
+implementation; Compatibility vẫn là public owner.
 Agent/World/Perception writes trong live
 runtime và hai replay
 entrypoint hiện cùng đi qua `CanonicalEventNormalizer → CanonicalEventIngress →
@@ -3746,7 +3747,79 @@ Evidence cùng working tree: targeted continuity/outcome/Director/LLM/Memory `20
 YouTube replay/live-pipeline `36 passed`; runtime filter/composition `6 passed`; full offline `2.495 passed`,
 `0` lỗi và một Starlette deprecation warning có sẵn. `git diff --check` không có whitespace error.
 
-Rollback là `073352b`, không có storage migration. S6 dừng chờ owner review, không tự sang S7 hoặc mở MCB-5.
+Rollback là `073352b`, không có storage migration. Owner đã duyệt và S6 được commit/push tại `ac4b3f3`;
+không mở MCB-5.
+
+##### 17.2.19.18. S7 — docs-first canonical Operations và offline split
+
+S7 bắt đầu từ clean checkpoint `ac4b3f3`. Baseline targeted cho inventory,
+runtime config, metrics, health, incident, dashboard, DecisionRecord/Trajectory và canary là `152 passed`.
+Audit source xác nhận:
+
+- live `StreamRuntime` vẫn compose `HumanLikeCalibration` và `ClosedLoopCanary`, đọc release/source helper từ
+  `services.evaluation`; runtime config validation cũng import ba implementation evaluation;
+- concrete MetricsCollector còn ở `orchestrator`, trong khi health/control/emergency/incident đã nằm rải dưới
+  `services.operations`;
+- dashboard nhận trực tiếp mutable domain managers và offline canary object;
+- TurnLogger, DecisionRecord và TrajectoryRecorder là ba view riêng, chưa có một bounded sanitized lineage nối
+  event/decision/transaction/delivery/outcome/continuity.
+
+Target đã khóa trong Blueprint mục 13.1.5.7:
+
+```text
+StreamRuntime -> OperationsSurface
+                  -> Metrics + TurnJournal + Health + Incident + Control
+DashboardAdapter -> OperationsSurface only
+
+offline scripts -> services/evaluation -> public contracts/artifact readers
+live graph -X-> evaluation/canary/soak/release implementation
+```
+
+S7 dự kiến mở rộng `interfaces/operations.py`; tạo canonical
+`services/operations/{metrics,turn_journal,surface}.py`; chuyển dashboard implementation thành presentation
+adapter Operations với exact compatibility path đến S8; giữ health supervisor, control plane, emergency,
+incident và shutdown behavior hiện tại. `config/operations.yaml` chỉ giữ live operations,
+`config/logging.yaml` giữ sink/rotation, còn canary/release/soak/human-review bounds thuộc
+`config/evaluation.yaml`.
+
+TurnJournal là operations lineage đã sanitize, không thay thế hoặc đổi schema `turns.jsonl`/
+`delivery_outcomes.jsonl`. Legacy DecisionRecord/Trajectory API phải thành projection/delegate trên cùng journal,
+không giữ owner mutable thứ hai. Journal chỉ quan sát milestone thật; verifier/OutcomeCommitter/Continuity vẫn là
+authority của success và state commit. OperationsSurface chỉ expose snapshot và operator command allowlisted,
+không được chọn candidate, tạo text hoặc suy diễn domain state.
+
+S7 sẽ remove lifecycle/feature binding/dashboard wiring của HumanLikeCalibration và ClosedLoopCanary khỏi live
+runtime, đồng thời cắt import evaluation khỏi runtime validation. Offline scripts/tests phải tiếp tục dùng đúng
+public interfaces và config owner offline. Facade metrics/dashboard/journal cũ giữ exact behavior đến S8;
+`health_monitor.py`, `state_watchdog.py` và `emergency_stop.py` chưa được xóa trong S7.
+
+Non-goals: không MCB-5/Brain takeover, không đổi public output/decision/timing, model/prompt/sampling/filter,
+scheduler, transaction/delivery/continuity, OBS authority, product version hay release verdict; không bắt đầu S8.
+
+Gate implementation: zero live import tới evaluation/canary/soak/release; một bounded/idempotent lineage không
+chứa prompt/CoT/raw Memory/identity/secret; dashboard chỉ phụ thuộc OperationsSurface; metrics/health/control/
+incident/shutdown/API parity; offline CLI và evaluation tests còn hoạt động; import/config/docs/inventory,
+targeted/impacted, deterministic lineage replay và full offline xanh. Output/decision/timing drift làm `HOLD`;
+không dùng blind review để chấp nhận structural drift. Rollback là `ac4b3f3`, không storage migration.
+
+Implementation S7 hiện đã hoàn tất trong working tree và đang chờ owner review:
+
+- `services/operations/metrics.py` là concrete metric owner; đường cũ tại `orchestrator/metrics_collector.py`
+  chỉ re-export cùng object identity đến S8;
+- một `TurnJournal` bounded giữ sanitized milestone và compatibility projection của DecisionRecord/Trajectory;
+  generation/delivery/outcome/continuity append theo lineage nhưng verifier và Outcome Committer vẫn là authority;
+- `OperationsSurface` là snapshot/command allowlist duy nhất; live `DashboardServer` chỉ nhận surface, metrics
+  exposition và static/data-label projection qua surface, không nhận runner,
+  Goal/Relationship/Director/control/canary mutable object;
+- live registry loại đúng `human_like_calibration` và `closed_loop_canary`; runtime/config validation có zero
+  import `services.evaluation`; canary/release/soak đọc `config/evaluation.yaml::evaluation.operations`;
+- soak implementation canonical nằm tại `services/evaluation/soak.py`; đường Operations cũ là facade đến S8.
+
+S7 không đổi model, prompt, sampling, public owner, scheduler, transaction, delivery, continuity hay product
+version. Evidence implementation: targeted operations/evaluation `394 passed`; live lineage/composition
+`258 passed`; deterministic replay/continuity `32 passed`; documentation/inventory/boundary `28 passed`; full
+offline `2.516 passed`, `0` lỗi, một Starlette deprecation warning có sẵn và một local pytest-cache
+permission warning. `git diff --check` sạch. Không bắt đầu S8 hoặc MCB-5 trong change này.
 
 ### 17.3. Chuỗi mã để lần theo một lượt
 
@@ -4741,6 +4814,6 @@ Nhánh hội thoại V1 đã đi được phần lớn vòng này. V2 đã có c
 
 Sau khi bổ sung, tài liệu này có thể dùng để hiểu mục tiêu và kiến trúc Mai; lần theo luồng tin nhắn, tự nói và V2; tìm tệp chịu trách nhiệm; hiểu hợp đồng và thời điểm ghi dữ liệu; đọc cấu hình; cài đặt, khởi động, theo dõi và tắt; xử lý lỗi; hiểu sao lưu, quay lui và kiểm thử; đồng thời xác định chính xác vì sao V2 chưa hoàn chỉnh.
 
-Tài liệu mô tả hiện trạng đã đối chiếu ngày 26/08/2026 tại checkpoint S2 `d02c84e`. Khi mã, cấu hình,
+Tài liệu mô tả hiện trạng đã đối chiếu ngày 26/08/2026 tại checkpoint S6 `ac4b3f3`; S7 mới ở docs-first. Khi mã, cấu hình,
 phiên bản hoặc trạng thái ghép nối thay đổi, phần tương ứng phải được cập nhật cùng thay đổi đó. Nếu có
 mâu thuẫn, áp dụng thứ tự nguồn sự thật ở đầu tài liệu và báo conflict trước khi sửa.

@@ -23,7 +23,8 @@ Blueprint chỉ quy định scope, thứ tự và acceptance gate tương lai; k
 S4 Turn Kernel tại `361bc44`. Canonical ingress/authoritative state, một Cognition path và một live tick owner
 đã nằm trong live/replay graph; Compatibility vẫn public và Brain chỉ là subordinate shadow worker. S5
 canonical execution/outcome đã được owner duyệt, commit và push tại `073352b`. S6 canonical Continuity đã
-triển khai trong working tree và đang chờ owner review. Product version vẫn là `1.4.3`.
+được owner duyệt, commit và push tại `ac4b3f3`. S7 canonical Operations Surface + offline split đã được
+triển khai trong working tree và đang chờ owner review; chưa commit. Product version vẫn là `1.4.3`.
 
 ## Thứ tự đọc
 

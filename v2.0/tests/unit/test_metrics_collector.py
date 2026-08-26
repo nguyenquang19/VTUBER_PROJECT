@@ -5,6 +5,11 @@ from prometheus_client import CollectorRegistry
 import pytest
 
 from orchestrator.metrics_collector import MetricsCollector
+from services.operations.metrics import MetricsCollector as CanonicalMetricsCollector
+
+
+def test_legacy_metrics_import_is_exact_canonical_identity() -> None:
+    assert MetricsCollector is CanonicalMetricsCollector
 
 
 def fresh(gpu_query_runner=None) -> MetricsCollector:

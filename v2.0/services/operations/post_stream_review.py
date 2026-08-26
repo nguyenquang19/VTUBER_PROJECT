@@ -33,7 +33,8 @@ class ReviewConfig:
                 "logs/operations/operator_audit.jsonl",
             )),
             soak_report=Path(loader.get(
-                "operations", "soak.report_file", "docs/baselines/m9_live_operations.json",
+                "evaluation", "evaluation.operations.soak.report_file",
+                "docs/baselines/m9_live_operations.json",
             )),
             export_dir=Path(loader.get(
                 "operations", "post_stream_review.export_dir", "logs/operations/reviews",

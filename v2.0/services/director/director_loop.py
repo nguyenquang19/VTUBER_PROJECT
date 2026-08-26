@@ -103,6 +103,7 @@ class DirectorLoop:
         execution_coordinator: Any = None,
         outcome_committer: Any = None,
         continuity_state: Any = None,
+        turn_journal: Any = None,
         room_reaction_recent_window: int = 16,
         room_reaction_similarity_threshold: float = 0.72,
         room_reaction_max_regenerations: int = 1,
@@ -165,6 +166,8 @@ class DirectorLoop:
         self._execution_coordinator = execution_coordinator
         self._outcome_committer = outcome_committer
         self._continuity_state = continuity_state
+        self._turn_journal = turn_journal
+        self._active_decision_id: str | None = None
         self._turn_event_sink: Any = None
         self._turn_kernel: Any = None
         self._director_v2_shadow = None
@@ -496,6 +499,7 @@ class DirectorLoop:
         async with self._turn_lock:
             transaction_id = None
             execution_reservation = None
+            self._active_decision_id = decision_id
             try:
                 if self._transactions is not None and self._transactions.enabled:
                     if self._execution_coordinator is not None:
@@ -675,6 +679,8 @@ class DirectorLoop:
                     )
                 self._log.warning("director_execute_failed",
                                   action=dec.action.value, error=str(e))
+            finally:
+                self._active_decision_id = None
         return dec.action
 
     def preview_decision(
@@ -1684,6 +1690,8 @@ class DirectorLoop:
             execution_coordinator=self._execution_coordinator,
             outcome_committer=self._outcome_committer,
             continuity_state=self._continuity_state,
+            turn_journal=self._turn_journal,
+            lineage_id=self._active_decision_id,
             mood_provider=self._current_mood,
             speech_completed=self._record_speech_completed,
             filter_rejected=self._quarantine_filter_rejection,

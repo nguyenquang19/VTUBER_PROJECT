@@ -258,10 +258,10 @@ class TestRuntimeFilterWiring:
             assert pref.records[0]["chosen"] == CLEAN_OUTPUT
             assert pref.records[0]["reason"] == "filter:persona_break"
 
-            assert dashboard["feature_manager"] is runtime._feature_manager
-            assert dashboard["filter_svc"] is runtime._filter_svc
-            assert dashboard["regenerator"] is runtime._regenerator
-            assert dashboard["goal_manager"] is runtime.goal_manager
+            assert dashboard["operations_surface"] is runtime._operations_surface
+            assert dashboard["metrics"] is runtime._metrics
+            assert "feature_manager" not in dashboard
+            assert "goal_manager" not in dashboard
             assert runtime._cognitive_scheduler.snapshot().running is False
             cognitive_enabled = await runtime._feature_manager.enable(
                 "cognitive_brain_shadow", user="test",
@@ -276,7 +276,7 @@ class TestRuntimeFilterWiring:
             assert set(runtime._health_supervisor.snapshot()["targets"]) == {
                 "dashboard", "input_router", "llm_main", "obs_perception_adapter",
                 "obs_websocket", "outcome_committer", "execution_coordinator",
-                "continuity_state",
+                "continuity_state", "turn_journal", "operations_surface",
             }
             assert [
                 adapter.service_id for adapter in runtime._perception_adapters
@@ -294,7 +294,7 @@ class TestRuntimeFilterWiring:
             assert runtime._external_action_loop.enabled is False
             assert runtime.operations_snapshot()["external_actions"]["recent"] == []
             assert runtime._llama_process_manager.started is True
-            assert dashboard["control_plane"] is runtime._control_plane
+            assert "control_plane" not in dashboard
             assert runtime.agent_state.snapshot().active_goal_ref is None
             assert runtime.goal_proposal.enabled is False
 

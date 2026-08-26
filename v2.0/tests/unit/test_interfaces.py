@@ -38,8 +38,8 @@ from interfaces.memory import MemoryEntry, MemoryService, MemoryTier
 from interfaces.operations import (
     DashboardDataSourceService,
     EmergencyControlService, HealthSupervisorService, IncidentLogService,
-    OperationsSnapshotService, OperatorControlService, SoakMonitorService,
-    ShutdownCoordinatorService,
+    OperationsSnapshotService, OperationsSurfaceService, OperatorControlService,
+    SoakMonitorService, ShutdownCoordinatorService, TurnJournalService,
 )
 from interfaces.release_readiness import ClosedLoopCanaryService
 from interfaces.stt import NullSTTService, STTService, TranscriptChunk
@@ -146,6 +146,14 @@ class TestServiceContract:
             (IncidentLogService, "record_incident"),
             (IncidentLogService, "resolve"),
             (IncidentLogService, "snapshot"),
+            (TurnJournalService, "append"),
+            (TurnJournalService, "get"),
+            (TurnJournalService, "recent"),
+            (TurnJournalService, "projection"),
+            (TurnJournalService, "snapshot"),
+            (OperationsSurfaceService, "snapshot"),
+            (OperationsSurfaceService, "execute"),
+            (OperationsSurfaceService, "prometheus_text"),
             (HumanLikeCalibrationService, "build"),
             (HumanLikeCalibrationService, "finalize"),
             (HumanLikeCalibrationService, "snapshot"),
@@ -187,6 +195,8 @@ class TestServiceContract:
             EmergencyControlService,
             SoakMonitorService,
             IncidentLogService,
+            TurnJournalService,
+            OperationsSurfaceService,
             HumanLikeCalibrationService,
             TrajectoryRecordService,
             TurnKernelService,

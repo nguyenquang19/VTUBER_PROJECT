@@ -501,6 +501,19 @@ class TestFromConfig:
         assert await m.get_status("filter_rule") is FeatureStatus.ENABLED
         assert await m.get_status("input_voice") is FeatureStatus.DISABLED
 
+    async def test_live_registry_can_exclude_offline_service_features(self) -> None:
+        loader = ConfigLoader(REPO_ROOT / "config")
+        loader.load_all()
+        manager = FeatureManager.from_config(
+            loader,
+            excluded_feature_ids=("human_like_calibration", "closed_loop_canary"),
+        )
+        features = await manager.list_features()
+        assert "trajectory_records" in {item.id for item in features}
+        assert "human_like_calibration" not in {item.id for item in features}
+        with pytest.raises(UnknownFeatureError):
+            await manager.get_status("closed_loop_canary")
+
     async def test_real_config_dependencies_consistent(self) -> None:
         """Mọi depends_on/conflicts_with trong config phải trỏ tới feature tồn tại."""
         loader = ConfigLoader(REPO_ROOT / "config")

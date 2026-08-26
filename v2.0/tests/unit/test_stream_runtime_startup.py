@@ -53,7 +53,8 @@ def _runtime(
     director: Any = None,
     capability: Any = None,
     embodiment: Any = None,
-    closed_loop_canary: Any = None,
+    turn_journal: Any = None,
+    operations_surface: Any = None,
     health_supervisor: Any = None,
     shutdown_coordinator: Any = None,
 ) -> StreamRuntime:
@@ -67,7 +68,8 @@ def _runtime(
         director_loop=director,
         capability_registry=capability,
         embodiment_policy=embodiment,
-        closed_loop_canary=closed_loop_canary,
+        turn_journal=turn_journal,
+        operations_surface=operations_surface,
         health_supervisor=health_supervisor,
         shutdown_coordinator=shutdown_coordinator,
         metrics=object(),
@@ -102,16 +104,24 @@ async def test_runtime_start_failure_cleans_started_components_and_resets_state(
     assert llm.stop_calls == 1
 
 
-async def test_runtime_owns_closed_loop_canary_lifecycle() -> None:
+async def test_runtime_owns_turn_journal_and_operations_surface_lifecycle() -> None:
     events: list[str] = []
     router = _Service("router", events)
     llm = _Service("llm", events)
-    canary = _Service("closed_loop_canary", events)
-    runtime = _runtime(router=router, llm=llm, closed_loop_canary=canary)
+    journal = _Service("turn_journal", events)
+    surface = _Service("operations_surface", events)
+    runtime = _runtime(
+        router=router,
+        llm=llm,
+        turn_journal=journal,
+        operations_surface=surface,
+    )
     await runtime.start()
     await runtime.stop()
-    assert canary.start_calls == 1
-    assert canary.stop_calls == 1
+    assert journal.start_calls == 1
+    assert journal.stop_calls == 1
+    assert surface.start_calls == 1
+    assert surface.stop_calls == 1
 
 
 class _FailingRecovery(_Service):

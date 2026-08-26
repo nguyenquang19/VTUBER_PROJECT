@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import time
 import uuid
-from collections import OrderedDict
 from collections.abc import Callable
 from typing import Any
+from datetime import datetime, timezone
 
 from interfaces.base import HealthStatus
 from interfaces.decision_record import (
@@ -13,6 +13,8 @@ from interfaces.decision_record import (
     DecisionRecord,
     DecisionRecordService,
 )
+from interfaces.operations import TurnJournalEvent, TurnJournalStage
+from services.operations.turn_journal import TurnJournal, TurnJournalConfig
 
 
 class DecisionRecordManager(DecisionRecordService):
@@ -27,6 +29,7 @@ class DecisionRecordManager(DecisionRecordService):
         hard_rejection_reasons: tuple[str, ...] = (),
         clock: Callable[[], float] | None = None,
         metrics: Any = None,
+        turn_journal: Any = None,
         enabled: bool = True,
     ) -> None:
         if max_recent <= 0 or max_evidence_refs <= 0 or max_label_chars <= 0:
@@ -39,14 +42,22 @@ class DecisionRecordManager(DecisionRecordService):
         )
         self._clock = clock or time.time
         self._metrics = metrics
+        self._turn_journal = turn_journal or TurnJournal(TurnJournalConfig(
+            max_lineages=max_recent,
+            max_events_per_lineage=16,
+            max_reason_codes=max_evidence_refs,
+            max_evidence_refs=max_evidence_refs,
+            max_label_chars=max_label_chars,
+            max_projection_bytes=16384,
+        ))
         self.enabled = bool(enabled)
         self._running = False
-        self._items: OrderedDict[str, DecisionRecord] = OrderedDict()
         self._counts: dict[str, int] = {}
 
     @classmethod
     def from_loader(
-        cls, loader: Any, *, metrics: Any = None, enabled: bool = True,
+        cls, loader: Any, *, metrics: Any = None, turn_journal: Any = None,
+        enabled: bool = True,
     ) -> "DecisionRecordManager":
         base = "director.decision_records"
         return cls(
@@ -61,6 +72,7 @@ class DecisionRecordManager(DecisionRecordService):
                 "director", f"{base}.hard_rejection_reasons", [],
             ) or ()),
             metrics=metrics,
+            turn_journal=turn_journal,
             enabled=enabled,
         )
 
@@ -74,7 +86,7 @@ class DecisionRecordManager(DecisionRecordService):
         if not self._running:
             return HealthStatus.stopped(self.service_id)
         return HealthStatus.healthy(
-            self.service_id, enabled=self.enabled, retained=len(self._items),
+            self.service_id, enabled=self.enabled, retained=len(self._records()),
         )
 
     def set_enabled(self, enabled: bool) -> None:
@@ -110,8 +122,11 @@ class DecisionRecordManager(DecisionRecordService):
             hard_rejection_reason=rejection,
             outcome=outcome,
         )
-        self._items[record.decision_id] = record
-        self._trim()
+        self._append_journal(
+            record,
+            TurnJournalStage.DECISION_RECORDED,
+            verified=None,
+        )
         self._record_metric(record.action, outcome)
         return record
 
@@ -126,7 +141,7 @@ class DecisionRecordManager(DecisionRecordService):
     ) -> DecisionRecord | None:
         if not self.enabled:
             return None
-        record = self._items.get(str(decision_id))
+        record = self._get_record(decision_id)
         if record is None:
             return None
         updated = record.model_copy(update={
@@ -136,9 +151,27 @@ class DecisionRecordManager(DecisionRecordService):
             "delivery_state": self._clean(delivery_state),
             "outcome": self._clean(outcome),
         })
-        self._items[updated.decision_id] = updated
-        self._items.move_to_end(updated.decision_id)
         self._record_metric(updated.action, updated.outcome)
+        if updated.transaction_id:
+            stage = {
+                "reserved": TurnJournalStage.DELIVERY_RESERVED,
+                "committed": TurnJournalStage.OUTCOME_COMMITTED,
+                "duplicate_committed": TurnJournalStage.OUTCOME_COMMITTED,
+                "released": TurnJournalStage.OUTCOME_RELEASED,
+            }.get(updated.outcome)
+            if stage is not None:
+                self._append_journal(
+                    updated,
+                    stage,
+                    verified=(
+                        updated.delivery_state == "delivered"
+                        if stage in {
+                            TurnJournalStage.OUTCOME_COMMITTED,
+                            TurnJournalStage.OUTCOME_RELEASED,
+                        }
+                        else None
+                    ),
+                )
         return updated
 
     def update_outcome(
@@ -146,7 +179,7 @@ class DecisionRecordManager(DecisionRecordService):
     ) -> DecisionRecord | None:
         if not self.enabled:
             return None
-        record = self._items.get(str(decision_id))
+        record = self._get_record(decision_id)
         if record is None:
             return None
         updated = record.model_copy(update={
@@ -154,10 +187,44 @@ class DecisionRecordManager(DecisionRecordService):
             "delivery_state": self._clean(delivery_state),
             "outcome": self._clean(outcome),
         })
-        self._items[updated.decision_id] = updated
-        self._items.move_to_end(updated.decision_id)
         self._record_metric(updated.action, updated.outcome)
+        stage = (
+            TurnJournalStage.OUTCOME_COMMITTED
+            if updated.delivery_state == "delivered"
+            else TurnJournalStage.OUTCOME_RELEASED
+        )
+        self._append_journal(
+            updated, stage, verified=updated.delivery_state == "delivered",
+        )
         return updated
+
+    def _append_journal(
+        self,
+        record: DecisionRecord,
+        stage: TurnJournalStage,
+        *,
+        verified: bool | None,
+    ) -> None:
+        if self._turn_journal is None:
+            return
+        try:
+            self._turn_journal.append(TurnJournalEvent(
+                schema_version=1,
+                lineage_id=record.decision_id,
+                stage=stage,
+                occurred_at=datetime.fromtimestamp(record.updated_at, timezone.utc),
+                decision_id=record.decision_id,
+                transaction_id=record.transaction_id,
+                mode=record.action,
+                terminal_state=record.outcome,
+                verified=verified,
+                reason_codes=((record.hard_rejection_reason,) if record.hard_rejection_reason else ()),
+                evidence_refs=record.evidence_refs,
+                projection_kind="decision_record",
+                projection_json=record.model_dump_json(),
+            ))
+        except Exception:
+            return
 
     def classify_hard_rejection(self, action: str, reason: str) -> str:
         value = self._clean(reason)
@@ -170,7 +237,7 @@ class DecisionRecordManager(DecisionRecordService):
         }
 
     def snapshot(self) -> dict[str, Any]:
-        recent = list(self._items.values())[-20:]
+        recent = self._records()[-20:]
         return {
             "schema_version": 1,
             "enabled": self.enabled,
@@ -178,6 +245,21 @@ class DecisionRecordManager(DecisionRecordService):
             "current": recent[-1].model_dump(mode="json") if recent else None,
             "recent": [item.model_dump(mode="json") for item in reversed(recent)],
         }
+
+    def _get_record(self, decision_id: str) -> DecisionRecord | None:
+        value = self._turn_journal.projection(str(decision_id), "decision_record")
+        return DecisionRecord.model_validate_json(value) if value is not None else None
+
+    def _records(self) -> list[DecisionRecord]:
+        values: list[DecisionRecord] = []
+        for lineage in self._turn_journal.recent():
+            value = self._turn_journal.projection(
+                lineage.lineage_id, "decision_record",
+            )
+            if value is None:
+                continue
+            values.append(DecisionRecord.model_validate_json(value))
+        return values[-self.max_recent:]
 
     def _clean(self, value: Any) -> str:
         return str(value).strip()[:self.max_label_chars]
@@ -218,7 +300,3 @@ class DecisionRecordManager(DecisionRecordService):
                 self._metrics.record_director_decision_record(action, outcome)
             except Exception:
                 pass
-
-    def _trim(self) -> None:
-        while len(self._items) > self.max_recent:
-            self._items.popitem(last=False)

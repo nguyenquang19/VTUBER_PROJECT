@@ -200,18 +200,6 @@ def test_repository_runtime_config_is_valid() -> None:
     assert "âm mưu" in (
         validated.director_speech_style_vague_grounding_forbidden_patterns
     )
-    assert (
-        validated.director_speech_style_vague_grounding_forbidden_patterns
-        == validated.evaluation_vague_grounding_forbidden_patterns
-    )
-    assert (
-        validated.director_speech_style_malformed_token_fragments
-        == validated.evaluation_malformed_token_fragments
-    )
-    assert (
-        validated.director_speech_style_semantic_over_inference_patterns
-        == validated.evaluation_semantic_over_inference_patterns
-    )
     assert validated.director_speech_style_max_questions == 1
     assert validated.director_speech_style_max_sentences == 2
     assert validated.director_speech_style_max_words == 32
@@ -386,36 +374,25 @@ def test_speech_style_budget_cannot_exceed_recent_window() -> None:
         }))
 
 
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("turn_journal.max_lineages", 0),
+        ("turn_journal.max_events_per_lineage", True),
+        ("surface.max_commands", 0),
+        ("surface.max_payload_bytes", "16384"),
+    ],
+)
+def test_runtime_rejects_invalid_operations_bounds(key: str, value: object) -> None:
+    with pytest.raises(ConfigError, match="Runtime operations config"):
+        validate_runtime_config(OverrideLoader({("operations", key): value}))
+
+
 def test_human_like_windows_cannot_exceed_bounded_history() -> None:
     with pytest.raises(ConfigError, match="silence repeat window exceeds thought ledger"):
         validate_runtime_config(OverrideLoader({
             ("self_talk", "self_talk.thought_ledger_size"): 2,
             ("self_talk", "self_talk.silence_repeat_last_n"): 3,
-        }))
-
-
-def test_runtime_and_evaluation_vague_grounding_contracts_cannot_drift() -> None:
-    with pytest.raises(ConfigError, match="vague grounding contracts differ"):
-        validate_runtime_config(OverrideLoader({
-            (
-                "director",
-                "director.speech_style.vague_grounding_forbidden_patterns",
-            ): ["âm mưu"],
-        }))
-
-
-def test_runtime_and_evaluation_new_grounding_contracts_cannot_drift() -> None:
-    with pytest.raises(ConfigError, match="malformed token contracts differ"):
-        validate_runtime_config(OverrideLoader({
-            (
-                "director", "director.speech_style.malformed_token_fragments",
-            ): ["nghClient"],
-        }))
-    with pytest.raises(ConfigError, match="semantic inference contracts differ"):
-        validate_runtime_config(OverrideLoader({
-            (
-                "director", "director.speech_style.semantic_over_inference_patterns",
-            ): ["là biết"],
         }))
 
 
@@ -427,17 +404,6 @@ def test_runtime_and_evaluation_new_grounding_contracts_cannot_drift() -> None:
             {**TRAJECTORY_CONFIG, "max_recent": "256"},
             "max_recent must be a positive integer",
         ),
-        (
-            "evaluation", "evaluation.human_like",
-            {
-                **HUMAN_LIKE_CONFIG,
-                "dimensions": {
-                    **HUMAN_LIKE_CONFIG["dimensions"],
-                    "language": 0.21,
-                },
-            },
-            "weights must sum to 1",
-        ),
     ],
 )
 def test_phase14_config_fails_before_service_composition(
@@ -445,28 +411,6 @@ def test_phase14_config_fails_before_service_composition(
 ) -> None:
     with pytest.raises(ConfigError, match=message):
         validate_runtime_config(OverrideLoader({(name, key): value}))
-
-
-@pytest.mark.parametrize(
-    ("key", "value", "message"),
-    [
-        (
-            "release_readiness",
-            {**RELEASE_READINESS_CONFIG, "target_version": "v2"},
-            "target_version must be strict semantic version",
-        ),
-        (
-            "closed_loop_canary",
-            {**CLOSED_LOOP_CANARY_CONFIG, "allowed_actions": ["SWITCH_SCENE", "SWITCH_SCENE"]},
-            "allowed_actions must be unique",
-        ),
-    ],
-)
-def test_phase15_config_fails_before_service_composition(
-    key: str, value: object, message: str,
-) -> None:
-    with pytest.raises(ConfigError, match=message):
-        validate_runtime_config(OverrideLoader({("operations", key): value}))
 
 
 @pytest.mark.parametrize(

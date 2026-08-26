@@ -5,7 +5,6 @@ from datetime import datetime, timezone
 
 import pytest
 
-from dashboard.dashboard_server import DashboardServer
 from interfaces.compatibility import ActionRequest, ActionResult, ActionStatus
 from interfaces.director_v2 import DirectorV2Candidate, DirectorV2Context, DirectorV2Proposal
 from services.evaluation.closed_loop_canary import (
@@ -104,8 +103,6 @@ async def test_operator_canary_closes_proposal_action_world_and_next_decision() 
     rendered = str(snapshot)
     assert "Canary Scene" not in rendered
     assert "never-project" not in rendered
-    dashboard = await DashboardServer(closed_loop_canary=service).build_snapshot()
-    assert dashboard["closed_loop_canary"]["recent"][0]["passed"] is True
 
 
 @pytest.mark.asyncio

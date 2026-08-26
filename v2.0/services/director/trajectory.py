@@ -6,19 +6,25 @@ import json
 import math
 import time
 from collections import OrderedDict
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
+from datetime import datetime, timezone
 from typing import Any, Callable, Literal, Mapping
 
 from interfaces.execution import VerificationResult
 from interfaces.base import HealthStatus
 from interfaces.compatibility import ActionRequest, ActionResult
-from interfaces.director_v2 import DirectorV2Context, DirectorV2Proposal
+from interfaces.director_v2 import (
+    DirectorV2Candidate,
+    DirectorV2Context,
+    DirectorV2Proposal,
+)
 from interfaces.trajectory import (
     TrajectoryProposer,
     TrajectoryRecordService,
     TrajectoryReplayResult,
     TrajectorySnapshotRefs,
 )
+from interfaces.operations import TurnJournalEvent, TurnJournalStage
 
 
 _CONFIG_KEYS = {
@@ -80,6 +86,7 @@ class TrajectoryRecorder(TrajectoryRecordService):
         snapshot_provider: Callable[[], TrajectorySnapshotRefs],
         clock: Callable[[], float] | None = None,
         metrics: Any = None,
+        turn_journal: Any = None,
         enabled: bool = False,
     ) -> None:
         if not isinstance(config, TrajectoryConfig):
@@ -90,6 +97,7 @@ class TrajectoryRecorder(TrajectoryRecordService):
         self._snapshot_provider = snapshot_provider
         self._clock = clock or time.time
         self._metrics = metrics
+        self._turn_journal = turn_journal
         self.enabled = bool(enabled)
         self._running = False
         self._items: OrderedDict[str, _StoredTrajectory] = OrderedDict()
@@ -103,6 +111,7 @@ class TrajectoryRecorder(TrajectoryRecordService):
         snapshot_provider: Callable[[], TrajectorySnapshotRefs],
         clock: Callable[[], float] | None = None,
         metrics: Any = None,
+        turn_journal: Any = None,
         enabled: bool = False,
     ) -> "TrajectoryRecorder":
         return cls(
@@ -110,6 +119,7 @@ class TrajectoryRecorder(TrajectoryRecordService):
             snapshot_provider=snapshot_provider,
             clock=clock,
             metrics=metrics,
+            turn_journal=turn_journal,
             enabled=enabled,
         )
 
@@ -124,8 +134,8 @@ class TrajectoryRecorder(TrajectoryRecordService):
         if not self._running:
             return HealthStatus.stopped(self.service_id)
         return HealthStatus.healthy(
-            self.service_id, enabled=self.enabled, retained=len(self._items),
-            open=sum(item.lifecycle not in _TERMINAL for item in self._items.values()),
+            self.service_id, enabled=self.enabled, retained=len(self._values()),
+            open=sum(item.lifecycle not in _TERMINAL for item in self._values()),
         )
 
     def set_enabled(self, enabled: bool) -> None:
@@ -141,7 +151,7 @@ class TrajectoryRecorder(TrajectoryRecordService):
             proposal, DirectorV2Proposal,
         ):
             raise ValueError("trajectory requires typed Director V2 context and proposal")
-        if proposal.proposal_id in self._items:
+        if self._find(proposal.proposal_id) is not None:
             raise ValueError("trajectory proposal_id must be unique")
         self._validate_context(context)
         self._validate_proposal(proposal)
@@ -169,7 +179,7 @@ class TrajectoryRecorder(TrajectoryRecordService):
             proposal=proposal,
         )
         record = replace(record, fingerprint=self._fingerprint(record))
-        self._items[record.trajectory_id] = record
+        self._store(record)
         self._trim()
         self._record("proposed")
         return record.trajectory_id
@@ -277,7 +287,7 @@ class TrajectoryRecorder(TrajectoryRecordService):
     def replay(
         self, trajectory_id: str, proposer: TrajectoryProposer,
     ) -> TrajectoryReplayResult:
-        record = self._items.get(str(trajectory_id))
+        record = self._find(trajectory_id)
         if record is None:
             raise KeyError(str(trajectory_id))
         if not callable(proposer):
@@ -306,7 +316,7 @@ class TrajectoryRecorder(TrajectoryRecordService):
         )
 
     def snapshot(self) -> dict[str, Any]:
-        recent = list(self._items.values())[-self.config.dashboard_recent:]
+        recent = self._values()[-self.config.dashboard_recent:]
         projection = {
             "schema_version": self.config.schema_version,
             "enabled": self.enabled,
@@ -326,7 +336,7 @@ class TrajectoryRecorder(TrajectoryRecordService):
     def _get_open(self, trajectory_id: str) -> _StoredTrajectory | None:
         if not self.enabled:
             return None
-        record = self._items.get(str(trajectory_id))
+        record = self._find(trajectory_id)
         if record is None:
             raise KeyError(str(trajectory_id))
         if record.lifecycle in _TERMINAL:
@@ -334,8 +344,97 @@ class TrajectoryRecorder(TrajectoryRecordService):
         return record
 
     def _store(self, record: _StoredTrajectory) -> None:
+        if self._turn_journal is not None:
+            self._turn_journal.append(TurnJournalEvent(
+                schema_version=1,
+                lineage_id=record.trajectory_id,
+                stage=TurnJournalStage.DECISION_RECORDED,
+                occurred_at=datetime.fromtimestamp(record.updated_at, timezone.utc),
+                owner=record.owner,
+                mode=record.proposal.action_type,
+                terminal_state=record.lifecycle,
+                reason_codes=record.proposal.reason_codes,
+                evidence_refs=record.proposal.evidence_refs,
+                projection_kind="trajectory_record",
+                projection_json=json.dumps(
+                    asdict(record), ensure_ascii=False, sort_keys=True,
+                    separators=(",", ":"),
+                ),
+            ))
+            return
         self._items[record.trajectory_id] = record
         self._items.move_to_end(record.trajectory_id)
+
+    def _find(self, trajectory_id: str) -> _StoredTrajectory | None:
+        key = str(trajectory_id)
+        if self._turn_journal is None:
+            return self._items.get(key)
+        value = self._turn_journal.projection(key, "trajectory_record")
+        return self._decode(value) if value is not None else None
+
+    def _values(self) -> list[_StoredTrajectory]:
+        if self._turn_journal is None:
+            return list(self._items.values())
+        values: list[_StoredTrajectory] = []
+        for lineage in self._turn_journal.recent():
+            value = self._turn_journal.projection(
+                lineage.lineage_id, "trajectory_record",
+            )
+            if value is not None:
+                values.append(self._decode(value))
+        return values[-self.config.max_recent:]
+
+    @staticmethod
+    def _decode(value: str) -> _StoredTrajectory:
+        raw = json.loads(value)
+        context_raw = raw["context"]
+        context = DirectorV2Context(
+            created_at=context_raw["created_at"],
+            world_snapshot_id=context_raw["world_snapshot_id"],
+            self_snapshot_id=context_raw["self_snapshot_id"],
+            capability_snapshot_id=context_raw["capability_snapshot_id"],
+            candidates=tuple(
+                DirectorV2Candidate(
+                    **{**item, "evidence_refs": tuple(item["evidence_refs"])}
+                )
+                for item in context_raw["candidates"]
+            ),
+            emergency=context_raw["emergency"],
+            operator_hold=context_raw["operator_hold"],
+            safety_hold=context_raw["safety_hold"],
+            permission_hold=context_raw["permission_hold"],
+            transaction_conflict=context_raw["transaction_conflict"],
+            critical_state=context_raw["critical_state"],
+            source_failures=tuple(context_raw["source_failures"]),
+        )
+        proposal_raw = raw["proposal"]
+        proposal = DirectorV2Proposal(
+            **{
+                **proposal_raw,
+                "reason_codes": tuple(proposal_raw["reason_codes"]),
+                "evidence_refs": tuple(proposal_raw["evidence_refs"]),
+            }
+        )
+        return _StoredTrajectory(
+            schema_version=raw["schema_version"],
+            trajectory_id=raw["trajectory_id"],
+            created_at=raw["created_at"],
+            updated_at=raw["updated_at"],
+            initial=TrajectorySnapshotRefs(**raw["initial"]),
+            context=context,
+            proposal=proposal,
+            owner=raw["owner"],
+            lifecycle=raw["lifecycle"],
+            action_request=raw["action_request"],
+            action_result=raw["action_result"],
+            verification=raw["verification"],
+            next_snapshot=(
+                TrajectorySnapshotRefs(**raw["next_snapshot"])
+                if raw["next_snapshot"] is not None else None
+            ),
+            terminal_reason=raw["terminal_reason"],
+            fingerprint=raw["fingerprint"],
+        )
 
     def _validate_context(self, context: DirectorV2Context) -> None:
         if len(context.candidates) > self.config.max_candidates:
@@ -414,7 +513,7 @@ class TrajectoryRecorder(TrajectoryRecordService):
         return value
 
     def _finalize_open(self, reason: str) -> None:
-        for record in tuple(self._items.values()):
+        for record in tuple(self._values()):
             if record.lifecycle in _TERMINAL:
                 continue
             try:
@@ -527,6 +626,8 @@ class TrajectoryRecorder(TrajectoryRecordService):
                 pass
 
     def _trim(self) -> None:
+        if self._turn_journal is not None:
+            return
         while len(self._items) > self.config.max_recent:
             self._items.popitem(last=False)
 

@@ -1,7 +1,7 @@
 schema_version: 2
-status: s6_implementation_owner_review_pending
+status: s7_implementation_owner_review_pending
 generated_at_utc: "2026-08-26T08:00:00Z"
-checkpoint_revision: "073352bd71b9b7e8990004985844561ec469557c"
+checkpoint_revision: "ac4b3f328d5f471394a7d62f2d7db487e78de917"
 checkpoint_scope_clean: true
 structure_gate_eligible: true
 release_gate_eligible: false
@@ -67,7 +67,7 @@ s5_execution_outcome:
   product_version_change_authorized: false
 
 s6_continuity:
-  status: implementation_complete_owner_review_pending
+  status: implementation_complete_owner_approved
   base_revision: "073352bd71b9b7e8990004985844561ec469557c"
   baseline_targeted_tests: 85
   current_post_commit_continuity_callers: 4
@@ -98,6 +98,39 @@ s6_continuity:
     - compatibility_import_removal_before_s8
     - product_version_change
 
+s7_operations:
+  status: implementation_complete_owner_review_pending
+  base_revision: "ac4b3f328d5f471394a7d62f2d7db487e78de917"
+  baseline_targeted_tests: 152
+  target_contract_owner: interfaces/operations.py
+  target_metrics_owner: services/operations/metrics.py
+  target_journal_owner: services/operations/turn_journal.py
+  target_surface_owner: services/operations/surface.py
+  target_live_config_owner: config/operations.yaml
+  target_offline_config_owner: config/evaluation.yaml
+  live_evaluation_imports_after: 0
+  live_dashboard_mutable_domain_dependencies_after: 0
+  resulting_turn_lineage_stores_live: 1
+  offline_feature_services_started_live: 0
+  public_behavior_change_authorized: false
+  brain_takeover_authorized: false
+  product_version_change_authorized: false
+  compatibility_import_removal_wave: S8
+  evidence:
+    targeted_operations_evaluation_tests: 394
+    targeted_live_lineage_composition_tests: 258
+    deterministic_replay_tests: 32
+    documentation_inventory_boundary_tests: 28
+    full_offline_tests: 2516
+    full_offline_failures: 0
+    full_offline_warnings: 2
+  non_goals:
+    - s8_deletion
+    - mcb5_or_brain_public_takeover
+    - prompt_model_sampling_filter_or_output_change
+    - scheduler_transaction_delivery_or_continuity_change
+    - product_version_change
+
 scope:
   - interfaces/**/*.py
   - orchestrator/**/*.py
@@ -110,15 +143,15 @@ scope:
   - tests/**/*.py
 
 snapshot:
-  production_python_files: 228
-  production_modules: 224
-  static_live_reachable_modules: 160
-  not_static_live_reachable_modules: 63
+  production_python_files: 233
+  production_modules: 229
+  static_live_reachable_modules: 164
+  not_static_live_reachable_modules: 64
   config_yaml_files: 35
   prompt_files: 7
   script_files: 35
   test_python_files_before_s0: 224
-  test_python_files: 228
+  test_python_files: 231
   feature_count: 54
   feature_enabled_count: 37
   feature_disabled_count: 17
@@ -146,8 +179,8 @@ snapshot:
     - tests/unit/test_cognitive_ab_source.py
 
 normalization:
-  completed_waves: [S0, S1, S2, S3, S4, S5]
-  active_wave: S6
+  completed_waves: [S0, S1, S2, S3, S4, S5, S6]
+  active_wave: S7
   retired_components:
     - mcb4_offline_dual_path_harness
   owner_approved_deleted_paths:
@@ -185,6 +218,11 @@ normalization:
     - services/execution/coordinator.py
     - services/execution/outcome.py
     - config/execution.yaml
+    - services/state/continuity.py
+    - services/operations/metrics.py
+    - services/operations/turn_journal.py
+    - services/operations/surface.py
+    - config/operations.yaml
   canonical_import_facades:
     - services/state/agent.py
     - services/state/event_ledger.py
@@ -208,9 +246,13 @@ normalization:
     - services/action/obs_scene.py
     - services/action/mock_loop.py
     - services/action/mock_backend.py
+    - orchestrator/metrics_collector.py
+    - services/operations/soak_monitor.py
   canonical_config_owner: config/state.yaml
   canonical_kernel_config_owner: config/kernel.yaml
   canonical_execution_config_owner: config/execution.yaml
+  canonical_operations_config_owner: config/operations.yaml
+  canonical_evaluation_config_owner: config/evaluation.yaml
   compatibility_config_files:
     - config/agent_state.yaml
     - config/relationships.yaml
@@ -268,15 +310,15 @@ static_import_graph:
         - services/ingress/adapters.py
         - services/state/authoritative.py
       note: Live and replay Agent/World/Perception writes now enter through one canonical normalizer/ingress; deterministic domain reducers remain exact compatibility implementations until S8.
-  known_boundary_findings:
     - id: live_imports_offline_evaluation
-      severity: high
+      resolved_in: S7
       source: orchestrator/stream_runtime.py
       targets:
         - services/evaluation/closed_loop_canary.py
         - services/evaluation/human_like.py
         - services/evaluation/release_gate.py
-      note: Evaluation/canary/release services are composed into the live graph and must move behind offline or operator tooling boundaries.
+      note: Live composition and runtime validation no longer import evaluation; canary, human review, release and soak run only through offline services/scripts.
+  known_boundary_findings: []
   not_static_live_reachable_non_package_files:
     - interfaces/evaluation.py
     - interfaces/stt.py
@@ -300,6 +342,7 @@ static_import_graph:
     - services/evaluation/review.py
     - services/evaluation/scenario_loader.py
     - services/evaluation/simulator.py
+    - services/evaluation/soak.py
     - services/evaluation/types.py
     - services/input/youtube_replay.py
     - services/operations/dashboard_data_source.py

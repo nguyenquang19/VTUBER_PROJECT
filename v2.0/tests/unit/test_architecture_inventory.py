@@ -34,23 +34,27 @@ def test_architecture_inventory_snapshot_matches_current_tree() -> None:
     assert len(tuple((ROOT / "tests").rglob("*.py"))) == snapshot["test_python_files"]
 
 
-def test_architecture_inventory_records_s6_docs_first_checkpoint() -> None:
+def test_architecture_inventory_records_s7_implementation_checkpoint() -> None:
     inventory = _inventory()
     normalization = inventory["normalization"]
     assert isinstance(normalization, dict)
 
-    assert inventory["status"] == "s6_implementation_owner_review_pending"
+    assert inventory["status"] == "s7_implementation_owner_review_pending"
     assert inventory["checkpoint_revision"] == (
-        "073352bd71b9b7e8990004985844561ec469557c"
+        "ac4b3f328d5f471394a7d62f2d7db487e78de917"
     )
     assert inventory["checkpoint_scope_clean"] is True
     assert inventory["structure_gate_eligible"] is True
     assert inventory["release_gate_eligible"] is False
-    assert normalization["completed_waves"] == ["S0", "S1", "S2", "S3", "S4", "S5"]
-    assert normalization["active_wave"] == "S6"
+    assert normalization["completed_waves"] == [
+        "S0", "S1", "S2", "S3", "S4", "S5", "S6",
+    ]
+    assert normalization["active_wave"] == "S7"
     assert normalization["canonical_config_owner"] == "config/state.yaml"
     assert normalization["canonical_kernel_config_owner"] == "config/kernel.yaml"
     assert normalization["canonical_execution_config_owner"] == "config/execution.yaml"
+    assert normalization["canonical_operations_config_owner"] == "config/operations.yaml"
+    assert normalization["canonical_evaluation_config_owner"] == "config/evaluation.yaml"
     assert normalization["compatibility_config_files"] == [
         "config/agent_state.yaml",
         "config/relationships.yaml",
@@ -61,11 +65,20 @@ def test_architecture_inventory_records_s6_docs_first_checkpoint() -> None:
     assert s5["status"] == "implementation_complete_owner_approved"
     s6 = inventory["s6_continuity"]
     assert isinstance(s6, dict)
-    assert s6["status"] == "implementation_complete_owner_review_pending"
+    assert s6["status"] == "implementation_complete_owner_approved"
     assert s6["target_contract_owner"] == "interfaces/state.py"
     assert s6["target_commit_owner"] == "services/state/continuity.py"
     assert s6["target_config_owner"] == "config/state.yaml"
     assert s6["brain_takeover_authorized"] is False
+    s7 = inventory["s7_operations"]
+    assert isinstance(s7, dict)
+    assert s7["status"] == "implementation_complete_owner_review_pending"
+    assert s7["target_metrics_owner"] == "services/operations/metrics.py"
+    assert s7["target_journal_owner"] == "services/operations/turn_journal.py"
+    assert s7["target_surface_owner"] == "services/operations/surface.py"
+    assert s7["live_evaluation_imports_after"] == 0
+    assert s7["live_dashboard_mutable_domain_dependencies_after"] == 0
+    assert s7["brain_takeover_authorized"] is False
 
     canonical_facades = set(normalization["canonical_import_facades"])
     compatibility_re_exports = set(normalization["compatibility_re_exports"])

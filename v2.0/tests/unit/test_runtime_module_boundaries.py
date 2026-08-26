@@ -50,6 +50,22 @@ def test_composition_root_delegates_extracted_responsibilities() -> None:
     assert "start_dashboard(" in source
     assert "build_emergency_controller(" in source
     assert "configure_shutdown_coordinator(" in source
+    assert "build_operations_surface(" in source
+
+
+def test_live_dashboard_composition_receives_only_operations_surface() -> None:
+    source = (REPO_ROOT / "orchestrator" / "runtime_operations.py").read_text(
+        encoding="utf-8",
+    )
+    dashboard_call = source.split("server = DashboardServer(", 1)[1].split(")\n", 1)[0]
+    assert "operations_surface=operations_surface" in dashboard_call
+    assert "metrics=metrics" in dashboard_call
+    for forbidden in (
+        "goal_manager=", "relationship_manager=", "decision_records=",
+        "closed_loop_canary=", "human_like_calibration=", "control_plane=",
+        "runner=",
+    ):
+        assert forbidden not in dashboard_call
 
 
 @pytest.mark.asyncio

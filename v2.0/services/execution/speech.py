@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import time
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable
 
@@ -14,6 +15,7 @@ from interfaces.animation import AnimationCommand, MoodState
 from interfaces.compatibility import ActionRequest, ActionResult, ActionStatus
 from interfaces.execution import VerificationResult, VerifiedExecution
 from interfaces.state import ContinuityCommitDisposition, DeliveredTurnRecord
+from interfaces.operations import TurnJournalEvent, TurnJournalStage
 
 SpeakFn = Callable[[str, str], Awaitable[Any]]
 MoodProvider = Callable[[], MoodState]
@@ -40,6 +42,8 @@ class DirectorDeliveryBoundary:
         execution_coordinator: Any = None,
         outcome_committer: Any = None,
         continuity_state: Any = None,
+        turn_journal: Any = None,
+        lineage_id: str | None = None,
     ) -> None:
         self._runner = runner
         self._speak = speak
@@ -50,6 +54,8 @@ class DirectorDeliveryBoundary:
         self._execution_coordinator = execution_coordinator
         self._outcome_committer = outcome_committer
         self._continuity_state = continuity_state
+        self._turn_journal = turn_journal
+        self._lineage_id = lineage_id
         self._mood_provider = mood_provider
         self._speech_completed = speech_completed
         self._filter_rejected = filter_rejected
@@ -69,6 +75,13 @@ class DirectorDeliveryBoundary:
         conversation_move: str | None = None,
     ) -> bool:
         """Attempt delivery and finalize only delivery-related state."""
+        self._append_journal(
+            TurnJournalStage.DELIVERY_STARTED,
+            request_id=request_id,
+            transaction_id=transaction_id,
+            action_id=request_id,
+            mode=str(getattr(action, "value", action)),
+        )
         # ``ok`` measures parse/model quality for datasets. A canned fallback may
         # intentionally have ok=False while its text is still deliverable.
         text = getattr(parsed, "text", "")
@@ -210,6 +223,29 @@ class DirectorDeliveryBoundary:
             outcome = self._outcome_committer.commit_verified(reservation, verified_execution)
         elif transaction_id is not None:
             self._transactions.mark_delivered(transaction_id)
+        self._append_journal(
+            TurnJournalStage.DELIVERY_FINISHED,
+            request_id=request_id,
+            transaction_id=transaction_id,
+            action_id=request_id,
+            mode=action_type,
+            verified=True,
+            terminal_state="delivered",
+        )
+        if outcome is not None:
+            self._append_journal(
+                TurnJournalStage.OUTCOME_COMMITTED,
+                request_id=request_id,
+                transaction_id=outcome.transaction_id,
+                outcome_ref=outcome.outcome_ref,
+                action_id=request_id,
+                mode=action_type,
+                verified=True,
+                terminal_state=outcome.disposition.value,
+                reason_codes=(outcome.reason_code,),
+                evidence_refs=outcome.evidence_refs,
+                occurred_at=outcome.completed_at,
+            )
         try:
             pending = self._pending_delivery_context(request_id)
             self.finalize_runner_delivery(request_id, True)
@@ -230,6 +266,20 @@ class DirectorDeliveryBoundary:
                         parsed=parsed,
                     ),
                 )
+                if receipt.disposition is not ContinuityCommitDisposition.INCONSISTENT:
+                    self._append_journal(
+                        TurnJournalStage.CONTINUITY_COMMITTED,
+                        request_id=request_id,
+                        transaction_id=outcome.transaction_id,
+                        outcome_ref=outcome.outcome_ref,
+                        continuity_id=receipt.continuity_id,
+                        action_id=request_id,
+                        mode=action_type,
+                        verified=True,
+                        terminal_state=receipt.disposition.value,
+                        evidence_refs=outcome.evidence_refs,
+                        occurred_at=receipt.completed_at,
+                    )
                 if receipt.disposition is ContinuityCommitDisposition.INCONSISTENT:
                     self._outcome_committer.record_projection_failure(
                         reservation, "continuity_state",
@@ -356,25 +406,147 @@ class DirectorDeliveryBoundary:
         return "SPEAK"
 
     async def run_turn_deferred(self, **kwargs: Any) -> Any:
+        request_id = str(kwargs.get("request_id") or "generation")
+        self._append_journal(
+            TurnJournalStage.GENERATION_STARTED,
+            request_id=request_id,
+            attempt_id=request_id,
+        )
         if hasattr(self._runner, "finalize_delivery"):
             kwargs["defer_delivery_commit"] = True
-        return await self._runner.run_turn(**kwargs)
+        try:
+            result = await self._runner.run_turn(**kwargs)
+        except BaseException:
+            self._append_journal(
+                TurnJournalStage.GENERATION_COMPLETED,
+                request_id=request_id,
+                attempt_id=request_id,
+                verified=False,
+                terminal_state="generation_failed",
+            )
+            raise
+        self._append_journal(
+            TurnJournalStage.GENERATION_COMPLETED,
+            request_id=request_id,
+            attempt_id=request_id,
+            turn_id=str(getattr(self._runner, "last_turn_id", "unknown")),
+            verified=bool(getattr(result, "ok", False)),
+            terminal_state="generated",
+        )
+        return result
 
     async def run_ambient_deferred(self, request_id: str, prompt: str) -> Any:
-        if hasattr(self._runner, "finalize_delivery"):
-            return await self._runner.run_ambient_turn(
-                request_id, prompt, defer_delivery_commit=True,
+        self._append_journal(
+            TurnJournalStage.GENERATION_STARTED,
+            request_id=request_id,
+            attempt_id=request_id,
+        )
+        try:
+            if hasattr(self._runner, "finalize_delivery"):
+                result = await self._runner.run_ambient_turn(
+                    request_id, prompt, defer_delivery_commit=True,
+                )
+            else:
+                result = await self._runner.run_ambient_turn(request_id, prompt)
+        except BaseException:
+            self._append_journal(
+                TurnJournalStage.GENERATION_COMPLETED,
+                request_id=request_id,
+                attempt_id=request_id,
+                verified=False,
+                terminal_state="generation_failed",
             )
-        return await self._runner.run_ambient_turn(request_id, prompt)
+            raise
+        self._append_journal(
+            TurnJournalStage.GENERATION_COMPLETED,
+            request_id=request_id,
+            attempt_id=request_id,
+            turn_id=str(getattr(self._runner, "last_turn_id", "unknown")),
+            verified=bool(getattr(result, "ok", False)),
+            terminal_state="generated",
+        )
+        return result
 
     async def run_directed_deferred(self, request_id: str, context: str) -> Any:
-        if hasattr(self._runner, "finalize_delivery"):
-            return await self._runner.run_directed_turn(
-                request_id, context, defer_delivery_commit=True,
+        self._append_journal(
+            TurnJournalStage.GENERATION_STARTED,
+            request_id=request_id,
+            attempt_id=request_id,
+        )
+        try:
+            if hasattr(self._runner, "finalize_delivery"):
+                result = await self._runner.run_directed_turn(
+                    request_id, context, defer_delivery_commit=True,
+                )
+            else:
+                result = await self._runner.run_directed_turn(request_id, context)
+        except BaseException:
+            self._append_journal(
+                TurnJournalStage.GENERATION_COMPLETED,
+                request_id=request_id,
+                attempt_id=request_id,
+                verified=False,
+                terminal_state="generation_failed",
             )
-        return await self._runner.run_directed_turn(request_id, context)
+            raise
+        self._append_journal(
+            TurnJournalStage.GENERATION_COMPLETED,
+            request_id=request_id,
+            attempt_id=request_id,
+            turn_id=str(getattr(self._runner, "last_turn_id", "unknown")),
+            verified=bool(getattr(result, "ok", False)),
+            terminal_state="generated",
+        )
+        return result
 
     def finalize_runner_delivery(self, request_id: str, success: bool) -> None:
         finalize = getattr(self._runner, "finalize_delivery", None)
         if callable(finalize):
             finalize(request_id, success)
+
+    def _append_journal(
+        self,
+        stage: TurnJournalStage,
+        *,
+        occurred_at: datetime | None = None,
+        request_id: str | None = None,
+        transaction_id: str | None = None,
+        outcome_ref: str | None = None,
+        continuity_id: str | None = None,
+        action_id: str | None = None,
+        attempt_id: str | None = None,
+        turn_id: str | None = None,
+        mode: str | None = None,
+        terminal_state: str | None = None,
+        verified: bool | None = None,
+        reason_codes: tuple[str, ...] = (),
+        evidence_refs: tuple[str, ...] = (),
+    ) -> None:
+        if self._turn_journal is None:
+            return
+        lineage_id = self._lineage_id or request_id
+        if not lineage_id:
+            return
+        try:
+            self._turn_journal.append(TurnJournalEvent(
+                schema_version=1,
+                lineage_id=lineage_id,
+                stage=stage,
+                occurred_at=occurred_at or datetime.now(timezone.utc),
+                monotonic_ns=time.monotonic_ns(),
+                decision_id=self._lineage_id,
+                request_id=request_id,
+                transaction_id=transaction_id,
+                outcome_ref=outcome_ref,
+                continuity_id=continuity_id,
+                action_id=action_id,
+                attempt_id=attempt_id,
+                turn_id=turn_id,
+                mode=mode,
+                terminal_state=terminal_state,
+                verified=verified,
+                reason_codes=reason_codes,
+                evidence_refs=evidence_refs,
+            ))
+        except Exception:
+            return

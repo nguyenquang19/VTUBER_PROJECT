@@ -30,6 +30,7 @@ def _fixture(tmp_path: Path):
     config.mkdir(parents=True)
     shutil.copy2(REPO_ROOT / "config" / "system.yaml", config / "system.yaml")
     shutil.copy2(REPO_ROOT / "config" / "operations.yaml", config / "operations.yaml")
+    shutil.copy2(REPO_ROOT / "config" / "evaluation.yaml", config / "evaluation.yaml")
     preflight = _write(tmp_path / "preflight.json", {
         "marker": "mai_live_preflight", "sanitized": True, "ready": True,
     })
