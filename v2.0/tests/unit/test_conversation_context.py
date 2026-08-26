@@ -7,9 +7,9 @@ import pytest
 from services.agent.conversation_context import (
     ConversationContextComposer, ConversationContextConfig,
 )
-from services.agent.goal_types import Goal, GoalKind, GoalSnapshot, GoalSource, GoalStatus
+from interfaces.state import Goal, GoalKind, GoalSnapshot, GoalSource, GoalStatus
 from services.agent.repair_policy import ConversationRepairPolicy, RepairPolicyConfig
-from services.agent.types import (
+from interfaces.state import (
     AgentEventKind, AgentEventSource, AgentStateSnapshot, EventProvenance,
     GroundedEvent, OpenThread, SessionRecap, SessionRecapItem, ThreadEvidence,
     ThreadKind, TopicState,

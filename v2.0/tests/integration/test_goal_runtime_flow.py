@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from orchestrator.metrics_collector import MetricsCollector
+from services.operations.metrics import MetricsCollector
 from prometheus_client import CollectorRegistry
-from services.agent.agent_state import AgentState, AgentStateLimits, AgentStateReducer
+from services.state.agent import AgentState, AgentStateLimits, AgentStateReducer
 from services.agent.agenda_policy import AgendaPolicy, AgendaPolicyConfig
-from services.agent.event_ledger import EventLedger
+from services.state.event_ledger import EventLedger
 from services.agent.goal_manager import GoalLimits, GoalManager
-from services.agent.goal_types import GoalKind, GoalStatus
-from services.agent.types import (
+from interfaces.state import GoalKind, GoalStatus
+from interfaces.state import (
     AgentEventKind,
     AgentEventSource,
     EventProvenance,

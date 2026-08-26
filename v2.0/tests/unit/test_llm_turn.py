@@ -91,7 +91,7 @@ class TestDirectedTurn:
     async def test_conversation_context_is_injected_as_system_message(self) -> None:
         class State:
             def snapshot(self):
-                from services.agent.types import AgentStateSnapshot
+                from interfaces.state import AgentStateSnapshot
                 return AgentStateSnapshot()
 
         class Composer:

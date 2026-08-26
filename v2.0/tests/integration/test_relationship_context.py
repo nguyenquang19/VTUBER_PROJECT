@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from services.agent.conversation_context import ConversationContextComposer, ConversationContextConfig
-from services.agent.types import AgentStateSnapshot
+from interfaces.state import AgentStateSnapshot
 
 
 class _RelationshipContext:

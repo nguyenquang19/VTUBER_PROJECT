@@ -7,26 +7,26 @@ from typing import Any
 
 import pytest
 
-from interfaces.action_execution import ActionVerifier, VerificationResult
+from interfaces.execution import ActionVerifier, VerificationResult
 from interfaces.base import HealthStatus
 from interfaces.compatibility import ActionRequest, ActionResult, Capability
-from interfaces.external_executor import (
+from interfaces.execution import (
     ExternalExecutorBinding,
     OBSCommandAck,
     OBSSceneState,
     OBSSceneTransportService,
 )
-from services.action.external_loop import ExternalActionConfig, ExternalActionLoop
-from services.action.external_registry import ExternalExecutorRegistry
-from services.action.obs_scene import OBSSceneConfig, OBSSceneExecutor, OBSSceneVerifier
+from services.execution.external import ExternalActionConfig, ExternalActionLoop
+from services.execution.registry import ExternalExecutorRegistry
+from services.execution.obs import OBSSceneConfig, OBSSceneExecutor, OBSSceneVerifier
 from services.capability.registry import (
     CapabilityDefinition,
     CapabilityRegistry,
     CapabilityRegistryConfig,
 )
-from services.director.action_transaction import ActionTransactionManager
+from services.execution.transaction import ActionTransactionManager
 from services.execution.outcome import OutcomeCommitter
-from services.world.world_model import WorldModelConfig, WorldModelShadow
+from services.state.world import WorldModelConfig, WorldModelShadow
 
 
 NOW = datetime(2026, 8, 20, 9, 0, tzinfo=timezone.utc)

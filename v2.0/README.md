@@ -8,7 +8,9 @@
 > checkpoint; S2 tại `d02c84e`, S3 canonical Cognition tại `1c6d9d6`, S4 Turn Kernel tại `361bc44`.
 > S5 canonical execution/outcome đã được owner duyệt, commit và push tại `073352b`. S6 canonical Continuity đã
 > được owner duyệt, commit và push tại `ac4b3f3`. S7 canonical Operations Surface + offline split đã được
-> triển khai trong working tree và đang chờ owner review; chưa commit. Compatibility vẫn là public owner.
+> owner duyệt, commit và push tại `1f1b48b`. S8 dependency-closed compaction đã được triển khai và được
+> owner duyệt trong working tree; chưa commit/push S8.
+> Compatibility vẫn là public owner.
 > Live runtime dùng một `CognitiveContextBuilder`,
 > một `CognitiveModelAdapter`, còn
 > Agent/World/Perception event đi qua `CanonicalEventNormalizer → CanonicalEventIngress → AuthoritativeStateReducer`.
@@ -65,8 +67,8 @@ YAML, CLI argument, `.env.example` hoặc Git.
 
 Launcher mặc định bật TTS và dashboard. Thêm `-Memory` để bật semantic memory. Dashboard ở
 `http://127.0.0.1:7860`, chỉ bind loopback và yêu cầu operator token cho mọi lệnh thay đổi trạng thái;
-UI sẽ hỏi token ở lần điều khiển đầu tiên và không nhúng secret vào HTML. Dashboard cũ luôn còn tại
-`/legacy`. OBS có thể đọc subtitle fallback từ
+UI sẽ hỏi token ở lần điều khiển đầu tiên và không nhúng secret vào HTML. Operator Console là dashboard duy
+nhất; live chỉ đọc/ra lệnh qua `OperationsSurface`, còn standalone dùng `DashboardDataSource`. OBS có thể đọc subtitle fallback từ
 `logs\live\subtitle.txt`.
 
 `python -m orchestrator.main` là entrypoint bootstrap cũ và từ `1.4.1` chỉ fail-fast với hướng dẫn;
@@ -95,5 +97,5 @@ product release.
 
 `config/state.yaml` là canonical owner cho giới hạn ingress/Agent/World/Self/Relationship sau S2;
 `config/cognition.yaml` là owner duy nhất cho context projection, typed Cognitive Context và Brain adapter.
-`config/agent_state.yaml`, `config/relationships.yaml` và các implementation import path cũ chỉ còn là
-compatibility surface có removal wave S8; không được chỉnh chúng như một bộ cấu hình độc lập.
+S8 đã xóa `config/agent_state.yaml`, `config/relationships.yaml` cùng alias logic tương ứng. Implementation
+Agent/EventLedger/World/Self hiện nằm trực tiếp dưới `services/state/`; không còn import facade đường cũ.

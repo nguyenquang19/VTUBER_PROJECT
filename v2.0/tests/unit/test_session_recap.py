@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from orchestrator.metrics_collector import MetricsCollector
+from services.operations.metrics import MetricsCollector
 from services.agent.session_recap import SessionRecapLimits, SessionRecapManager
-from services.agent.types import (
+from interfaces.state import (
     AgentEventKind, AgentEventSource, EventProvenance, GroundedEvent,
 )
 

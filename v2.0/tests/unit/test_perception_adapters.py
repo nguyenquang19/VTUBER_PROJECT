@@ -4,9 +4,9 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 
 from interfaces.base import HealthStatus
-from interfaces.external_executor import OBSCommandAck, OBSSceneState, OBSSceneTransportService
+from interfaces.execution import OBSCommandAck, OBSSceneState, OBSSceneTransportService
 from interfaces.input import EventSource, InputEvent
-from services.agent.types import (
+from interfaces.state import (
     AgentEventKind,
     AgentEventSource,
     EventProvenance,

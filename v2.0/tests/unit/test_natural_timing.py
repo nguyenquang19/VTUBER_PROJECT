@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from orchestrator.metrics_collector import MetricsCollector
+from services.operations.metrics import MetricsCollector
 from services.tts.natural_timing import NaturalTimingConfig, NaturalTimingPolicy
 
 

@@ -243,13 +243,13 @@ async def test_perception_source_uses_same_canonical_ingress_without_world_mutat
     await perception.stop()
 
 
-def test_state_config_is_canonical_and_legacy_reads_are_exact_aliases() -> None:
+def test_state_config_is_the_only_registered_state_owner() -> None:
     loader = _loader()
-    assert loader.get("agent_state", "agent_state") == loader.get("state", "agent_state")
-    assert loader.get("agent_state", "world_model") == loader.get("state", "world_model")
-    assert loader.get("relationships", "relationships") == loader.get(
-        "state", "relationships",
-    )
+    assert loader.get("state", "agent_state") is not None
+    assert loader.get("state", "world_model") is not None
+    assert loader.get("state", "relationships") is not None
+    assert loader.get("agent_state", "agent_state") is None
+    assert loader.get("relationships", "relationships") is None
     assert loader.path_for("state") == ROOT / "config" / "state.yaml"
 
 

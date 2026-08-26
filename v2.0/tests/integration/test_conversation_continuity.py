@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from orchestrator.metrics_collector import MetricsCollector
+from services.operations.metrics import MetricsCollector
 from services.agent.conversation_context import (
     ConversationContextComposer, ConversationContextConfig,
 )
 from services.agent.open_thread_manager import OpenThreadLimits, OpenThreadManager
 from services.agent.repair_policy import ConversationRepairPolicy, RepairPolicyConfig
 from services.agent.thread_detector import RuleThreadDetector
-from services.agent.types import (
+from interfaces.state import (
     AgentEventKind, AgentEventSource, AgentStateSnapshot, EventProvenance,
     GroundedEvent, SessionRecap, SessionRecapItem, ThreadEvidence, ThreadKind,
 )

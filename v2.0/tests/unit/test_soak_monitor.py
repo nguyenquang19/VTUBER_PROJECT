@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from services.operations.soak_monitor import ControlledSoakMonitor, SoakConfig
+from services.evaluation.soak import ControlledSoakMonitor, SoakConfig
 
 
 def _config(tmp_path: Path, **overrides) -> SoakConfig:

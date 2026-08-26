@@ -4,19 +4,15 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from interfaces import evaluation as canonical_evaluation
-from interfaces import relationship as canonical_relationship
 from interfaces import state as canonical_state
-from services.agent import behavior_library, goal_proposal, goal_types, thread_extraction, types
-from services.evaluation import types as evaluation_types
-from services.relationship import types as relationship_types
+from services.agent import behavior_library, goal_proposal, thread_extraction
 
 
 ROOT = Path(__file__).resolve().parents[2]
 FORBIDDEN_INTERFACE_ROOTS = {"orchestrator", "services"}
 LEGACY_TYPE_MODULES = {
-    "services.agent.goal_types",
     "services.agent.types",
+    "services.agent.goal_types",
     "services.evaluation.types",
     "services.relationship.types",
 }
@@ -86,30 +82,24 @@ def test_production_consumers_use_canonical_contract_imports() -> None:
     assert violations == []
 
 
-def test_legacy_agent_symbols_are_exact_canonical_objects() -> None:
-    state_names = (
-        "AgentStateSnapshot", "ConversationMove", "Goal", "GoalKind", "GoalSnapshot",
-        "GoalSource", "GoalStatus", "OpenThread", "SessionRecap", "ShortIntention",
-        "ShortIntentionStatus", "StreamPhase", "ThreadEvidence", "ThreadKind",
-        "ThreadOperation", "ThreadSignal", "ThreadStatus", "TopicMatch", "TopicState",
+def test_implementation_re_exports_are_removed() -> None:
+    retired = (
+        "services/agent/types.py",
+        "services/agent/goal_types.py",
+        "services/evaluation/types.py",
+        "services/relationship/types.py",
     )
-    for name in state_names:
-        legacy = getattr(goal_types, name, None) or getattr(types, name, None)
-        assert legacy is getattr(canonical_state, name), name
+    assert [path for path in retired if (ROOT / path).exists()] == []
+
+
+def test_implementation_modules_use_canonical_state_objects() -> None:
     assert goal_proposal.GoalProposal is canonical_state.GoalProposal
     assert thread_extraction.ThreadExtraction is canonical_state.ThreadExtraction
     assert behavior_library.BehaviorKind is canonical_state.BehaviorKind
     assert behavior_library.BehaviorDecision is canonical_state.BehaviorDecision
 
 
-def test_legacy_relationship_and_evaluation_symbols_are_exact_objects() -> None:
-    for name in relationship_types.__all__:
-        assert getattr(relationship_types, name) is getattr(canonical_relationship, name), name
-    for name in evaluation_types.__all__:
-        assert getattr(evaluation_types, name) is getattr(canonical_evaluation, name), name
-
-
-def test_strict_proposal_shapes_survive_compatibility_imports() -> None:
+def test_strict_proposal_shapes_survive_canonical_imports() -> None:
     proposal = goal_proposal.GoalProposal.model_validate(
         {
             "kind": "continue_thread",

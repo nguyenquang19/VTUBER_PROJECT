@@ -1,7 +1,7 @@
 schema_version: 2
-status: s7_implementation_owner_review_pending
-generated_at_utc: "2026-08-26T08:00:00Z"
-checkpoint_revision: "ac4b3f328d5f471394a7d62f2d7db487e78de917"
+status: s8_implementation_complete_owner_approved
+generated_at_utc: "2026-08-27T00:00:00Z"
+checkpoint_revision: "1f1b48b39c8504096c007498a995d916fd22a58b"
 checkpoint_scope_clean: true
 structure_gate_eligible: true
 release_gate_eligible: false
@@ -99,7 +99,7 @@ s6_continuity:
     - product_version_change
 
 s7_operations:
-  status: implementation_complete_owner_review_pending
+  status: implementation_complete_owner_approved_committed
   base_revision: "ac4b3f328d5f471394a7d62f2d7db487e78de917"
   baseline_targeted_tests: 152
   target_contract_owner: interfaces/operations.py
@@ -131,6 +131,83 @@ s7_operations:
     - scheduler_transaction_delivery_or_continuity_change
     - product_version_change
 
+s8_compaction:
+  status: implementation_complete_owner_approved
+  base_revision: "1f1b48b39c8504096c007498a995d916fd22a58b"
+  baseline_targeted_tests: 51
+  source_deletion_authorized: true
+  public_behavior_change_authorized: false
+  brain_takeover_authorized: false
+  product_version_change_authorized: false
+  pure_re_exports_to_delete_after_import_migration:
+    - services/agent/types.py
+    - services/agent/goal_types.py
+    - services/relationship/types.py
+    - services/evaluation/types.py
+    - services/cognition/brain_shadow.py
+    - services/cognition/shadow_scheduler.py
+    - interfaces/action_execution.py
+    - interfaces/action_transaction.py
+    - interfaces/external_executor.py
+    - services/director/action_transaction.py
+    - services/director/delivery_boundary.py
+    - services/action/legacy_adapters.py
+    - services/action/external_loop.py
+    - services/action/external_registry.py
+    - services/action/obs_scene.py
+    - services/action/mock_loop.py
+    - services/action/mock_backend.py
+    - orchestrator/metrics_collector.py
+    - services/operations/soak_monitor.py
+  implementation_moves:
+    - {from: services/agent/agent_state.py, to: services/state/agent.py}
+    - {from: services/agent/event_ledger.py, to: services/state/event_ledger.py}
+    - {from: services/world/world_model.py, to: services/state/world.py}
+    - {from: services/self_model/projection.py, to: services/state/self_projection.py}
+  duplicate_config_files_to_delete:
+    - config/agent_state.yaml
+    - config/relationships.yaml
+  dead_runtime_files_to_delete:
+    - orchestrator/emergency_stop.py
+    - orchestrator/event_bus.py
+    - orchestrator/health_monitor.py
+    - orchestrator/state_machine.py
+    - orchestrator/state_watchdog.py
+    - orchestrator/trigger_manager.py
+    - orchestrator/turn_orchestrator.py
+    - config/state_machine.yaml
+    - config/triggers.yaml
+  dashboard_compatibility_to_delete:
+    - dashboard/templates/index.html
+    - dashboard/static/dashboard.css
+    - dashboard/static/dashboard.js
+    - feature:operator_dashboard_v2
+  explicitly_retained_until_accepted_cutover:
+    - services/director/director.py
+    - services/director/director_loop.py
+    - services/director/v2_primary.py
+    - services/director/v2_shadow.py
+    - services/director/v2_takeover.py
+    - services/autonomy/self_talk_planner.py
+    - services/filter/regenerator.py
+    - orchestrator/main.py
+  acceptance:
+    - zero_repository_importers_for_deleted_paths
+    - zero_compatibility_config_aliases_or_files
+    - zero_live_evaluation_dependency
+    - dashboard_operations_boundary_only
+    - exact_state_and_output_compatibility
+    - deterministic_replay_and_full_offline_green
+  evidence:
+    dashboard_operations_targeted_tests: 33
+    documentation_inventory_config_boundary_tests: 127
+    deterministic_replay_lineage_tests: 45
+    unit_tests: 2046
+    integration_tests: 268
+    full_offline_tests: 2314
+    full_offline_failures: 0
+    full_offline_warnings: 1
+
 scope:
   - interfaces/**/*.py
   - orchestrator/**/*.py
@@ -143,17 +220,15 @@ scope:
   - tests/**/*.py
 
 snapshot:
-  production_python_files: 233
-  production_modules: 229
-  static_live_reachable_modules: 164
-  not_static_live_reachable_modules: 64
-  config_yaml_files: 35
+  production_python_files: 203
+  production_modules: 203
+  config_yaml_files: 31
   prompt_files: 7
   script_files: 35
   test_python_files_before_s0: 224
-  test_python_files: 231
-  feature_count: 54
-  feature_enabled_count: 37
+  test_python_files: 220
+  feature_count: 53
+  feature_enabled_count: 36
   feature_disabled_count: 17
   preexisting_tracked_modified_at_s0:
     - MAI_V2_MASTER_IMPLEMENTATION_BLUEPRINT_v2.0.md
@@ -179,8 +254,8 @@ snapshot:
     - tests/unit/test_cognitive_ab_source.py
 
 normalization:
-  completed_waves: [S0, S1, S2, S3, S4, S5, S6]
-  active_wave: S7
+  completed_waves: [S0, S1, S2, S3, S4, S5, S6, S7, S8]
+  active_wave: null
   retired_components:
     - mcb4_offline_dual_path_harness
   owner_approved_deleted_paths:
@@ -228,34 +303,13 @@ normalization:
     - services/state/event_ledger.py
     - services/state/world.py
     - services/state/self_projection.py
-  compatibility_re_exports:
-    - services/agent/types.py
-    - services/agent/goal_types.py
-    - services/relationship/types.py
-    - services/evaluation/types.py
-    - services/cognition/brain_shadow.py
-    - services/cognition/shadow_scheduler.py
-    - interfaces/action_execution.py
-    - interfaces/action_transaction.py
-    - interfaces/external_executor.py
-    - services/director/action_transaction.py
-    - services/director/delivery_boundary.py
-    - services/action/legacy_adapters.py
-    - services/action/external_loop.py
-    - services/action/external_registry.py
-    - services/action/obs_scene.py
-    - services/action/mock_loop.py
-    - services/action/mock_backend.py
-    - orchestrator/metrics_collector.py
-    - services/operations/soak_monitor.py
+  compatibility_re_exports: []
   canonical_config_owner: config/state.yaml
   canonical_kernel_config_owner: config/kernel.yaml
   canonical_execution_config_owner: config/execution.yaml
   canonical_operations_config_owner: config/operations.yaml
   canonical_evaluation_config_owner: config/evaluation.yaml
-  compatibility_config_files:
-    - config/agent_state.yaml
-    - config/relationships.yaml
+  compatibility_config_files: []
   compatibility_removal_wave: S8
   behavior_change_authorized: false
   test_evidence:
@@ -319,37 +373,6 @@ static_import_graph:
         - services/evaluation/release_gate.py
       note: Live composition and runtime validation no longer import evaluation; canary, human review, release and soak run only through offline services/scripts.
   known_boundary_findings: []
-  not_static_live_reachable_non_package_files:
-    - interfaces/evaluation.py
-    - interfaces/stt.py
-    - interfaces/trigger.py
-    - orchestrator/emergency_stop.py
-    - orchestrator/event_bus.py
-    - orchestrator/health_monitor.py
-    - orchestrator/main.py
-    - orchestrator/state_machine.py
-    - orchestrator/state_watchdog.py
-    - orchestrator/trigger_manager.py
-    - orchestrator/turn_orchestrator.py
-    - services/agent/goal_types.py
-    - services/agent/types.py
-    - services/evaluation/acceptance.py
-    - services/evaluation/data_quality.py
-    - services/evaluation/harness.py
-    - services/evaluation/mood_ab.py
-    - services/evaluation/quality_judge.py
-    - services/evaluation/readiness.py
-    - services/evaluation/review.py
-    - services/evaluation/scenario_loader.py
-    - services/evaluation/simulator.py
-    - services/evaluation/soak.py
-    - services/evaluation/types.py
-    - services/input/youtube_replay.py
-    - services/operations/dashboard_data_source.py
-    - services/operations/post_stream_review.py
-    - services/operations/soak_monitor.py
-    - services/operations/standalone_snapshot.py
-    - services/relationship/types.py
 
 allowed_dispositions: [KEEP, MERGE, DELETE, OFFLINE, ARCHIVE]
 
@@ -644,7 +667,6 @@ features:
   decision_records: {enabled: true, disposition: DELETE, target_owner: services/operations/turn_journal.py, deletion_gate: after_s7_journal_canonical}
   trajectory_records: {enabled: true, disposition: DELETE, target_owner: services/operations/turn_journal.py, deletion_gate: after_s7_journal_canonical}
   closed_loop_canary: {enabled: false, disposition: OFFLINE, target_owner: services/evaluation}
-  operator_dashboard_v2: {enabled: true, disposition: DELETE, target_owner: services/operations/dashboard.py, deletion_gate: after_s7_dashboard_canonical}
   proactive_hosting: {enabled: true, disposition: DELETE, target_owner: services/kernel/opportunity_scheduler.py, deletion_gate: after_s6_scheduler_canary}
   self_talk_planner: {enabled: true, disposition: DELETE, target_owner: services/kernel/opportunity_scheduler.py, deletion_gate: after_s6_self_talk_temporal_canary}
   self_talk_lore: {enabled: true, disposition: MERGE, target_owner: services/state}
@@ -670,7 +692,7 @@ features:
   director_v2_takeover: {enabled: true, disposition: DELETE, target_owner: services/kernel, deletion_gate: after_s6_all_conversation_modes_canary}
 
 deletion_policy:
-  source_deletion_authorized: false
+  source_deletion_authorized: true
   requirements:
     - replacement owner implemented and tested
     - no live or dynamic importer remains

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from interfaces.animation import MoodState
 from orchestrator.config_loader import ConfigLoader
-from orchestrator.metrics_collector import MetricsCollector
+from services.operations.metrics import MetricsCollector
 from services.agent.behavior_library import BehaviorKind, BehaviorLibrary
 
 

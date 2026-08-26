@@ -9,14 +9,14 @@ import pytest
 from orchestrator.config_loader import ConfigLoader
 from services.agent.agenda_policy import AgendaPolicyConfig
 from services.agent.goal_manager import GoalLimits, GoalManager
-from services.agent.goal_types import (
+from interfaces.state import (
     Goal,
     GoalKind,
     GoalSource,
     GoalStatus,
     ShortIntentionStatus,
 )
-from services.agent.types import (
+from interfaces.state import (
     AgentEventKind,
     AgentEventSource,
     AgentStateSnapshot,

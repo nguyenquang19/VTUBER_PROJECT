@@ -1,16 +1,19 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 
 from fastapi.testclient import TestClient
 from prometheus_client import CollectorRegistry
 
 from dashboard.dashboard_server import DashboardServer
-from orchestrator.metrics_collector import MetricsCollector
-from services.agent.agent_state import AgentState, AgentStateLimits, AgentStateReducer
-from services.agent.event_ledger import EventLedger
+from services.operations.metrics import MetricsCollector
+from services.state.agent import AgentState, AgentStateLimits, AgentStateReducer
+from services.state.event_ledger import EventLedger
 from services.agent.goal_manager import GoalLimits, GoalManager
-from services.agent.types import AgentEventKind
+from interfaces.state import AgentEventKind
+from orchestrator.runtime_operations_surface import bind_standard_operator_commands
+from services.operations.surface import OperationsSurface, OperationsSurfaceConfig
 
 CONTROL_TOKEN = "test-dashboard-control-token-123456"
 CONTROL_HEADERS = {"X-Mai-Operator-Token": CONTROL_TOKEN}
@@ -29,8 +32,20 @@ def _stack() -> tuple[TestClient, GoalManager, AgentState, MetricsCollector]:
         GoalLimits(8, 4, 16, 240, 90, 3600), clock=clock, metrics=metrics,
         on_active_changed=state.set_active_goal_ref, audit_sink=state.record,
     )
+    surface = OperationsSurface(OperationsSurfaceConfig(16, 24, 120, 4096), metrics=metrics)
+    surface.register_snapshot_provider("goals", lambda: goals.snapshot().to_dict())
+    surface.register_snapshot_provider("goal_metrics", goals.get_metrics)
+    surface.register_snapshot_provider("agent", lambda: state.snapshot().to_dict())
+    control = type("Control", (), {
+        "record_operator_action": lambda self, *args: None,
+    })()
+    bind_standard_operator_commands(
+        surface, feature_manager=object(), control_plane=control,
+        goal_manager=goals, relationship_manager=None,
+    )
+    asyncio.run(surface.start())
     server = DashboardServer(
-        agent_state=state, goal_manager=goals, metrics=metrics,
+        operations_surface=surface, metrics=metrics,
         control_token=CONTROL_TOKEN,
     )
     return TestClient(server.app, headers=CONTROL_HEADERS), goals, state, metrics

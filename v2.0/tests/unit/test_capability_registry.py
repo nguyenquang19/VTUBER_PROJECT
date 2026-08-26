@@ -11,7 +11,7 @@ from interfaces.base import HealthStatus
 from interfaces.capability import CapabilityRegistryService
 from interfaces.compatibility import Capability
 from orchestrator.config_loader import ConfigLoader
-from orchestrator.metrics_collector import MetricsCollector
+from services.operations.metrics import MetricsCollector
 from services.capability.registry import (
     CapabilityDefinition,
     CapabilityRegistry,
@@ -167,8 +167,7 @@ def test_capability_registry_yaml_dashboard_and_director_boundary() -> None:
     assert loader.get("features", "features.capability_registry.enabled") is True
 
     registry, _ = _registry()
-    dashboard = asyncio.run(DashboardServer(capability_registry=registry).build_snapshot())
-    assert dashboard["capabilities"]["snapshot"]["capabilities"][0]["capability"]["capability_id"] == "BAD_HEALTH"
+    assert registry.snapshot()["capabilities"][0]["capability"]["capability_id"] == "BAD_HEALTH"
 
     source = (root / "orchestrator" / "stream_runtime.py").read_text(encoding="utf-8")
     director_call = source[source.index("director_loop = DirectorLoop("):source.index("# ─── M9 operator control plane")]

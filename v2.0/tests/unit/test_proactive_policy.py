@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from orchestrator.metrics_collector import MetricsCollector
-from services.agent.goal_types import Goal, GoalKind, GoalSnapshot, GoalSource, GoalStatus
-from services.agent.types import (
+from services.operations.metrics import MetricsCollector
+from interfaces.state import Goal, GoalKind, GoalSnapshot, GoalSource, GoalStatus
+from interfaces.state import (
     AgentStateSnapshot, OpenThread, ThreadEvidence, ThreadKind, ThreadStatus,
 )
 from services.director.action_types import DirectorInput

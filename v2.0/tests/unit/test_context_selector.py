@@ -5,11 +5,11 @@ from datetime import datetime, timedelta, timezone
 from interfaces.compatibility import SelfSnapshot, StateValue, WorldSnapshot
 from interfaces.memory import MemoryEntry, MemoryTier
 from services.agent.conversation_context import ConversationContextComposer, ConversationContextConfig
-from services.agent.goal_types import (
+from interfaces.state import (
     Goal, GoalKind, GoalSnapshot, GoalSource, GoalStatus,
     ShortIntention, ShortIntentionStatus,
 )
-from services.agent.types import AgentStateSnapshot
+from interfaces.state import AgentStateSnapshot
 
 NOW = datetime(2026, 8, 15, 12, 0, tzinfo=timezone.utc)
 

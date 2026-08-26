@@ -13,7 +13,14 @@ from orchestrator.fallback_manager import (
     FallbackManager,
     UnknownChainError,
 )
-from orchestrator.event_bus import EventBus
+
+
+class EventSink:
+    def __init__(self) -> None:
+        self.events: list[tuple[str, dict[str, object]]] = []
+
+    def publish(self, topic: str, payload: dict[str, object]) -> None:
+        self.events.append((topic, payload))
 
 
 def ok_handler(value):
@@ -122,23 +129,23 @@ class TestMetricsAndEvents:
         assert "fallback_triggered_total.llm" not in fm.get_metrics()
 
     async def test_publishes_fallback_event(self) -> None:
-        bus = EventBus()
-        sub = bus.subscribe("fallback_triggered")
+        bus = EventSink()
         fm = FallbackManager(event_bus=bus)
         fm.register_chain("tts", [failing_handler(), ok_handler("subtitle")], [3.0, 0.1])
         await fm.execute("tts", request=None)
-        event = await sub.get()
-        assert event.payload["module"] == "tts"
-        assert event.payload["level"] == 0
+        topic, event = bus.events[-1]
+        assert topic == "fallback_triggered"
+        assert event["module"] == "tts"
+        assert event["level"] == 0
 
     async def test_timeout_reason_labeled(self) -> None:
-        bus = EventBus()
-        sub = bus.subscribe("fallback_triggered")
+        bus = EventSink()
         fm = FallbackManager(event_bus=bus)
         fm.register_chain("llm", [slow_handler(1.0), ok_handler("canned")], [0.05, 0.1])
         await fm.execute("llm", request=None)
-        event = await sub.get()
-        assert event.payload["reason"] == "timeout"
+        topic, event = bus.events[-1]
+        assert topic == "fallback_triggered"
+        assert event["reason"] == "timeout"
 
 
 class TestTwoLevelChainsMatchSpec:

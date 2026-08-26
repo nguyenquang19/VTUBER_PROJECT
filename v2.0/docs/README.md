@@ -4,7 +4,7 @@
 
 **Product version:** lấy duy nhất từ `config/system.yaml::app.version`, hiện là `1.4.3`
 
-**Ngày đối chiếu:** 26/08/2026
+**Ngày đối chiếu:** 27/08/2026
 
 Toàn dự án chỉ có ba nguồn tài liệu chính thức. Tệp mục lục này chỉ điều hướng, không phải nguồn thứ tư.
 Mọi hướng dẫn runtime, component, pipeline, cấu hình, storage, vận hành, bảo mật, kiểm thử và known gaps
@@ -24,7 +24,8 @@ S4 Turn Kernel tại `361bc44`. Canonical ingress/authoritative state, một Cog
 đã nằm trong live/replay graph; Compatibility vẫn public và Brain chỉ là subordinate shadow worker. S5
 canonical execution/outcome đã được owner duyệt, commit và push tại `073352b`. S6 canonical Continuity đã
 được owner duyệt, commit và push tại `ac4b3f3`. S7 canonical Operations Surface + offline split đã được
-triển khai trong working tree và đang chờ owner review; chưa commit. Product version vẫn là `1.4.3`.
+owner duyệt, commit và push tại `1f1b48b`. S8 dependency-closed compaction đã được triển khai và được owner
+duyệt trong working tree; chưa commit/push. Product version vẫn là `1.4.3`.
 
 ## Thứ tự đọc
 

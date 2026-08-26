@@ -147,7 +147,7 @@ class PerceptionIngressConfig:
 
     @classmethod
     def from_loader(cls, loader: Any) -> "PerceptionIngressConfig":
-        raw = _mapping(loader.get("agent_state", "perception", None), "perception")
+        raw = _mapping(loader.get("state", "perception", None), "perception")
         _exact_keys(raw, frozenset({
             "max_payload_items", "max_payload_chars", "max_recent_events", "max_event_age_s",
             "max_future_skew_s", "dedup_ttl_s", "max_dedup_keys", "chat", "system", "obs",

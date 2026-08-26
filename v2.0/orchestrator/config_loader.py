@@ -24,11 +24,9 @@ CONFIG_FILES: dict[str, str] = {
     "logging": "logging.yaml",
     "data_privacy": "data_privacy.yaml",          # M0.4 privacy/retention
     "state": "state.yaml",                       # S2 canonical state/config owner
-    "agent_state": "agent_state.yaml",            # M1 grounded working state
     "agent_goals": "agent_goals.yaml",            # M2 goal/agenda policy
     "conversation": "conversation.yaml",           # bounded thread/context/repair policy
     "hosting": "hosting.yaml",                    # M5 mood/persona/proactive hosting
-    "relationships": "relationships.yaml",        # M7 privacy-safe social history
     "evaluation": "evaluation.yaml",              # M8 eval/data/fine-tune gates
     "operations": "operations.yaml",              # M9 live operations/recovery
     "capabilities": "capabilities.yaml",          # Phase 4 declarative availability
@@ -36,8 +34,6 @@ CONFIG_FILES: dict[str, str] = {
     "kernel": "kernel.yaml",                      # S4 single turn scheduling owner
     "execution": "execution.yaml",                # S5 transaction/executor/outcome owner
     "features": "features.yaml",
-    "triggers": "triggers.yaml",
-    "state_machine": "state_machine.yaml",
     "filters": "filters.yaml",
     "mood_engine": "mood_engine.yaml",         # Phase 7.5.A
     "emotion_appraisal": "emotion_appraisal.yaml",  # Phase 7.5.B
@@ -200,8 +196,7 @@ class ConfigLoader:
     def load_all(self) -> None:
         """Load mọi file trong CONFIG_FILES tồn tại trên disk.
 
-        File trong `required` mà thiếu → raise. File optional thiếu → skip
-        (các file như triggers.yaml/state_machine.yaml tạo ở milestone sau).
+        File trong `required` mà thiếu → raise. File optional thiếu → skip.
         """
         for name in CONFIG_FILES:
             path = self._path_for(name)
@@ -243,45 +238,7 @@ class ConfigLoader:
     def get(self, name: str, path: str, default: Any = None) -> Any:
         """Đọc value bằng dotted path, vd get("system", "dashboard.port")."""
         with self._lock:
-            cognition = self._data.get("cognition")
-            kernel = self._data.get("kernel")
-            execution = self._data.get("execution")
-            if name == "director" and path == "director.tick_seconds":
-                node: Any = kernel
-                path = "tick_seconds"
-            elif name == "director" and path.startswith("director.transactions."):
-                node = execution
-                path = path.removeprefix("director.")
-            elif name == "capabilities" and path == "action_adapters":
-                node = execution
-                path = "local"
-            elif name == "capabilities" and path.startswith("external_actions"):
-                node = execution
-                path = path.replace("external_actions", "external", 1)
-            elif name == "agent_state" and path == "context":
-                node = cognition
-                path = "agent_context_projection"
-            elif name == "agent_state" and path.startswith("context."):
-                node = cognition
-                path = "agent_context_projection." + path.removeprefix("context.")
-            elif name == "conversation" and path.startswith("context_selector."):
-                node = cognition
-                path = "context_selector_projection." + path.removeprefix("context_selector.")
-            elif name == "conversation" and path.startswith("context."):
-                node = cognition
-                path = "conversation_context_projection." + path.removeprefix("context.")
-            elif name == "conversation" and path == "context_selector":
-                node = cognition
-                path = "context_selector_projection"
-            elif name == "conversation" and path == "context":
-                node = cognition
-                path = "conversation_context_projection"
-            else:
-                node = (
-                    self._data.get("state")
-                    if name in {"agent_state", "relationships"} and "state" in self._data
-                    else self._data.get(name)
-                )
+            node: Any = self._data.get(name)
         if node is None:
             return default
         for part in path.split("."):
@@ -301,36 +258,7 @@ class ConfigLoader:
     def section(self, name: str) -> dict[str, Any]:
         """Trả về copy shallow của toàn bộ 1 config file."""
         with self._lock:
-            state = self._data.get("state")
-            if name == "agent_state" and isinstance(state, dict):
-                data = {
-                    key: state[key]
-                    for key in ("agent_state", "world_model", "perception", "self_model")
-                    if key in state
-                }
-                cognition = self._data.get("cognition")
-                if isinstance(cognition, dict) and isinstance(
-                    cognition.get("agent_context_projection"), dict,
-                ):
-                    data["context"] = dict(cognition["agent_context_projection"])
-            elif name == "relationships" and isinstance(state, dict):
-                data = {
-                    key: state[key]
-                    for key in ("relationships", "notes", "narrative", "running_gags")
-                    if key in state
-                }
-            elif name == "conversation":
-                data = dict(self._data.get(name, {}))
-                cognition = self._data.get("cognition")
-                if isinstance(cognition, dict):
-                    context = cognition.get("conversation_context_projection")
-                    selector = cognition.get("context_selector_projection")
-                    if isinstance(context, dict):
-                        data["context"] = dict(context)
-                    if isinstance(selector, dict):
-                        data["context_selector"] = dict(selector)
-            else:
-                data = self._data.get(name, {})
+            data = self._data.get(name, {})
             return dict(data)
 
     def loaded_names(self) -> list[str]:

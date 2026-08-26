@@ -257,14 +257,6 @@ features:
     depends_on: [director_v2_shadow, trajectory_records, obs_scene_executor]
     conflicts_with: []
 
-  operator_dashboard_v2:
-    enabled: true               # Operator-approved M10 full-live cutover; /legacy remains rollback
-    vram_cost_mb: 0
-    latency_impact_ms: 0
-    category: operations
-    depends_on: ["decision_records"]
-    conflicts_with: []
-
   proactive_hosting:
     enabled: true               # M5 grounded goal/thread/environment before silence fallback
     vram_cost_mb: 0

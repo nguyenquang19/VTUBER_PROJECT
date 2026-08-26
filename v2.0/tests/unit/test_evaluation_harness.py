@@ -4,7 +4,7 @@ from pathlib import Path
 
 from services.evaluation.harness import ScenarioEvaluationHarness
 from services.evaluation.scenario_loader import load_scenario_suite
-from services.evaluation.types import EvalOutcome, ObservedOutcome
+from interfaces.evaluation import EvalOutcome, ObservedOutcome
 
 
 ROOT = Path(__file__).resolve().parents[2]

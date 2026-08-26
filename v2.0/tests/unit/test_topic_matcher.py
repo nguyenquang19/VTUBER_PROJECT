@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from services.agent.topic_matcher import LexicalTopicMatcher, TopicMatcherConfig
-from services.agent.types import OpenThread
+from interfaces.state import OpenThread
 
 NOW = datetime(2026, 8, 12, tzinfo=timezone.utc)
 

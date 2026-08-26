@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from services.agent.thread_detector import RuleThreadDetector
-from services.agent.types import (
+from interfaces.state import (
     AgentEventKind, AgentEventSource, EventProvenance, GroundedEvent, OpenThread,
     ThreadKind, ThreadOperation,
 )

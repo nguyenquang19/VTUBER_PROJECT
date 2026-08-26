@@ -8,7 +8,7 @@ import pytest
 from services.evaluation.harness import ScenarioEvaluationHarness
 from services.evaluation.review import build_live_artifact, finalize_human_review
 from services.evaluation.scenario_loader import load_scenario_suite
-from services.evaluation.types import ObservedOutcome
+from interfaces.evaluation import ObservedOutcome
 
 
 ROOT = Path(__file__).resolve().parents[2]

@@ -9,9 +9,9 @@ import pytest
 
 from interfaces.base import HealthStatus
 from interfaces.compatibility import ActionRequest, ActionStatus
-from interfaces.external_executor import OBSCommandAck, OBSSceneState, OBSSceneTransportService
+from interfaces.execution import OBSCommandAck, OBSSceneState, OBSSceneTransportService
 from orchestrator.config_loader import ConfigLoader
-from services.action.obs_scene import (
+from services.execution.obs import (
     OBSProtocolError,
     OBSSceneConfig,
     OBSSceneExecutor,

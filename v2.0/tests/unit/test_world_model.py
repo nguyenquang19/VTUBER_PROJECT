@@ -10,9 +10,9 @@ from dashboard.dashboard_server import DashboardServer
 from interfaces.compatibility import EventProvenance, PerceptionEvent
 from interfaces.world import WorldModelService
 from orchestrator.config_loader import ConfigLoader
-from orchestrator.metrics_collector import MetricsCollector
-from services.agent.types import AgentEventKind, AgentEventSource, EventProvenance as AgentProvenance, GroundedEvent
-from services.world.world_model import (
+from services.operations.metrics import MetricsCollector
+from interfaces.state import AgentEventKind, AgentEventSource, EventProvenance as AgentProvenance, GroundedEvent
+from services.state.world import (
     WorldModelConfig,
     WorldModelShadow,
     perception_event_from_grounded_observation,
@@ -241,8 +241,7 @@ def test_grounded_bridge_only_accepts_structured_environment_observation() -> No
 def test_dashboard_exposes_world_shadow_read_only_and_runtime_does_not_pass_it_to_director() -> None:
     model = WorldModelShadow(_config(), clock=Clock())
     assert model.apply_event(_event("one"))
-    snapshot = asyncio.run(DashboardServer(world_model=model).build_snapshot())
-    assert snapshot["world"]["snapshot"]["stream"]["live"]["value"] is True
+    assert model.snapshot().to_dict()["stream"]["live"]["value"] is True
 
     source = (Path(__file__).resolve().parents[2] / "orchestrator" / "stream_runtime.py").read_text(encoding="utf-8")
     director_call = source[source.index("director_loop = DirectorLoop("):source.index("# ─── M9 operator control plane")]

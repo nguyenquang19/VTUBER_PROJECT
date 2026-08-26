@@ -2250,6 +2250,54 @@ chờ owner review và chưa commit. Evidence: targeted operations/evaluation `3
 offline `2.516 passed`, `0` lỗi, một Starlette deprecation warning có sẵn và một local pytest-cache
 permission warning. Không mở S8/MCB-5.
 
+#### 13.1.5.8. S8 — dependency-closed delete và compact
+
+Checkpoint S8 là `1f1b48b39c8504096c007498a995d916fd22a58b`. S7 đã được owner duyệt và commit;
+Compatibility vẫn là public soft owner, Brain vẫn shadow mặc định tắt và chưa có accepted cutover. Vì vậy S8
+chỉ được compact cấu trúc có exact replacement/parity; S8 không được dùng nhãn "cleanup" để xóa Director,
+planner, style/filter hoặc rollback path còn mang public behavior.
+
+Owner đã mở deletion wave và implementation S8 hiện hoàn tất trong working tree theo đúng phạm vi sau:
+
+1. Migrate toàn bộ production/script/test import sang canonical owner rồi xóa đúng 19 pure re-export facade
+   đã ghi trong `eval/architecture_inventory_v1.yaml::normalization.compatibility_re_exports`.
+2. Move cơ học implementation `services/agent/{agent_state,event_ledger}.py`,
+   `services/world/world_model.py` và `services/self_model/projection.py` vào bốn owner
+   `services/state/{agent,event_ledger,world,self_projection}.py`; không copy class, không giữ facade sau khi
+   toàn repository đạt zero importer đường cũ.
+3. Migrate logical config reads sang `state`, `cognition`, `kernel` và `execution`; xóa registration/alias và
+   hai file duplicate `config/agent_state.yaml`, `config/relationships.yaml`. `config/state.yaml` giữ nguyên
+   value/schema. Alias `director.tick_seconds` và `director.transactions.*` chỉ được xóa sau khi call site
+   cuối dùng trực tiếp `kernel`/`execution`.
+4. Xóa dead pre-StreamRuntime shell có zero production/script importer:
+   `orchestrator/{emergency_stop,event_bus,health_monitor,state_machine,state_watchdog,trigger_manager,
+   turn_orchestrator}.py`, cùng `config/{state_machine,triggers}.yaml`. Coverage còn giá trị về bound/leak/
+   interruption phải chuyển sang TurnKernel/Operations tests; test chỉ chứng minh component đã retire mới xóa.
+5. Compact `DashboardServer` thành hai read boundary hợp lệ: live `OperationsSurface` và standalone
+   `DashboardDataSource`. Xóa direct mutable-domain constructor branches, `/legacy`,
+   `dashboard/templates/index.html`, `dashboard/static/{dashboard.css,dashboard.js}` và migration feature
+   `operator_dashboard_v2`; operator-v2 asset trở thành dashboard duy nhất. Rating/correction/history và
+   allowlisted command behavior phải giữ nguyên.
+6. Cập nhật inventory, README/System Spec, feature/config inventory và behavior-named tests; không tạo archive
+   source trong runtime tree. `orchestrator/main.py` vẫn giữ fail-fast migration message vì đó là intentional
+   CLI error contract, không phải composition root thứ hai.
+
+Các nhóm bị khóa ngoài S8 hiện tại: legacy Director/Director V2 soft ownership, Brain takeover, Autonomy/
+Proactive/SelfTalk/Behavior soft policy, Agent/context selection behavior, speech/action rollback toggle,
+style/dedup regeneration, prompt/model/sampling, scheduler/timing, transaction/delivery/continuity semantics,
+Memory authority, product version và MCB-5. Chỉ MCB canary/burn-in + owner approval tương ứng mới mở quyền xóa
+những nhóm này.
+
+Acceptance S8: zero repository importer của mọi path đã xóa; zero ConfigLoader alias/file duplicate; live
+entrypoint vẫn zero evaluation dependency; dashboard không nhận domain mutable object; static dependency graph
+không có dead owner; targeted import/config/dashboard/state tests, deterministic live/replay lineage và full
+offline đều xanh. Vì scope được khóa không đổi output/decision/timing, blind review không bắt buộc; bất kỳ public
+text/action/timing drift nào làm S8 `HOLD`. Rollback nguyên khối về `1f1b48b`; chưa version bump hoặc release.
+
+Trạng thái hiện tại: source/config/dashboard/test migration đã hoàn tất và được owner duyệt; chưa commit,
+chưa push, chưa mở MCB-5. Gate đạt: dashboard/operations `33`, docs/inventory/config/boundary `127`, replay/
+lineage `45`, unit `2.046`, integration `268`, full offline `2.314 passed`, `0` lỗi, một Starlette warning có sẵn.
+
 ### 13.1.6. Rollout behavior trong quá trình chuẩn hóa
 
 | Trạng thái | Public soft owner | Brain | Compatibility | Failure trước reservation |

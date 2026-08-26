@@ -35,7 +35,7 @@ from interfaces.cognition import (
 from orchestrator.config_loader import ConfigLoader
 from orchestrator.config_loader import ConfigError
 from orchestrator.features import FeatureManager, FeatureStatus
-from orchestrator.metrics_collector import MetricsCollector
+from services.operations.metrics import MetricsCollector
 
 
 ROOT = Path(__file__).resolve().parents[2]

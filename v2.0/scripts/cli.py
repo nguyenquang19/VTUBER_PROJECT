@@ -46,7 +46,8 @@ from dashboard.dashboard_server import DashboardServer  # noqa: E402
 from orchestrator.config_loader import ConfigLoader  # noqa: E402
 from orchestrator.fallback_manager import FallbackManager  # noqa: E402
 from orchestrator.logger import bind_log_session, setup_from_config  # noqa: E402
-from orchestrator.metrics_collector import MetricsCollector  # noqa: E402
+from services.operations.metrics import MetricsCollector  # noqa: E402
+from services.operations.surface import OperationsSurface  # noqa: E402
 from services.llm.canned_response import CannedResponder  # noqa: E402
 from services.llm.llama_cpp_llm import LlamaCppLLMService  # noqa: E402
 from services.llm.llm_turn import LLMTurnRunner  # noqa: E402
@@ -381,19 +382,29 @@ async def main() -> None:
     # ---------- dashboard ----------
     dash_task = None
     dash_server = None
+    dashboard_surface = None
     if args.dashboard:
         import uvicorn
         from orchestrator.credential_contract import require_dashboard_control_token
 
         host = loader.get("system", "dashboard.host", "127.0.0.1")
         port = int(loader.get("system", "dashboard.port", 7860))
+        dashboard_surface = OperationsSurface.from_loader(loader, metrics=metrics)
+        dashboard_surface.register_snapshot_provider("runtime", lambda: {
+            "online": True, "mode": "diagnostic", "controls_available": False,
+        })
+        dashboard_surface.register_snapshot_provider("llm", metrics.llm_snapshot)
+        dashboard_surface.register_snapshot_provider("tts", metrics.tts_snapshot)
+        dashboard_surface.register_snapshot_provider("data_label", lambda: {
+            "latest_turn": {
+                "session_id": runner.session_id, "turn_id": runner.last_turn_id,
+            } if runner.last_turn_id else None,
+        })
+        if emotion is not None:
+            dashboard_surface.register_snapshot_provider("mood", emotion.snapshot)
+        await dashboard_surface.start()
         dash_server = DashboardServer(
-            metrics=metrics,
-            tts_service=tts_svc,
-            audio_player=audio_player,
-            tts_pipeline=tts_pipeline,
-            emotion=emotion,
-            runner=runner,
+            operations_surface=dashboard_surface, metrics=metrics,
             data_dir=loader.get("logging", "jsonl.dir", "logs"),
             push_interval_s=0.5,
             control_token=require_dashboard_control_token(loader),
@@ -462,6 +473,8 @@ async def main() -> None:
                 await emotion.stop()
         if dash_server is not None:
             await dash_server.stop_push_loop()
+        if dashboard_surface is not None:
+            await dashboard_surface.stop()
         if dash_task is not None:
             dash_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):

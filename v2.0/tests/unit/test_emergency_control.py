@@ -7,7 +7,7 @@ import pytest
 
 from services.operations.emergency_control import EmergencyController
 from services.agent.goal_manager import GoalLimits, GoalManager
-from services.agent.goal_types import Goal, GoalKind, GoalSource, GoalStatus
+from interfaces.state import Goal, GoalKind, GoalSource, GoalStatus
 
 
 @pytest.mark.asyncio

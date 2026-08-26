@@ -6,7 +6,7 @@ import pytest
 
 from interfaces.director_v2 import DirectorV2Proposal, DirectorV2TakeoverSelection
 from interfaces.tts import TTSDeliveryMode, TTSDeliveryResult
-from services.action.legacy_adapters import (
+from services.execution.local import (
     ActionAdapterConfig,
     AvatarGestureAuthority,
     AvatarGestureExecutor,
@@ -16,7 +16,7 @@ from services.action.legacy_adapters import (
     SpeechDeliveryExecutor,
     SpeechDeliveryVerifier,
 )
-from services.director.action_transaction import ActionTransactionManager
+from services.execution.transaction import ActionTransactionManager
 from services.director.director import DirectorAction
 from tests.integration.test_director_loop import _make
 

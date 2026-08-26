@@ -593,8 +593,8 @@ sập khi phát sóng, nhưng mật độ cao làm giảm khả năng phát hi�
 
 ### 9.11. Cấu hình phân tán — mức trung bình
 
-Có 33 tệp YAML và 54 cờ chức năng. S2 đã gom owner Agent/World/Self/Relationship vào `state.yaml`, nhưng
-hai compatibility YAML vẫn phải tồn tại đến S8 và repository chưa có các profile chạy canonical theo mục đích.
+Có 31 tệp YAML và 53 cờ chức năng sau S8. Agent/World/Self/Relationship dùng một owner `state.yaml`; hai
+compatibility YAML và ConfigLoader alias đã được xóa. Repository vẫn chưa có các profile chạy canonical theo mục đích.
 
 **Hậu quả:** khó biết tổ hợp nào là an toàn cho phát triển, thử nghiệm, quan sát V2 hoặc phát sóng thật.
 
@@ -905,19 +905,19 @@ Không chạy `python -m orchestrator.main`. Đây là lệnh cũ và hiện ch�
 |---|---|---|
 | Đầu vào nền tảng | `services/input/youtube_chat.py`, `discord_chat.py`, `chat_router.py` | Nhận tin và giữ platform/relationship privacy boundary |
 | Canonical ingress | `services/ingress/normalizer.py`, `services/ingress/adapters.py` | Chuẩn hóa `InputEvent`/`GroundedEvent`/`PerceptionEvent`, sanitize và submit một cửa |
-| Authoritative state | `services/state/authoritative.py` cùng facade `agent.py`, `world.py`, `self_projection.py` | Một admission/dedup boundary cho Agent/World/Perception và aggregate immutable snapshot |
+| Authoritative state | `services/state/{authoritative,agent,event_ledger,world,self_projection}.py` | Một admission/dedup boundary cho Agent/World/Perception, reducer/projection trực tiếp và aggregate immutable snapshot |
 | Cảm xúc | `services/emotion/`, `orchestrator/emotion_orchestrator.py`, `mood_engine.py` | Phân loại, cập nhật cảm xúc và tạo chỉ dẫn phản hồi |
-| Trạng thái tác nhân compatibility | `services/agent/` | Reducer/goal/thread/recap hiện hữu nằm sau canonical facade; physical move hoãn đến S8 |
+| Trạng thái tác nhân | `services/state/agent.py`, `event_ledger.py`; Goal/Thread/recap dưới `services/agent/` | Reducer/ledger thuộc State; behavior hội thoại còn ở owner hiện hữu |
 | Tự nói | `services/autonomy/self_talk_planner.py`, `lore_material.py` | Chọn nguyên nhân, ý định, chặng nói và chống lặp |
 | Điều phối V1 | `services/director/director.py`, `director_loop.py` | Chọn hành động, mở giao dịch, gọi tạo câu và xác nhận kết quả |
 | Điều phối V2 | `services/director/v2_shadow.py`, `v2_takeover.py` | Tạo đề xuất V2, so sánh và tiếp quản có điều kiện |
-| Mô hình Thế giới compatibility | `services/world/world_model.py` qua `services/state/world.py` | Reducer deterministic nằm sau authoritative boundary; old import giữ đến S8 |
-| Mô hình Bản thân compatibility | `services/self_model/projection.py` qua `services/state/self_projection.py` | Projection read-only được aggregate vào authoritative snapshot |
+| Mô hình Thế giới | `services/state/world.py` | Reducer deterministic nằm trực tiếp sau authoritative boundary |
+| Mô hình Bản thân | `services/state/self_projection.py` | Projection read-only được aggregate vào authoritative snapshot |
 | Năng lực | `services/capability/registry.py` | Khai báo và tính khả dụng của hành động |
 | Perception retention compatibility | `services/perception/ingress.py` | Giữ route/freshness/recent history sau canonical admission; không còn là live cửa ghi độc lập |
-| Hành động chung | `services/action/mock_loop.py`, `mock_backend.py` | Chứng minh vòng giao dịch bằng mô phỏng |
-| Chuyển đổi hành động | `services/action/legacy_adapters.py` | Đưa giọng nói và nhân vật cũ về hợp đồng hành động V2 |
-| Bộ thực thi ngoài | `services/action/external_registry.py` | Đăng ký bộ thực thi và kiểm chứng bên ngoài |
+| Hành động chung | `services/execution/mock.py`, `mock_backend.py` | Chứng minh vòng giao dịch bằng mô phỏng |
+| Chuyển đổi hành động | `services/execution/local.py` | Đưa giọng nói và nhân vật compatibility về hợp đồng execution |
+| Bộ thực thi ngoài | `services/execution/registry.py`, `external.py` | Đăng ký, thực thi và kiểm chứng bên ngoài |
 | Mô hình ngôn ngữ | `services/llm/` | Quản lý `llama.cpp`, dựng lời nhắc, sinh, phân tích và dự phòng |
 | Bộ lọc | `services/filter/` | Chặn, yêu cầu tạo lại hoặc thay nội dung không đạt |
 | Giọng nói | `services/tts/` | Tách câu, tổng hợp, xếp hàng âm thanh và phụ đề dự phòng |
@@ -1017,7 +1017,7 @@ Gate Phase 2 yêu cầu:
 - `StateValue.evidence_refs` phải bảo toàn trace về perception/source event bên cạnh evidence do producer
   gửi, khử trùng lặp và áp dụng `max_evidence_refs` theo thứ tự deterministic.
 - Toàn bộ payload World, gồm path, value và evidence, phải qua giới hạn item/character từ
-  `state.yaml::world_model`; `agent_state.yaml` chỉ còn là compatibility file đến S8. State, dedup cache,
+  `state.yaml::world_model`; không còn compatibility YAML hoặc alias logic. State, dedup cache,
   snapshot và dashboard đều bounded/read-only.
 - Invalid/duplicate/stale/lower-authority/capacity outcomes phải fail isolated và có metric; không exception
   nào từ shadow reducer được làm hỏng grounded-event production path.
@@ -3350,8 +3350,8 @@ Exact contract/file scope:
 | `services/ingress/adapters.py` | chat/system/OBS perception adapters | Chỉ submit canonical event; raw identity không qua boundary |
 | `interfaces/state.py::AuthoritativeStateSnapshot/Service` | Agent/World/Self/Goal/Relationship snapshot contracts | Một immutable read surface, không duplicate store |
 | `services/state/authoritative.py` | AgentState reducer/listeners + World routing | Một mutation boundary và một dedup decision |
-| `services/state/{agent,event_ledger,world,self_projection}.py` | canonical import facade đến implementation hiện tại | Domain reduce/projection giữ exact behavior; physical move hoãn đến S8 |
-| `config/state.yaml` | agent/perception/world/self/relationship values hiện có | Một canonical config owner; legacy read alias đến S8 |
+| `services/state/{agent,event_ledger,world,self_projection}.py` | implementation owner trực tiếp | Domain reduce/projection giữ exact behavior sau mechanical move S8 |
+| `config/state.yaml` | agent/perception/world/self/relationship values hiện có | Một canonical config owner, không alias |
 
 Goal/Thread/Relationship/Memory algorithms chưa bị rewrite hoặc move hàng loạt trong S2. Goal, Relationship và
 Self được bind làm immutable read provider của aggregate snapshot; mutation của chúng vẫn thuộc domain owner
@@ -3821,6 +3821,37 @@ version. Evidence implementation: targeted operations/evaluation `394 passed`; l
 offline `2.516 passed`, `0` lỗi, một Starlette deprecation warning có sẵn và một local pytest-cache
 permission warning. `git diff --check` sạch. Không bắt đầu S8 hoặc MCB-5 trong change này.
 
+##### 17.2.19.19. S8 implementation — dependency-closed compaction
+
+S8 bắt đầu từ clean checkpoint `1f1b48b39c8504096c007498a995d916fd22a58b` sau khi S7 được owner duyệt
+và commit. Baseline structure/config/entrypoint guard đạt `51 passed`; S7 đã được push lên `origin/main`.
+
+Dependency audit khóa hai tập khác nhau:
+
+- **đã được owner duyệt và xóa trong working tree:** 19 exact re-export facade; bốn implementation state cũ sau
+  mechanical move sang `services/state`; hai duplicate state config và ConfigLoader alias; bảy pre-StreamRuntime
+  orchestrator module cùng hai YAML chỉ còn test consumer; direct-domain/legacy Dashboard path và feature
+  `operator_dashboard_v2` sau khi live/standalone cùng dùng Operations read boundary;
+- **chưa đủ điều kiện xóa:** Director/Director V2 public or rollback policy, Brain shadow/takeover boundary,
+  context/agent behavior toggle, Autonomy/Proactive/SelfTalk/Behavior owner, speech/action fallback, style/
+  regenerator/filter soft behavior và mọi config/test của chúng. Brain chưa thắng quality gate và MCB-5 chưa
+  bắt đầu, nên xóa nhóm này sẽ làm mất public authority hoặc rollback.
+
+Implementation S8 đã move/import-rewrite/delete theo danh sách machine-checkable trong
+`eval/architecture_inventory_v1.yaml::s8_compaction`; không đổi model, prompt, sampling, output, scheduler,
+transaction, delivery, continuity, Memory commit, OBS authority hoặc product version. Dashboard canonical giữ
+rating/correction/history, operator commands và standalone history mode nhưng bỏ `/legacy` cùng direct mutable
+domain injection. `orchestrator/main.py` giữ fail-fast error contract và không compose runtime.
+
+Gate bắt buộc: zero importer toàn repository cho path bị xóa; zero compatibility ConfigLoader alias/file;
+static live graph vẫn không chạm evaluation; canonical state serialization/object behavior giữ nguyên; dashboard
+live chỉ nhận Operations Surface; deterministic replay/lineage và full offline xanh. S8 phải `HOLD` nếu có
+public decision/text/timing drift, state/schema drift, missing rollback owner hoặc test bị xóa mà chưa có
+canonical replacement. Source deletion được owner mở khi bắt đầu S8; implementation đã được owner duyệt,
+chưa commit/push và chưa bắt đầu MCB-5. Gate hiện đạt dashboard/operations `33`, docs/inventory/config/boundary
+`127`, deterministic replay/lineage `45`, unit `2.046`, integration `268` và full offline `2.314 passed`, `0`
+lỗi; warning duy nhất là Starlette `httpx` deprecation có sẵn. `git diff --check` sạch.
+
 ### 17.3. Chuỗi mã để lần theo một lượt
 
 ```mermaid
@@ -3904,7 +3935,6 @@ shape/type trước khi runtime compose service.
 | `chat_sources.yaml` | YouTube và Discord |
 | `director.yaml`, `chat_salience.yaml` | nhịp quyết định, phân xử, chấm điểm, giao dịch và V2 |
 | `state.yaml`, `agent_goals.yaml` | canonical ingress/state/world/self/relationship bounds; mục tiêu và thời hạn |
-| `agent_state.yaml`, `relationships.yaml` | compatibility files; ConfigLoader alias về `state.yaml` đến S8 |
 | `hosting.yaml`, `autonomy.yaml`, `autonomy_content_pool.yaml`, `self_talk.yaml` | dẫn phiên, thôi thúc, kho nội dung và tự nói |
 | `conversation.yaml` | mạch hội thoại, khớp chủ đề, recap và sửa mâu thuẫn; context bounds đã thuộc `cognition.yaml` |
 | `mood_engine.yaml`, `emotion_appraisal.yaml`, `mood_style.yaml`, `affect_v2.yaml`, `mood_ab_cases.yaml` | hệ cảm xúc, cách nói và ca phát lại A/B |
@@ -3913,7 +3943,6 @@ shape/type trước khi runtime compose service.
 | `logging.yaml`, `data_privacy.yaml` | nhật ký, ẩn danh, sao lưu và bộ dữ liệu |
 | `operations.yaml`, `evaluation.yaml` | vận hành, kiểm tra dài, đánh giá và phát hành |
 | `data_schema_registry.yaml` | dấu vân tay lược đồ bản ghi |
-| `state_machine.yaml`, `triggers.yaml` | trạng thái hội thoại và luật kích hoạt |
 
 ### 19.3. Giá trị quan trọng đang dùng
 
@@ -3936,7 +3965,7 @@ Một chức năng chỉ thực sự hoạt động khi đã được khai báo,
   `director_goal_arbiter`, `director_chat_gate`, `conversation_continuity`, `context_selector`, `mood_behavior_policy`,
   `mood_v2_shadow`, `mood_v2_prompt`, `action_transactions`, `decision_records`,
   `trajectory_records`,
-  `operator_dashboard_v2`, `proactive_hosting`, `self_talk_planner`, `behavior_library`,
+  `proactive_hosting`, `self_talk_planner`, `behavior_library`,
   `natural_timing`, `self_talk_lore`, `relationship_memory`, `evaluation_harness`,
   `evaluation_acceptance`, `live_operations`, `kv_cache_q8`, `ambient_talk`, `world_model_shadow`,
   `perception_expansion`, `self_model_projection`, `capability_registry`, `action_mock_closed_loop`,
@@ -4239,7 +4268,7 @@ Danh tính lưu lâu dài dùng muối cục bộ tại `data/privacy_salt.bin`.
 ### 23.6. Nguyên tắc quay lui
 
 - Cảm xúc V2: tắt chỉ dẫn V2, giữ cảm xúc cũ.
-- Bảng điều khiển mới: chuyển sang `/legacy` hoặc tắt chức năng.
+- Bảng điều khiển: rollback nguyên change/release S8 về checkpoint `1f1b48b`; runtime không giữ dashboard thứ hai.
 - Ký ức ngữ nghĩa: chạy không có `-Memory`.
 - Giọng nói chính: chuyển sang phụ đề nếu nơi nhận còn khỏe.
 - Mô hình mới: trỏ lại tệp GGUF đã biết ổn định.

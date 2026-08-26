@@ -1,21 +1,14 @@
-"""Dashboard server: FastAPI + WebSocket operator surface.
-
-System GPU/VRAM values come from bounded nvidia-smi sampling.
-Frontend uses HTML, Vanilla JS and Chart.js.
-
-Dependency-injected (FeatureManager, state machine, trigger manager, metrics,
-emergency stop) để test bằng FastAPI TestClient không cần chạy thật.
-"""
+"""Canonical FastAPI operator console over operations boundaries."""
 from __future__ import annotations
 
 import asyncio
 import contextlib
+from datetime import datetime, timezone
+import json
 from pathlib import Path
 import secrets
-import uuid
 from typing import Any
-
-from datetime import datetime, timezone
+import uuid
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
@@ -38,77 +31,54 @@ def validate_dashboard_host(value: object) -> str:
     return value
 
 
-def _string_list(value: Any) -> list[str]:
-    if not isinstance(value, list):
-        return []
-    return [str(item).strip() for item in value if str(item).strip()]
-
-
 def _build_operator_overview(snapshot: dict[str, Any]) -> dict[str, Any]:
-    """Build one action-first view so the browser never reconstructs Brain state."""
     runtime = dict(snapshot.get("runtime") or {})
     operations = dict(snapshot.get("operations") or {})
     emergency = dict(snapshot.get("emergency") or {})
     incidents = dict(snapshot.get("incidents") or {})
-    decisions = dict(snapshot.get("decisions") or {})
-    current = dict(decisions.get("current") or {})
+    current = dict((snapshot.get("decisions") or {}).get("current") or {})
     goals = dict(snapshot.get("goals") or {})
-    health = dict(snapshot.get("health_supervisor") or {})
-    targets = dict(health.get("targets") or {})
+    targets = dict((snapshot.get("health_supervisor") or {}).get("targets") or {})
     unhealthy = [
-        service_id for service_id, value in targets.items()
+        name for name, value in targets.items()
         if str((value or {}).get("health", "unknown")) not in {"healthy", "unknown"}
         or bool((value or {}).get("circuit_open"))
     ]
-
-    status = "ready"
-    headline = "Hệ thống sẵn sàng"
-    action_required = "Không có việc khẩn cấp."
-    recovery_action = None
+    status, headline = "ready", "Hệ thống sẵn sàng"
+    action_required, recovery_action = "Không có việc khẩn cấp.", None
     if not runtime.get("online", False):
-        status = "critical"
-        headline = "Runtime đang offline"
+        status, headline = "critical", "Runtime đang offline"
         action_required = "Khởi động hoặc kết nối lại runtime trước khi điều khiển Mai."
         recovery_action = "restart_runtime"
     elif emergency.get("latched", False):
-        status = "critical"
-        headline = "Emergency stop đang khóa output"
+        status, headline = "critical", "Emergency stop đang khóa output"
         action_required = str(emergency.get("reason") or "Xác minh an toàn trước khi resume.")
         recovery_action = "resume_emergency"
     elif int(incidents.get("unresolved") or 0) > 0:
-        status = "critical"
-        headline = "Có incident chưa xử lý"
+        status, headline = "critical", "Có incident chưa xử lý"
         action_required = "Mở danh sách incident và xử lý nguyên nhân trước khi tiếp tục live."
         recovery_action = "inspect_incidents"
     elif unhealthy:
-        status = "warning"
-        headline = "Có service cần chú ý"
+        status, headline = "warning", "Có service cần chú ý"
         action_required = "Kiểm tra recovery/circuit của: " + ", ".join(unhealthy)
         recovery_action = "inspect_health"
     elif operations.get("paused", False):
-        status = "warning"
-        headline = "Agent đang tạm dừng"
+        status, headline = "warning", "Agent đang tạm dừng"
         action_required = str(operations.get("pause_reason") or "Resume khi đã sẵn sàng.")
         recovery_action = "resume_agent"
     elif current.get("hard_rejection_reason") or current.get("delivery_state") == "failed":
-        status = "warning"
-        headline = "Quyết định gần nhất cần kiểm tra"
+        status, headline = "warning", "Quyết định gần nhất cần kiểm tra"
         action_required = str(
             current.get("hard_rejection_reason") or current.get("outcome") or "delivery_failed"
         )
         recovery_action = "inspect_decision"
-
     return {
-        "schema_version": 1,
-        "overall_status": status,
-        "headline": headline,
-        "action_required": action_required,
-        "recovery_action": recovery_action,
+        "schema_version": 1, "overall_status": status, "headline": headline,
+        "action_required": action_required, "recovery_action": recovery_action,
         "runtime_online": bool(runtime.get("online", False)),
         "controls_available": bool(runtime.get("controls_available", False)),
         "unresolved_incidents": int(incidents.get("unresolved") or 0),
-        "unhealthy_services": unhealthy,
-        "current_action": current.get("action"),
+        "unhealthy_services": unhealthy, "current_action": current.get("action"),
         "current_reason": current.get("reason"),
         "current_delivery_state": current.get("delivery_state"),
         "current_outcome": current.get("outcome"),
@@ -119,93 +89,26 @@ def _build_operator_overview(snapshot: dict[str, Any]) -> dict[str, Any]:
 
 
 class DashboardServer:
+    """Presentation adapter; never owns or mutates a domain service directly."""
+
     def __init__(
-        self,
-        feature_manager: Any = None,
-        state_machine: Any = None,
-        trigger_manager: Any = None,
-        metrics: Any = None,
-        operations_surface: Any = None,
-        emergency_stop: Any = None,
-        health_monitor: Any = None,
-        watchdog: Any = None,
-        filter_svc: Any = None,
-        regenerator: Any = None,
-        tts_service: Any = None,
-        audio_player: Any = None,
-        tts_pipeline: Any = None,
-        emotion: Any = None,
-        runner: Any = None,           # T3/T7: LLMTurnRunner (last_turn_id) — data label
-        agent_state: Any = None,      # M1: shared grounded state, read-only snapshot
-        world_model: Any = None,      # Phase 2: read-only shadow snapshot
-        self_model: Any = None,       # Phase 3: read-only self projection
-        capability_registry: Any = None,  # Phase 4: declarative availability only
-        action_mock_loop: Any = None,  # Phase 5: mock-only closed loop, read-only snapshot
-        director_v2_shadow: Any = None,  # Phase 6: proposal-only, read-only snapshot
-        director_v2_takeover: Any = None,  # Phase 7: agreement-only selector snapshot
-        goal_manager: Any = None,     # M2: read + audited operator controls
-        relationship_manager: Any = None,  # M7: audited social record controls
-        decision_records: Any = None,      # M10.3: versioned Director decision view
-        trajectory_records: Any = None,    # Phase 14: sanitized structured trajectories
-        self_talk_planner: Any = None,     # cause-first thought state, read-only
-        control_plane: Any = None,          # M9: pause/resume/action queue/audit
-        snapshot_provider: Any = None,      # M9: standalone read-only provider
-        health_supervisor: Any = None,      # M9: bounded recovery snapshot
-        emergency_controller: Any = None,   # M9: fail-closed output latch
-        incident_log: Any = None,            # M9: versioned incident ledger
-        data_dir: str = "logs",       # nơi ghi ratings/corrections
-        push_interval_s: float = 1.0,
-        gpu_metrics_command: str = "nvidia-smi",
-        gpu_metrics_timeout_s: float = 1.0,
-        gpu_metrics_refresh_s: float = 2.0,
-        host: str = "127.0.0.1",
-        port: int = 7860,
+        self, *, operations_surface: Any = None, snapshot_provider: Any = None,
+        metrics: Any = None, data_dir: str = "logs", push_interval_s: float = 1.0,
+        host: str = "127.0.0.1", port: int = 7860,
         control_token: str | None = None,
     ) -> None:
-        self.features = feature_manager
-        self.sm = state_machine
-        self.triggers = trigger_manager
-        self.metrics = metrics
         self.operations_surface = operations_surface
-        self.emergency = emergency_stop
-        self.health = health_monitor
-        self.watchdog = watchdog
-        self.filter = filter_svc
-        self.regenerator = regenerator
-        self.tts_service = tts_service
-        self.audio_player = audio_player
-        self.tts_pipeline = tts_pipeline
-        self.emotion = emotion
-        self.runner = runner
-        self.agent_state = agent_state
-        self.world_model = world_model
-        self.self_model = self_model
-        self.capability_registry = capability_registry
-        self.action_mock_loop = action_mock_loop
-        self.director_v2_shadow = director_v2_shadow
-        self.director_v2_takeover = director_v2_takeover
-        self.goal_manager = goal_manager
-        self.relationship_manager = relationship_manager
-        self.decision_records = decision_records
-        self.trajectory_records = trajectory_records
-        self.self_talk_planner = self_talk_planner
-        self.control_plane = control_plane
         self.snapshot_provider = snapshot_provider
-        self.health_supervisor = health_supervisor
-        self.emergency_controller = emergency_controller
-        self.incident_log = incident_log
+        self.metrics = metrics
         self._data_dir = Path(data_dir)
-        self._ratings_writer = None       # lazy JsonlWriter
-        self._corrections_writer = None
-        self.push_interval_s = push_interval_s
-        self.gpu_metrics_command = gpu_metrics_command
-        self.gpu_metrics_timeout_s = float(gpu_metrics_timeout_s)
-        self.gpu_metrics_refresh_s = float(gpu_metrics_refresh_s)
+        self._ratings_writer: Any = None
+        self._corrections_writer: Any = None
+        self.push_interval_s = float(push_interval_s)
         self.host = validate_dashboard_host(host)
         self.port = int(port)
-        candidate_token = secrets.token_urlsafe(32) if control_token is None else control_token
+        candidate = secrets.token_urlsafe(32) if control_token is None else control_token
         self._control_token = validate_dashboard_control_token(
-            candidate_token, source="dashboard_control_token",
+            candidate, source="dashboard_control_token",
         )
         self._log = get_logger("dashboard")
         self._ws_clients: set[WebSocket] = set()
@@ -215,9 +118,7 @@ class DashboardServer:
         self.app = self._build_app()
 
     async def serve(self) -> None:
-        """Serve as a managed task so M9 supervisor can restart the dashboard."""
         import uvicorn
-
         self.start_push_loop()
         self._uvicorn_server = uvicorn.Server(uvicorn.Config(
             self.app, host=self.host, port=self.port, log_level="warning",
@@ -229,9 +130,7 @@ class DashboardServer:
             self._uvicorn_server = None
 
     async def shutdown(self) -> None:
-        """Close clients and request uvicorn exit without ASGI cancellation noise."""
-        clients = list(self._ws_clients)
-        for client in clients:
+        for client in list(self._ws_clients):
             with contextlib.suppress(Exception):
                 await client.close(code=1001, reason="runtime shutdown")
         self._ws_clients.clear()
@@ -240,262 +139,59 @@ class DashboardServer:
         if self._uvicorn_server is not None:
             self._uvicorn_server.should_exit = True
 
-    # ---------- snapshot ----------
-
     async def build_snapshot(self, source_mode: str = "auto") -> dict[str, Any]:
-        snap: dict[str, Any] = {}
         if self.operations_surface is not None:
             try:
-                value = await self.operations_surface.snapshot()
-                snap.update(value.to_dict())
+                snapshot = (await self.operations_surface.snapshot()).to_dict()
             except Exception as exc:
-                snap["operations_degraded"] = {
+                snapshot = {"operations_degraded": {
                     "failed_sections": {"operations_surface": type(exc).__name__},
-                }
-            snap["operator_overview"] = _build_operator_overview(snap)
-            return snap
-        if self.snapshot_provider is not None:
-            with contextlib.suppress(Exception):
-                if hasattr(self.snapshot_provider, "snapshot_for"):
-                    snap.update(await self.snapshot_provider.snapshot_for(source_mode))
-                else:
-                    snap.update(await self.snapshot_provider.snapshot())
-
-        if self.sm is not None:
-            snap["state"] = {
-                "current": self.sm.state,
-                "time_in_state_ms": self.sm.time_in_state_ms(),
-                "last_turn_interrupted": self.sm.last_turn_interrupted,
-                "history": [h.to_log_dict() for h in self.sm.history(limit=10)],
-            }
-
-        if self.metrics is not None:
-            snap["metrics"] = await asyncio.to_thread(
-                self.metrics.sample_gpu_metrics,
-                command=self.gpu_metrics_command,
-                timeout_s=self.gpu_metrics_timeout_s,
-                refresh_s=self.gpu_metrics_refresh_s,
-            )
-            if hasattr(self.metrics, "llm_snapshot"):
-                snap["llm"] = self.metrics.llm_snapshot()
-
-        if self.triggers is not None:
-            stats = await self.triggers.get_queue_stats()
-            snap["triggers"] = stats.model_dump()
-
-        if self.features is not None:
-            feats = await self.features.list_features()
-            snap["features"] = [
-                {
-                    "id": f.id,
-                    "status": f.current_status.value,
-                    "enabled": f.is_enabled,
-                    "category": f.category,
-                    "vram_cost_mb": f.vram_cost_mb,
-                    "is_core": self.features.is_core(f.id),
-                }
-                for f in feats
-            ]
-            snap["vram"] = {
-                "used_mb": self.features.used_vram_mb(),
-                "budget_mb": self.features._vram_budget_mb,
-            }
-
-        if self.watchdog is not None:
-            snap["watchdog"] = self.watchdog.snapshot()
-
-        # 3.C: filter panel — merge check-level metrics + regen metrics + fail_open
-        # từ filter service (nếu có).
-        if self.metrics is not None and hasattr(self.metrics, "filter_snapshot"):
-            fsnap = self.metrics.filter_snapshot()
-            if self.regenerator is not None:
-                rm = self.regenerator.get_metrics()
-                fsnap["regen"] = {
-                    "attempts_total": rm.get("filter_regen_attempts_total", 0),
-                    "recovered_total": rm.get("filter_regen_recovered_total", 0),
-                    "exhausted_total": rm.get("filter_regen_exhausted_total", 0),
-                }
-            if self.filter is not None and hasattr(self.filter, "get_metrics"):
-                fm = self.filter.get_metrics()
-                fsnap["service_fail_open_total"] = fm.get("filter_fail_open_total", 0)
-            snap["filter"] = fsnap
-
-        # 4.E: TTS panel — merge check-level metrics + service/player/pipeline
-        if self.metrics is not None and hasattr(self.metrics, "tts_snapshot"):
-            tsnap = self.metrics.tts_snapshot()
-            if self.tts_service is not None and hasattr(self.tts_service, "get_metrics"):
-                sm = self.tts_service.get_metrics()
-                tsnap["service"] = {
-                    "requests_total": sm.get("tts_requests_total", 0),
-                    "errors_total": sm.get("tts_errors_total", 0),
-                    "last_ttfa_ms": sm.get("tts_last_ttfa_ms"),
-                    "last_chunks": sm.get("tts_last_chunks", 0),
-                    "last_rtf": sm.get("tts_last_rtf"),
-                }
-            if self.audio_player is not None and hasattr(self.audio_player, "get_metrics"):
-                pm = self.audio_player.get_metrics()
-                tsnap["player"] = {
-                    "chunks_played": pm.get("audio_chunks_played", 0),
-                    "chunks_dropped": pm.get("audio_chunks_dropped", 0),
-                    "queue_size": pm.get("audio_queue_size", 0),
-                    "is_playing": pm.get("audio_is_playing", False),
-                }
-            if self.tts_pipeline is not None and hasattr(self.tts_pipeline, "get_metrics"):
-                pp = self.tts_pipeline.get_metrics()
-                tsnap["pipeline"] = {
-                    "sentences_total": pp.get("tts_pipeline_sentences_total", 0),
-                }
-            snap["tts"] = tsnap
-
-        # Mood panel — current_mood (pos) + target + active flags (A1: mood engine
-        # là ground-truth duy nhất sau khi bỏ LLM self-report).
-        if self.emotion is not None and hasattr(self.emotion, "snapshot"):
-            with contextlib.suppress(Exception):
-                mood = self.emotion.snapshot()
-                mood["sampled_at"] = datetime.now(timezone.utc).isoformat()
-                if hasattr(self.emotion, "get_metrics"):
-                    mood["ticks"] = self.emotion.get_metrics().get("mood_ticks")
-                snap["mood"] = mood
-        if self.self_talk_planner is not None:
-            with contextlib.suppress(Exception):
-                snap["thought_engine"] = self.self_talk_planner.snapshot()
-
-        if self.health is not None:
-            snap["health"] = self.health.snapshot()
-        if self.agent_state is not None:
-            with contextlib.suppress(Exception):
-                snap["agent"] = self.agent_state.snapshot().to_dict()
-                if self.metrics is not None and hasattr(self.metrics, "agent_snapshot"):
-                    snap["agent_metrics"] = self.metrics.agent_snapshot()
-        if self.world_model is not None:
-            with contextlib.suppress(Exception):
-                snap["world"] = {
-                    "snapshot": self.world_model.snapshot().to_dict(),
-                    "metrics": self.world_model.get_metrics(),
-                }
-        if self.self_model is not None:
-            with contextlib.suppress(Exception):
-                snap["self"] = {
-                    "snapshot": self.self_model.snapshot().to_dict(),
-                    "metrics": self.self_model.get_metrics(),
-                }
-        if self.capability_registry is not None:
-            with contextlib.suppress(Exception):
-                snap["capabilities"] = {
-                    "snapshot": self.capability_registry.snapshot(),
-                    "metrics": self.capability_registry.get_metrics(),
-                }
-        if self.action_mock_loop is not None:
-            with contextlib.suppress(Exception):
-                snap["action_mock"] = {
-                    "snapshot": self.action_mock_loop.snapshot(),
-                    "metrics": self.action_mock_loop.get_metrics(),
-                }
-        if self.director_v2_shadow is not None:
-            with contextlib.suppress(Exception):
-                snap["director_v2_shadow"] = {
-                    "snapshot": self.director_v2_shadow.snapshot(),
-                    "metrics": self.director_v2_shadow.get_metrics(),
-                }
-        if self.director_v2_takeover is not None:
-            with contextlib.suppress(Exception):
-                snap["director_v2_takeover"] = {
-                    "snapshot": self.director_v2_takeover.snapshot(),
-                    "metrics": self.director_v2_takeover.get_metrics(),
-                }
-        if self.goal_manager is not None:
-            with contextlib.suppress(Exception):
-                snap["goals"] = self.goal_manager.snapshot().to_dict()
-                snap["goal_metrics"] = self.goal_manager.get_metrics()
-        if self.relationship_manager is not None:
-            with contextlib.suppress(Exception):
-                snap["relationships"] = self.relationship_manager.snapshot().to_dict()
-                snap["relationship_metrics"] = self.relationship_manager.get_metrics()
-        if self.decision_records is not None:
-            with contextlib.suppress(Exception):
-                snap["decisions"] = self.decision_records.snapshot()
-        if self.trajectory_records is not None:
-            with contextlib.suppress(Exception):
-                snap["trajectories"] = self.trajectory_records.snapshot()
-        if self.health_supervisor is not None:
-            with contextlib.suppress(Exception):
-                snap["health_supervisor"] = self.health_supervisor.snapshot()
-        if self.emergency_controller is not None:
-            with contextlib.suppress(Exception):
-                snap["emergency"] = self.emergency_controller.snapshot()
-        if self.incident_log is not None:
-            with contextlib.suppress(Exception):
-                snap["incidents"] = self.incident_log.snapshot()
-        if self.control_plane is not None:
-            with contextlib.suppress(Exception):
-                snap["operations"] = self.control_plane.snapshot()
-            controls_available = bool(
-                (snap.get("operations") or {}).get("available", False)
-            )
-            snap["runtime"] = {
-                **dict(snap.get("runtime") or {}),
-                "online": controls_available,
-                "mode": "embedded" if controls_available else "embedded_starting",
-                "controls_available": controls_available,
-            }
+                }}
+        elif self.snapshot_provider is not None:
+            try:
+                value = (
+                    await self.snapshot_provider.snapshot_for(source_mode)
+                    if hasattr(self.snapshot_provider, "snapshot_for")
+                    else await self.snapshot_provider.snapshot()
+                )
+                snapshot = dict(value)
+            except Exception as exc:
+                snapshot = {"operations_degraded": {
+                    "failed_sections": {"snapshot_provider": type(exc).__name__},
+                }}
         else:
-            snap.setdefault("runtime", {
-                "online": False,
-                "mode": "standalone",
-                "controls_available": False,
-            })
-        snap["operator_overview"] = _build_operator_overview(snap)
-        if self.snapshot_provider is not None and hasattr(
-            self.snapshot_provider, "get_metrics",
-        ):
+            snapshot = {}
+        snapshot.setdefault("runtime", {
+            "online": False, "mode": "standalone", "controls_available": False,
+        })
+        snapshot["operator_overview"] = _build_operator_overview(snapshot)
+        if self.snapshot_provider is not None and hasattr(self.snapshot_provider, "get_metrics"):
             with contextlib.suppress(Exception):
-                snap["dashboard_source_metrics"] = self.snapshot_provider.get_metrics()
-        return snap
+                snapshot["dashboard_source_metrics"] = self.snapshot_provider.get_metrics()
+        return snapshot
 
-    # ---------- app ----------
-
-    async def _operator_v2_enabled(self) -> bool:
-        if self.operations_surface is not None:
-            return True
-        if self.snapshot_provider is not None:
-            return True
-        if self.features is None:
-            return False
-        try:
-            from orchestrator.features import FeatureStatus
-            status = await self.features.get_status("operator_dashboard_v2")
-            return status in (FeatureStatus.ENABLED, FeatureStatus.DEGRADED)
-        except Exception:
-            return False
-
-    def _record_dashboard_view(self, version: str) -> None:
-        if self.metrics is not None and hasattr(
-            self.metrics, "record_operator_dashboard_view",
-        ):
+    def _record_dashboard_view(self) -> None:
+        if self.metrics is not None and hasattr(self.metrics, "record_operator_dashboard_view"):
             with contextlib.suppress(Exception):
-                self.metrics.record_operator_dashboard_view(version)
+                self.metrics.record_operator_dashboard_view("v2")
 
-    def _render_template(self, name: str) -> str:
-        path = _TEMPLATES / name
-        if path.exists():
-            return path.read_text(encoding="utf-8")
-        return "<h1>Mai Dashboard</h1><p>template chưa có</p>"
+    def _render_operator(self) -> str:
+        path = _TEMPLATES / "operator_v2.html"
+        return path.read_text(encoding="utf-8") if path.exists() else "<h1>Mai Operator Console</h1>"
 
     def _build_app(self) -> FastAPI:
         app = FastAPI(title="Mai Dashboard")
-        app.add_middleware(
-            TrustedHostMiddleware,
-            allowed_hosts=["127.0.0.1", "localhost", "[::1]", "testserver"],
-        )
+        app.add_middleware(TrustedHostMiddleware, allowed_hosts=[
+            "127.0.0.1", "localhost", "[::1]", "testserver",
+        ])
 
         @app.middleware("http")
-        async def require_operator_token(request: Request, call_next):
+        async def require_operator_token(request: Request, call_next: Any) -> Any:
             if request.method.upper() not in {"GET", "HEAD", "OPTIONS"}:
                 supplied = request.headers.get(_OPERATOR_TOKEN_HEADER, "")
                 if not secrets.compare_digest(supplied, self._control_token):
                     return JSONResponse(
-                        {"ok": False, "reason": "operator_auth_required"},
-                        status_code=403,
+                        {"ok": False, "reason": "operator_auth_required"}, status_code=403,
                     )
             return await call_next(request)
 
@@ -503,29 +199,12 @@ class DashboardServer:
             app.mount("/static", StaticFiles(directory=str(_STATIC)), name="static")
 
         @app.get("/", response_class=HTMLResponse)
-        async def index() -> HTMLResponse:
-            template = "operator_v2.html" if await self._operator_v2_enabled() else "index.html"
-            self._record_dashboard_view("v2" if template.startswith("operator") else "legacy")
-            return HTMLResponse(
-                self._render_template(template),
-                headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"},
-            )
-
         @app.get("/operator", response_class=HTMLResponse)
         async def operator_dashboard() -> HTMLResponse:
-            self._record_dashboard_view("v2")
-            return HTMLResponse(
-                self._render_template("operator_v2.html"),
-                headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"},
-            )
-
-        @app.get("/legacy", response_class=HTMLResponse)
-        async def legacy_dashboard() -> HTMLResponse:
-            self._record_dashboard_view("legacy")
-            return HTMLResponse(
-                self._render_template("index.html"),
-                headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"},
-            )
+            self._record_dashboard_view()
+            return HTMLResponse(self._render_operator(), headers={
+                "Cache-Control": "no-store", "Referrer-Policy": "no-referrer",
+            })
 
         @app.get("/api/snapshot")
         async def api_snapshot(source: str = "auto") -> JSONResponse:
@@ -533,428 +212,160 @@ class DashboardServer:
 
         @app.get("/api/history/turns")
         async def api_history_turns(
-            session_id: str | None = None,
-            started_at: str | None = None,
-            ended_at: str | None = None,
-            kind: str | None = None,
-            delivered: bool | None = None,
-            limit: int | None = None,
+            session_id: str | None = None, started_at: str | None = None,
+            ended_at: str | None = None, kind: str | None = None,
+            delivered: bool | None = None, limit: int | None = None,
         ) -> JSONResponse:
-            if self.snapshot_provider is None or not hasattr(
-                self.snapshot_provider, "query_history",
-            ):
+            if self.snapshot_provider is None or not hasattr(self.snapshot_provider, "query_history"):
                 return JSONResponse(
                     {"ok": False, "reason": "history_source_unavailable"}, status_code=503,
                 )
-            value = await self.snapshot_provider.query_history(
+            return JSONResponse(await self.snapshot_provider.query_history(
                 session_id=session_id, started_at=started_at, ended_at=ended_at,
                 kind=kind, delivered=delivered, limit=limit,
-            )
-            return JSONResponse(value)
+            ))
 
         @app.get("/api/features")
         async def api_features() -> JSONResponse:
-            snap = await self.build_snapshot()
-            return JSONResponse(snap.get("features", []))
+            return JSONResponse((await self.build_snapshot()).get("features", []))
 
         @app.post("/api/features/{feature_id}/toggle")
         async def api_toggle(feature_id: str) -> JSONResponse:
-            if self.operations_surface is not None:
-                return await self._surface_response(
-                    "feature.toggle", {"feature_id": feature_id},
-                )
-            if self.features is None:
-                return await self._forward_or_unavailable(
-                    f"/api/features/{feature_id}/toggle", {}, "no feature manager",
-                )
-            from orchestrator.features import CoreFeatureError, FeatureStatus
-
-            # Core feature không nằm trong registry — chặn trước khi get_status raise
-            if self.features.is_core(feature_id):
-                return JSONResponse(
-                    {"ok": False, "reason": f"{feature_id} là core feature, không toggle được"},
-                    status_code=400,
-                )
-            try:
-                status = await self.features.get_status(feature_id)
-            except KeyError:
-                return JSONResponse({"ok": False, "reason": "unknown feature"}, status_code=404)
-
-            enabled = status in (FeatureStatus.ENABLED, FeatureStatus.DEGRADED)
-            try:
-                if enabled:
-                    result = await self.features.disable(feature_id, user="dashboard")
-                else:
-                    result = await self.features.enable(feature_id, user="dashboard")
-            except CoreFeatureError as e:
-                return JSONResponse({"ok": False, "reason": str(e)}, status_code=400)
-            return JSONResponse(
-                {"ok": result.ok, "status": result.status.value, "reason": result.reason}
+            return await self._command(
+                "feature.toggle", f"/api/features/{feature_id}/toggle", {"feature_id": feature_id},
             )
 
         @app.post("/api/emergency_stop")
         async def api_emergency_stop() -> JSONResponse:
-            if self.operations_surface is not None:
-                return await self._surface_response(
-                    "emergency.trigger", {"reason": "dashboard emergency stop"},
-                )
-            if self.emergency_controller is not None:
-                ok = await self.emergency_controller.trigger("dashboard emergency stop")
-                return JSONResponse({"ok": ok, "emergency": self.emergency_controller.snapshot()})
-            if self.emergency is not None:
-                await self.emergency.trigger()
-            elif self.sm is not None:
-                await self.sm.emergency_stop()
-            else:
-                return await self._forward_or_unavailable(
-                    "/api/emergency_stop", {}, "no handler",
-                )
-            return JSONResponse({"ok": True, "state": self.sm.state if self.sm else None})
+            return await self._command("emergency.trigger", "/api/emergency_stop", {
+                "reason": "dashboard emergency stop",
+            })
 
         @app.post("/api/resume")
         async def api_resume() -> JSONResponse:
-            if self.operations_surface is not None:
-                return await self._surface_response(
-                    "emergency.resume", {"reason": "dashboard operator resume"},
-                )
-            if self.emergency_controller is not None:
-                ok = await self.emergency_controller.resume("dashboard operator resume")
-                return JSONResponse(
-                    {"ok": ok, "emergency": self.emergency_controller.snapshot()},
-                    status_code=200 if ok else 409,
-                )
-            if self.sm is None:
-                return await self._forward_or_unavailable(
-                    "/api/resume", {}, "no state machine",
-                )
-            from transitions.core import MachineError
-
-            try:
-                await self.sm.resume()
-            except MachineError as e:
-                return JSONResponse({"ok": False, "reason": str(e)}, status_code=400)
-            return JSONResponse({"ok": True, "state": self.sm.state})
+            return await self._command("emergency.resume", "/api/resume", {
+                "reason": "dashboard operator resume",
+            })
 
         @app.post("/api/goals/pin")
         async def api_goal_pin(request: Request) -> JSONResponse:
-            body = await _json(request)
-            if self.operations_surface is not None:
-                return await self._surface_response("goal.pin", body)
-            if self.goal_manager is None:
-                return await self._forward_or_unavailable(
-                    "/api/goals/pin", body, "no goal manager",
-                )
-            reason = str(body.get("reason") or "").strip()
-            success = str(body.get("success_condition") or "").strip()
-            parent = str(body.get("parent_thread_id") or "").strip() or None
-            goal = self.goal_manager.pin_operator(
-                reason=reason, success_condition=success, parent_thread_id=parent,
-            )
-            if goal is None:
-                return JSONResponse(
-                    {"ok": False, "reason": "invalid or rejected operator goal"},
-                    status_code=400,
-                )
-            self._audit_control("pin_goal", goal.goal_id, "completed")
-            return JSONResponse({"ok": True, "goal": goal.to_dict()})
+            return await self._command("goal.pin", "/api/goals/pin", await _json(request))
 
         @app.post("/api/goals/{goal_id}/complete")
         async def api_goal_complete(goal_id: str, request: Request) -> JSONResponse:
-            body = await _json(request)
-            if self.operations_surface is not None:
-                return await self._surface_response(
-                    "goal.complete", {**body, "goal_id": goal_id},
-                )
-            if self.goal_manager is None:
-                return await self._forward_or_unavailable(
-                    f"/api/goals/{goal_id}/complete", body, "no goal manager",
-                )
-            reason = str(body.get("reason") or "operator complete").strip()
-            ok = self.goal_manager.operator_complete(goal_id, reason=reason)
-            self._audit_control("complete_goal", goal_id, "completed" if ok else "not_found")
-            return JSONResponse(
-                {"ok": ok, "goal_id": goal_id, "reason": reason if ok else "unknown goal"},
-                status_code=200 if ok else 404,
-            )
+            body = {**await _json(request), "goal_id": goal_id}
+            return await self._command("goal.complete", f"/api/goals/{goal_id}/complete", body)
 
         @app.post("/api/goals/{goal_id}/cancel")
         async def api_goal_cancel(goal_id: str, request: Request) -> JSONResponse:
-            body = await _json(request)
-            if self.operations_surface is not None:
-                return await self._surface_response(
-                    "goal.cancel", {**body, "goal_id": goal_id},
-                )
-            if self.goal_manager is None:
-                return await self._forward_or_unavailable(
-                    f"/api/goals/{goal_id}/cancel", body, "no goal manager",
-                )
-            reason = str(body.get("reason") or "operator cancel").strip()
-            ok = self.goal_manager.operator_cancel(goal_id, reason=reason)
-            self._audit_control("cancel_goal", goal_id, "completed" if ok else "not_found")
-            return JSONResponse(
-                {"ok": ok, "goal_id": goal_id, "reason": reason if ok else "unknown goal"},
-                status_code=200 if ok else 404,
-            )
+            body = {**await _json(request), "goal_id": goal_id}
+            return await self._command("goal.cancel", f"/api/goals/{goal_id}/cancel", body)
 
         @app.post("/api/agent/pause")
         async def api_agent_pause(request: Request) -> JSONResponse:
-            body = await _json(request)
-            if self.operations_surface is not None:
-                return await self._surface_response("agent.pause", body)
-            if self.control_plane is None:
-                return await self._forward_or_unavailable(
-                    "/api/agent/pause", body, "runtime_offline",
-                )
-            ok = await self.control_plane.pause(
-                str(body.get("reason") or "dashboard operator pause"),
-            )
-            return JSONResponse({"ok": ok, "operations": self.control_plane.snapshot()})
+            return await self._command("agent.pause", "/api/agent/pause", await _json(request))
 
         @app.post("/api/agent/resume")
         async def api_agent_resume(request: Request) -> JSONResponse:
-            body = await _json(request)
-            if self.operations_surface is not None:
-                return await self._surface_response("agent.resume", body)
-            if self.control_plane is None:
-                return await self._forward_or_unavailable(
-                    "/api/agent/resume", body, "runtime_offline",
-                )
-            ok = await self.control_plane.resume(
-                str(body.get("reason") or "dashboard operator resume"),
-            )
-            return JSONResponse({"ok": ok, "operations": self.control_plane.snapshot()})
+            return await self._command("agent.resume", "/api/agent/resume", await _json(request))
 
         @app.get("/api/relationships")
         async def api_relationships() -> JSONResponse:
-            if self.operations_surface is not None:
-                snap = await self.build_snapshot()
-                relationships = snap.get("relationships")
-                if isinstance(relationships, dict):
-                    return JSONResponse({"ok": True, **relationships})
-                return JSONResponse(
-                    {"ok": False, "reason": "no relationship manager"}, status_code=503,
-                )
-            if self.relationship_manager is None:
-                return JSONResponse({"ok": False, "reason": "no relationship manager"}, status_code=503)
-            return JSONResponse({"ok": True, **self.relationship_manager.snapshot().to_dict()})
+            value = (await self.build_snapshot()).get("relationships")
+            if not isinstance(value, dict):
+                return JSONResponse({"ok": False, "reason": "no relationship provider"}, status_code=503)
+            return JSONResponse({"ok": True, **value})
 
         @app.post("/api/relationships/{viewer_id}/profile")
         async def api_relationship_profile(viewer_id: str, request: Request) -> JSONResponse:
-            body = await _json(request)
-            if self.operations_surface is not None:
-                return await self._surface_response(
-                    "relationship.profile", {**body, "viewer_id": viewer_id},
-                )
-            if self.relationship_manager is None:
-                return JSONResponse({"ok": False, "reason": "no relationship manager"}, status_code=503)
-            profile = self.relationship_manager.update_profile(
-                viewer_id,
-                preferences=_string_list(body.get("preferences")),
-                boundaries=_string_list(body.get("boundaries")),
-                tone=str(body.get("tone") or "").strip() or None,
-                evidence_refs=_string_list(body.get("evidence_refs")),
-                reason=str(body.get("reason") or "").strip(),
-            )
-            return JSONResponse(
-                {"ok": profile is not None, "profile": profile.to_dict() if profile else None},
-                status_code=200 if profile else 400,
-            )
+            return await self._command("relationship.profile", f"/api/relationships/{viewer_id}/profile", {
+                **await _json(request), "viewer_id": viewer_id,
+            })
 
         @app.post("/api/relationships/{viewer_id}/notes")
         async def api_relationship_note(viewer_id: str, request: Request) -> JSONResponse:
-            body = await _json(request)
-            if self.operations_surface is not None:
-                return await self._surface_response(
-                    "relationship.note.create", {**body, "viewer_id": viewer_id},
-                )
-            if self.relationship_manager is None:
-                return JSONResponse({"ok": False, "reason": "no relationship manager"}, status_code=503)
-            note = self.relationship_manager.create_note(
-                viewer_id, summary=str(body.get("summary") or ""),
-                evidence_refs=_string_list(body.get("evidence_refs")),
-                reason=str(body.get("reason") or "").strip(),
-            )
-            return JSONResponse(
-                {"ok": note is not None, "note": note.to_dict() if note else None},
-                status_code=200 if note else 400,
-            )
+            return await self._command("relationship.note.create", f"/api/relationships/{viewer_id}/notes", {
+                **await _json(request), "viewer_id": viewer_id,
+            })
 
         @app.post("/api/relationships/notes/{note_id}/review")
         async def api_relationship_note_review(note_id: str, request: Request) -> JSONResponse:
-            body = await _json(request)
-            if self.operations_surface is not None:
-                return await self._surface_response(
-                    "relationship.note.review", {**body, "note_id": note_id},
-                )
-            if self.relationship_manager is None:
-                return JSONResponse({"ok": False, "reason": "no relationship manager"}, status_code=503)
-            approve = body.get("approve") is True
-            ok = self.relationship_manager.review_note(
-                note_id, approve=approve, reason=str(body.get("reason") or "").strip(),
-            )
-            return JSONResponse({"ok": ok}, status_code=200 if ok else 400)
+            return await self._command("relationship.note.review", f"/api/relationships/notes/{note_id}/review", {
+                **await _json(request), "note_id": note_id,
+            })
 
         @app.delete("/api/relationships/notes/{note_id}")
         async def api_relationship_note_delete(note_id: str, request: Request) -> JSONResponse:
-            body = await _json(request)
-            if self.operations_surface is not None:
-                return await self._surface_response(
-                    "relationship.note.delete", {**body, "note_id": note_id},
-                )
-            if self.relationship_manager is None:
-                return JSONResponse({"ok": False, "reason": "no relationship manager"}, status_code=503)
-            ok = self.relationship_manager.delete_note(
-                note_id, reason=str(body.get("reason") or "").strip(),
-            )
-            return JSONResponse({"ok": ok}, status_code=200 if ok else 400)
+            return await self._command("relationship.note.delete", f"/api/relationships/notes/{note_id}", {
+                **await _json(request), "note_id": note_id,
+            })
 
         @app.post("/api/relationships/narratives")
         async def api_relationship_narrative(request: Request) -> JSONResponse:
-            body = await _json(request)
-            if self.operations_surface is not None:
-                return await self._surface_response("relationship.narrative.create", body)
-            if self.relationship_manager is None:
-                return JSONResponse({"ok": False, "reason": "no relationship manager"}, status_code=503)
-            item = self.relationship_manager.create_narrative(
-                summary=str(body.get("summary") or ""),
-                event_refs=_string_list(body.get("event_refs")),
-                viewer_id=str(body.get("viewer_id") or "").strip() or None,
-                reason=str(body.get("reason") or "").strip(),
-            )
-            return JSONResponse(
-                {"ok": item is not None, "narrative": item.to_dict() if item else None},
-                status_code=200 if item else 400,
+            return await self._command(
+                "relationship.narrative.create", "/api/relationships/narratives", await _json(request),
             )
 
         @app.post("/api/relationships/narratives/{narrative_id}/resolve")
-        async def api_relationship_narrative_resolve(
-            narrative_id: str, request: Request,
-        ) -> JSONResponse:
-            body = await _json(request)
-            if self.operations_surface is not None:
-                return await self._surface_response(
-                    "relationship.narrative.resolve",
-                    {**body, "narrative_id": narrative_id},
-                )
-            if self.relationship_manager is None:
-                return JSONResponse({"ok": False, "reason": "no relationship manager"}, status_code=503)
-            ok = self.relationship_manager.resolve_narrative(
-                narrative_id, reason=str(body.get("reason") or "").strip(),
+        async def api_relationship_narrative_resolve(narrative_id: str, request: Request) -> JSONResponse:
+            return await self._command(
+                "relationship.narrative.resolve", f"/api/relationships/narratives/{narrative_id}/resolve",
+                {**await _json(request), "narrative_id": narrative_id},
             )
-            return JSONResponse({"ok": ok}, status_code=200 if ok else 400)
 
         @app.post("/api/relationships/{viewer_id}/running-gags")
-        async def api_relationship_running_gag(viewer_id: str, request: Request) -> JSONResponse:
-            body = await _json(request)
-            if self.operations_surface is not None:
-                return await self._surface_response(
-                    "relationship.gag.create", {**body, "viewer_id": viewer_id},
-                )
-            if self.relationship_manager is None:
-                return JSONResponse({"ok": False, "reason": "no relationship manager"}, status_code=503)
-            gag = self.relationship_manager.create_running_gag(
-                viewer_id, summary=str(body.get("summary") or ""),
-                event_refs=_string_list(body.get("event_refs")),
-                reason=str(body.get("reason") or "").strip(),
-            )
-            return JSONResponse(
-                {"ok": gag is not None, "running_gag": gag.to_dict() if gag else None},
-                status_code=200 if gag else 400,
+        async def api_relationship_gag(viewer_id: str, request: Request) -> JSONResponse:
+            return await self._command(
+                "relationship.gag.create", f"/api/relationships/{viewer_id}/running-gags",
+                {**await _json(request), "viewer_id": viewer_id},
             )
 
         @app.post("/api/relationships/running-gags/{gag_id}/review")
-        async def api_relationship_running_gag_review(gag_id: str, request: Request) -> JSONResponse:
-            body = await _json(request)
-            if self.operations_surface is not None:
-                return await self._surface_response(
-                    "relationship.gag.review", {**body, "gag_id": gag_id},
-                )
-            if self.relationship_manager is None:
-                return JSONResponse({"ok": False, "reason": "no relationship manager"}, status_code=503)
-            ok = self.relationship_manager.review_running_gag(
-                gag_id, approve=body.get("approve") is True,
-                reason=str(body.get("reason") or "").strip(),
+        async def api_relationship_gag_review(gag_id: str, request: Request) -> JSONResponse:
+            return await self._command(
+                "relationship.gag.review", f"/api/relationships/running-gags/{gag_id}/review",
+                {**await _json(request), "gag_id": gag_id},
             )
-            return JSONResponse({"ok": ok}, status_code=200 if ok else 400)
-
-        @app.get("/api/relationships/{viewer_id}/export")
-        async def api_relationship_export(viewer_id: str) -> JSONResponse:
-            if self.operations_surface is not None:
-                return await self._surface_response(
-                    "relationship.export", {"viewer_id": viewer_id},
-                )
-            if self.relationship_manager is None:
-                return JSONResponse({"ok": False, "reason": "no relationship manager"}, status_code=503)
-            try:
-                exported = await self.relationship_manager.export_viewer(viewer_id)
-            except (ValueError, RuntimeError) as exc:
-                return JSONResponse({"ok": False, "reason": str(exc)}, status_code=400)
-            return JSONResponse({"ok": True, "viewer_id": viewer_id, "export": exported})
 
         @app.delete("/api/relationships/{viewer_id}")
         async def api_relationship_delete(viewer_id: str, request: Request) -> JSONResponse:
-            body = await _json(request)
-            if self.operations_surface is not None:
-                return await self._surface_response(
-                    "relationship.delete", {**body, "viewer_id": viewer_id},
-                )
-            if self.relationship_manager is None:
-                return JSONResponse({"ok": False, "reason": "no relationship manager"}, status_code=503)
-            try:
-                result = await self.relationship_manager.delete_viewer(
-                    viewer_id, reason=str(body.get("reason") or "").strip(),
-                )
-            except Exception as exc:
-                return JSONResponse({"ok": False, "reason": str(exc)}, status_code=500)
-            return JSONResponse(
-                {"ok": result is not None, "result": result},
-                status_code=200 if result else 400,
+            return await self._command("relationship.delete", f"/api/relationships/{viewer_id}", {
+                **await _json(request), "viewer_id": viewer_id,
+            })
+
+        @app.get("/api/relationships/{viewer_id}/export")
+        async def api_relationship_export(viewer_id: str) -> JSONResponse:
+            return await self._command(
+                "relationship.export", f"/api/relationships/{viewer_id}/export",
+                {"viewer_id": viewer_id},
             )
 
         @app.get("/metrics", response_class=PlainTextResponse)
         async def metrics_endpoint() -> bytes:
             if self.operations_surface is not None:
                 return self.operations_surface.prometheus_text()
-            if self.metrics is None:
-                return b""
-            return self.metrics.prometheus_text()
+            if self.metrics is not None and hasattr(self.metrics, "prometheus_text"):
+                return self.metrics.prometheus_text()
+            return b""
 
-        # ── T3: operator chấm điểm turn gần nhất ──
         @app.post("/api/rate")
         async def api_rate(request: Request) -> JSONResponse:
             body = await _json(request)
             rating = str(body.get("rating", "")).strip()
-            if rating not in ("good", "bad", "flag"):
+            if rating not in {"good", "bad", "flag"}:
                 return JSONResponse({"ok": False, "reason": "rating không hợp lệ"}, status_code=400)
-            # Identity cụ thể (Review) hoặc identity của turn cuối (chấm live).
-            turn_id = body.get("turn_id")
-            session_id = body.get("session_id")
-            if turn_id is None:
-                if session_id is not None:
-                    return JSONResponse(
-                        {"ok": False, "reason": "thiếu turn_id"}, status_code=400,
-                    )
-                identity = await self._last_turn_identity()
-                if identity is not None:
-                    session_id, turn_id = identity
-            else:
-                if not isinstance(session_id, str) or not session_id.strip():
-                    return JSONResponse(
-                        {"ok": False, "reason": "thiếu session_id"}, status_code=400,
-                    )
-                session_id = session_id.strip()
-                try:
-                    turn_id = int(turn_id)
-                except (TypeError, ValueError):
-                    turn_id = None
-            if turn_id is None or session_id is None:
+            identity = await self._rating_identity(body)
+            if identity is None:
                 return JSONResponse({"ok": False, "reason": "chưa có turn"}, status_code=400)
-            self._write_rating({"session_id": session_id, "turn_id": turn_id, "rating": rating,
-                                "ts": _now_iso()})
-            return JSONResponse({"ok": True, "session_id": session_id,
-                                 "turn_id": turn_id, "rating": rating})
+            session_id, turn_id = identity
+            self._write_rating({
+                "session_id": session_id, "turn_id": turn_id,
+                "rating": rating, "ts": _now_iso(),
+            })
+            return JSONResponse({
+                "ok": True, "session_id": session_id, "turn_id": turn_id, "rating": rating,
+            })
 
-        # ── T7: operator sửa trực tiếp câu Mai (data vàng nhất) ──
         @app.get("/api/recent_turns")
         async def api_recent_turns(n: int = 20) -> JSONResponse:
             return JSONResponse({"turns": self._recent_turns(min(max(1, n), 100))})
@@ -977,143 +388,120 @@ class DashboardServer:
             if original is None:
                 return JSONResponse({"ok": False, "reason": "không tìm thấy turn"}, status_code=404)
             from services.data.sanitize import mask_pii
-            corrected = mask_pii(corrected) or ""
-            self._write_correction({"session_id": session_id, "turn_id": turn_id,
-                                    "original": original,
-                                    "corrected": corrected, "ts": _now_iso()})
+            self._write_correction({
+                "session_id": session_id, "turn_id": turn_id, "original": original,
+                "corrected": mask_pii(corrected) or "", "ts": _now_iso(),
+            })
             return JSONResponse({"ok": True, "session_id": session_id, "turn_id": turn_id})
 
         @app.websocket("/ws")
         async def ws(websocket: WebSocket) -> None:
             await websocket.accept()
             self._ws_clients.add(websocket)
-            source_mode = str(websocket.query_params.get("source") or "auto").lower()
-            if source_mode not in {"auto", "live", "history"}:
-                source_mode = "auto"
-            self._ws_source_modes[websocket] = source_mode
+            source = str(websocket.query_params.get("source") or "auto").lower()
+            self._ws_source_modes[websocket] = source if source in {"auto", "live", "history"} else "auto"
             try:
-                await websocket.send_json(await self.build_snapshot(source_mode))
+                await websocket.send_json(await self.build_snapshot(self._ws_source_modes[websocket]))
                 while True:
-                    # giữ kết nối; client không cần gửi gì, nhưng đọc để phát hiện disconnect
                     await websocket.receive_text()
             except (WebSocketDisconnect, asyncio.CancelledError):
-                # disconnect bình thường HOẶC server shutdown (cancel) → im lặng,
-                # không đổ traceback ASGI lúc quit.
                 pass
             except Exception:
-                pass   # kết nối lỗi bất kỳ → dọn client, không giết server
+                pass
             finally:
                 self._ws_clients.discard(websocket)
                 self._ws_source_modes.pop(websocket, None)
-
         return app
 
-    # ---------- T3/T7 data label helpers ----------
-
-    async def _last_turn_identity(self) -> tuple[str, int] | None:
+    async def _command(self, name: str, path: str, payload: dict[str, Any]) -> JSONResponse:
         if self.operations_surface is not None:
-            try:
-                data_label = await self.operations_surface.snapshot_section("data_label")
-                latest = data_label.get("latest_turn") if isinstance(data_label, dict) else None
-                session_id = latest.get("session_id") if isinstance(latest, dict) else None
-                turn_id = latest.get("turn_id") if isinstance(latest, dict) else None
-                if isinstance(session_id, str) and session_id and isinstance(turn_id, int) and turn_id:
-                    return session_id, turn_id
-            except Exception:
-                return None
-            return None
-        session_id = getattr(self.runner, "session_id", None) if self.runner else None
-        tid = getattr(self.runner, "last_turn_id", 0) if self.runner else 0
-        if not isinstance(session_id, str) or not session_id or not tid:
-            return None
-        return session_id, int(tid)
+            from interfaces.operations import OperationsCommand
+            result = await self.operations_surface.execute(OperationsCommand(
+                command_id=f"dashboard:{uuid.uuid4().hex}", name=name,
+                issued_at=datetime.now(timezone.utc), payload=payload,
+            ))
+            return JSONResponse(dict(result.payload), status_code=result.status_code)
+        if self.snapshot_provider is not None and hasattr(self.snapshot_provider, "forward_command"):
+            status, value = await self.snapshot_provider.forward_command(path, payload)
+            return JSONResponse(value, status_code=status)
+        return JSONResponse({"ok": False, "reason": "runtime_offline"}, status_code=503)
 
-    def _ratings(self):
+    async def _rating_identity(self, body: dict[str, Any]) -> tuple[str, int] | None:
+        turn_id, session_id = body.get("turn_id"), body.get("session_id")
+        if turn_id is not None:
+            if not isinstance(session_id, str) or not session_id.strip():
+                return None
+            try:
+                return session_id.strip(), int(turn_id)
+            except (TypeError, ValueError):
+                return None
+        if session_id is not None or self.operations_surface is None:
+            return None
+        try:
+            value = await self.operations_surface.snapshot_section("data_label")
+            latest = value.get("latest_turn") if isinstance(value, dict) else None
+            current_session = latest.get("session_id") if isinstance(latest, dict) else None
+            current_turn = latest.get("turn_id") if isinstance(latest, dict) else None
+            if isinstance(current_session, str) and current_session and isinstance(current_turn, int) and current_turn:
+                return current_session, current_turn
+        except Exception:
+            return None
+        return None
+
+    def _ratings(self) -> Any:
         if self._ratings_writer is None:
             from orchestrator.logger import JsonlWriter
             self._ratings_writer = JsonlWriter(self._data_dir / "ratings.jsonl")
         return self._ratings_writer
 
-    def _corrections(self):
+    def _corrections(self) -> Any:
         if self._corrections_writer is None:
             from orchestrator.logger import JsonlWriter
             self._corrections_writer = JsonlWriter(self._data_dir / "corrections.jsonl")
         return self._corrections_writer
 
-    def _write_rating(self, rec: dict) -> None:
+    def _write_rating(self, record: dict[str, Any]) -> None:
         try:
-            self._ratings().write(rec)
-        except Exception as e:
-            self._log.warning("rating_write_failed", error=str(e))
+            self._ratings().write(record)
+        except Exception as exc:
+            self._log.warning("rating_write_failed", error=str(exc))
 
-    def _write_correction(self, rec: dict) -> None:
+    def _write_correction(self, record: dict[str, Any]) -> None:
         try:
-            self._corrections().write(rec)
-        except Exception as e:
-            self._log.warning("correction_write_failed", error=str(e))
+            self._corrections().write(record)
+        except Exception as exc:
+            self._log.warning("correction_write_failed", error=str(exc))
 
-    def _audit_control(self, action: str, target: str, outcome: str) -> None:
-        if self.control_plane is not None:
-            with contextlib.suppress(Exception):
-                self.control_plane.record_operator_action(action, target, outcome)
-
-    async def _surface_response(
-        self, name: str, payload: dict[str, Any],
-    ) -> JSONResponse:
-        from interfaces.operations import OperationsCommand
-
-        result = await self.operations_surface.execute(OperationsCommand(
-            command_id=f"dashboard:{uuid.uuid4().hex}",
-            name=name,
-            issued_at=datetime.now(timezone.utc),
-            payload=payload,
-        ))
-        return JSONResponse(dict(result.payload), status_code=result.status_code)
-
-    async def _forward_or_unavailable(
-        self, path: str, payload: dict[str, Any], reason: str,
-    ) -> JSONResponse:
-        if self.snapshot_provider is None or not hasattr(
-            self.snapshot_provider, "forward_command",
-        ):
-            return JSONResponse({"ok": False, "reason": reason}, status_code=503)
-        status, value = await self.snapshot_provider.forward_command(path, payload)
-        return JSONResponse(value, status_code=status)
-
-    def _recent_turns(self, n: int) -> list[dict]:
-        """Tail turns.jsonl → N turn gần nhất với composite identity."""
-        recs = _tail_jsonl(self._data_dir / "turns.jsonl", n)
-        return [{"session_id": r.get("session_id"), "turn_id": r.get("turn_id"),
-                 "kind": r.get("kind"),
-                 "user_text": r.get("user_text"), "mai_text": r.get("mai_text")}
-                for r in recs]
+    def _recent_turns(self, n: int) -> list[dict[str, Any]]:
+        return [{
+            "session_id": item.get("session_id"), "turn_id": item.get("turn_id"),
+            "kind": item.get("kind"), "user_text": item.get("user_text"),
+            "mai_text": item.get("mai_text"),
+        } for item in _tail_jsonl(self._data_dir / "turns.jsonl", n)]
 
     def _original_of(self, session_id: str, turn_id: int) -> str | None:
-        for r in _tail_jsonl(self._data_dir / "turns.jsonl", 200):
-            if r.get("session_id") == session_id and r.get("turn_id") == turn_id:
-                return r.get("mai_text")
+        for item in _tail_jsonl(self._data_dir / "turns.jsonl", 200):
+            if item.get("session_id") == session_id and item.get("turn_id") == turn_id:
+                value = item.get("mai_text")
+                return value if isinstance(value, str) else None
         return None
-
-    # ---------- push loop ----------
 
     async def _push_loop(self) -> None:
         while True:
             await asyncio.sleep(self.push_interval_s)
-            if not self._ws_clients:
-                continue
             dead: list[WebSocket] = []
             snapshots: dict[str, dict[str, Any]] = {}
             for client in list(self._ws_clients):
                 try:
-                    source_mode = self._ws_source_modes.get(client, "auto")
-                    if source_mode not in snapshots:
-                        snapshots[source_mode] = await self.build_snapshot(source_mode)
-                    await client.send_json(snapshots[source_mode])
+                    source = self._ws_source_modes.get(client, "auto")
+                    if source not in snapshots:
+                        snapshots[source] = await self.build_snapshot(source)
+                    await client.send_json(snapshots[source])
                 except Exception:
                     dead.append(client)
-            for d in dead:
-                self._ws_clients.discard(d)
-                self._ws_source_modes.pop(d, None)
+            for client in dead:
+                self._ws_clients.discard(client)
+                self._ws_source_modes.pop(client, None)
 
     def start_push_loop(self) -> None:
         if self._push_task is None:
@@ -1127,9 +515,10 @@ class DashboardServer:
             self._push_task = None
 
 
-async def _json(request: Request) -> dict:
+async def _json(request: Request) -> dict[str, Any]:
     try:
-        return await request.json()
+        value = await request.json()
+        return value if isinstance(value, dict) else {}
     except Exception:
         return {}
 
@@ -1138,21 +527,18 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _tail_jsonl(path: Path, n: int) -> list[dict]:
-    """Đọc N dòng cuối JSONL → list dict (mới nhất cuối). Lỗi/thiếu file → []."""
-    import json
+def _tail_jsonl(path: Path, n: int) -> list[dict[str, Any]]:
     try:
         if not path.exists():
             return []
-        lines = path.read_text(encoding="utf-8").splitlines()
-        out = []
-        for line in lines[-n:]:
-            line = line.strip()
-            if line:
-                try:
-                    out.append(json.loads(line))
-                except Exception:
-                    continue
-        return out
-    except Exception:
+        records: list[dict[str, Any]] = []
+        for line in path.read_text(encoding="utf-8").splitlines()[-n:]:
+            try:
+                value = json.loads(line)
+            except (TypeError, ValueError):
+                continue
+            if isinstance(value, dict):
+                records.append(value)
+        return records
+    except OSError:
         return []

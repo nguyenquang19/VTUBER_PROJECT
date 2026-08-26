@@ -18,8 +18,8 @@ from interfaces.cognition import (
     CognitiveTurn,
     CognitiveUncertainty,
 )
-from orchestrator.metrics_collector import MetricsCollector
-from services.cognition.shadow_scheduler import CognitiveOpportunityScheduler
+from services.operations.metrics import MetricsCollector
+from services.cognition.scheduler import CognitiveOpportunityScheduler
 from tests.unit.test_cognitive_brain_shadow import _config, _context
 
 

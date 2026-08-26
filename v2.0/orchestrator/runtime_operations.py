@@ -89,15 +89,6 @@ def start_dashboard(
         push_interval_s=float(loader.get(
             "system", "dashboard.push_interval_s", 1.0,
         )),
-        gpu_metrics_command=str(loader.get(
-            "system", "dashboard.gpu_metrics.command", "nvidia-smi",
-        )),
-        gpu_metrics_timeout_s=float(loader.get(
-            "system", "dashboard.gpu_metrics.timeout_s", 1.0,
-        )),
-        gpu_metrics_refresh_s=float(loader.get(
-            "system", "dashboard.gpu_metrics.refresh_s", 2.0,
-        )),
         control_token=control_token,
     )
     task = asyncio.create_task(server.serve(), name="dashboard")

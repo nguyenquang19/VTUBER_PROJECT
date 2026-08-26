@@ -6,7 +6,7 @@ from pathlib import Path
 
 from services.relationship.manager import RelationshipLimits, RelationshipManager
 from services.relationship.store import RelationshipStore
-from services.relationship.types import ReviewStatus
+from interfaces.relationship import ReviewStatus
 
 
 NOW = datetime(2026, 8, 8, tzinfo=timezone.utc)

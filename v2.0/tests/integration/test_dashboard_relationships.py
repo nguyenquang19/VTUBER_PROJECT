@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -7,6 +8,8 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from dashboard.dashboard_server import DashboardServer
+from orchestrator.runtime_operations_surface import bind_standard_operator_commands
+from services.operations.surface import OperationsSurface, OperationsSurfaceConfig
 from services.relationship.manager import RelationshipLimits, RelationshipManager
 from services.relationship.store import RelationshipStore
 
@@ -15,9 +18,16 @@ CONTROL_HEADERS = {"X-Mai-Operator-Token": CONTROL_TOKEN}
 
 
 def _client(manager: RelationshipManager) -> TestClient:
+    surface = OperationsSurface(OperationsSurfaceConfig(16, 24, 120, 4096))
+    surface.register_snapshot_provider("relationships", lambda: manager.snapshot().to_dict())
+    bind_standard_operator_commands(
+        surface, feature_manager=object(), control_plane=None,
+        goal_manager=None, relationship_manager=manager,
+    )
+    asyncio.run(surface.start())
     return TestClient(
         DashboardServer(
-            relationship_manager=manager, control_token=CONTROL_TOKEN,
+            operations_surface=surface, control_token=CONTROL_TOKEN,
         ).app,
         headers=CONTROL_HEADERS,
     )

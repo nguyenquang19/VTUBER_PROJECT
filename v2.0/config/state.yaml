@@ -1,4 +1,4 @@
-# Canonical S2 state owner. Legacy agent_state.yaml/relationships.yaml are read aliases until S8.
+# Canonical state owner for ingress, Agent, World, Self and Relationship bounds.
 schema_version: 1
 
 canonical_event:

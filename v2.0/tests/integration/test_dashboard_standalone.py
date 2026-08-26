@@ -49,9 +49,8 @@ def test_dashboard_runs_without_runtime_and_disables_mutating_controls(tmp_path:
 def test_agent_tab_contains_runtime_thread_queue_and_audit_panels() -> None:
     html = TestClient(DashboardServer().app).get("/").text
     for element_id in (
-        "agent-runtime", "btn-agent-pause", "btn-agent-resume", "agent-threads",
-        "agent-environment", "agent-action-queue", "agent-audit",
-        "agent-incidents", "agent-incident-count",
+        "overview-runtime", "operator-pause", "operator-resume", "overview-threads",
+        "conversation-environment", "overview-actions", "overview-incident-list",
     ):
         assert f'id="{element_id}"' in html
 

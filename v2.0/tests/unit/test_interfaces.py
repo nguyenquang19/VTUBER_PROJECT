@@ -21,7 +21,7 @@ from interfaces.animation import (
     EmbodimentSnapshot,
     MoodState,
 )
-from interfaces.action_execution import LocalActionBoundaryService
+from interfaces.execution import LocalActionBoundaryService
 from interfaces.agent import (
     AgentStateService, EventLedgerService, GoalManagerService, GoalProposalService,
     ConversationContextService, ConversationRepairService, OpenThreadManagerService,

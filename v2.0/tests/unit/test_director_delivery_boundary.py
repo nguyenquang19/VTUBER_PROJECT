@@ -10,7 +10,7 @@ import pytest
 
 from interfaces.animation import MoodState
 from interfaces.compatibility import ActionResult, ActionStatus
-from services.director.delivery_boundary import DirectorDeliveryBoundary
+from services.execution.speech import DirectorDeliveryBoundary
 
 
 class RunnerStub:

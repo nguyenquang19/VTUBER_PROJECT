@@ -225,7 +225,7 @@ def validate_runtime_config(loader: Any) -> RuntimeCriticalConfig:
             logging_buffer_records=loader.get(
                 "logging", "fail_safe.buffer_records", 256,
             ),
-            director_tick_seconds=loader.get("director", "director.tick_seconds", 1.5),
+            director_tick_seconds=loader.get("kernel", "tick_seconds", 1.5),
             director_dead_air_seconds=loader.get(
                 "director", "director.dead_air_seconds", 20.0,
             ),

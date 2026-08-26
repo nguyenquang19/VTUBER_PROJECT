@@ -47,30 +47,30 @@ class RelationshipLimits:
     def from_loader(cls, loader: Any) -> "RelationshipLimits":
         prefix = "relationships."
         value = cls(
-            profile_ttl_days=int(loader.get("relationships", prefix + "profile_ttl_days", 30)),
-            seen_event_ttl_days=int(loader.get("relationships", prefix + "seen_event_ttl_days", 30)),
-            max_profiles_snapshot=int(loader.get("relationships", prefix + "max_profiles_snapshot", 100)),
-            max_preferences=int(loader.get("relationships", prefix + "max_preferences", 5)),
-            max_boundaries=int(loader.get("relationships", prefix + "max_boundaries", 5)),
-            max_text_chars=int(loader.get("relationships", prefix + "max_text_chars", 240)),
-            note_ttl_days=int(loader.get("relationships", "notes.ttl_days", 30)),
-            max_notes_per_viewer=int(loader.get("relationships", "notes.max_per_viewer", 20)),
-            narrative_ttl_days=int(loader.get("relationships", "narrative.ttl_days", 30)),
-            max_narratives=int(loader.get("relationships", "narrative.max_items", 50)),
-            prompt_max_items=int(loader.get("relationships", "narrative.prompt_max_items", 2)),
-            prompt_max_chars=int(loader.get("relationships", "narrative.prompt_max_chars", 360)),
+            profile_ttl_days=int(loader.get("state", prefix + "profile_ttl_days", 30)),
+            seen_event_ttl_days=int(loader.get("state", prefix + "seen_event_ttl_days", 30)),
+            max_profiles_snapshot=int(loader.get("state", prefix + "max_profiles_snapshot", 100)),
+            max_preferences=int(loader.get("state", prefix + "max_preferences", 5)),
+            max_boundaries=int(loader.get("state", prefix + "max_boundaries", 5)),
+            max_text_chars=int(loader.get("state", prefix + "max_text_chars", 240)),
+            note_ttl_days=int(loader.get("state", "notes.ttl_days", 30)),
+            max_notes_per_viewer=int(loader.get("state", "notes.max_per_viewer", 20)),
+            narrative_ttl_days=int(loader.get("state", "narrative.ttl_days", 30)),
+            max_narratives=int(loader.get("state", "narrative.max_items", 50)),
+            prompt_max_items=int(loader.get("state", "narrative.prompt_max_items", 2)),
+            prompt_max_chars=int(loader.get("state", "narrative.prompt_max_chars", 360)),
             positive_interactions_required=int(loader.get(
-                "relationships", "running_gags.positive_interactions_required", 3,
+                "state", "running_gags.positive_interactions_required", 3,
             )),
             positive_emotion_categories=tuple(str(item) for item in loader.get(
-                "relationships", "running_gags.positive_emotion_categories",
+                "state", "running_gags.positive_emotion_categories",
                 ["chat_compliment", "chat_mention_direct", "donation_small", "donation_large"],
             )),
             gag_reference_cooldown_s=int(loader.get(
-                "relationships", "running_gags.reference_cooldown_seconds", 1800,
+                "state", "running_gags.reference_cooldown_seconds", 1800,
             )),
             max_gags_per_viewer=int(loader.get(
-                "relationships", "running_gags.max_per_viewer", 5,
+                "state", "running_gags.max_per_viewer", 5,
             )),
         )
         if min(

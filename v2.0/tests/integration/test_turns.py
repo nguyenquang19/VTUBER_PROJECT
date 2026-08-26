@@ -16,7 +16,7 @@ import random
 
 from interfaces.llm import LLMToken
 from orchestrator.fallback_manager import FallbackManager
-from orchestrator.metrics_collector import MetricsCollector
+from services.operations.metrics import MetricsCollector
 from services.llm.canned_response import CannedResponder
 from services.llm.llm_turn import LLMTurnRunner
 from services.llm.prompt_cache import PromptCache

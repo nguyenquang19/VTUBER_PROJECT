@@ -5,7 +5,7 @@ from pathlib import Path
 
 from interfaces.animation import MoodState
 from orchestrator.config_loader import ConfigLoader
-from services.agent.goal_types import GoalKind
+from interfaces.state import GoalKind
 from services.agent.mood_policy import MoodActionPolicy
 from services.director.action_types import DirectorChatRef
 from services.director.director import DirectorAction

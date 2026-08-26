@@ -219,7 +219,7 @@ def test_runtime_rejects_invalid_kernel_config_before_composition() -> None:
     ("name", "key", "value", "field"),
     [
         ("logging", "fail_safe.buffer_records", 0, "logging_buffer_records"),
-        ("director", "director.tick_seconds", -1, "director_tick_seconds"),
+        ("kernel", "tick_seconds", -1, "director_tick_seconds"),
         (
             "director", "director.self_talk_cooldown_seconds", 0,
             "director_self_talk_cooldown_seconds",
@@ -337,7 +337,7 @@ def test_runtime_rejects_invalid_kernel_config_before_composition() -> None:
         ("system", "dashboard.port", 70000, "dashboard_port"),
         ("system", "dashboard.port", "7860", "dashboard_port"),
         ("system", "dashboard.host", "0.0.0.0", "dashboard_host"),
-        ("director", "director.tick_seconds", "1.5", "director_tick_seconds"),
+        ("kernel", "tick_seconds", "1.5", "director_tick_seconds"),
         (
             "self_talk", "self_talk.silence_allow_question", "false",
             "self_talk_silence_allow_question",

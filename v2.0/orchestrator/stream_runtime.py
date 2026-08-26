@@ -1968,7 +1968,7 @@ async def _compose_stream_runtime(
     )
 
     # Director ticks are separate from the slower autonomy loop to avoid chat latency.
-    director_tick = float(loader.get("director", "director.tick_seconds", 1.5))
+    director_tick = float(loader.get("kernel", "tick_seconds", 1.5))
     room_reaction = loader.get("director", "director.room_reaction", {}) or {}
     speech_dedup = loader.get("director", "director.speech_dedup", {}) or {}
     speech_style = loader.get("director", "director.speech_style", {}) or {}

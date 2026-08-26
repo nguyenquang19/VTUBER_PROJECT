@@ -6,7 +6,7 @@ from datetime import timedelta
 
 import pytest
 
-from services.agent.types import (
+from interfaces.state import (
     AgentStateSnapshot,
     OpenThread,
 )

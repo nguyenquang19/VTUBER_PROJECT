@@ -44,8 +44,7 @@ class TestLoad:
     def test_missing_optional_file_is_skipped(self, tmp_config_dir: Path) -> None:
         loader = ConfigLoader(tmp_config_dir)
         loader.load_all()
-        # triggers.yaml chưa tạo (milestone 0.D) — không được raise
-        assert "triggers" not in loader.loaded_names()
+        assert "conversation" not in loader.loaded_names()
 
     def test_missing_required_file_raises(self, tmp_path: Path) -> None:
         loader = ConfigLoader(tmp_path, required=("system",))
@@ -88,7 +87,7 @@ class TestAccess:
     def test_missing_config_name_returns_default(self, tmp_config_dir: Path) -> None:
         loader = ConfigLoader(tmp_config_dir)
         loader.load_all()
-        assert loader.get("triggers", "anything", 42) == 42
+        assert loader.get("retired_config", "anything", 42) == 42
 
     def test_descend_into_non_dict_returns_default(self, tmp_config_dir: Path) -> None:
         loader = ConfigLoader(tmp_config_dir)
@@ -141,7 +140,7 @@ class TestReload:
     def test_reload_missing_file_returns_false(self, tmp_config_dir: Path) -> None:
         loader = ConfigLoader(tmp_config_dir)
         loader.load_all()
-        assert loader.reload_file("triggers") is False
+        assert loader.reload_file("conversation") is False
 
     def test_callback_fires_on_reload(self, tmp_config_dir: Path) -> None:
         loader = ConfigLoader(tmp_config_dir)
@@ -176,7 +175,7 @@ class TestReload:
         loader = ConfigLoader(tmp_config_dir)
         assert loader.name_for_path(Path("whatever/system.yaml")) == "system"
         assert loader.name_for_path(Path("whatever/conversation.yaml")) == "conversation"
-        assert loader.name_for_path(Path("whatever/state_machine.yaml")) == "state_machine"
+        assert loader.name_for_path(Path("whatever/state.yaml")) == "state"
         assert loader.name_for_path(Path("whatever/random.yaml")) is None
 
     def test_path_for_returns_owned_config_path(self, tmp_config_dir: Path) -> None:
@@ -237,15 +236,11 @@ class TestRealConfigFiles:
         assert loader.require("conversation", "open_threads.park_after_seconds") == 300
         assert loader.require("conversation", "topic_matcher.min_score") == 0.34
         assert loader.require("conversation", "move_planner.summarize_after_moves") == 2
-        assert loader.require("agent_state", "context.max_items") == 6
-        assert loader.require("conversation", "context.max_chars") == 1400
-        assert loader.require("conversation", "context_selector.memory_items") == 3
-        assert loader.section("agent_state")["context"] == loader.require(
-            "cognition", "agent_context_projection",
-        )
-        assert loader.section("conversation")["context_selector"] == loader.require(
-            "cognition", "context_selector_projection",
-        )
+        assert loader.require("cognition", "agent_context_projection.max_items") == 6
+        assert loader.require("cognition", "conversation_context_projection.max_chars") == 1400
+        assert loader.require("cognition", "context_selector_projection.memory_items") == 3
+        assert loader.get("agent_state", "context") is None
+        assert loader.get("relationships", "relationships") is None
         assert loader.require("director", "director.room_reaction.cooldown_seconds") == 120
         assert loader.require("director", "director.speech_dedup.recent_window") == 64
         assert loader.require("director", "director.speech_style.recent_window") == 12
@@ -262,9 +257,6 @@ class TestRealConfigFiles:
         state = yaml.safe_load(
             (REPO_ROOT / "config" / "state.yaml").read_text(encoding="utf-8")
         )
-        legacy_agent = yaml.safe_load(
-            (REPO_ROOT / "config" / "agent_state.yaml").read_text(encoding="utf-8")
-        )
         conversation = yaml.safe_load(
             (REPO_ROOT / "config" / "conversation.yaml").read_text(encoding="utf-8")
         )
@@ -273,7 +265,6 @@ class TestRealConfigFiles:
         assert "conversation_context_projection" in cognition
         assert "context_selector_projection" in cognition
         assert "context" not in state
-        assert "context" not in legacy_agent
         assert "context" not in conversation
         assert "context_selector" not in conversation
 

@@ -18,7 +18,7 @@ import pytest
 
 from interfaces.tts import AudioChunk, TTSDeliveryMode, TTSRequest
 from orchestrator.fallback_manager import FallbackManager
-from orchestrator.metrics_collector import MetricsCollector
+from services.operations.metrics import MetricsCollector
 from services.tts.audio_player import AudioPlayer
 from services.tts.subtitle_fallback import SubtitleFallbackService
 from services.tts.tts_pipeline import TTSPipeline

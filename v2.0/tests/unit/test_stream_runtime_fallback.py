@@ -9,7 +9,7 @@ import pytest
 
 from interfaces.base import HealthStatus
 from interfaces.tts import TTSDeliveryMode, TTSDeliveryResult
-from orchestrator.metrics_collector import MetricsCollector
+from services.operations.metrics import MetricsCollector
 from orchestrator.stream_runtime import (
     StreamRuntime,
     StreamRuntimeConfig,

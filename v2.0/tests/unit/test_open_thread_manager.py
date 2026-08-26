@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from orchestrator.metrics_collector import MetricsCollector
+from services.operations.metrics import MetricsCollector
 from services.agent.open_thread_manager import OpenThreadLimits, OpenThreadManager
-from services.agent.types import ThreadEvidence, ThreadKind
+from interfaces.state import ThreadEvidence, ThreadKind
 
 NOW = datetime(2026, 8, 8, 12, 0, tzinfo=timezone.utc)
 
@@ -103,10 +103,10 @@ async def test_service_lifecycle() -> None:
 
 
 def test_agent_state_uses_manager_threads_before_notifying_listeners() -> None:
-    from services.agent.agent_state import AgentState, AgentStateLimits, AgentStateReducer
-    from services.agent.event_ledger import EventLedger
+    from services.state.agent import AgentState, AgentStateLimits, AgentStateReducer
+    from services.state.event_ledger import EventLedger
     from services.agent.thread_detector import RuleThreadDetector
-    from services.agent.types import (
+    from interfaces.state import (
         AgentEventKind, AgentEventSource, EventProvenance, GroundedEvent,
     )
 

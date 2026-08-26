@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from services.agent.goal_types import GoalSnapshot
-from services.agent.types import AgentStateSnapshot, OpenThread, ThreadEvidence, ThreadKind
+from interfaces.state import GoalSnapshot
+from interfaces.state import AgentStateSnapshot, OpenThread, ThreadEvidence, ThreadKind
 from services.director.chat_pulse import ChatPulse
 from services.director.director import Director, DirectorAction, Segment
 from services.director.director_loop import DirectorLoop

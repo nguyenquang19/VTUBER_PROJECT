@@ -3,35 +3,29 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from dashboard.dashboard_server import DashboardServer, _build_operator_overview
-from orchestrator.features import FeatureStatus
-from orchestrator.metrics_collector import MetricsCollector
+from services.operations.metrics import MetricsCollector
+from services.operations.surface import OperationsSurface, OperationsSurfaceConfig
 from interfaces.animation import MoodState
 
 CONTROL_TOKEN = "test-dashboard-control-token-123456"
 CONTROL_HEADERS = {"X-Mai-Operator-Token": CONTROL_TOKEN}
 
 
-class V2Features:
-    async def get_status(self, feature_id: str) -> FeatureStatus:
-        assert feature_id == "operator_dashboard_v2"
-        return FeatureStatus.ENABLED
-
-
-def test_legacy_and_operator_routes_run_side_by_side() -> None:
+def test_operator_is_the_only_dashboard_route() -> None:
     client = TestClient(DashboardServer().app)
     root = client.get("/")
     legacy = client.get("/legacy")
     operator = client.get("/operator")
-    assert root.status_code == legacy.status_code == operator.status_code == 200
-    assert "Mai — Dashboard" in root.text
-    assert "Mai — Dashboard" in legacy.text
+    assert root.status_code == operator.status_code == 200
+    assert legacy.status_code == 404
+    assert "Mai Operator Console" in root.text
     assert "Mai Operator Console" in operator.text
 
 
-def test_feature_flag_selects_v2_as_default_without_removing_legacy() -> None:
-    client = TestClient(DashboardServer(feature_manager=V2Features()).app)
+def test_operator_console_is_not_feature_gated() -> None:
+    client = TestClient(DashboardServer().app)
     assert "Mai Operator Console" in client.get("/").text
-    assert "Mai — Dashboard" in client.get("/legacy").text
+    assert client.get("/legacy").status_code == 404
 
 
 def test_operator_dashboard_has_exactly_five_primary_sections() -> None:
@@ -85,9 +79,9 @@ def test_dashboard_views_are_observable() -> None:
     client.get("/")
     client.get("/operator")
     client.get("/legacy")
-    assert metrics.operator_dashboard_view_snapshot() == {"legacy": 2, "v2": 1}
+    assert metrics.operator_dashboard_view_snapshot() == {"v2": 2}
     prometheus = metrics.prometheus_text()
-    assert b'mai_operator_dashboard_views_total{version="v2"} 1.0' in prometheus
+    assert b'mai_operator_dashboard_views_total{version="v2"} 2.0' in prometheus
 
 
 def test_overview_prioritizes_offline_emergency_incident_and_failed_decision() -> None:
@@ -172,8 +166,13 @@ def test_snapshot_exposes_float_mood_ticks_and_thought_state() -> None:
                 "ledger": [],
             }
 
+    surface = OperationsSurface(OperationsSurfaceConfig(8, 8, 80, 1024))
+    surface.register_snapshot_provider("mood", lambda: {
+        **Emotion().snapshot(), "sampled_at": "2026-08-27T00:00:00+00:00", "ticks": 42,
+    })
+    surface.register_snapshot_provider("thought_engine", ThoughtEngine().snapshot)
     value = TestClient(DashboardServer(
-        emotion=Emotion(), self_talk_planner=ThoughtEngine(),
+        operations_surface=surface,
     ).app).get("/api/snapshot").json()
     assert value["mood"]["mood_pos"]["vui"] == 5.125
     assert value["mood"]["ticks"] == 42

@@ -8,7 +8,7 @@ from services.agent.conversation_move_planner import (
 from services.agent.open_thread_manager import OpenThreadLimits, OpenThreadManager
 from services.agent.thread_detector import RuleThreadDetector
 from services.agent.topic_matcher import LexicalTopicMatcher, TopicMatcherConfig
-from services.agent.types import (
+from interfaces.state import (
     AgentEventKind, AgentEventSource, ConversationMove, EventProvenance,
     GroundedEvent, OpenThread, ThreadEvidence, ThreadKind, ThreadOperation,
     ThreadSpeaker, ThreadStatus,

@@ -6,8 +6,8 @@ import pytest
 
 from interfaces.animation import MoodState
 from services.agent.agenda_policy import AgendaPolicy, AgendaPolicyConfig
-from services.agent.goal_types import Goal, GoalKind, GoalSnapshot, GoalSource, GoalStatus
-from services.agent.types import (
+from interfaces.state import Goal, GoalKind, GoalSnapshot, GoalSource, GoalStatus
+from interfaces.state import (
     AgentEventKind,
     AgentEventSource,
     AgentStateSnapshot,

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from orchestrator.metrics_collector import MetricsCollector
+from services.operations.metrics import MetricsCollector
 from services.evaluation.human_like import (
     DIMENSIONS,
     HumanLikeCalibration,

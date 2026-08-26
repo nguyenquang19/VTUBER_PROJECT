@@ -29,7 +29,7 @@ from orchestrator.config_loader import ConfigLoader  # noqa: E402
 from orchestrator.autonomy_engine import AutonomyEngine  # noqa: E402
 from orchestrator.emotion_orchestrator import EmotionOrchestrator  # noqa: E402
 from orchestrator.fallback_manager import FallbackManager  # noqa: E402
-from orchestrator.metrics_collector import MetricsCollector  # noqa: E402
+from services.operations.metrics import MetricsCollector  # noqa: E402
 from orchestrator.runtime_tts import build_tts_runtime_stack  # noqa: E402
 from interfaces.agent import AgentStateService  # noqa: E402
 from services.agent.agenda_policy import AgendaPolicy  # noqa: E402
@@ -913,7 +913,7 @@ async def run_stress(args: argparse.Namespace) -> int:
             speak=speak,
             turn_lock=turn_lock,
             tick_seconds=float(loader.get(
-                "director", "director.tick_seconds", 1.5,
+                "kernel", "tick_seconds", 1.5,
             )),
             max_refs=int(loader.get(
                 "director", "director.max_refs_per_turn", 3,
@@ -1057,7 +1057,7 @@ async def run_stress(args: argparse.Namespace) -> int:
                     continue
 
         monitor_task = asyncio.create_task(monitor(), name="live_stress_monitor")
-        tick_s = float(loader.get("director", "director.tick_seconds", 1.5))
+        tick_s = float(loader.get("kernel", "tick_seconds", 1.5))
         while not source.completed.is_set():
             await asyncio.sleep(tick_s)
             preview = loop.preview_decision(time.time())

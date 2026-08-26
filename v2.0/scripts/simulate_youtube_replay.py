@@ -248,7 +248,7 @@ def _director_from_config(
 def _transaction_manager(loader: ConfigLoader, clock: Any) -> ActionTransactionManager:
     return ActionTransactionManager(
         max_recent=int(loader.get(
-            "director", "director.transactions.max_recent", 256,
+            "execution", "transactions.max_recent", 256,
         )),
         clock=clock,
     )

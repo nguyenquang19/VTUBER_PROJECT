@@ -11,9 +11,9 @@ from dashboard.dashboard_server import DashboardServer
 from interfaces.base import HealthState
 from interfaces.self_model import SelfModelService
 from orchestrator.config_loader import ConfigLoader
-from orchestrator.metrics_collector import MetricsCollector
-from services.self_model.projection import SelfModelConfig, SelfModelProjection
-from services.agent.goal_types import ShortIntention, ShortIntentionStatus
+from services.operations.metrics import MetricsCollector
+from services.state.self_projection import SelfModelConfig, SelfModelProjection
+from interfaces.state import ShortIntention, ShortIntentionStatus
 
 
 NOW = datetime(2026, 8, 15, 8, 0, tzinfo=timezone.utc)
@@ -185,9 +185,8 @@ def test_self_model_yaml_feature_dashboard_and_director_boundary() -> None:
     assert loader.get("features", "features.self_model_projection.enabled") is True
 
     model, _ = _model()
-    dashboard = asyncio.run(DashboardServer(self_model=model).build_snapshot())
-    assert dashboard["self"]["snapshot"]["current_action_id"] == "act-live"
-    assert dashboard["self"]["metrics"]["self_model_enabled"] is True
+    assert model.snapshot().to_dict()["current_action_id"] == "act-live"
+    assert model.get_metrics()["self_model_enabled"] is True
 
     source = (root / "orchestrator" / "stream_runtime.py").read_text(encoding="utf-8")
     assert "self_snapshot_provider=lambda: self_model.snapshot()" in source

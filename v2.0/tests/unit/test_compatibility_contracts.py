@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from interfaces.action_transaction import ActionTransaction, ActionTransactionState
+from interfaces.execution import ActionTransaction, ActionTransactionState
 from interfaces.compatibility import (
     ActionRequest,
     ActionResult,

@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from interfaces.director_v2 import DirectorV2Proposal
-from services.agent.goal_types import (
+from interfaces.state import (
     Goal,
     GoalKind,
     GoalSnapshot,
@@ -16,7 +16,7 @@ from services.agent.goal_types import (
     ShortIntention,
     ShortIntentionStatus,
 )
-from services.agent.types import AgentStateSnapshot, OpenThread
+from interfaces.state import AgentStateSnapshot, OpenThread
 from services.director.action_types import DirectorChatRef, DirectorInput
 from services.director.chat_pulse import ChatPulse
 from services.director.director import Director, DirectorAction, ReadMode, Segment

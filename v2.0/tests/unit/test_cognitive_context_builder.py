@@ -22,9 +22,9 @@ from interfaces.compatibility import (
 )
 from interfaces.memory import MemoryEntry, MemoryTier
 from interfaces.state import DeliveredTurnRecord
-from orchestrator.metrics_collector import MetricsCollector
-from services.agent.goal_types import GoalSnapshot
-from services.agent.types import (
+from services.operations.metrics import MetricsCollector
+from interfaces.state import GoalSnapshot
+from interfaces.state import (
     AgentEventKind,
     AgentEventSource,
     AgentStateSnapshot,

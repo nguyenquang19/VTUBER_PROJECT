@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from interfaces.base import HealthStatus
 from orchestrator.config_loader import ConfigLoader
-from orchestrator.metrics_collector import MetricsCollector
+from services.operations.metrics import MetricsCollector
 from services.operations.health_supervisor import HealthSupervisor, SupervisorPolicy
 
 

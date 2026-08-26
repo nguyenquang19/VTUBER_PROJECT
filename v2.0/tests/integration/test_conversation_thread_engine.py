@@ -8,11 +8,11 @@ from interfaces.tts import TTSDeliveryMode, TTSDeliveryResult
 from services.agent.conversation_move_planner import (
     ConversationMoveConfig, ConversationMovePlanner,
 )
-from services.agent.agent_state import AgentState, AgentStateLimits, AgentStateReducer
+from services.state.agent import AgentState, AgentStateLimits, AgentStateReducer
 from services.agent.agenda_policy import AgendaPolicy, AgendaPolicyConfig
-from services.agent.event_ledger import EventLedger
+from services.state.event_ledger import EventLedger
 from services.agent.goal_manager import GoalLimits, GoalManager
-from services.agent.goal_types import (
+from interfaces.state import (
     Goal,
     GoalKind,
     GoalSnapshot,
@@ -24,7 +24,7 @@ from services.agent.goal_types import (
 from services.agent.open_thread_manager import OpenThreadLimits, OpenThreadManager
 from services.agent.thread_detector import RuleThreadDetector
 from services.agent.topic_matcher import LexicalTopicMatcher, TopicMatcherConfig
-from services.agent.types import (
+from interfaces.state import (
     AgentEventKind, AgentEventSource, AgentStateSnapshot, ConversationMove,
     EventProvenance, GroundedEvent, ThreadEvidence, ThreadKind, ThreadStatus,
 )

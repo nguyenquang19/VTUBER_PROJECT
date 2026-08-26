@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from services.agent.conversation_move_planner import (
     ConversationMoveConfig, ConversationMovePlanner,
 )
-from services.agent.types import (
+from interfaces.state import (
     ConversationMove, OpenThread, ThreadContribution, ThreadSpeaker, ThreadStatus,
 )
 

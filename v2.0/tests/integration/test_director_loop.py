@@ -28,11 +28,11 @@ from services.autonomy.self_talk_planner import SelfTalkPlanner
 from services.autonomy.material_provider import RuntimeContext
 from services.autonomy.lore_material import LoreMaterial, LoreMaterialProvider
 from services.agent.goal_manager import GoalLimits, GoalManager
-from services.agent.goal_types import (
+from interfaces.state import (
     Goal, GoalKind, GoalSnapshot, GoalSource, GoalStatus,
     ShortIntention, ShortIntentionStatus,
 )
-from services.agent.types import (
+from interfaces.state import (
     AgentStateSnapshot, ConversationMove, OpenThread, ThreadEvidence,
 )
 from services.llm.parser import ParsedResponse

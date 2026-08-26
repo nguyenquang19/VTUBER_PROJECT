@@ -19,7 +19,7 @@ sys.path.insert(0, str(REPO_ROOT))
 from interfaces.tts import AudioChunk  # noqa: E402
 from orchestrator.config_loader import ConfigLoader  # noqa: E402
 from orchestrator.fallback_manager import FallbackManager  # noqa: E402
-from orchestrator.metrics_collector import MetricsCollector  # noqa: E402
+from services.operations.metrics import MetricsCollector  # noqa: E402
 from services.llm.process_manager import (  # noqa: E402
     LlamaServerConfig,
     LlamaServerProcessManager,

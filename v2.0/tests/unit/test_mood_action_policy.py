@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from interfaces.animation import MoodState
-from orchestrator.metrics_collector import MetricsCollector
-from services.agent.goal_types import GoalKind
+from services.operations.metrics import MetricsCollector
+from interfaces.state import GoalKind
 from services.agent.mood_policy import MoodActionPolicy, MoodPolicyConfig
 
 

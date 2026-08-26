@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from services.evaluation.scenario_loader import load_scenario_suite
-from services.evaluation.types import HumanRubric, ObservedOutcome, ScenarioGroup
+from interfaces.evaluation import HumanRubric, ObservedOutcome, ScenarioGroup
 
 
 ROOT = Path(__file__).resolve().parents[2]

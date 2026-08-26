@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from services.agent.goal_types import (
+from interfaces.state import (
     Goal,
     GoalKind,
     GoalSnapshot,
@@ -15,7 +15,7 @@ from services.agent.goal_types import (
     ShortIntentionStatus,
 )
 from services.agent.goal_manager import GoalLimits, GoalManager
-from services.agent.types import AgentStateSnapshot, OpenThread
+from interfaces.state import AgentStateSnapshot, OpenThread
 from services.director.director import DirectorAction
 from tests.integration.test_director_loop import _make
 

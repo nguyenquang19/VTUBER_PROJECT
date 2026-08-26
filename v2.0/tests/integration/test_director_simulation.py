@@ -6,8 +6,8 @@ from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from services.agent.goal_types import Goal, GoalKind, GoalSnapshot, GoalSource, GoalStatus
-from services.agent.types import AgentStateSnapshot, OpenThread
+from interfaces.state import Goal, GoalKind, GoalSnapshot, GoalSource, GoalStatus
+from interfaces.state import AgentStateSnapshot, OpenThread
 from services.director.action_types import DirectorChatRef, DirectorInput
 from services.director.chat_pulse import ChatPulse
 from services.director.director import Director, DirectorAction, Segment

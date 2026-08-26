@@ -9,19 +9,19 @@ from typing import Any
 import pytest
 
 from dashboard.dashboard_server import DashboardServer
-from interfaces.action_execution import ActionExecutor, ActionVerifier, VerificationResult
+from interfaces.execution import ActionExecutor, ActionVerifier, VerificationResult
 from interfaces.base import HealthStatus
 from interfaces.compatibility import (
     ActionRequest, ActionResult, Capability, EventProvenance, PerceptionEvent,
 )
 from orchestrator.config_loader import ConfigLoader
-from orchestrator.metrics_collector import MetricsCollector
-from services.action.mock_backend import MockCallBackend, MockCallExecutor, MockCallVerifier
-from services.action.mock_loop import ActionMockConfig, GeneralActionMockLoop
+from services.operations.metrics import MetricsCollector
+from services.execution.mock_backend import MockCallBackend, MockCallExecutor, MockCallVerifier
+from services.execution.mock import ActionMockConfig, GeneralActionMockLoop
 from services.capability.registry import CapabilityDefinition, CapabilityRegistry, CapabilityRegistryConfig
-from services.director.action_transaction import ActionTransactionManager
+from services.execution.transaction import ActionTransactionManager
 from services.execution.outcome import OutcomeCommitter
-from services.world.world_model import WorldModelConfig, WorldModelShadow
+from services.state.world import WorldModelConfig, WorldModelShadow
 
 
 NOW = datetime(2026, 8, 15, 8, 0, tzinfo=timezone.utc)
@@ -262,8 +262,7 @@ def test_mock_loop_keeps_commit_when_world_projection_is_rejected_and_dashboard_
     assert transactions.snapshot()["recent"][-1]["state"] == "committed"
     assert loop.get_metrics()["action_mock_world_projection_inconsistencies"] == 1
     assert metrics.action_mock_snapshot()["world_projection_inconsistencies"] == 1
-    dashboard = asyncio.run(DashboardServer(action_mock_loop=loop).build_snapshot())
-    assert dashboard["action_mock"]["snapshot"]["recent"][-1]["error_code"] == "world_projection_rejected"
+    assert loop.snapshot()["recent"][-1]["error_code"] == "world_projection_rejected"
 
 
 def test_mock_loop_yaml_and_current_director_boundary() -> None:

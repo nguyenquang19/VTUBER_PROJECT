@@ -5,14 +5,14 @@ import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from orchestrator.metrics_collector import MetricsCollector
+from services.operations.metrics import MetricsCollector
 from services.agent.conversation_context import (
     ConversationContextComposer, ConversationContextConfig,
 )
 from services.agent.repair_policy import (
     ConversationRepairPolicy, RepairKind, RepairPolicyConfig,
 )
-from services.agent.types import (
+from interfaces.state import (
     AgentEventKind, AgentEventSource, AgentStateSnapshot, EventProvenance,
     GroundedEvent, OpenThread, ThreadEvidence, ThreadKind,
 )

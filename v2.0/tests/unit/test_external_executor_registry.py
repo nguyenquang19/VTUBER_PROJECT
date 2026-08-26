@@ -5,16 +5,16 @@ import asyncio
 
 import pytest
 
-from interfaces.action_execution import ActionVerifier, VerificationResult
+from interfaces.execution import ActionVerifier, VerificationResult
 from interfaces.base import HealthStatus
 from interfaces.compatibility import ActionRequest, ActionResult
-from interfaces.external_executor import (
+from interfaces.execution import (
     ExternalActionExecutor,
     ExternalExecutorBinding,
     RollbackResult,
     RollbackStatus,
 )
-from services.action.external_registry import ExternalExecutorRegistry
+from services.execution.registry import ExternalExecutorRegistry
 
 
 class _Executor(ExternalActionExecutor):

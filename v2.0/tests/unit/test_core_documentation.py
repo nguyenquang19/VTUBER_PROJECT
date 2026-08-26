@@ -277,7 +277,7 @@ def test_canonical_docs_keep_current_phase_and_release_limits_explicit() -> None
         assert statement not in combined, f"stale implementation claim returned: {statement}"
 
 
-def test_s2_checkpoint_and_compatibility_boundary_are_current() -> None:
+def test_s2_checkpoint_and_s8_canonical_boundary_are_current() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     index = (ROOT / "docs" / "README.md").read_text(encoding="utf-8")
     blueprint = (
@@ -290,8 +290,9 @@ def test_s2_checkpoint_and_compatibility_boundary_are_current() -> None:
         assert "d02c84e" in document
     assert "S3/MCB-5 chưa bắt đầu" in combined
     assert "config/state.yaml" in combined
-    assert "config/agent_state.yaml" in combined
-    assert "config/relationships.yaml" in combined
+    assert not (ROOT / "config" / "agent_state.yaml").exists()
+    assert not (ROOT / "config" / "relationships.yaml").exists()
+    assert "không còn compatibility YAML" in spec
     assert "CanonicalEventNormalizer" in spec
     assert "AuthoritativeStateReducer" in spec
     assert "│   ├── models.yaml" in blueprint

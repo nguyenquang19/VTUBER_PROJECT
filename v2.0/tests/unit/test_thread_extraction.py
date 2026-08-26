@@ -8,7 +8,7 @@ import pytest
 
 from interfaces.llm import LLMToken
 from services.agent.thread_extraction import PostHocThreadExtractor
-from services.agent.types import (
+from interfaces.state import (
     AgentEventKind, AgentEventSource, AgentStateSnapshot, EventProvenance,
     GroundedEvent, OpenThread,
 )

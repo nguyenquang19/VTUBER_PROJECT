@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from interfaces.action_transaction import ActionTransactionState
-from orchestrator.metrics_collector import MetricsCollector
-from services.director.action_transaction import ActionTransactionManager
+from interfaces.execution import ActionTransactionState
+from services.operations.metrics import MetricsCollector
+from services.execution.transaction import ActionTransactionManager
 
 
 def test_transaction_follows_delivery_before_commit() -> None:

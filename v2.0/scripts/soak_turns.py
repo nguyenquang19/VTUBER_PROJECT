@@ -32,7 +32,8 @@ from dashboard.dashboard_server import DashboardServer  # noqa: E402
 from orchestrator.config_loader import ConfigLoader  # noqa: E402
 from orchestrator.fallback_manager import FallbackManager  # noqa: E402
 from orchestrator.logger import get_logger  # noqa: E402
-from orchestrator.metrics_collector import MetricsCollector  # noqa: E402
+from services.operations.metrics import MetricsCollector  # noqa: E402
+from services.operations.surface import OperationsSurface  # noqa: E402
 from services.llm.canned_response import CannedResponder  # noqa: E402
 from services.llm.llama_cpp_llm import LlamaCppLLMService  # noqa: E402
 from services.llm.llm_turn import LLMTurnRunner  # noqa: E402
@@ -105,14 +106,26 @@ async def main() -> None:
 
     dash_task = None
     dash_server = None
+    dashboard_surface = None
     if args.dashboard:
         import uvicorn
         from orchestrator.credential_contract import require_dashboard_control_token
 
         host = loader.get("system", "dashboard.host", "127.0.0.1")
         port = int(loader.get("system", "dashboard.port", 7860))
+        dashboard_surface = OperationsSurface.from_loader(loader, metrics=metrics)
+        dashboard_surface.register_snapshot_provider("runtime", lambda: {
+            "online": True, "mode": "diagnostic", "controls_available": False,
+        })
+        dashboard_surface.register_snapshot_provider("llm", metrics.llm_snapshot)
+        dashboard_surface.register_snapshot_provider("data_label", lambda: {
+            "latest_turn": {
+                "session_id": runner.session_id, "turn_id": runner.last_turn_id,
+            } if runner.last_turn_id else None,
+        })
+        await dashboard_surface.start()
         dash_server = DashboardServer(
-            metrics=metrics,
+            operations_surface=dashboard_surface, metrics=metrics,
             push_interval_s=0.5,
             host=host,
             port=port,
@@ -166,6 +179,8 @@ async def main() -> None:
                 await dash_task
             await dash_server.stop_push_loop()
             dash_task.cancel()
+        if dashboard_surface is not None:
+            await dashboard_surface.stop()
         await svc.stop()
 
 

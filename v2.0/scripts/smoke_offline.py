@@ -24,7 +24,7 @@ if str(REPO_ROOT) not in sys.path:
 from dashboard.dashboard_server import DashboardServer
 from orchestrator.config_loader import ConfigLoader
 from orchestrator.credential_contract import validate_environment_reference
-from orchestrator.metrics_collector import MetricsCollector
+from services.operations.metrics import MetricsCollector
 from orchestrator.stream_runtime import StreamRuntime, StreamRuntimeConfig
 from services.input.discord_chat import DiscordChatService
 from services.input.youtube_chat import YouTubeChatService

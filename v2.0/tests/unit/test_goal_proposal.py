@@ -10,8 +10,8 @@ from interfaces.llm import LLMToken
 from services.agent.agenda_policy import AgendaPolicy, AgendaPolicyConfig
 from services.agent.goal_manager import GoalLimits, GoalManager
 from services.agent.goal_proposal import GoalProposalGenerator
-from services.agent.goal_types import GoalKind, GoalSource
-from services.agent.types import (
+from interfaces.state import GoalKind, GoalSource
+from interfaces.state import (
     AgentEventKind,
     AgentEventSource,
     AgentStateSnapshot,

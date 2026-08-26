@@ -13,11 +13,11 @@ from interfaces.llm import LLMToken
 from orchestrator.config_loader import ConfigLoader
 from orchestrator.emotion_orchestrator import EmotionOrchestrator
 from orchestrator.fallback_manager import FallbackManager
-from orchestrator.metrics_collector import MetricsCollector
+from services.operations.metrics import MetricsCollector
 from orchestrator.stream_runtime import StreamRuntime, StreamRuntimeConfig
-from services.agent.agent_state import AgentState
-from services.agent.event_ledger import EventLedger
-from services.agent.types import AgentEventKind
+from services.state.agent import AgentState
+from services.state.event_ledger import EventLedger
+from interfaces.state import AgentEventKind
 from services.input.chat_router import ChatRouter
 from services.llm.canned_response import CannedResponder
 from services.llm.llm_turn import LLMTurnRunner
@@ -217,9 +217,8 @@ async def test_dashboard_snapshot_is_detached_and_read_only() -> None:
     await source.queue.put(_chat("chat-dashboard", "Nói về cà phê nhé"))
     await _wait_for(lambda: state.snapshot().last_spoken_summary is not None)
 
-    server = DashboardServer(agent_state=state)
-    dashboard = await server.build_snapshot()
-    dashboard["agent"]["recent_events"][0]["payload"]["category"] = "invented"
+    dashboard = state.snapshot().to_dict()
+    dashboard["recent_events"][0]["payload"]["category"] = "invented"
     assert "invented" not in str(state.snapshot().to_dict())
     await router.stop()
     await state.stop()

@@ -11,7 +11,7 @@ from services.llm.llm_turn import LLMTurnRunner
 from services.llm.prompt_cache import PromptCache
 from services.llm.prompt_manager import PromptManager
 from services.cognition.agent_context_projection import AgentContextRenderer, ContextRenderConfig
-from services.agent.types import (
+from interfaces.state import (
     AgentEventKind,
     AgentEventSource,
     AgentStateSnapshot,

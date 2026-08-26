@@ -4,7 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from interfaces.decision_record import DecisionCandidateSummary
-from orchestrator.metrics_collector import MetricsCollector
+from services.operations.metrics import MetricsCollector
 from services.director.decision_record import DecisionRecordManager
 
 

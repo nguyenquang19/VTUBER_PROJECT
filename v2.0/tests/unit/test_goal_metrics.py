@@ -1,6 +1,6 @@
 from prometheus_client import CollectorRegistry
 
-from orchestrator.metrics_collector import MetricsCollector
+from services.operations.metrics import MetricsCollector
 
 
 def test_goal_lifecycle_metrics_and_active_age_are_exported() -> None:

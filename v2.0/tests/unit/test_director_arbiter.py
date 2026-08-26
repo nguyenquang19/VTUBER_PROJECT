@@ -6,12 +6,12 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from interfaces.animation import MoodState
-from services.agent.goal_types import Goal, GoalKind, GoalSnapshot, GoalSource, GoalStatus
-from services.agent.types import AgentStateSnapshot, OpenThread
+from interfaces.state import Goal, GoalKind, GoalSnapshot, GoalSource, GoalStatus
+from interfaces.state import AgentStateSnapshot, OpenThread
 from services.director.action_types import DirectorChatRef, DirectorInput
 from services.director.chat_pulse import ChatPulse
 from services.director.director import Director, DirectorAction, Segment
-from orchestrator.metrics_collector import MetricsCollector
+from services.operations.metrics import MetricsCollector
 from services.director.salience import SaliencePool
 from services.agent.mood_policy import MoodActionPolicy, MoodPolicyConfig
 

@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from orchestrator.config_loader import ConfigLoader
-from orchestrator.metrics_collector import MetricsCollector
+from services.operations.metrics import MetricsCollector
 from services.evaluation.acceptance import TextAcceptanceRunner
 
 

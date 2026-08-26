@@ -16,7 +16,7 @@ from interfaces.animation import (
 from interfaces.base import HealthStatus
 from interfaces.compatibility import ActionRequest, ActionStatus
 from interfaces.tts import AudioChunk
-from services.action.legacy_adapters import (
+from services.execution.local import (
     ActionAdapterConfig,
     AvatarGestureAuthority,
     AvatarGestureExecutor,

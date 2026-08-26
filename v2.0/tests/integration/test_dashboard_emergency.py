@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import asyncio
+
 from fastapi.testclient import TestClient
 
 from dashboard.dashboard_server import DashboardServer
+from orchestrator.runtime_operations_surface import bind_emergency_commands
+from services.operations.surface import OperationsSurface, OperationsSurfaceConfig
 
 CONTROL_TOKEN = "test-dashboard-control-token-123456"
 CONTROL_HEADERS = {"X-Mai-Operator-Token": CONTROL_TOKEN}
@@ -28,9 +32,13 @@ class FakeEmergencyController:
 
 def test_dashboard_emergency_routes_use_fail_closed_controller() -> None:
     controller = FakeEmergencyController()
+    surface = OperationsSurface(OperationsSurfaceConfig(8, 8, 80, 1024))
+    surface.register_snapshot_provider("emergency", controller.snapshot)
+    bind_emergency_commands(surface, controller)
+    asyncio.run(surface.start())
     client = TestClient(
         DashboardServer(
-            emergency_controller=controller, control_token=CONTROL_TOKEN,
+            operations_surface=surface, control_token=CONTROL_TOKEN,
         ).app,
         headers=CONTROL_HEADERS,
     )

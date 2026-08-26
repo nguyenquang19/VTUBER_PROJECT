@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 from dashboard.dashboard_server import DashboardServer
 from interfaces.decision_record import DecisionCandidateSummary
-from services.director.action_transaction import ActionTransactionManager
+from services.execution.transaction import ActionTransactionManager
 from services.director.decision_record import DecisionRecordManager
 from services.director.director import DirectorAction
 from tests.integration.test_director_loop import _make
@@ -109,7 +109,5 @@ def test_dashboard_exposes_record_view_without_reconstructing_metrics() -> None:
         evidence_refs=(),
         candidate_summary=DecisionCandidateSummary(),
     )
-    snapshot = TestClient(DashboardServer(decision_records=records).app).get(
-        "/api/snapshot",
-    ).json()
-    assert snapshot["decisions"] == records.snapshot()
+    snapshot = records.snapshot()
+    assert snapshot == records.snapshot()

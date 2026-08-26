@@ -19,7 +19,7 @@ from interfaces.cognition import (
     CognitiveMode,
 )
 from interfaces.llm import LLMRequest, LLMToken
-from services.cognition.brain_shadow import (
+from services.cognition.brain import (
     CognitiveBrain,
     CognitiveBrainParseError,
     CognitiveBrainSchemaError,

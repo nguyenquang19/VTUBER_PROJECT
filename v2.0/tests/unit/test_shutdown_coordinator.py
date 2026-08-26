@@ -4,7 +4,7 @@ import asyncio
 import json
 from pathlib import Path
 
-from orchestrator.metrics_collector import MetricsCollector
+from services.operations.metrics import MetricsCollector
 from services.operations.shutdown_coordinator import ShutdownCoordinator
 
 

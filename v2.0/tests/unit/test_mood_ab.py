@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from orchestrator.config_loader import ConfigLoader
-from orchestrator.metrics_collector import MetricsCollector
+from services.operations.metrics import MetricsCollector
 from scripts.run_mood_ab_review import main
 from services.evaluation.mood_ab import MoodABReview
 

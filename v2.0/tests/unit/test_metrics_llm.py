@@ -1,8 +1,7 @@
 """Test LLM metrics trong MetricsCollector + dashboard snapshot (1.F)."""
 from __future__ import annotations
 
-from dashboard.dashboard_server import DashboardServer
-from orchestrator.metrics_collector import MetricsCollector
+from services.operations.metrics import MetricsCollector
 
 
 def mc() -> MetricsCollector:
@@ -52,14 +51,3 @@ class TestRecordLLMTurn:
         text = m.prometheus_text().decode("utf-8")
         assert "mai_llm_requests_total" in text
         assert "mai_llm_parse_total" in text
-
-
-class TestDashboardLLMSection:
-    async def test_snapshot_includes_llm(self) -> None:
-        m = mc()
-        m.record_llm_turn(150.0, 42.0, parse_ok=True, level_used=0)
-        server = DashboardServer(metrics=m)
-        snap = await server.build_snapshot()
-        assert "llm" in snap
-        assert snap["llm"]["requests_total"] == 1
-        assert snap["llm"]["last_ttft_ms"] == 150.0

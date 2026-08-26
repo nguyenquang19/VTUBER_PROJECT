@@ -4,8 +4,8 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from services.agent.agent_state import AgentStateLimits, AgentStateReducer
-from services.agent.types import (
+from services.state.agent import AgentStateLimits, AgentStateReducer
+from interfaces.state import (
     AgentEventKind,
     AgentEventSource,
     AgentStateSnapshot,
@@ -116,8 +116,8 @@ def test_snapshot_to_dict_does_not_mutate_value_object() -> None:
 
 
 def test_active_goal_ref_is_owned_by_goal_manager_boundary(reducer: AgentStateReducer) -> None:
-    from services.agent.agent_state import AgentState
-    from services.agent.event_ledger import EventLedger
+    from services.state.agent import AgentState
+    from services.state.event_ledger import EventLedger
 
     state = AgentState(reducer, EventLedger(4, 60, 60, clock=lambda: NOW), clock=lambda: NOW)
     state.set_active_goal_ref("goal-1")

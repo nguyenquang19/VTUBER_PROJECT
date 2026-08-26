@@ -5,11 +5,11 @@ from datetime import datetime, timezone
 
 import pytest
 
-from interfaces.action_execution import VerificationResult
+from interfaces.execution import VerificationResult
 from interfaces.compatibility import ActionRequest, ActionResult, ActionStatus
 from interfaces.director_v2 import DirectorV2Candidate, DirectorV2Context, DirectorV2Proposal
 from interfaces.trajectory import TrajectorySnapshotRefs
-from orchestrator.metrics_collector import MetricsCollector
+from services.operations.metrics import MetricsCollector
 from services.director.trajectory import TrajectoryConfig, TrajectoryRecorder
 from services.director.v2_shadow import DirectorV2Shadow
 from services.operations.turn_journal import TurnJournal, TurnJournalConfig

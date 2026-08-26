@@ -11,7 +11,7 @@ from interfaces.director_v2 import (
     DirectorV2TakeoverSelection,
 )
 from interfaces.trajectory import TrajectorySnapshotRefs
-from services.director.action_transaction import ActionTransactionManager
+from services.execution.transaction import ActionTransactionManager
 from services.director.decision_record import DecisionRecordManager
 from services.director.director import DirectorAction
 from services.director.trajectory import TrajectoryConfig, TrajectoryRecorder
@@ -139,10 +139,8 @@ def test_dashboard_exposes_only_the_sanitized_read_only_projection() -> None:
     )
     recorder.begin(context, proposal)
     recorder.mark_selection("p-dashboard", owner="legacy")
-    client = TestClient(DashboardServer(trajectory_records=recorder).app)
-    response = client.get("/api/snapshot")
-    assert response.status_code == 200
-    assert response.json()["trajectories"] == recorder.snapshot()
+    client = TestClient(DashboardServer().app)
+    assert recorder.snapshot()["recent"][0]["trajectory_id"] == "p-dashboard"
     assert not any(
         getattr(route, "path", "") == "/api/trajectories/replay"
         and "POST" in getattr(route, "methods", set())

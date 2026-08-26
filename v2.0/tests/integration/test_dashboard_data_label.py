@@ -7,15 +7,10 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from dashboard.dashboard_server import DashboardServer
+from services.operations.surface import OperationsSurface, OperationsSurfaceConfig
 
 CONTROL_TOKEN = "test-dashboard-control-token-123456"
 CONTROL_HEADERS = {"X-Mai-Operator-Token": CONTROL_TOKEN}
-
-
-class FakeRunner:
-    def __init__(self, last=0, session_id="session-live"):
-        self.last_turn_id = last
-        self.session_id = session_id
 
 
 def _read(path: Path):
@@ -23,8 +18,15 @@ def _read(path: Path):
 
 
 def _server(tmp_path, last_turn_id=5):
+    surface = OperationsSurface(OperationsSurfaceConfig(8, 8, 80, 1024))
+    surface.register_snapshot_provider("data_label", lambda: {
+        "latest_turn": (
+            {"session_id": "session-live", "turn_id": last_turn_id}
+            if last_turn_id else None
+        ),
+    })
     return DashboardServer(
-        runner=FakeRunner(last_turn_id), data_dir=str(tmp_path),
+        operations_surface=surface, data_dir=str(tmp_path),
         control_token=CONTROL_TOKEN,
     )
 
