@@ -1,32 +1,17 @@
-# Project: Mai V2 — AI VTuber
+# CLAUDE.md
 
-> Current working tree: root `v2.0/`.
->
-> Frozen source snapshot: `ver/v1.0/` — không sửa trực tiếp.
->
-> Product version source: `v2.0/config/system.yaml::app.version`.
+Chỉ dẫn cho Claude Code. **Nguồn canonical là [`AGENTS.md`](AGENTS.md)** — đọc hết file đó trước tiên;
+CLAUDE.md không lặp lại nội dung để tránh lệch.
 
-## Điểm vào bắt buộc
+## Tóm tắt tối thiểu
 
-- `AGENTS.md` — version layout và workflow cấp repo.
-- `v2.0/AGENTS.md` — ràng buộc trong working tree.
-- `v2.0/MAI_V2_MASTER_IMPLEMENTATION_BLUEPRINT_v2.0.md` — scope, phase order và release gates.
-- `v2.0/docs/00_V1_0_BASELINE.md` — frozen baseline/invariants.
-- `v2.0/docs/README.md` — index tài liệu runtime.
+- Working tree: `v2.0/` (repo root). Frozen: `ver/v1.0/` — không sửa. Product version:
+  `config/system.yaml::app.version`.
+- Đọc theo thứ tự: `AGENTS.md` → `docs/MAI_V2_SYSTEM_SPEC.md` → `docs/V1_BASELINE.md` → `docs/ROADMAP.md`.
+- Nguồn sự thật khi mâu thuẫn: `interfaces/` → `orchestrator/stream_runtime.py` → `services/` →
+  `config/*.yaml` → `tests/` → SYSTEM_SPEC. Báo conflict trước khi sửa.
+- Windows 11/PowerShell, Python 3.11+, `llama.cpp`. Docs-first, một phase mỗi task, targeted test +
+  impacted regression, dừng review. Không commit state trước verified success, không cho LLM invent
+  capability, không thêm V3.
 
-Không tìm `PHASE.md`, `docs/QUICKSTART.md` hoặc `docs/ARCHITECTURE.md`. Blueprint V2 là execution plan
-canonical; các tài liệu `00`–`08` mô tả behavior đã triển khai và phải được cập nhật theo từng phase.
-
-## Source-of-truth order
-
-Cho behavior hiện hành: interfaces/models → `orchestrator/stream_runtime.py` → `services/` → YAML trong
-`config/` → tài liệu runtime. Cho scope/thứ tự migration: blueprint V2. Nếu có conflict, báo trước khi sửa;
-không tự đoán và không rewrite lịch sử V1.
-
-## Quy tắc làm việc
-
-- Windows 11/PowerShell, Python 3.11+, llama.cpp.
-- Docs-first trước thay đổi code/config/contract/structure.
-- Interface-based, feature-flagged, observable, config-over-code và fail-safe.
-- Làm đúng một phase mỗi task; targeted tests + impacted V1 regression; dừng để user review.
-- Không commit state trước verified success, không cho LLM invent capability, không thêm V3 scope.
+Mọi chi tiết ràng buộc, invariant, bẫy naming và workflow: xem `AGENTS.md`.

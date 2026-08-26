@@ -1,54 +1,50 @@
 # Mai V2 — AI VTuber
 
-Mai là AI VTuber tiếng Việt chạy local trên Windows 11. V2 mở rộng runtime host hội thoại hiện có thành
-world-aware autonomous agent bằng một closed loop có perception, world/self state, dynamic capability,
-typed action, executor, verification và commit/rollback.
+Mai là AI VTuber tiếng Việt chạy **local trên Windows 11**. Backend hội thoại `llama.cpp`, đầu vào chat
+YouTube/Discord, đầu ra text + audio VieNeu-TTS + subtitle + avatar VTube Studio. Runtime có Director quyết
+định hành động, mood Hybrid, memory tùy chọn, transaction tại ranh giới delivery, dashboard operator và bộ
+đánh giá offline.
 
 ## Version layout
 
 ```text
 ver/
-└ v1.0/   frozen source snapshot; owner-managed archive
-v2.0/     current implementation working tree at repository root
+└ v1.0/   snapshot đóng băng; chỉ dùng baseline/regression/reference
+v2.0/     working tree hiện hành
 ```
 
-`ver/v1.0/` được giữ bất biến. Mọi thay đổi V2 thực hiện trong root `v2.0/`. Coding agent không tự tạo
-version mới trong `ver/`; owner archive vào đó khi nâng major version. Virtual environment, model,
-logs, secrets và runtime data không được nhân bản theo version; tái tạo environment từ lockfile và cấu
-hình resource path riêng.
-
-Tên thư mục `v2.0`, blueprint version và product version là ba trục khác nhau. Product version hiện hành
-luôn lấy từ `v2.0/config/system.yaml::app.version`; không đổi thành 2.0.0 chỉ vì tạo working tree.
+`ver/v1.0/` giữ bất biến. Mọi thay đổi thực hiện trong `v2.0/`. Product version lấy **duy nhất** từ
+`v2.0/config/system.yaml::app.version`. Venv, model, logs, secrets và runtime data không nhân bản theo
+version — tái tạo từ lockfile.
 
 ## Tài liệu
 
-- [V2 working-tree instructions](v2.0/AGENTS.md)
-- [MAI V2 Master Implementation Blueprint v2.0](v2.0/MAI_V2_MASTER_IMPLEMENTATION_BLUEPRINT_v2.0.md)
-- [Runtime README](v2.0/README.md)
-- [Technical documentation index](v2.0/docs/README.md)
-- [Frozen V1 baseline](ver/v1.0/docs/00_V1_0_BASELINE.md)
+| File | Vai |
+|---|---|
+| [`AGENTS.md`](AGENTS.md) | Chỉ dẫn cho coding agent (Codex/Claude): workflow, ràng buộc, review loop. `CLAUDE.md` trỏ về đây. |
+| [`v2.0/README.md`](v2.0/README.md) | README runtime: tạo môi trường, chạy live |
+| [`v2.0/docs/MAI_V2_SYSTEM_SPEC.md`](v2.0/docs/MAI_V2_SYSTEM_SPEC.md) | Nguồn sự thật về hành vi hiện tại |
+| [`v2.0/docs/ROADMAP.md`](v2.0/docs/ROADMAP.md) | Scope + kế hoạch phase tương lai |
+| [`v2.0/docs/V1_BASELINE.md`](v2.0/docs/V1_BASELINE.md) | Lịch sử đóng băng release `1.0.0` — bất biến |
+| [`v2.0/CHANGELOG.md`](v2.0/CHANGELOG.md) | Lịch sử các release |
 
-Blueprint khóa scope và thứ tự migration. Tài liệu runtime chỉ mô tả capability đã triển khai; mỗi task
-chỉ thực hiện một phase, chạy targeted test + impacted V1 regression rồi dừng để review.
+Nguồn sự thật khi mâu thuẫn: `interfaces/` → `orchestrator/stream_runtime.py` → `services/` →
+`config/*.yaml` → `tests/` → SYSTEM_SPEC → README/ROADMAP.
 
-## Chạy runtime hiện hành
+## Chạy nhanh
 
 ```powershell
 Set-Location .\v2.0
-python -m venv venv
-.\venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+.\scripts\bootstrap_environment.ps1
+$env:MAI_DASHBOARD_CONTROL_TOKEN = "GENERATE_A_LONG_RANDOM_SECRET"
 .\scripts\start_live.ps1 -Platform youtube -VideoId "VIDEO_ID"
 ```
 
-Dashboard mặc định: `http://127.0.0.1:7860`.
+Chi tiết môi trường, Discord, memory, dashboard: xem [`v2.0/README.md`](v2.0/README.md).
 
 ## Invariants chính
 
-- World Model không chọn action.
-- LLM không định nghĩa available capabilities.
-- Director không gọi external tool trực tiếp.
-- Không assume success trước verification.
-- Không commit world/business state từ lời LLM.
-- Hard safety/permission/transaction rules thắng soft policy.
-- Không thêm logic V3.
+- Tick-driven 1.5s, không reactive. Quyết định ≠ sinh chữ. Tạo câu ≠ đã nói (`verify → commit → project`).
+- World Model không chọn action. LLM không định nghĩa capability. Director không gọi external tool trực tiếp.
+- Không assume success trước verification. Hard safety/permission/transaction thắng soft policy.
+- Threshold/TTL/cooldown/weight ở YAML. Feature mới: đăng ký `FeatureManager` + có metric. Không thêm V3.

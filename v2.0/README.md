@@ -1,53 +1,42 @@
-# Mai V2 working tree — AI VTuber runtime
+# Mai V2 — AI VTuber runtime
 
-> **Implementation generation:** `v2.0` — development working tree.
->
-> **Inherited runtime release:** `1.4.3` (patch trên frozen baseline `1.0.0`, 2026-08-14).
->
-> **Implementation status:** Phase 1–15 đã đóng gate kỹ thuật. Structure normalization S0–S4 đã được
-> checkpoint; S2 tại `d02c84e`, S3 canonical Cognition tại `1c6d9d6`, S4 Turn Kernel tại `361bc44`.
-> S5 canonical execution/outcome đã được owner duyệt, commit và push tại `073352b`. S6 canonical Continuity đã
-> được owner duyệt, commit và push tại `ac4b3f3`. S7 canonical Operations Surface + offline split đã được
-> owner duyệt, commit và push tại `1f1b48b`. S8 dependency-closed compaction đã được owner duyệt, commit và
-> push tại `723ca33`. Hậu kiểm post-S8 từ checkpoint này đã hoàn tất, được owner duyệt và vượt full regression;
-> tracked source hiện là baseline chuẩn bị cho tuning.
-> Compatibility vẫn là public owner.
-> Live runtime dùng một `CognitiveContextBuilder`,
-> một `CognitiveModelAdapter`, còn
-> Agent/World/Perception event đi qua `CanonicalEventNormalizer → CanonicalEventIngress → AuthoritativeStateReducer`.
-> Director V2 đang ở strict primary mode cho test-cutover; Cognitive Brain là subordinate shadow worker
-> mặc định tắt dưới Turn Kernel và chưa có takeover authority.
-> OBS scene/perception, closed-loop canary và release `2.0.0` vẫn chưa đạt live gate.
->
-> Mọi thay đổi product được chấp nhận sau baseline phải tăng version và cập nhật `CHANGELOG.md`.
+Mai là AI VTuber tiếng Việt chạy **local trên Windows 11**. Backend hội thoại `llama.cpp`, đầu vào chat
+YouTube/Discord, đầu ra text + audio VieNeu-TTS + subtitle + avatar VTube Studio. Runtime có Director
+quyết định hành động, mood Hybrid 10Hz, memory tùy chọn, transaction tại ranh giới delivery, dashboard
+operator và bộ đánh giá offline.
 
-Blueprint triển khai canonical: [MAI V2 — Master Implementation Blueprint v2.0](MAI_V2_MASTER_IMPLEMENTATION_BLUEPRINT_v2.0.md).
-Source snapshot V1 nằm tại `../ver/v1.0/` và không được sửa trực tiếp. Chỉ triển khai một phase mỗi task
-trong working tree này; giữ V1 fallback cho tới khi shadow/rollout gate tương ứng hoàn tất.
+- **Product version:** lấy duy nhất từ `config/system.yaml::app.version` (hiện `1.4.3`).
+- **Working tree:** `v2.0/`. Frozen snapshot: `ver/v1.0/` — không sửa trực tiếp.
 
-Mai là hệ thống AI VTuber chạy local trên Windows 11. Backend hội thoại là `llama.cpp`, đầu vào
-hiện tại là YouTube/Discord chat, đầu ra là text, audio VieNeu-TTS và subtitle fallback. Runtime có
-Director quyết định hành động, mood Hybrid, memory tùy chọn, transaction tại ranh giới delivery,
-operator dashboard và bộ công cụ đánh giá/vận hành.
+## Tài liệu
 
-## Tạo môi trường chuẩn
+Ba tài liệu chính thức, không tạo docs lẻ:
 
-Yêu cầu Windows 11 và `uv`. Script bootstrap cài Python `3.11.15`, dựng môi trường tạm, cài đúng lock
-file, xác minh dependency rồi mới thay `venv`; môi trường cũ được giữ làm backup.
+| Tài liệu | Vai trò |
+|---|---|
+| [`docs/MAI_V2_SYSTEM_SPEC.md`](docs/MAI_V2_SYSTEM_SPEC.md) | **Nguồn sự thật về hành vi hiện tại** — kiến trúc, luồng, invariant, trạng thái |
+| [`docs/ROADMAP.md`](docs/ROADMAP.md) | Scope tương lai + kế hoạch phase (Brain-primary, naturalness) |
+| [`docs/V1_BASELINE.md`](docs/V1_BASELINE.md) | Lịch sử đóng băng release `1.0.0` — bất biến |
+
+Cho agent: [`AGENTS.md`](AGENTS.md) (workflow + ràng buộc). Nguồn sự thật khi mâu thuẫn:
+`interfaces/` → `orchestrator/stream_runtime.py` → `services/` → `config/*.yaml` → `tests/` → SYSTEM_SPEC.
+
+## Tạo môi trường
+
+Yêu cầu Windows 11 + `uv`. Bootstrap cài Python `3.11.15`, dựng staging, cài `requirements.lock.txt`,
+`pip check`, rồi mới thay `venv` (giữ backup).
 
 ```powershell
 .\scripts\bootstrap_environment.ps1
 .\scripts\check_environment.ps1 -SkipLlamaHealth
 ```
 
-Không dùng `requirements.txt` để dựng môi trường phát triển/production tái lập; nguồn dependency chuẩn
-là `requirements.lock.txt`.
+Nguồn dependency chuẩn là `requirements.lock.txt`, không dùng `requirements.txt` để dựng môi trường tái lập.
 
 ## Chạy live
 
 ```powershell
-# Dashboard control credential (bắt buộc vì launcher mặc định bật dashboard)
-$env:MAI_DASHBOARD_CONTROL_TOKEN = "GENERATE_A_LONG_RANDOM_SECRET"
+$env:MAI_DASHBOARD_CONTROL_TOKEN = "GENERATE_A_LONG_RANDOM_SECRET"   # bắt buộc khi dashboard bật
 
 # YouTube
 .\scripts\start_live.ps1 -Platform youtube -VideoId "VIDEO_ID"
@@ -56,47 +45,21 @@ $env:MAI_DASHBOARD_CONTROL_TOKEN = "GENERATE_A_LONG_RANDOM_SECRET"
 $env:DISCORD_BOT_TOKEN = "YOUR_TOKEN"
 .\scripts\start_live.ps1 -Platform discord
 
-# YouTube + Discord
+# YouTube + Discord + Memory
 $env:DISCORD_BOT_TOKEN = "YOUR_TOKEN"
-.\scripts\start_live.ps1 -Platform youtube -VideoId "VIDEO_ID" -WithDiscord
+.\scripts\start_live.ps1 -Platform youtube -VideoId "VIDEO_ID" -WithDiscord -Memory
 ```
 
-Runtime không tự nạp `.env`. `MAI_DASHBOARD_CONTROL_TOKEN` bắt buộc khi dashboard bật;
-`DISCORD_BOT_TOKEN` chỉ bắt buộc cho phiên có Discord; `OBS_WEBSOCKET_PASSWORD` chỉ bắt buộc khi
-operator chủ động bật `obs_scene_executor`. Các giá trị phải được PowerShell hoặc secret store truyền vào process, không ghi vào
-YAML, CLI argument, `.env.example` hoặc Git.
+Launcher mặc định bật TTS + dashboard. `-Memory` bật semantic memory. Dashboard `http://127.0.0.1:7860`
+(loopback, token-gated). Credential chỉ truyền qua environment/secret store lúc chạy, không ghi vào
+YAML/CLI/`.env.example`/Git.
 
-Launcher mặc định bật TTS và dashboard. Thêm `-Memory` để bật semantic memory. Dashboard ở
-`http://127.0.0.1:7860`, chỉ bind loopback và yêu cầu operator token cho mọi lệnh thay đổi trạng thái;
-UI sẽ hỏi token ở lần điều khiển đầu tiên và không nhúng secret vào HTML. Operator Console là dashboard duy
-nhất; live chỉ đọc/ra lệnh qua `OperationsSurface`, còn standalone dùng `DashboardDataSource`. OBS có thể đọc subtitle fallback từ
-`logs\live\subtitle.txt`.
+`python -m orchestrator.main` là entrypoint cũ, từ `1.4.1` chỉ fail-fast — không dùng để chạy live.
 
-`python -m orchestrator.main` là entrypoint bootstrap cũ và từ `1.4.1` chỉ fail-fast với hướng dẫn;
-không dùng lệnh đó để chạy live. Production chỉ đi qua launcher PowerShell ở trên hoặc hai platform
-entrypoint mà launcher gọi.
+## Invariants chính
 
-## Bắt đầu đọc tài liệu
-
-- [Mục lục tối giản](docs/README.md)
-- [Baseline V1 bất biến](docs/V1_BASELINE.md)
-- [Đặc tả hệ thống V2 hiện tại](docs/MAI_V2_SYSTEM_SPEC.md)
-- [Blueprint V2 — roadmap, không phải current truth](MAI_V2_MASTER_IMPLEMENTATION_BLUEPRINT_v2.0.md)
-
-## Nguyên tắc source of truth
-
-Các tài liệu runtime mô tả code đang chạy; blueprint chỉ khóa scope và thứ tự migration, không được dùng
-để tuyên bố feature chưa triển khai là production. Khi tài liệu runtime và code mâu thuẫn, ưu tiên theo
-thứ tự: model/interface trong `interfaces/` → runtime composition trong
-`orchestrator/stream_runtime.py` → implementation trong `services/` → YAML trong `config/` → tests →
-`docs/MAI_V2_SYSTEM_SPEC.md` → tài liệu giới thiệu/roadmap. Mọi thay đổi contract hoặc pipeline phải cập
-nhật System Spec trong cùng change.
-
-Product version lấy duy nhất từ `config/system.yaml::app.version`. Các nhãn Mood v2, turn schema v3,
-M8/M10, `mai-agent-v1`, tên thư mục `v2.0` hoặc version blueprint là version/mốc khác, không phải
-product release.
-
-`config/state.yaml` là canonical owner cho giới hạn ingress/Agent/World/Self/Relationship sau S2;
-`config/cognition.yaml` là owner duy nhất cho context projection, typed Cognitive Context và Brain adapter.
-S8 đã xóa `config/agent_state.yaml`, `config/relationships.yaml` cùng alias logic tương ứng. Implementation
-Agent/EventLedger/World/Self hiện nằm trực tiếp dưới `services/state/`; không còn import facade đường cũ.
+- Tick-driven 1.5s, không reactive. Quyết định ≠ sinh chữ. Tạo câu ≠ đã nói (`verify → commit → project`).
+- World Model không chọn action. LLM không định nghĩa capability. Director không gọi external tool trực tiếp.
+- Không assume success trước verification. Không commit world/business state từ lời LLM.
+- Hard safety/permission/transaction thắng soft policy. Không thêm logic V3.
+- Threshold/TTL/cooldown/weight ở YAML. Feature mới: đăng ký `FeatureManager` + có metric.

@@ -1,57 +1,31 @@
 # Tài liệu Mai V2
 
-**Implementation generation:** `v2.0`
-
-**Product version:** lấy duy nhất từ `config/system.yaml::app.version`, hiện là `1.4.3`
-
-**Ngày đối chiếu:** 27/08/2026
-
-Toàn dự án chỉ có ba nguồn tài liệu chính thức. Tệp mục lục này chỉ điều hướng, không phải nguồn thứ tư.
-Mọi hướng dẫn runtime, component, pipeline, cấu hình, storage, vận hành, bảo mật, kiểm thử và known gaps
-đã được gộp vào một đặc tả để tránh sai lệch giữa nhiều file.
+Chỉ ba nguồn chính thức. File này chỉ điều hướng, không phải nguồn thứ tư. Mọi hướng dẫn runtime,
+component, pipeline, cấu hình, storage, vận hành, bảo mật, kiểm thử và known gaps nằm trong SYSTEM_SPEC.
 
 | Tài liệu | Vai trò |
 |---|---|
-| [V1_BASELINE.md](V1_BASELINE.md) | Ảnh chụp lịch sử bất biến của release `1.0.0`, invariant và version policy |
 | [MAI_V2_SYSTEM_SPEC.md](MAI_V2_SYSTEM_SPEC.md) | Nguồn sự thật duy nhất về implementation và hành vi hiện tại |
-| [MAI_V2_MASTER_IMPLEMENTATION_BLUEPRINT_v2.0.md](../MAI_V2_MASTER_IMPLEMENTATION_BLUEPRINT_v2.0.md) | Scope, thứ tự migration và acceptance gate tương lai |
-| [baselines/](baselines/) | Evidence máy đọc đã làm sạch; không phải hướng dẫn runtime |
-
-Blueprint chỉ quy định scope, thứ tự và acceptance gate tương lai; không chứng minh feature đã production.
-
-**Checkpoint cấu trúc hiện tại:** S0–S4 đã commit; S2 tại `d02c84e`, S3 canonical Cognition tại `1c6d9d6`,
-S4 Turn Kernel tại `361bc44`. Canonical ingress/authoritative state, một Cognition path và một live tick owner
-đã nằm trong live/replay graph; Compatibility vẫn public và Brain chỉ là subordinate shadow worker. S5
-canonical execution/outcome đã được owner duyệt, commit và push tại `073352b`. S6 canonical Continuity đã
-được owner duyệt, commit và push tại `ac4b3f3`. S7 canonical Operations Surface + offline split đã được
-owner duyệt, commit và push tại `1f1b48b`. S8 dependency-closed compaction đã được owner duyệt, commit và
-push tại `723ca33`. Hậu kiểm post-S8 từ checkpoint này đã hoàn tất, được owner duyệt và vượt full regression;
-tracked source hiện là baseline chuẩn bị cho tuning. Product version vẫn là `1.4.3`.
+| [ROADMAP.md](ROADMAP.md) | Scope, thứ tự phase và acceptance gate tương lai (Brain-primary, naturalness) |
+| [V1_BASELINE.md](V1_BASELINE.md) | Ảnh chụp lịch sử bất biến release `1.0.0`, invariant, version policy |
+| [baselines/](baselines/) | Evidence máy đọc; không phải hướng dẫn runtime |
 
 ## Thứ tự đọc
 
-1. `V1_BASELINE.md` để khóa lịch sử, invariant và version policy.
-2. `MAI_V2_SYSTEM_SPEC.md` để hiểu toàn bộ hiện trạng và tìm owner/file cần sửa.
-3. Blueprint chỉ khi lập kế hoạch phase tiếp theo.
-4. Trước khi thay đổi, đọc interface → composition root → implementation → YAML → impacted tests.
+1. `V1_BASELINE.md` — khóa lịch sử, invariant, version policy.
+2. `MAI_V2_SYSTEM_SPEC.md` — hiểu hiện trạng, tìm owner/file cần sửa.
+3. `ROADMAP.md` — chỉ khi lập kế hoạch phase tiếp theo.
+4. Trước khi sửa: interface → composition root → implementation → YAML → impacted tests.
 
 ## Thứ tự nguồn sự thật
 
-Khi có mâu thuẫn: interface/model bất biến → composition trong `orchestrator/stream_runtime.py` →
-implementation service → production YAML → tests → `MAI_V2_SYSTEM_SPEC.md` → README/roadmap.
-Phải báo conflict trước khi sửa; không âm thầm chọn tài liệu thuận tiện hơn.
+Khi mâu thuẫn: `interfaces/` → `orchestrator/stream_runtime.py` → `services/` → `config/*.yaml` →
+`tests/` → `MAI_V2_SYSTEM_SPEC.md` → README/ROADMAP. Báo conflict trước khi sửa.
 
 ## Quy tắc giữ tài liệu sạch
 
-- Không tạo thêm tài liệu theo phase, milestone, component hoặc bản audit riêng.
-- Không giữ draft, checklist giao việc hoặc tuning plan ở repository root; nội dung còn giá trị phải
-  được gộp vào một trong ba nguồn chính thức hoặc cấu hình/prompt runtime do code thực sự đọc.
-- Sửa behavior hiện tại thì cập nhật `MAI_V2_SYSTEM_SPEC.md` trong cùng change.
-- Sửa scope/thứ tự tương lai thì cập nhật blueprint, không đưa kế hoạch vào System Spec như production.
-- Không sửa capability inventory lịch sử trong `V1_BASELINE.md`.
-- Evidence JSON tiếp tục nằm trong `docs/baselines/`; không sao chép số liệu vào nhiều tài liệu.
-- Chi tiết của component/harness đã retire chỉ giữ dưới dạng lịch sử ngắn; không giữ một active contract
-  hoặc hướng dẫn vận hành cho source không còn tồn tại.
-- Comment/docstring trong code và YAML chỉ giải thích invariant, ownership, failure semantics hoặc lý do
-  hiện tại; không dùng lời hứa triển khai tương lai hay nhãn công việc đã hoàn tất làm tài liệu runtime.
-- Link, version, feature inventory và config inventory phải qua documentation guard.
+- Không tạo docs theo phase/milestone/component/audit riêng. Không giữ draft/checklist/tuning plan ở root.
+- Sửa behavior hiện tại → cập nhật `MAI_V2_SYSTEM_SPEC.md` cùng change.
+- Sửa scope tương lai → cập nhật `ROADMAP.md`, không đưa kế hoạch vào SYSTEM_SPEC như production.
+- Không sửa `V1_BASELINE.md` (lịch sử đóng băng). Evidence JSON ở `baselines/`, không chép số nhiều nơi.
+- Comment/docstring chỉ mô tả invariant/ownership/failure/lý do hiện tại — không lời hứa tương lai.
