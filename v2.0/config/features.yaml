@@ -423,7 +423,7 @@ features:
     depends_on: [world_model_shadow, self_model_projection, capability_registry]
     conflicts_with: []
     name: Cognitive Brain shadow
-    description: Low-priority grounded proposal observer; compatibility Director remains authoritative.
+    description: Live-timed grounded shadow observer; compatibility Director remains authoritative.
   action_mock_closed_loop:
     enabled: true
     vram_cost_mb: 0

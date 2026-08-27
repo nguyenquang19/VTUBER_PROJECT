@@ -97,10 +97,12 @@ class CognitionConfig:
     brain_max_output_tokens: int
     brain_temperature: float
     brain_timeout_seconds: float
+    brain_live_timeout_seconds: float
     brain_cancel_grace_seconds: float
     max_brain_opportunity_queue: int
     max_brain_inflight: int
     max_brain_shadow_records: int
+    brain_live_latency_sample_max: int
     opportunity_debounce_seconds: float
     opportunity_reconsider_seconds: float
     max_opportunity_age_seconds: float
@@ -142,8 +144,10 @@ class CognitionConfig:
     _KEYS = frozenset({
         "schema_version", "brain_prompt_path",
         "brain_max_output_tokens", "brain_temperature", "brain_timeout_seconds",
+        "brain_live_timeout_seconds",
         "brain_cancel_grace_seconds", "max_brain_opportunity_queue",
         "max_brain_inflight", "max_brain_shadow_records",
+        "brain_live_latency_sample_max",
         "opportunity_debounce_seconds", "opportunity_reconsider_seconds",
         "max_opportunity_age_seconds", "max_brain_intent_chars",
         "max_brain_speech_chars", "grounding_uncertainty_threshold",
@@ -170,6 +174,7 @@ class CognitionConfig:
         integer_fields = (
             "brain_max_output_tokens", "max_brain_opportunity_queue",
             "max_brain_inflight", "max_brain_shadow_records",
+            "brain_live_latency_sample_max",
             "max_brain_intent_chars", "max_brain_speech_chars",
             "max_id_chars", "max_label_chars", "max_text_chars",
             "max_speech_chars", "max_attention_items", "max_memory_items",
@@ -195,10 +200,15 @@ class CognitionConfig:
         ))
         for name in (
             "brain_timeout_seconds", "brain_cancel_grace_seconds",
+            "brain_live_timeout_seconds",
             "opportunity_debounce_seconds", "opportunity_reconsider_seconds",
             "max_opportunity_age_seconds",
         ):
             _positive_float(getattr(self, name), name)
+        if self.brain_live_timeout_seconds > self.brain_timeout_seconds:
+            raise ValueError(
+                "brain_live_timeout_seconds must not exceed brain_timeout_seconds"
+            )
         if self.max_brain_inflight != 1:
             raise ValueError("max_brain_inflight must remain 1 in MCB-3")
         if self.max_brain_opportunity_queue != 1:

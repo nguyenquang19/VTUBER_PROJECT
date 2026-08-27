@@ -49,6 +49,7 @@ COGNITIVE_BRAIN_OUTCOMES = frozenset({
     "PARSE_REJECTED", "SCHEMA_REJECTED", "SERVICE_ERROR",
 })
 COGNITIVE_BRAIN_MODES = frozenset({"WAIT", "SPEAK"})
+COGNITIVE_BRAIN_LIVE_RESULTS = frozenset({"would_select", "would_fallback"})
 COGNITIVE_GROUNDING_OUTCOMES = frozenset({
     "PASSED", "SUPPRESSED_WAIT", "SUPPRESSED_UNCERTAINTY",
     "SUPPRESSED_EMPTY_EVIDENCE", "SUPPRESSED_UNKNOWN_EVIDENCE", "FAILURE",
@@ -568,6 +569,22 @@ class MetricsCollector:
             ["outcome"], buckets=[0.1, 0.25, 0.5, 1, 2, 4, 6, 8],
             registry=self.registry,
         )
+        self.cognitive_brain_live_latency_seconds_h = Histogram(
+            "cognitive_brain_live_latency_seconds",
+            "Opportunity-to-grounded-result latency for live-timed Brain shadow",
+            buckets=[0.05, 0.1, 0.25, 0.5, 1, 1.5, 2, 3],
+            registry=self.registry,
+        )
+        self.cognitive_brain_live_result_total_c = Counter(
+            "cognitive_brain_live_result_total",
+            "Counterfactual Brain shadow readiness outcomes",
+            ["result"], registry=self.registry,
+        )
+        self.cognitive_brain_live_timeout_total_c = Counter(
+            "cognitive_brain_live_timeout_total",
+            "Live-budget Brain shadow timeouts",
+            registry=self.registry,
+        )
         self.cognitive_brain_input_tokens_h = Histogram(
             "cognitive_brain_input_tokens", "Brain shadow exact input tokens",
             buckets=[128, 256, 512, 1024, 2048, 4096, 8192],
@@ -593,6 +610,8 @@ class MetricsCollector:
         self._cognitive_opportunities: dict[tuple[str, str], int] = {}
         self._cognitive_brain_requests: dict[str, int] = {}
         self._cognitive_brain_turns: dict[str, int] = {}
+        self._cognitive_brain_live_results: dict[str, int] = {}
+        self._cognitive_brain_live_timeouts = 0
         self._cognitive_grounding_decisions: dict[str, int] = {}
         self.turn_kernel_selection_total_c = Counter(
             "turn_kernel_selection_total",
@@ -769,6 +788,27 @@ class MetricsCollector:
             raise ValueError("unsupported cognitive Brain mode")
         self._cognitive_brain_turns[mode] = self._cognitive_brain_turns.get(mode, 0) + 1
         self.cognitive_brain_turn_total_c.labels(mode=mode).inc()
+
+    def observe_cognitive_brain_live_latency(self, seconds: float) -> None:
+        self._observe_non_negative(seconds, self.cognitive_brain_live_latency_seconds_h)
+
+    def record_cognitive_brain_live_result(self, result: str) -> None:
+        if result not in COGNITIVE_BRAIN_LIVE_RESULTS:
+            raise ValueError("unsupported cognitive Brain live result")
+        self._cognitive_brain_live_results[result] = (
+            self._cognitive_brain_live_results.get(result, 0) + 1
+        )
+        self.cognitive_brain_live_result_total_c.labels(result=result).inc()
+
+    def record_cognitive_brain_live_timeout(self) -> None:
+        self._cognitive_brain_live_timeouts += 1
+        self.cognitive_brain_live_timeout_total_c.inc()
+
+    def cognition_brain_live_snapshot(self) -> dict[str, Any]:
+        return {
+            "results": dict(sorted(self._cognitive_brain_live_results.items())),
+            "timeouts": self._cognitive_brain_live_timeouts,
+        }
 
     def record_cognitive_grounding_decision(self, outcome: str) -> None:
         if outcome not in COGNITIVE_GROUNDING_OUTCOMES:

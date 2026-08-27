@@ -1,6 +1,7 @@
 """Single-generation and backend-neutral Cognitive Model Adapter behavior."""
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -100,6 +101,25 @@ class _NoFinalLLM(_LLM):
             yield
 
 
+class _BlockingLLM(_LLM):
+    def __init__(self) -> None:
+        super().__init__("")
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+        self.stream_cancelled = False
+
+    async def generate_stream(self, request: LLMRequest):
+        self.requests.append(request)
+        self.started.set()
+        try:
+            await self.release.wait()
+        except asyncio.CancelledError:
+            self.stream_cancelled = True
+            raise
+        if False:
+            yield
+
+
 @pytest.mark.asyncio
 async def test_adapter_rejects_stream_without_final_marker() -> None:
     config = _config()
@@ -116,6 +136,25 @@ async def test_adapter_rejects_stream_without_final_marker() -> None:
         await adapter.generate(_context(config))
     assert len(llm.requests) == 1
     assert len(llm.cancelled) == 1
+
+
+@pytest.mark.asyncio
+async def test_outer_live_budget_cancellation_cleans_adapter_request() -> None:
+    config = _config()
+    llm = _BlockingLLM()
+    adapter = CognitiveModelAdapter(
+        config=config, llm=llm, persona_prompt="Mai persona",
+        brain_prompt="Return strict JSON.",
+    )
+    await adapter.start()
+    task = asyncio.create_task(adapter.generate(_context(config)))
+    await llm.started.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert llm.stream_cancelled is True
+    assert len(llm.cancelled) == 1
+    assert adapter.get_metrics()["cognitive_model_adapter_active"] is False
 
 
 def test_cognition_has_one_model_call_and_no_legacy_live_context_import() -> None:

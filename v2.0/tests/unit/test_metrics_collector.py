@@ -72,6 +72,23 @@ class TestRecorders:
             m.prometheus_text().decode()
         )
 
+    def test_cognitive_live_shadow_metrics_use_finite_labels(self) -> None:
+        m = fresh()
+        m.observe_cognitive_brain_live_latency(0.75)
+        m.record_cognitive_brain_live_result("would_select")
+        m.record_cognitive_brain_live_result("would_fallback")
+        m.record_cognitive_brain_live_timeout()
+        assert m.cognition_brain_live_snapshot() == {
+            "results": {"would_fallback": 1, "would_select": 1},
+            "timeouts": 1,
+        }
+        text = m.prometheus_text().decode()
+        assert "cognitive_brain_live_latency_seconds_count 1.0" in text
+        assert 'cognitive_brain_live_result_total{result="would_select"} 1.0' in text
+        assert "cognitive_brain_live_timeout_total 1.0" in text
+        with pytest.raises(ValueError, match="unsupported"):
+            m.record_cognitive_brain_live_result("viewer-specific-label")
+
 
 class TestGpuMetrics:
     def test_nvidia_csv_updates_real_snapshot(self) -> None:

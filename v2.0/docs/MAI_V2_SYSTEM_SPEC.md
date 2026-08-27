@@ -121,7 +121,7 @@ Agent/World/Perception mutation → `AuthoritativeStateReducer` → đọc qua `
 | `brain.py` | Cognitive Brain **proposal-only**: 1 call LLM → JSON strict `{mode, speech_text, evidence_refs, uncertainty, reason_codes, attention_target_id, intent}`. "Không tự execute proposal." **SHADOW.** |
 | `grounding_gate.py` | B1 safety boundary: proposal `WAIT`, uncertainty quá ngưỡng hoặc evidence thiếu/không thuộc context → effective `WAIT`; **SHADOW**. |
 | `model_adapter.py` | Ranh giới prompt/model duy nhất cho Brain. |
-| `scheduler.py` | Latest-wins, single-inflight; preempt khi có input live. |
+| `scheduler.py` | Latest-wins, single-inflight; B2 live-budget shadow từ decision event, preempt khi có input mới. |
 | `agent_context_projection · compatibility_context` | Chiếu context/text exact cho đường DirectorLoop. |
 
 ### L5 — Mục tiêu · thread · ký ức · quan hệ
@@ -248,9 +248,9 @@ TurnKernel._loop (ngủ 1.5s)
        ├─ evict_stale + update pulse
        ├─ dựng DirectorInput (chat + goals + agent_state + segment + dead-air + mood)
        ├─ _select_director_decision()   # ← CHỐT câu public (4.2)
+       ├─ emit decision → brain_scheduler.offer(...)             # non-blocking, trước execute
        └─ nếu action ≠ WAIT: turn_lock → transaction (4.3)
-  └─ (chỉ khi rollout_mode=shadow) brain_scheduler.offer(...)   # Brain nhận cơ hội SAU execute
-       └─ Brain proposal → grounding gate → shadow record        # chưa bao giờ public
+            └─ song song: context → Brain → grounding → shadow record  # chưa bao giờ public
 ```
 
 > **Bẫy naming — đọc kỹ.** Trong `turn_kernel`, `public_owner` **hardcode = COMPATIBILITY**. "COMPATIBILITY"
@@ -273,7 +273,8 @@ Config tracked: `director.yaml::director_v2_takeover.ownership_mode = primary`, 
 
 Tức: **Director V2 là primary** — tự materialize câu public khi proposal hợp lệ. **Legacy Compatibility
 Director** giữ 2 vai: (a) hard-preemption safety/segment luôn thắng trước; (b) fallback khi V2 không dựng
-được câu. **Cognitive Brain** shadow thuần, offer sau execute, không bao giờ public.
+được câu. **Cognitive Brain** shadow thuần, offer non-blocking từ decision event trước execute, không bao giờ
+public và public path không await kết quả Brain.
 
 B1 đặt grounding gate bắt buộc sau `CognitiveBrain.propose()` và trước khi scheduler giữ shadow record.
 Proposal `WAIT` giữ `WAIT`; proposal có uncertainty cao hơn ngưỡng YAML, evidence rỗng hoặc reference không
@@ -282,6 +283,15 @@ proposal. `CognitiveTurn` vẫn reject stale/fabricated reference từ lúc mate
 context canonical, không nới contract. Gate lỗi fail-closed bằng record không giữ proposal nói. Shadow record
 giữ source turn identity/mode/uncertainty cùng outcome gate để audit, nhưng chỉ effective turn mới là ứng viên
 cho các phase rollout sau. B1 không đổi owner public, không đổi thời điểm offer và không execute/commit gì.
+
+B2 chuyển đúng thời điểm offer từ sau public execute sang decision event trước execute để đo Brain trên
+live context. Scheduler tính budget end-to-end từ lúc offer, gồm queue + context build + generation + B1
+grounding, và bọc phần việc còn lại bằng `asyncio.wait_for` theo
+`cognition.yaml::brain_live_timeout_seconds=2.0`. Kết quả grounded hợp lệ (kể cả effective `WAIT`) chỉ tăng
+`would_select`; timeout/parse/schema/context/service failure chỉ tăng `would_fallback`. Hai kết quả này là
+counterfactual telemetry: DirectorLoop vẫn execute public độc lập, `public_owner=COMPATIBILITY`, không đọc
+shadow record và không có route Brain public trước B3. Cửa sổ latency có bound YAML; metric xuất p50/p95,
+timeout rate và would-select/would-fallback rate. Input mới vẫn preempt shadow để nhường llama.cpp cho live.
 
 Tỷ lệ V2-vs-legacy thực tế đọc qua metric `director_v2_primary_selected_total` /
 `director_v2_primary_fallback_total` khi chạy live.
@@ -342,6 +352,11 @@ và mọi ref còn thuộc context; `HIGH/UNKNOWN` hoặc evidence không đạt
 boundary bắt buộc của feature hiện hữu `cognitive_brain_shadow`, không có cờ tắt riêng; tắt Brain shadow là
 rollback và giữ nguyên public DirectorLoop. Metric gồm evaluated/pass/suppressed theo reason/failure/rate.
 
+Brain live-shadow B2 đọc `cognition.yaml::brain_live_timeout_seconds=2.0` và
+`brain_live_latency_sample_max=256`. Live budget không vượt hard timeout của model adapter; latency window
+bounded không giữ prompt/output. Feature `cognitive_brain_shadow` tắt thì không build context/gọi Brain và
+public giữ nguyên. B2 không tự kích hoạt B3 dù p95/timeout đạt gate; operator phải review telemetry trước.
+
 ---
 
 ## 6. An toàn, riêng tư, phục hồi
@@ -380,7 +395,7 @@ rollback và giữ nguyên public DirectorLoop. Metric gồm evaluated/pass/supp
 | Speech / Avatar typed adapter | **LIVE (test)** | fail-safe khi VTS thiếu |
 | Mood Hybrid (v1+v2) | **LIVE** | Kênh A số deterministic; Kênh B sắc thái LLM |
 | World / Self Model | SHADOW | read-only, không đổi quyết định |
-| Cognitive Brain | SHADOW | proposal-only, offer sau execute; B1 grounding gate fail-closed trước shadow record, chưa public |
+| Cognitive Brain | SHADOW | proposal-only, B2 offer pre-execute non-blocking + live timeout telemetry; B1 grounding bắt buộc, chưa public |
 | Semantic memory | **LIVE** | mặc định qua `memory_semantic`; timeout/startup fail → working-only |
 | OBS scene action + perception | OFF | có executor thật, chưa credential/canary |
 | Goal proposals · closed-loop canary | OFF | chưa vào vòng quyết định tự chủ |
@@ -396,7 +411,7 @@ trạng thái cao hơn.
 | Thấy trong code/metric | Đừng hiểu thành | Nghĩa thật |
 |---|---|---|
 | `public_owner = COMPATIBILITY` | Legacy Director đang quyết | "đường DirectorLoop (không phải Brain)" — bên trong V2 vẫn primary |
-| `cognitive_brain_shadow` | Brain chạy chính | Brain offer sau execute, chỉ ghi shadow, không ra loa |
+| `cognitive_brain_shadow` | Brain chạy chính | Brain offer pre-execute nhưng non-blocking, chỉ ghi shadow, không ra loa |
 | `director_v2_takeover` | V2 đã takeover production | test-cutover, có legacy đỡ mỗi khi fail |
 | `rollout_mode: shadow` (kernel) | Brain shadow ⇒ legacy public | Kernel route public sang DirectorLoop (nơi V2 primary), Brain shadow |
 | "compatibility" (2 nghĩa) | luôn cùng một thứ | (a) đường DirectorLoop trong kernel; (b) legacy Director trong DirectorLoop |

@@ -35,7 +35,7 @@ BrainTelemetry = CognitiveModelTelemetry
 
 
 class CognitiveBrain(CognitiveBrainService):
-    """One-call Brain that cannot execute its own proposal."""
+    """One-call live-timed shadow Brain that cannot execute its proposal."""
 
     service_id = "cognitive_brain_shadow"
 

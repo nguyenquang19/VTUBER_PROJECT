@@ -10,6 +10,7 @@ from typing import Any, Callable
 from interfaces.base import HealthStatus
 from interfaces.cognition import (
     CognitionConfig,
+    CognitiveBrainShadowSchedulerService,
     CognitiveCompatibilityObservation,
     CognitiveContextRequest,
     CognitiveHardState,
@@ -46,7 +47,7 @@ class TurnKernel(TurnKernelService):
         config: KernelConfig,
         cognition_config: CognitionConfig,
         compatibility: Any,
-        brain_scheduler: Any,
+        brain_scheduler: CognitiveBrainShadowSchedulerService,
         hard_state_provider: HardStateProvider,
         metrics: Any = None,
         turn_journal: Any = None,
@@ -138,20 +139,7 @@ class TurnKernel(TurnKernelService):
         self._pending = None
         result = await self._compatibility.tick_once()
         self._ticks += 1
-        pending = self._pending
         self._pending = None
-        if pending is not None and self._config.rollout_mode is TurnRolloutMode.SHADOW:
-            opportunity, _preflight, observation = pending
-            self._brain_scheduler.offer(CognitiveOpportunity(
-                config=self._cognition_config,
-                schema_version=self._cognition_config.schema_version,
-                opportunity_id=opportunity.opportunity_id,
-                kind=opportunity.kind,
-                opened_at=opportunity.opened_at,
-                material_change_ref=opportunity.material_change_ref,
-                context_request=opportunity.context_request,
-                compatibility=observation,
-            ))
         return result
 
     def observe_decision(
@@ -160,7 +148,7 @@ class TurnKernel(TurnKernelService):
         director_input: DirectorInput,
         decision_id: str | None,
     ) -> bool:
-        """Capture one opportunity; Brain work is offered only after public execution."""
+        """Capture and non-blockingly offer shadow work before public execution."""
         trigger = _trigger(decision)
         if trigger is None:
             self._pending = None
@@ -274,6 +262,23 @@ class TurnKernel(TurnKernelService):
             reason_codes=((decision.reason,) if decision.reason else ()),
         ))
         self._pending = (opportunity, preflight, observation)
+        if self._config.rollout_mode is TurnRolloutMode.SHADOW:
+            try:
+                self._brain_scheduler.offer(CognitiveOpportunity(
+                    config=self._cognition_config,
+                    schema_version=self._cognition_config.schema_version,
+                    opportunity_id=opportunity.opportunity_id,
+                    kind=opportunity.kind,
+                    opened_at=opportunity.opened_at,
+                    material_change_ref=opportunity.material_change_ref,
+                    context_request=opportunity.context_request,
+                    compatibility=observation,
+                ))
+            except Exception as exc:
+                self._log.warning(
+                    "cognitive_live_shadow_offer_failed",
+                    error=type(exc).__name__,
+                )
         return True
 
     def observe_verified_outcome(

@@ -104,9 +104,18 @@ Gate `uncertainty/evidence → WAIT`, chạy **shadow** trước.
 ### B2 — Brain live-context + timeout/fallback (vẫn shadow) · công cao
 Nối Opportunity → Brain lúc **live** (không post-exec), bọc `wait_for(budget≈2s)` → fallback. Vẫn shadow
 để **đo latency thật**.
-- **Files:** `services/kernel/turn_kernel.py`, `services/cognition/scheduler · brain`.
-- **Metric:** Brain latency live p50/p95, timeout rate, would-fallback/would-select rate.
-- **Gate:** p95 live đạt budget ~2s + timeout rate thấp **trước** khi mở B3.
+- **Files:** `services/kernel/turn_kernel.py`, `services/cognition/scheduler · brain`; offer non-blocking từ
+  decision event trước public execute, không đợi/đọc kết quả Brain.
+- **Contract:** live budget end-to-end gồm queue + context build + generation + B1 grounding; timeout/error
+  chỉ tạo shadow `would_fallback`, grounded effective turn (kể cả `WAIT`) tạo `would_select`. Public owner và
+  output vẫn là DirectorLoop; actual Brain fallback/selection chỉ bắt đầu ở B3.
+- **YAML:** `brain_live_timeout_seconds=2.0`, bounded `brain_live_latency_sample_max`; live timeout không vượt
+  model-adapter hard timeout.
+- **Metric:** Brain latency live p50/p95 + sample count, timeout total/rate,
+  would-fallback/would-select total/rate; label finite, không giữ prompt/output.
+- **Test:** offer xảy ra trước public execute; Brain chậm/lỗi không chặn hay đổi public output; timeout cancel
+  sạch; latency window bounded và percentile/replay deterministic; flag/rollout off giữ hành vi cũ.
+- **Gate:** p95 live đạt budget ~2s + timeout rate thấp **trước** khi mở B3; không tự đổi rollout.
 
 ### B3 — Turn Kernel route public → Brain · công cao
 Thay đổi lớn nhất. Kernel thêm mode `PUBLIC_BRAIN`; sau flag; canary operator-only. Legacy fallback +

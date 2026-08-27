@@ -181,6 +181,8 @@ def _action_proposal(config: CognitionConfig) -> CognitiveActionProposal:
 
 def test_canonical_config_loads_strictly(cognition_config: CognitionConfig) -> None:
     assert cognition_config.max_brain_inflight == 1
+    assert cognition_config.brain_live_timeout_seconds == 2.0
+    assert cognition_config.brain_live_latency_sample_max == 256
     assert cognition_config.focus_ttl_seconds == 900
     assert cognition_config.max_speech_chars == 512
     assert (
@@ -222,6 +224,8 @@ def test_initial_invalid_cognition_config_fails_closed(tmp_path: Path) -> None:
         lambda raw: raw.update(reason_codes=["same", "same"]),
         lambda raw: raw.update(max_speech_chars=4096),
         lambda raw: raw.update(max_brain_speech_chars=513),
+        lambda raw: raw.update(brain_live_latency_sample_max=0),
+        lambda raw: raw.update(brain_live_timeout_seconds=10.1),
         lambda raw: raw.update(grounding_uncertainty_threshold="HIGH"),
         lambda raw: raw.update(grounding_evidence_policy="any_current"),
     ],

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -34,6 +35,7 @@ class _Builder:
         self.context = context
         self.gate = gate
         self.calls = 0
+        self.cancelled = 0
         self.running = False
 
     async def start(self) -> None:
@@ -52,7 +54,11 @@ class _Builder:
         del request
         self.calls += 1
         if self.gate is not None:
-            await self.gate.wait()
+            try:
+                await self.gate.wait()
+            except asyncio.CancelledError:
+                self.cancelled += 1
+                raise
         return self.context
 
     def recent(self, limit=None):
@@ -71,6 +77,7 @@ class _Brain:
         self.context = context
         self.gate = gate
         self.calls = 0
+        self.cancelled = 0
         self.running = False
 
     async def start(self) -> None:
@@ -89,7 +96,11 @@ class _Brain:
         assert context is self.context
         self.calls += 1
         if self.gate is not None:
-            await self.gate.wait()
+            try:
+                await self.gate.wait()
+            except asyncio.CancelledError:
+                self.cancelled += 1
+                raise
         return CognitiveTurn(
             config=self.config, context=context, schema_version=1,
             turn_id=f"turn-{self.calls}", context_id=context.context_id,
@@ -192,6 +203,10 @@ async def test_one_opportunity_produces_one_observer_record_and_bounded_metrics(
     assert record.grounding_decision.outcome.value == "SUPPRESSED_WAIT"
     assert builder.calls == 1 and brain.calls == 1
     assert metrics.cognition_brain_snapshot()["turns"] == {"WAIT": 1}
+    live = scheduler.get_metrics()
+    assert live["cognitive_brain_live_would_select_total"] == 1
+    assert live["cognitive_brain_live_would_fallback_total"] == 0
+    assert live["cognitive_brain_live_latency_samples"] == 1
     await scheduler.stop()
     assert scheduler.recent() == ()
 
@@ -238,6 +253,90 @@ async def test_grounding_failure_retains_no_unsafe_cognition() -> None:
     assert record.outcome is CognitiveShadowOutcome.SERVICE_ERROR
     assert record.turn is None and record.grounding_decision is None
     await scheduler.stop()
+
+
+@pytest.mark.asyncio
+async def test_live_budget_times_out_and_cancels_slow_brain() -> None:
+    config = replace(_config(), brain_live_timeout_seconds=0.01)
+    context = _context(config)
+    gate = asyncio.Event()
+    brain = _Brain(config, context, gate=gate)
+    metrics = MetricsCollector()
+    scheduler = CognitiveOpportunityScheduler(
+        config=config, context_builder=_Builder(context), brain=brain,
+        grounding_gate=CognitiveGroundingGate(config, metrics=metrics),
+        metrics=metrics, clock=lambda: NOW,
+    )
+    await scheduler.start()
+    assert scheduler.offer(_opportunity(config, "slow-brain")) is True
+    await asyncio.sleep(0.03)
+    await _until(lambda: len(scheduler.recent()) == 1)
+    record = scheduler.recent()[0]
+    assert record.outcome is CognitiveShadowOutcome.TIMEOUT
+    assert record.turn is None and record.grounding_decision is None
+    assert brain.calls == 1 and brain.cancelled == 1
+    live = scheduler.get_metrics()
+    assert live["cognitive_brain_live_timeout_total"] == 1
+    assert live["cognitive_brain_live_timeout_rate"] == 1.0
+    assert live["cognitive_brain_live_would_fallback_rate"] == 1.0
+    assert metrics.cognition_brain_live_snapshot() == {
+        "results": {"would_fallback": 1}, "timeouts": 1,
+    }
+    await scheduler.stop()
+
+
+@pytest.mark.asyncio
+async def test_live_budget_includes_context_build() -> None:
+    config = replace(_config(), brain_live_timeout_seconds=0.01)
+    context = _context(config)
+    build_gate = asyncio.Event()
+    builder = _Builder(context, gate=build_gate)
+    brain = _Brain(config, context)
+    scheduler = CognitiveOpportunityScheduler(
+        config=config, context_builder=builder, brain=brain,
+        grounding_gate=CognitiveGroundingGate(config), clock=lambda: NOW,
+    )
+    await scheduler.start()
+    assert scheduler.offer(_opportunity(config, "slow-context")) is True
+    await asyncio.sleep(0.03)
+    await _until(lambda: len(scheduler.recent()) == 1)
+    assert scheduler.recent()[0].outcome is CognitiveShadowOutcome.TIMEOUT
+    assert builder.calls == 1 and builder.cancelled == 1
+    assert brain.calls == 0
+    await scheduler.stop()
+
+
+def test_live_latency_window_percentiles_and_replay_are_deterministic() -> None:
+    def replay() -> dict[str, object]:
+        config = replace(_config(), brain_live_latency_sample_max=3)
+        context = _context(config)
+        scheduler = CognitiveOpportunityScheduler(
+            config=config, context_builder=_Builder(context),
+            brain=_Brain(config, context),
+            grounding_gate=CognitiveGroundingGate(config), clock=lambda: NOW,
+        )
+        scheduler._record_live_result(
+            latency_ms=50.0, would_select=True, timed_out=False,
+        )
+        scheduler._record_live_result(
+            latency_ms=10.0, would_select=False, timed_out=False,
+        )
+        scheduler._record_live_result(
+            latency_ms=30.0, would_select=True, timed_out=False,
+        )
+        scheduler._record_live_result(
+            latency_ms=20.0, would_select=False, timed_out=True,
+        )
+        return scheduler.get_metrics()
+
+    first = replay()
+    assert first == replay()
+    assert first["cognitive_brain_live_latency_samples"] == 3
+    assert first["cognitive_brain_live_latency_p50_ms"] == 20.0
+    assert first["cognitive_brain_live_latency_p95_ms"] == 30.0
+    assert first["cognitive_brain_live_would_select_rate"] == 0.5
+    assert first["cognitive_brain_live_would_fallback_rate"] == 0.5
+    assert first["cognitive_brain_live_timeout_rate"] == 0.25
 
 
 @pytest.mark.asyncio

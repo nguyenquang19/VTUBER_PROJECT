@@ -1,6 +1,7 @@
 """Deterministic single-owner and one-opportunity Turn Kernel behavior."""
 from __future__ import annotations
 
+import asyncio
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,12 +23,26 @@ NOW = 1_777_000_000.0
 
 
 class _Scheduler:
-    def __init__(self) -> None:
+    def __init__(self, events: list[str]) -> None:
         self.offers = []
         self.preemptions = 0
+        self.events = events
+        self.fail_offer = False
+        self.shadow_gate: asyncio.Event | None = None
+        self.shadow_task: asyncio.Task[bool] | None = None
 
     def offer(self, value) -> bool:
+        self.events.append("brain_offer")
+        if self.fail_offer:
+            raise RuntimeError("synthetic offer failure")
         self.offers.append(value)
+        if self.shadow_gate is not None:
+            self.shadow_task = asyncio.create_task(self._slow_shadow())
+        return True
+
+    async def _slow_shadow(self) -> bool:
+        assert self.shadow_gate is not None
+        await self.shadow_gate.wait()
         return True
 
     def preempt_for_live(self) -> None:
@@ -35,8 +50,9 @@ class _Scheduler:
 
 
 class _Compatibility:
-    def __init__(self, decision: DirectorDecision) -> None:
+    def __init__(self, decision: DirectorDecision, events: list[str]) -> None:
         self.decision = decision
+        self.events = events
         self.kernel: TurnKernel | None = None
         self.started = 0
         self.stopped = 0
@@ -55,6 +71,7 @@ class _Compatibility:
         assert self.kernel is not None
         value = _input()
         self.kernel.observe_decision(self.decision, value, "decision-1")
+        self.events.append("public_execute")
         self.kernel.observe_verified_outcome(self.decision, value, "decision-1")
         return self.decision.action
 
@@ -89,8 +106,9 @@ def _hard_state(value: DirectorInput) -> CognitiveHardState:
 def _build(
     decision: DirectorDecision, *, mode: str = "shadow",
 ) -> tuple[TurnKernel, _Compatibility, _Scheduler]:
-    compatibility = _Compatibility(decision)
-    scheduler = _Scheduler()
+    events: list[str] = []
+    compatibility = _Compatibility(decision, events)
+    scheduler = _Scheduler(events)
     kernel = TurnKernel(
         config=_kernel_config(mode),
         cognition_config=_config(),
@@ -146,6 +164,7 @@ async def test_one_public_turn_opens_one_selection_and_one_brain_opportunity() -
     assert opportunity.context_request.trigger_event_ref == "agent:chat:input-1"
     assert opportunity.context_request.session_id == "session-real"
     assert opportunity.compatibility.decision_ref == "decision-1"
+    assert scheduler.events == ["brain_offer", "public_execute"]
     selection = kernel.recent_selections()[0]
     assert selection.owner is TurnOwner.COMPATIBILITY
     assert selection.rollout_mode is TurnRolloutMode.SHADOW
@@ -163,6 +182,7 @@ async def test_off_keeps_public_compatibility_and_does_not_offer_brain_work() ->
     kernel, _, scheduler = _build(decision, mode="off")
     assert await kernel.tick_once() is DirectorAction.READ_CHAT
     assert scheduler.offers == []
+    assert scheduler.events == ["public_execute"]
     assert kernel.recent_selections()[0].rollout_mode is TurnRolloutMode.OFF
 
 
@@ -172,6 +192,41 @@ def test_input_activity_preempts_only_subordinate_brain_work() -> None:
     )
     kernel.notify_input_activity()
     assert scheduler.preemptions == 1
+
+
+@pytest.mark.asyncio
+async def test_shadow_offer_failure_cannot_change_public_result() -> None:
+    chat = DirectorChatRef(
+        msg_id="input-offer-fail", text="Mai ơi", kind="chat", score=20,
+        created_at=NOW,
+    )
+    decision = DirectorDecision(
+        DirectorAction.READ_CHAT, "main", "chat", refs=(chat,),
+    )
+    kernel, _, scheduler = _build(decision)
+    scheduler.fail_offer = True
+    assert await kernel.tick_once() is DirectorAction.READ_CHAT
+    assert scheduler.events == ["brain_offer", "public_execute"]
+    assert kernel.recent_selections()[0].owner is TurnOwner.COMPATIBILITY
+
+
+@pytest.mark.asyncio
+async def test_slow_shadow_work_is_never_awaited_by_public_turn() -> None:
+    chat = DirectorChatRef(
+        msg_id="input-slow-shadow", text="Mai ơi", kind="chat", score=20,
+        created_at=NOW,
+    )
+    decision = DirectorDecision(
+        DirectorAction.READ_CHAT, "main", "chat", refs=(chat,),
+    )
+    kernel, _, scheduler = _build(decision)
+    scheduler.shadow_gate = asyncio.Event()
+    assert await kernel.tick_once() is DirectorAction.READ_CHAT
+    assert scheduler.shadow_task is not None
+    assert scheduler.shadow_task.done() is False
+    scheduler.shadow_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await scheduler.shadow_task
 
 
 def test_kernel_config_and_selection_values_are_immutable() -> None:

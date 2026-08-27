@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import math
+import time
 from collections import deque
 from datetime import datetime, timezone
 from typing import Any, Callable
@@ -15,6 +17,7 @@ from interfaces.cognition import (
     CognitiveBrainService,
     CognitiveBrainShadowSchedulerService,
     CognitiveBrainSnapshot,
+    CognitiveContext,
     CognitiveContextBuilderService,
     CognitiveGroundingDecision,
     CognitiveGroundingGateService,
@@ -26,6 +29,7 @@ from interfaces.cognition import (
     CognitiveModelTimeoutError,
     CognitiveShadowOutcome,
     CognitiveShadowRecord,
+    CognitiveTurn,
 )
 
 
@@ -43,6 +47,7 @@ class CognitiveOpportunityScheduler(CognitiveBrainShadowSchedulerService):
         grounding_gate: CognitiveGroundingGateService,
         metrics: Any = None,
         clock: Callable[[], datetime] | None = None,
+        monotonic: Callable[[], float] | None = None,
     ) -> None:
         self._config = config
         self._context_builder = context_builder
@@ -52,9 +57,11 @@ class CognitiveOpportunityScheduler(CognitiveBrainShadowSchedulerService):
         self._grounding_gate = grounding_gate
         self._metrics = metrics
         self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._monotonic = monotonic or time.perf_counter
         self._running = False
         self._pending: CognitiveOpportunity | None = None
         self._pending_queued_at: datetime | None = None
+        self._pending_queued_monotonic: float | None = None
         self._signal = asyncio.Event()
         self._worker: asyncio.Task[None] | None = None
         self._active_task: asyncio.Task[None] | None = None
@@ -66,6 +73,13 @@ class CognitiveOpportunityScheduler(CognitiveBrainShadowSchedulerService):
         self._material_seen: dict[str, datetime] = {}
         self._material_completed: dict[str, datetime] = {}
         self._counts: dict[str, int] = {}
+        self._live_latencies_ms: deque[float] = deque(
+            maxlen=config.brain_live_latency_sample_max,
+        )
+        self._live_evaluated = 0
+        self._live_timeouts = 0
+        self._would_select = 0
+        self._would_fallback = 0
 
     async def start(self) -> None:
         if self._running:
@@ -87,6 +101,7 @@ class CognitiveOpportunityScheduler(CognitiveBrainShadowSchedulerService):
         queued_at = self._pending_queued_at
         self._pending = None
         self._pending_queued_at = None
+        self._pending_queued_monotonic = None
         if pending is not None and queued_at is not None:
             self._append_record(
                 pending, CognitiveShadowOutcome.CANCELLED,
@@ -133,11 +148,28 @@ class CognitiveOpportunityScheduler(CognitiveBrainShadowSchedulerService):
         )
 
     def get_metrics(self) -> dict[str, Any]:
+        samples = tuple(self._live_latencies_ms)
         values: dict[str, Any] = {
             "cognitive_brain_shadow_running": self._running,
             "cognitive_brain_shadow_queue_depth": int(self._pending is not None),
             "cognitive_brain_shadow_inflight": int(self._active_task is not None),
             "cognitive_brain_shadow_records": len(self._records),
+            "cognitive_brain_live_evaluated_total": self._live_evaluated,
+            "cognitive_brain_live_latency_samples": len(samples),
+            "cognitive_brain_live_latency_p50_ms": _percentile_ms(samples, 0.50),
+            "cognitive_brain_live_latency_p95_ms": _percentile_ms(samples, 0.95),
+            "cognitive_brain_live_timeout_total": self._live_timeouts,
+            "cognitive_brain_live_timeout_rate": _rate(
+                self._live_timeouts, self._live_evaluated,
+            ),
+            "cognitive_brain_live_would_select_total": self._would_select,
+            "cognitive_brain_live_would_select_rate": _rate(
+                self._would_select, self._live_evaluated,
+            ),
+            "cognitive_brain_live_would_fallback_total": self._would_fallback,
+            "cognitive_brain_live_would_fallback_rate": _rate(
+                self._would_fallback, self._live_evaluated,
+            ),
         }
         for outcome, count in sorted(self._counts.items()):
             values[f"cognitive_brain_shadow_{outcome.casefold()}_total"] = count
@@ -192,6 +224,7 @@ class CognitiveOpportunityScheduler(CognitiveBrainShadowSchedulerService):
             )
             return False
 
+        queued_monotonic = _monotonic_seconds(self._monotonic())
         replaced = self._pending
         replaced_at = self._pending_queued_at
         if replaced is not None and replaced_at is not None:
@@ -203,6 +236,7 @@ class CognitiveOpportunityScheduler(CognitiveBrainShadowSchedulerService):
             )
         self._pending = opportunity
         self._pending_queued_at = now
+        self._pending_queued_monotonic = queued_monotonic
         self._material_seen[opportunity.material_change_ref] = now
         self._trim_material(self._material_seen)
         self._observe_queue_depth()
@@ -246,12 +280,20 @@ class CognitiveOpportunityScheduler(CognitiveBrainShadowSchedulerService):
             while self._running and self._pending is not None:
                 opportunity = self._pending
                 queued_at = self._pending_queued_at or _utc(self._clock())
+                queued_monotonic = (
+                    self._pending_queued_monotonic
+                    if self._pending_queued_monotonic is not None
+                    else _monotonic_seconds(self._monotonic())
+                )
                 self._pending = None
                 self._pending_queued_at = None
+                self._pending_queued_monotonic = None
                 self._observe_queue_depth()
                 self._active_opportunity = opportunity
                 self._preempt_requested = False
-                task = asyncio.create_task(self._process(opportunity, queued_at))
+                task = asyncio.create_task(
+                    self._process(opportunity, queued_at, queued_monotonic),
+                )
                 self._active_task = task
                 try:
                     await task
@@ -264,6 +306,17 @@ class CognitiveOpportunityScheduler(CognitiveBrainShadowSchedulerService):
                         opportunity, outcome, queued_at=queued_at,
                         started_at=None, context_id=None, turn=None,
                         telemetry=_telemetry(self._brain),
+                        live_latency_ms=(
+                            max(
+                                0.0,
+                                (
+                                    _monotonic_seconds(self._monotonic())
+                                    - queued_monotonic
+                                ) * 1000.0,
+                            )
+                            if outcome is CognitiveShadowOutcome.PREEMPTED
+                            else None
+                        ),
                     )
                     if not self._running:
                         raise
@@ -273,9 +326,24 @@ class CognitiveOpportunityScheduler(CognitiveBrainShadowSchedulerService):
                     self._preempt_requested = False
 
     async def _process(
-        self, opportunity: CognitiveOpportunity, queued_at: datetime,
+        self,
+        opportunity: CognitiveOpportunity,
+        queued_at: datetime,
+        queued_monotonic: float,
     ) -> None:
         started_at = _utc(self._clock())
+        context: CognitiveContext | None = None
+        grounding_decision: CognitiveGroundingDecision | None = None
+        turn: CognitiveTurn | None = None
+        result: tuple[CognitiveContext, CognitiveGroundingDecision] | None = None
+        outcome = CognitiveShadowOutcome.SERVICE_ERROR
+
+        def live_latency_ms() -> float:
+            return max(
+                0.0,
+                (_monotonic_seconds(self._monotonic()) - queued_monotonic) * 1000.0,
+            )
+
         if (
             started_at - opportunity.opened_at
         ).total_seconds() > self._config.max_opportunity_age_seconds:
@@ -283,37 +351,53 @@ class CognitiveOpportunityScheduler(CognitiveBrainShadowSchedulerService):
                 opportunity, CognitiveShadowOutcome.STALE,
                 queued_at=queued_at, started_at=started_at,
                 context_id=None, turn=None, telemetry=None,
+                live_latency_ms=live_latency_ms(),
             )
             return
-        context = await self._context_builder.build(opportunity.context_request)
-        if context is None:
-            self._append_record(
-                opportunity, CognitiveShadowOutcome.SERVICE_ERROR,
-                queued_at=queued_at, started_at=started_at,
-                context_id=None, turn=None, telemetry=None,
-            )
-            return
-        try:
-            turn = await self._brain.propose(context)
-            grounding_decision = self._grounding_gate.evaluate(context, turn)
-            turn = grounding_decision.effective_turn
-        except CognitiveModelBusyError:
-            outcome = CognitiveShadowOutcome.SKIPPED_BUSY
-        except CognitiveModelContextError:
-            outcome = CognitiveShadowOutcome.PREFLIGHT_REJECTED
-        except CognitiveModelPreemptedError:
-            outcome = CognitiveShadowOutcome.PREEMPTED
-        except CognitiveModelTimeoutError:
+
+        async def build_grounded() -> tuple[
+            CognitiveContext, CognitiveGroundingDecision,
+        ] | None:
+            nonlocal context
+            context = await self._context_builder.build(opportunity.context_request)
+            if context is None:
+                return None
+            source_turn = await self._brain.propose(context)
+            decision = self._grounding_gate.evaluate(context, source_turn)
+            return context, decision
+
+        elapsed_seconds = live_latency_ms() / 1000.0
+        remaining_seconds = self._config.brain_live_timeout_seconds - elapsed_seconds
+        if remaining_seconds <= 0:
             outcome = CognitiveShadowOutcome.TIMEOUT
-        except CognitiveBrainParseError:
-            outcome = CognitiveShadowOutcome.PARSE_REJECTED
-        except (CognitiveBrainSchemaError, ValueError):
-            outcome = CognitiveShadowOutcome.SCHEMA_REJECTED
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            outcome = CognitiveShadowOutcome.SERVICE_ERROR
         else:
+            try:
+                result = await asyncio.wait_for(
+                    build_grounded(), timeout=remaining_seconds,
+                )
+            except CognitiveModelBusyError:
+                outcome = CognitiveShadowOutcome.SKIPPED_BUSY
+            except CognitiveModelContextError:
+                outcome = CognitiveShadowOutcome.PREFLIGHT_REJECTED
+            except CognitiveModelPreemptedError:
+                outcome = CognitiveShadowOutcome.PREEMPTED
+            except (CognitiveModelTimeoutError, asyncio.TimeoutError):
+                outcome = CognitiveShadowOutcome.TIMEOUT
+            except CognitiveBrainParseError:
+                outcome = CognitiveShadowOutcome.PARSE_REJECTED
+            except (CognitiveBrainSchemaError, ValueError):
+                outcome = CognitiveShadowOutcome.SCHEMA_REJECTED
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                outcome = CognitiveShadowOutcome.SERVICE_ERROR
+            else:
+                if result is None:
+                    outcome = CognitiveShadowOutcome.SERVICE_ERROR
+                else:
+                    context, grounding_decision = result
+                    turn = grounding_decision.effective_turn
+        if turn is not None and grounding_decision is not None and context is not None:
             completed_at = _utc(self._clock())
             if (
                 completed_at - opportunity.opened_at
@@ -323,6 +407,7 @@ class CognitiveOpportunityScheduler(CognitiveBrainShadowSchedulerService):
                     queued_at=queued_at, started_at=started_at,
                     context_id=context.context_id, turn=None,
                     telemetry=_telemetry(self._brain),
+                    live_latency_ms=live_latency_ms(),
                 )
                 return
             self._append_record(
@@ -331,12 +416,15 @@ class CognitiveOpportunityScheduler(CognitiveBrainShadowSchedulerService):
                 context_id=context.context_id, turn=turn,
                 telemetry=_telemetry(self._brain),
                 grounding_decision=grounding_decision,
+                live_latency_ms=live_latency_ms(),
             )
             return
         self._append_record(
             opportunity, outcome, queued_at=queued_at,
-            started_at=started_at, context_id=context.context_id,
+            started_at=started_at,
+            context_id=None if context is None else context.context_id,
             turn=None, telemetry=_telemetry(self._brain),
+            live_latency_ms=live_latency_ms(),
         )
 
     def _append_record(
@@ -350,6 +438,7 @@ class CognitiveOpportunityScheduler(CognitiveBrainShadowSchedulerService):
         turn: Any,
         telemetry: CognitiveModelTelemetry | None,
         grounding_decision: CognitiveGroundingDecision | None = None,
+        live_latency_ms: float | None = None,
     ) -> None:
         completed_at = _utc(self._clock())
         if completed_at < queued_at:
@@ -388,6 +477,12 @@ class CognitiveOpportunityScheduler(CognitiveBrainShadowSchedulerService):
             self._material_completed[opportunity.material_change_ref] = completed_at
             self._trim_material(self._material_completed)
         self._counts[outcome.value] = self._counts.get(outcome.value, 0) + 1
+        if live_latency_ms is not None:
+            self._record_live_result(
+                latency_ms=live_latency_ms,
+                would_select=outcome is CognitiveShadowOutcome.PROPOSED,
+                timed_out=outcome is CognitiveShadowOutcome.TIMEOUT,
+            )
         _call_metric(self._metrics, "record_cognitive_brain_request", outcome.value)
         if turn is not None:
             _call_metric(self._metrics, "record_cognitive_brain_turn", turn.mode.value)
@@ -430,6 +525,31 @@ class CognitiveOpportunityScheduler(CognitiveBrainShadowSchedulerService):
             int(self._pending is not None),
         )
 
+    def _record_live_result(
+        self, *, latency_ms: float, would_select: bool, timed_out: bool,
+    ) -> None:
+        if not math.isfinite(latency_ms) or latency_ms < 0:
+            raise ValueError("live Brain latency must be finite and non-negative")
+        self._live_latencies_ms.append(latency_ms)
+        self._live_evaluated += 1
+        if would_select:
+            self._would_select += 1
+            result = "would_select"
+        else:
+            self._would_fallback += 1
+            result = "would_fallback"
+        if timed_out:
+            self._live_timeouts += 1
+        _call_metric(
+            self._metrics, "observe_cognitive_brain_live_latency",
+            latency_ms / 1000.0,
+        )
+        _call_metric(
+            self._metrics, "record_cognitive_brain_live_result", result,
+        )
+        if timed_out:
+            _call_metric(self._metrics, "record_cognitive_brain_live_timeout")
+
 
 def _has_hard_hold(opportunity: CognitiveOpportunity) -> bool:
     state = opportunity.context_request.hard_state
@@ -458,3 +578,24 @@ def _utc(value: datetime) -> datetime:
     if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
         raise ValueError("scheduler clock must be timezone-aware")
     return value.astimezone(timezone.utc)
+
+
+def _monotonic_seconds(value: Any) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError("scheduler monotonic clock must return a number")
+    result = float(value)
+    if not math.isfinite(result) or result < 0:
+        raise ValueError("scheduler monotonic clock must be finite and non-negative")
+    return result
+
+
+def _percentile_ms(values: tuple[float, ...], percentile: float) -> float | None:
+    if not values:
+        return None
+    ordered = sorted(values)
+    index = max(0, math.ceil(len(ordered) * percentile) - 1)
+    return ordered[index]
+
+
+def _rate(numerator: int, denominator: int) -> float:
+    return numerator / denominator if denominator else 0.0
