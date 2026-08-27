@@ -14,7 +14,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 def _raw() -> dict[str, object]:
     return {
         "working_maxlen": 20,
+        "semantic_max_entries": 10000,
         "query_timeout_s": 0.15,
+        "latency_sample_max": 256,
         "default_top_k": 3,
         "max_query_top_k": 20,
         "content_max_chars": 4000,
@@ -42,15 +44,20 @@ def test_canonical_memory_yaml_loads_strictly() -> None:
     loader.load_all()
     config = MemoryRuntimeConfig.from_loader(loader)
     assert config.working_maxlen == 20
+    assert config.semantic_max_entries == 10000
     assert config.query_timeout_s == 0.15
+    assert config.latency_sample_max == 256
     assert config.pending_writes_max == 64
+    assert loader.get("features", "features.memory_semantic.enabled") is True
 
 
 @pytest.mark.parametrize(
     ("field", "value"),
     [
         ("working_maxlen", True),
+        ("semantic_max_entries", 0),
         ("query_timeout_s", "0.15"),
+        ("latency_sample_max", 0),
         ("default_top_k", 3.0),
         ("extractor_promote_intensity", 11),
         ("pending_writes_max", 0),

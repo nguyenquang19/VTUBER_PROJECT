@@ -11,7 +11,9 @@ from interfaces.memory import MemoryEntry, MemoryTier
 @dataclass(frozen=True)
 class MemoryRuntimeConfig:
     working_maxlen: int
+    semantic_max_entries: int
     query_timeout_s: float
+    latency_sample_max: int
     default_top_k: int
     max_query_top_k: int
     content_max_chars: int
@@ -25,7 +27,8 @@ class MemoryRuntimeConfig:
 
     def __post_init__(self) -> None:
         for name in (
-            "working_maxlen", "default_top_k", "max_query_top_k",
+            "working_maxlen", "semantic_max_entries", "latency_sample_max",
+            "default_top_k", "max_query_top_k",
             "content_max_chars", "metadata_max_items", "metadata_text_max_chars",
             "tags_max", "tag_max_chars", "extractor_min_chars", "pending_writes_max",
         ):
@@ -46,7 +49,8 @@ class MemoryRuntimeConfig:
         if not isinstance(raw, Mapping):
             raise ValueError("memory must be a mapping")
         expected = {
-            "working_maxlen", "query_timeout_s", "default_top_k", "max_query_top_k",
+            "working_maxlen", "semantic_max_entries", "query_timeout_s", "latency_sample_max",
+            "default_top_k", "max_query_top_k",
             "content_max_chars", "metadata_max_items", "metadata_text_max_chars",
             "tags_max", "tag_max_chars", "extractor_min_chars",
             "extractor_promote_intensity", "pending_writes_max",

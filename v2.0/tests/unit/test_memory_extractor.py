@@ -43,15 +43,15 @@ class TestTierAndImportance:
         assert e.importance == 0.85
         assert "preference" in e.tags
 
-    def test_name_declaration_persistent(self) -> None:
+    def test_name_declaration_is_rejected(self) -> None:
         ex = MemoryExtractor()
-        e = ex.extract(make_turn(user="tôi tên là Nguyễn Văn A nhé"))
-        assert e.tier == MemoryTier.PERSISTENT
+        assert ex.extract(make_turn(user="tôi tên là Nguyễn Văn A nhé")) is None
 
-    def test_birthday_declaration_persistent(self) -> None:
+    def test_birthday_declaration_is_rejected(self) -> None:
         ex = MemoryExtractor()
-        e = ex.extract(make_turn(user="sinh nhật của mình là 15 tháng 8 mai nhớ nhé"))
-        assert e.tier == MemoryTier.PERSISTENT
+        assert ex.extract(
+            make_turn(user="sinh nhật của mình là 15 tháng 8 mai nhớ nhé")
+        ) is None
 
     def test_high_intensity_boost_importance(self) -> None:
         ex = MemoryExtractor()
@@ -79,6 +79,11 @@ class TestTagsAndMetadata:
         assert e.metadata["viewer_id"] == "v_1"
         assert e.metadata["session_id"] == "s_1"
 
+    def test_extractor_leaves_viewer_normalization_to_memory_boundary(self) -> None:
+        ex = MemoryExtractor()
+        e = ex.extract(make_turn(viewer_id="youtube-channel-raw-123"))
+        assert e.metadata["viewer_id"] == "youtube-channel-raw-123"
+
     def test_trigger_type_tag(self) -> None:
         ex = MemoryExtractor()
         e = ex.extract(make_turn(trigger_type="chat_normal"))
@@ -92,17 +97,23 @@ class TestTagsAndMetadata:
 
 
 class TestContentComposition:
-    def test_both_sides(self) -> None:
+    def test_general_turn_stores_meaning_not_transcript(self) -> None:
         ex = MemoryExtractor()
         e = ex.extract(make_turn(user="cậu tên gì?", mai="tớ là Mai đây cậu ơi"))
-        assert "User: cậu tên gì?" in e.content
-        assert "Mai: tớ là Mai đây cậu ơi" in e.content
+        assert e.content == "verified_conversation"
+        assert "cậu tên gì" not in e.content
+        assert "Mai đây" not in e.content
 
-    def test_user_only(self) -> None:
+    def test_preference_stores_sanitized_meaning_only(self) -> None:
         ex = MemoryExtractor()
-        e = ex.extract(make_turn(user="tớ tên An nhớ nhé mai ơi", mai=""))
-        assert e.content.startswith("User:")
-        assert "Mai:" not in e.content
+        e = ex.extract(make_turn(
+            user="tớ thích cà phê, liên hệ abc@gmail.com",
+            mai="Mai trả lời nguyên văn không được lưu",
+        ))
+        assert e.content.startswith("viewer_preference: thích cà phê")
+        assert "[PII]" in e.content
+        assert "abc@gmail.com" not in e.content
+        assert "Mai trả lời" not in e.content
 
     def test_timestamp_from_turn(self) -> None:
         ex = MemoryExtractor()

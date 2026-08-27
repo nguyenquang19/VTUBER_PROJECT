@@ -722,7 +722,7 @@ features:
   speech_action_adapter: {enabled: true, disposition: KEEP, target_owner: services/execution}
   avatar_action_adapter: {enabled: true, disposition: KEEP, target_owner: services/execution}
   obs_scene_executor: {enabled: false, disposition: KEEP, target_owner: services/execution}
-  memory_semantic: {enabled: false, disposition: KEEP, target_owner: services/state}
+  memory_semantic: {enabled: true, disposition: KEEP, target_owner: services/memory}
   data_collector: {enabled: true, disposition: MERGE, target_owner: services/operations}
   agent_context: {enabled: true, disposition: MERGE, target_owner: services/cognition/context_builder.py}
   goal_proposals: {enabled: false, disposition: MERGE, target_owner: services/state}

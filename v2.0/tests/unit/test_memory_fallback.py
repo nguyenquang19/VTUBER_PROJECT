@@ -21,16 +21,24 @@ class FakePrimary(MemoryService):
         query_returns: list[MemoryEntry] | None = None,
         query_raises: Exception | None = None,
         write_raises: Exception | None = None,
+        start_raises: Exception | None = None,
     ) -> None:
         self.query_returns = query_returns or []
         self.query_raises = query_raises
         self.write_raises = write_raises
+        self.start_raises = start_raises
         self.writes: list[MemoryEntry] = []
         self.query_calls = 0
+        self.query_viewer_ids: list[str | None] = []
         self.forget_calls: list[str] = []
+        self.start_calls = 0
+        self.stop_calls = 0
 
-    async def start(self): pass
-    async def stop(self): pass
+    async def start(self):
+        self.start_calls += 1
+        if self.start_raises:
+            raise self.start_raises
+    async def stop(self): self.stop_calls += 1
     async def health_check(self):
         from interfaces.base import HealthStatus
         return HealthStatus.healthy(self.service_id)
@@ -41,6 +49,7 @@ class FakePrimary(MemoryService):
         self.writes.append(entry)
     async def query(self, text, top_k=3, tier=None, viewer_id=None):
         self.query_calls += 1
+        self.query_viewer_ids.append(viewer_id)
         if self.query_raises: raise self.query_raises
         return list(self.query_returns)
     async def forget(self, entry_id):
@@ -65,6 +74,27 @@ class TestLifecycle:
         await fb.start()  # không raise
         h = await fb.health_check()
         assert h.is_ok is True
+
+    async def test_primary_start_failure_degrades_to_working_only(self, working) -> None:
+        p = FakePrimary(start_raises=RuntimeError("model unavailable"))
+        fb = MemoryFallbackManager(primary=p, fallback=working)
+        await fb.start()
+        await fb.write(make_entry("w1"))
+        assert [entry.entry_id for entry in await fb.query("q")] == ["w1"]
+        metrics = fb.get_metrics()
+        assert metrics["memory_fb_primary_available"] is False
+        assert metrics["memory_fb_primary_start_failures"] == 1
+        assert metrics["memory_fb_fallback_total"] == 1
+
+    async def test_flag_off_uses_working_only(self, working) -> None:
+        fb = MemoryFallbackManager(primary=None, fallback=working)
+        await fb.start()
+        await fb.write(make_entry("w1"))
+        assert [entry.entry_id for entry in await fb.query("q")] == ["w1"]
+        metrics = fb.get_metrics()
+        assert metrics["memory_fb_primary_enabled"] is False
+        assert metrics["memory_fb_primary_available"] is False
+        assert metrics["memory_fb_fallback_hit"] == 1
 
 
 class TestWriteFanOut:
@@ -114,6 +144,7 @@ class TestQueryFallback:
         # working trả recent first
         assert [e.entry_id for e in results] == ["w2", "w1"]
         assert fb.get_metrics()["memory_fb_fallback_hit"] == 1
+        assert fb.get_metrics()["memory_fb_fallback_total"] == 1
 
     async def test_primary_error_falls_back(self, working) -> None:
         p = FakePrimary(query_raises=RuntimeError("timeout mask"))
@@ -127,6 +158,7 @@ class TestQueryFallback:
         assert await fb.query("q") == []
         assert fb.get_metrics()["memory_fb_primary_hit"] == 0
         assert fb.get_metrics()["memory_fb_fallback_hit"] == 0
+        assert fb.get_metrics()["memory_fb_fallback_miss"] == 1
 
     async def test_viewer_id_forwarded_to_both_tiers(self, working) -> None:
         p = FakePrimary(query_returns=[])
@@ -141,6 +173,47 @@ class TestQueryFallback:
         fb = MemoryFallbackManager(primary=p, fallback=working)
         results = await fb.query("q", top_k=5, viewer_id="v_a")
         assert [e.entry_id for e in results] == ["a"]
+
+    async def test_raw_viewer_round_trip_is_pseudonymized_symmetrically(
+        self, working,
+    ) -> None:
+        raw_viewer = "youtube-channel-raw-123"
+        entry = MemoryEntry(
+            entry_id="round-trip", content="viewer_preference: thích mèo",
+            timestamp=datetime.now(timezone.utc), tier=MemoryTier.PERSISTENT,
+            metadata={"viewer_id": raw_viewer},
+        )
+        primary = FakePrimary()
+        fb = MemoryFallbackManager(primary=primary, fallback=working)
+        await fb.write(entry)
+        stored = working.snapshot()[0]
+        pseudonym = stored.metadata["viewer_id"]
+        assert isinstance(pseudonym, str) and pseudonym.startswith("v_")
+        assert pseudonym != raw_viewer
+        assert primary.writes[0].metadata["viewer_id"] == pseudonym
+
+        results = await fb.query("mèo", viewer_id=raw_viewer)
+        assert [item.entry_id for item in results] == ["round-trip"]
+        assert primary.query_viewer_ids == [pseudonym]
+
+        # Passing the pseudonym again must not hash it a second time.
+        results = await fb.query("mèo", viewer_id=pseudonym)
+        assert [item.entry_id for item in results] == ["round-trip"]
+        assert primary.query_viewer_ids[-1] == pseudonym
+
+    async def test_export_and_forget_normalize_raw_viewer_id(self, working) -> None:
+        raw_viewer = "discord-user-raw-456"
+        fb = MemoryFallbackManager(primary=None, fallback=working)
+        await fb.write(MemoryEntry(
+            entry_id="privacy", content="verified_conversation",
+            timestamp=datetime.now(timezone.utc),
+            metadata={"viewer_id": raw_viewer},
+        ))
+        exported = await fb.export_viewer(raw_viewer)
+        assert [item.entry_id for item in exported] == ["privacy"]
+        assert exported[0].metadata["viewer_id"] != raw_viewer
+        assert await fb.forget_viewer(raw_viewer) == 1
+        assert await fb.export_viewer(raw_viewer) == []
 
 
 class TestForget:

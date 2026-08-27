@@ -64,3 +64,7 @@ def test_canonical_launcher_dispatches_only_platform_stream_entrypoints() -> Non
         assert "from orchestrator.stream_runtime import" in source
         assert "build_stream_runtime(" in source
         assert "run_stream_runtime(rt)" in source
+        assert "argparse.BooleanOptionalAction" in source
+        assert "default=True" in source
+
+    assert 'if ($NoMemory) { $RuntimeArgs += "--no-memory" }' in launcher

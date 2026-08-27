@@ -234,6 +234,35 @@ class SqliteVecStore:
             raise
         return len(rows)
 
+    def evict_oldest_excess(self, max_entries: int) -> int:
+        """Keep the store bounded by deleting oldest rows deterministically."""
+        if isinstance(max_entries, bool) or not isinstance(max_entries, int) or max_entries <= 0:
+            raise ValueError("memory max_entries must be a positive integer")
+        excess = self.count() - max_entries
+        if excess <= 0:
+            return 0
+        rows = self._conn.execute(
+            """
+            SELECT entry_id FROM memory_entries
+             ORDER BY timestamp ASC, entry_id ASC
+             LIMIT ?
+            """,
+            (excess,),
+        ).fetchall()
+        try:
+            for (entry_id,) in rows:
+                self._conn.execute(
+                    "DELETE FROM memory_vectors WHERE entry_id = ?", (entry_id,),
+                )
+                self._conn.execute(
+                    "DELETE FROM memory_entries WHERE entry_id = ?", (entry_id,),
+                )
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
+        return len(rows)
+
 
 # ---------- helpers ----------
 

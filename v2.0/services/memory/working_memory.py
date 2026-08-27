@@ -32,6 +32,8 @@ class WorkingMemoryService(MemoryService):
         if config is None:
             config = MemoryRuntimeConfig(
                 working_maxlen=maxlen, query_timeout_s=0.15, default_top_k=3,
+                semantic_max_entries=10000,
+                latency_sample_max=256,
                 max_query_top_k=20, content_max_chars=4000, metadata_max_items=24,
                 metadata_text_max_chars=512, tags_max=12, tag_max_chars=64,
                 extractor_min_chars=15, extractor_promote_intensity=7,

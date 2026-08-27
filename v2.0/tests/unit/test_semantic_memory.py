@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -55,6 +56,7 @@ class FakeStore:
         self._entries: dict[str, StoredEntry] = {}
         self.knn_results: list[StoredEntry] = []
         self.knn_calls: list[tuple] = []
+        self.evictions = 0
 
     def insert(self, entry_id, content, embedding, **kw):
         self.inserts.append((entry_id, content, embedding, kw))
@@ -83,6 +85,13 @@ class FakeStore:
     def delete(self, entry_id): self.deletes.append(entry_id); return entry_id in self._entries
     def close(self): pass
     def count(self, tier=None): return len(self._entries)
+
+    def evict_oldest_excess(self, max_entries):
+        excess = max(0, len(self._entries) - max_entries)
+        for entry_id in list(self._entries)[:excess]:
+            self._entries.pop(entry_id)
+        self.evictions += excess
+        return excess
 
 
 @pytest.fixture
@@ -162,6 +171,21 @@ class TestWrite:
         await svc.write(make_entry())
         assert svc.get_metrics()["memory_writes_total"] == 2
 
+    async def test_write_evicts_oldest_entries_at_configured_bound(
+        self, svc: SemanticMemoryService,
+    ) -> None:
+        bounded = SemanticMemoryService(
+            store=FakeStore(), embedder=FakeEmbedder(),
+            config=replace(svc._config, semantic_max_entries=1),
+        )
+        first = make_entry("first")
+        second = make_entry("second")
+        await bounded.write(first)
+        await bounded.write(second)
+        assert bounded._store.fetch_by_id(first.entry_id) is None
+        assert bounded._store.fetch_by_id(second.entry_id) is not None
+        assert bounded.get_metrics()["memory_evictions_total"] == 1
+
     async def test_duplicate_is_idempotent_and_collision_is_rejected(self) -> None:
         svc = SemanticMemoryService(store=FakeStore(), embedder=FakeEmbedder())
         entry = make_entry("same")
@@ -210,7 +234,21 @@ class TestQuery:
         m = svc.get_metrics()
         assert m["memory_queries_total"] == 1
         assert m["memory_last_query_ms"] is not None and m["memory_last_query_ms"] >= 0
+        assert m["memory_query_hits_total"] == 1
+        assert m["memory_query_misses_total"] == 0
+        assert m["memory_query_latency_p95_ms"] is not None
+        assert m["memory_query_latency_samples"] == 1
         assert m["memory_timeouts_total"] == 0
+
+    async def test_empty_query_counts_miss_and_latency_window_is_bounded(
+        self, svc: SemanticMemoryService,
+    ) -> None:
+        for _ in range(300):
+            assert await svc.query("q") == []
+        metrics = svc.get_metrics()
+        assert metrics["memory_query_hits_total"] == 0
+        assert metrics["memory_query_misses_total"] == 300
+        assert metrics["memory_query_latency_samples"] == 256
 
     async def test_query_timeout_returns_empty_not_raise(self) -> None:
         # store query 500ms → vượt hard timeout 150ms
@@ -225,6 +263,7 @@ class TestQuery:
         assert results == []
         assert elapsed < 0.35  # cắt sớm gần 150ms (thêm chút overhead)
         assert svc.get_metrics()["memory_timeouts_total"] == 1
+        assert svc.get_metrics()["memory_query_misses_total"] == 1
 
     async def test_query_store_error_returns_empty(self) -> None:
         svc = SemanticMemoryService(
@@ -267,3 +306,4 @@ class TestFromLoader:
         )
         assert svc._timeout_s == 0.15  # default (chưa cấu hình trong system.yaml)
         assert svc._default_top_k == 3
+        assert svc._query_latencies_ms.maxlen == 256

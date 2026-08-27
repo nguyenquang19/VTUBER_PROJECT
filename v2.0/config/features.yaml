@@ -104,7 +104,7 @@ features:
     description: Verified OBS current-program scene transaction; requires operator credential and canary.
 
   memory_semantic:
-    enabled: false
+    enabled: true               # A1 default-live; startup/query fail degrades to working-only
     vram_cost_mb: 500
     latency_impact_ms: 150
     category: memory

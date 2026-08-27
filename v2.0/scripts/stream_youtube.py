@@ -83,8 +83,10 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--video", required=True, metavar="VIDEO_ID",
                    help="YouTube live video ID")
     p.add_argument("--tts", action="store_true", help="Phát audio VieNeu")
-    p.add_argument("--memory", action="store_true",
-                   help="Bật semantic memory (nạp bge-m3, ~2GB CPU)")
+    p.add_argument(
+        "--memory", action=argparse.BooleanOptionalAction, default=True,
+        help="Bật semantic memory (mặc định; --no-memory dùng working-only)",
+    )
     p.add_argument("--dashboard", action="store_true",
                    help="Dashboard http://127.0.0.1:7860")
     p.add_argument("--with-discord", action="store_true",

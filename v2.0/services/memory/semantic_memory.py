@@ -10,8 +10,10 @@ Embed + store đều sync → wrap asyncio.to_thread.
 from __future__ import annotations
 
 import asyncio
+import math
 import time
 import uuid
+from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -44,6 +46,8 @@ class SemanticMemoryService(MemoryService):
         if config is None:
             config = MemoryRuntimeConfig(
                 working_maxlen=20, query_timeout_s=query_timeout_s,
+                semantic_max_entries=10000,
+                latency_sample_max=256,
                 default_top_k=default_top_k, max_query_top_k=20,
                 content_max_chars=4000, metadata_max_items=24,
                 metadata_text_max_chars=512, tags_max=12, tag_max_chars=64,
@@ -61,7 +65,13 @@ class SemanticMemoryService(MemoryService):
         self._errors_total = 0
         self._rejected_total = 0
         self._duplicates_total = 0
+        self._evictions_total = 0
         self._last_query_ms: float | None = None
+        self._query_hits_total = 0
+        self._query_misses_total = 0
+        self._query_latencies_ms: deque[float] = deque(
+            maxlen=config.latency_sample_max,
+        )
 
     @classmethod
     def from_loader(
@@ -84,6 +94,11 @@ class SemanticMemoryService(MemoryService):
     async def start(self) -> None:
         if not self._embedder.is_loaded():
             await asyncio.to_thread(self._embedder.load)
+        evict = getattr(self._store, "evict_oldest_excess", None)
+        if callable(evict):
+            self._evictions_total += await asyncio.to_thread(
+                evict, self._config.semantic_max_entries,
+            )
         self._log.info(
             "memory_ready",
             store_count=await asyncio.to_thread(self._store.count),
@@ -107,7 +122,12 @@ class SemanticMemoryService(MemoryService):
             "memory_errors_total": self._errors_total,
             "memory_rejected_total": self._rejected_total,
             "memory_duplicates_total": self._duplicates_total,
+            "memory_evictions_total": self._evictions_total,
+            "memory_query_hits_total": self._query_hits_total,
+            "memory_query_misses_total": self._query_misses_total,
             "memory_last_query_ms": self._last_query_ms,
+            "memory_query_latency_p95_ms": _percentile_95(self._query_latencies_ms),
+            "memory_query_latency_samples": len(self._query_latencies_ms),
             **self._embedder.get_metrics(),
         }
 
@@ -144,6 +164,11 @@ class SemanticMemoryService(MemoryService):
                 viewer_id=entry.metadata.get("viewer_id"),
                 session_id=entry.metadata.get("session_id"),
             )
+            evict = getattr(self._store, "evict_oldest_excess", None)
+            if callable(evict):
+                self._evictions_total += await asyncio.to_thread(
+                    evict, self._config.semantic_max_entries,
+                )
             self._writes_total += 1
         except Exception as e:
             self._errors_total += 1
@@ -173,21 +198,31 @@ class SemanticMemoryService(MemoryService):
                 self._retrieve(query_text, top_k, tier, viewer_id),
                 timeout=self._timeout_s,
             )
-            self._last_query_ms = (time.perf_counter() - t0) * 1000
+            self._record_query_latency((time.perf_counter() - t0) * 1000)
+            if results:
+                self._query_hits_total += 1
+            else:
+                self._query_misses_total += 1
             return results
         except asyncio.TimeoutError:
             self._timeouts_total += 1
-            self._last_query_ms = self._timeout_s * 1000
+            self._query_misses_total += 1
+            self._record_query_latency((time.perf_counter() - t0) * 1000)
             self._log.warning(
                 "memory_query_timeout",
-                query=query_text[:50], timeout_s=self._timeout_s,
+                timeout_s=self._timeout_s,
             )
             return []  # N7 fail-safe: pipeline tiếp tục với working-only (7.E)
         except Exception as e:
             self._errors_total += 1
-            self._last_query_ms = (time.perf_counter() - t0) * 1000
-            self._log.error("memory_query_failed", error=str(e))
+            self._query_misses_total += 1
+            self._record_query_latency((time.perf_counter() - t0) * 1000)
+            self._log.error("memory_query_failed", error=type(e).__name__)
             return []  # fail-safe
+
+    def _record_query_latency(self, latency_ms: float) -> None:
+        self._last_query_ms = max(0.0, float(latency_ms))
+        self._query_latencies_ms.append(self._last_query_ms)
 
     async def _retrieve(
         self,
@@ -294,3 +329,11 @@ def _stored_matches(stored: StoredEntry, entry: MemoryEntry) -> bool:
         and tuple(stored.tags) == entry.tags
         and dict(stored.metadata) == dict(entry.metadata)
     )
+
+
+def _percentile_95(values: deque[float]) -> float | None:
+    if not values:
+        return None
+    ordered = sorted(values)
+    index = max(0, math.ceil(0.95 * len(ordered)) - 1)
+    return ordered[index]

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -143,3 +143,20 @@ class TestDelete:
 
     def test_delete_nonexistent_returns_false(self, store: SqliteVecStore) -> None:
         assert store.delete("nope") is False
+
+    def test_evict_oldest_excess_bounds_both_tables(self, store: SqliteVecStore) -> None:
+        now = datetime.now(timezone.utc)
+        store.insert("old", "old", fake_vec(0.1), timestamp=now - timedelta(days=2))
+        store.insert("mid", "mid", fake_vec(0.2), timestamp=now - timedelta(days=1))
+        store.insert("new", "new", fake_vec(0.3), timestamp=now)
+        assert store.evict_oldest_excess(2) == 1
+        assert store.count() == 2
+        assert store.fetch_by_id("old") is None
+        assert {item.entry_id for item in store.query_knn(fake_vec(0.2), top_k=5)} == {
+            "mid", "new",
+        }
+
+    @pytest.mark.parametrize("value", [0, True, 1.5])
+    def test_evict_bound_is_strict(self, store: SqliteVecStore, value: object) -> None:
+        with pytest.raises(ValueError):
+            store.evict_oldest_excess(value)  # type: ignore[arg-type]

@@ -24,7 +24,9 @@ paths:
 
 memory:
   working_maxlen: 20
+  semantic_max_entries: 10000
   query_timeout_s: 0.15
+  latency_sample_max: 256
   default_top_k: 3
   max_query_top_k: 20
   content_max_chars: 4000

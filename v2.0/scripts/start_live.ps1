@@ -5,11 +5,15 @@ param(
     [string]$VideoId = "",
     [switch]$WithDiscord,
     [switch]$Memory,
+    [switch]$NoMemory,
     [switch]$NoDashboard,
     [switch]$NoTts
 )
 
 $ErrorActionPreference = "Stop"
+if ($Memory -and $NoMemory) {
+    throw "-Memory and -NoMemory cannot be used together"
+}
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $PythonExe = Join-Path $RepoRoot "venv\Scripts\python.exe"
 $PreflightReport = Join-Path $RepoRoot "logs\operations\live_preflight.json"
@@ -37,6 +41,7 @@ $RuntimeArgs = @()
 if (-not $NoTts) { $RuntimeArgs += "--tts" }
 if (-not $NoDashboard) { $RuntimeArgs += "--dashboard" }
 if ($Memory) { $RuntimeArgs += "--memory" }
+if ($NoMemory) { $RuntimeArgs += "--no-memory" }
 
 Set-Location -LiteralPath $RepoRoot
 if ($Platform -eq "youtube") {

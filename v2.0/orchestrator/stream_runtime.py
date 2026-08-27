@@ -140,7 +140,7 @@ async def _stop_dashboard_handle(server: Any, task: asyncio.Task[Any] | None) ->
 class StreamRuntimeConfig:
     """Flags điều khiển build."""
     enable_tts: bool = False
-    enable_memory: bool = False
+    enable_memory: bool = True
     enable_autonomy: bool = True
     enable_dashboard: bool = False
     on_token: Callable[[str], None] | None = None
@@ -885,7 +885,8 @@ class StreamRuntime:
         m = {
             "runtime_running": self._running,
             "runtime_tts_enabled": self.cfg.enable_tts,
-            "runtime_memory_enabled": self.cfg.enable_memory,
+            "runtime_memory_enabled": self._memory is not None,
+            "runtime_semantic_memory_requested": self.cfg.enable_memory,
             "runtime_autonomy_enabled": self.cfg.enable_autonomy and self._autonomy is not None,
             "runtime_filter_enabled": self._runner.filter_enabled,
         }
@@ -1044,7 +1045,7 @@ class StreamRuntime:
                         source_id for source_id in self._router.source_ids
                     ],
                     "tts_enabled": self.cfg.enable_tts and self._tts_pipeline is not None,
-                    "memory_enabled": self.cfg.enable_memory and self._memory is not None,
+                    "memory_enabled": self._memory is not None,
                     "autonomy_enabled": self.cfg.enable_autonomy and self._autonomy is not None,
                     "dashboard_enabled": self.cfg.enable_dashboard,
                 },
@@ -1449,32 +1450,41 @@ async def _compose_stream_runtime(
         emotion.current_mood, emotion.active_tone_flags,
     )
 
-    # ─── Memory (optional) ───
-    memory = None
-    memory_extractor = None
-    if cfg.enable_memory:
+    # ─── Memory: working is core; semantic is feature-gated and fail-safe ───
+    from services.memory.extractor import MemoryExtractor
+    from services.memory.memory_fallback import MemoryFallbackManager
+    from services.memory.config import MemoryRuntimeConfig
+    from services.memory.working_memory import WorkingMemoryService
+
+    memory_config = MemoryRuntimeConfig.from_loader(loader)
+    working = WorkingMemoryService.from_loader(loader)
+    semantic = None
+    try:
+        semantic_status = await feature_manager.get_status("memory_semantic")
+        semantic_enabled = (
+            cfg.enable_memory
+            and semantic_status in (FeatureStatus.ENABLED, FeatureStatus.DEGRADED)
+        )
+    except KeyError:
+        get_logger("stream_runtime").warning("memory_semantic_feature_missing")
+        semantic_enabled = False
+    if semantic_enabled:
         from services.memory.embedder import BgeM3Embedder
-        from services.memory.extractor import MemoryExtractor
-        from services.memory.memory_fallback import MemoryFallbackManager
-        from services.memory.config import MemoryRuntimeConfig
         from services.memory.semantic_memory import SemanticMemoryService
         from services.memory.sqlite_vec_store import SqliteVecStore
-        from services.memory.working_memory import WorkingMemoryService
 
         db_path = loader.get("system", "paths.db_file", "data/mai.db")
         MigrationRunner.from_config(loader).initialize()
         store = SqliteVecStore(db_path=db_path)
         embedder = BgeM3Embedder.from_loader(loader)
-        memory_config = MemoryRuntimeConfig.from_loader(loader)
         semantic = SemanticMemoryService.from_loader(loader, store=store, embedder=embedder)
-        working = WorkingMemoryService.from_loader(loader)
-        memory = MemoryFallbackManager(
-            primary=semantic, fallback=working,
-            max_query_top_k=memory_config.max_query_top_k,
-        )
-        await _start_owned_resource(rollback, "memory", memory)
-        memory_extractor = MemoryExtractor.from_loader(loader)
-        emotion.set_memory_service(memory)
+    memory = MemoryFallbackManager(
+        primary=semantic, fallback=working,
+        max_query_top_k=memory_config.max_query_top_k,
+    )
+    await _start_owned_resource(rollback, "memory", memory)
+    memory_extractor = MemoryExtractor.from_loader(loader)
+    emotion.set_memory_service(memory)
     relationship_manager.set_memory_service(memory)
 
     agent_context_renderer = agent_context_projection

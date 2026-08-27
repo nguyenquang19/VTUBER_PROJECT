@@ -20,8 +20,9 @@ luồng, invariant và trạng thái; không nhân bản định nghĩa kiểu.
 
 AI VTuber tiếng Việt chạy **local trên Windows 11**. Backend hội thoại là `llama.cpp`
 (`llama-server.exe`), đầu vào là chat YouTube/Discord, đầu ra là text + audio VieNeu-TTS + subtitle
-fallback + avatar VTube Studio. Runtime có Director quyết định hành động, mood Hybrid, memory tùy chọn,
-transaction tại ranh giới delivery, dashboard operator và bộ công cụ đánh giá offline.
+fallback + avatar VTube Studio. Runtime có Director quyết định hành động, mood Hybrid, working memory
+luôn có và semantic memory bật mặc định sau feature flag, transaction tại ranh giới delivery, dashboard
+operator và bộ công cụ đánh giá offline.
 
 Product `1.4.3` là đường hội thoại đã phát hành. Các năng lực V2 (world/self model, Brain, external
 action) tồn tại ở nhiều mức: có mã / đã ghép / đã test / đã phát hành — xem Mục 8.
@@ -129,9 +130,12 @@ Agent/World/Perception mutation → `AuthoritativeStateReducer` → đọc qua `
 grounded: câu hỏi/promise/story) · `behavior_library · repair_policy · conversation_move_planner ·
 session_recap · mood_policy · topic_matcher`.
 
-`memory/`: `semantic_memory` (bge-m3 1024-dim CPU + sqlite-vec, bound 150ms — **OFF, opt-in `-Memory`**) ·
-`working_memory` (deque 20) · `memory_fallback` (semantic → working) · `embedder · sqlite_vec_store ·
-extractor`.
+`memory/`: `semantic_memory` (bge-m3 1024-dim CPU + sqlite-vec, hard bound 150ms — **LIVE mặc định**) ·
+`working_memory` (deque bounded, luôn là fallback) · `memory_fallback` (semantic → working, semantic lỗi
+khởi động/query thì degrade working-only) · `embedder · sqlite_vec_store · extractor`. Entry tự động chỉ
+được tạo sau verified delivery và lưu **bí danh + ý nghĩa đã sanitize**, không lưu transcript, tên thật,
+ngày sinh hoặc định danh trực tiếp. Tắt `memory_semantic` đưa runtime về working-only mà không làm chết turn.
+Metric owner của chain gồm semantic hit/miss, query latency p95 trên cửa sổ bounded, timeout và fallback.
 
 `relationship/`: `manager` (hồ sơ pseudonymous M7 — LIVE) · `store` (SQLite chỉ bí danh, **no PII**).
 
@@ -290,6 +294,12 @@ từ goal/thread/lore, **không bịa**) → cùng đường transaction 4.3.
 Ngưỡng/TTL/cooldown/weight production nằm trong YAML, không hardcode. Feature/critical config fail-closed
 với scalar sai kiểu, dependency/conflict sai, resource budget vượt.
 
+Memory runtime đọc bound/capacity từ `system.yaml::memory`: SQLite semantic evict oldest khi vượt
+`semantic_max_entries`, query semantic bị cắt ở `query_timeout_s=0.15`, cửa sổ tính p95 có giới hạn,
+và `features.yaml::memory_semantic` là master flag.
+Flag tắt hoặc semantic không khởi động được đều giữ working memory hoạt động; config/contract sai vẫn
+fail-closed khi composition.
+
 ---
 
 ## 6. An toàn, riêng tư, phục hồi
@@ -301,7 +311,8 @@ với scalar sai kiểu, dependency/conflict sai, resource budget vượt.
 - **Credential**: chỉ qua environment/secret store lúc chạy; không ghi vào YAML/CLI/`.env.example`/Git.
   `MAI_DASHBOARD_CONTROL_TOKEN` bắt buộc khi dashboard bật; `DISCORD_BOT_TOKEN`/`OBS_WEBSOCKET_PASSWORD`
   chỉ khi consumer bật.
-- **Privacy**: memory/relationship/journal lưu bí danh + ý nghĩa, không PII người xem.
+- **Privacy**: memory/relationship/journal lưu bí danh + ý nghĩa, không PII người xem và không transcript.
+  Query text không được ghi vào log/metric semantic memory.
 - **Shutdown**: tắt có thứ tự, idempotent, snapshot runtime atomic.
 
 ---
@@ -328,7 +339,7 @@ với scalar sai kiểu, dependency/conflict sai, resource budget vượt.
 | Mood Hybrid (v1+v2) | **LIVE** | Kênh A số deterministic; Kênh B sắc thái LLM |
 | World / Self Model | SHADOW | read-only, không đổi quyết định |
 | Cognitive Brain | SHADOW | proposal-only, offer sau execute, chưa public |
-| Semantic memory | OFF | opt-in `-Memory` |
+| Semantic memory | **LIVE** | mặc định qua `memory_semantic`; timeout/startup fail → working-only |
 | OBS scene action + perception | OFF | có executor thật, chưa credential/canary |
 | Goal proposals · closed-loop canary | OFF | chưa vào vòng quyết định tự chủ |
 | Release 2.0.0 | CHƯA | thiếu live/LLM/human/rollback evidence |
