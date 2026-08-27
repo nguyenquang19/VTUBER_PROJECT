@@ -16,6 +16,8 @@ from interfaces.cognition import (
     CognitiveConversationState,
     CognitiveEvidenceItem,
     CognitiveEvidenceSource,
+    CognitiveGroundingDecision,
+    CognitiveGroundingOutcome,
     CognitiveHardState,
     CognitiveMemoryItem,
     CognitiveMode,
@@ -181,6 +183,11 @@ def test_canonical_config_loads_strictly(cognition_config: CognitionConfig) -> N
     assert cognition_config.max_brain_inflight == 1
     assert cognition_config.focus_ttl_seconds == 900
     assert cognition_config.max_speech_chars == 512
+    assert (
+        cognition_config.grounding_uncertainty_threshold
+        is CognitiveUncertainty.MEDIUM
+    )
+    assert cognition_config.grounding_evidence_policy == "all_current"
 
 
 def test_invalid_cognition_reload_keeps_whole_prior_config(tmp_path: Path) -> None:
@@ -215,6 +222,8 @@ def test_initial_invalid_cognition_config_fails_closed(tmp_path: Path) -> None:
         lambda raw: raw.update(reason_codes=["same", "same"]),
         lambda raw: raw.update(max_speech_chars=4096),
         lambda raw: raw.update(max_brain_speech_chars=513),
+        lambda raw: raw.update(grounding_uncertainty_threshold="HIGH"),
+        lambda raw: raw.update(grounding_evidence_policy="any_current"),
     ],
 )
 def test_cognition_config_rejects_unknown_missing_coercion_and_invalid_bounds(mutator) -> None:
@@ -324,6 +333,38 @@ def test_wait_is_exact_and_has_no_second_free_text_reason(cognition_config: Cogn
             action_proposal=None, focus_proposal=None, memory_proposals=(),
             evidence_refs=("event-1",), uncertainty=CognitiveUncertainty.LOW,
             reason_codes=("intentional_wait",),
+        )
+
+
+def test_grounding_decision_requires_pass_or_effective_wait(
+    cognition_config: CognitionConfig,
+) -> None:
+    context = _context(cognition_config)
+    speech = CognitiveTurn(
+        config=cognition_config, context=context, schema_version=1,
+        turn_id="turn-grounded", context_id=CONTEXT_ID,
+        mode=CognitiveMode.SPEAK, attention_target_id="event-1",
+        intent="Acknowledge the viewer", speech_text="Tớ nghe thấy rồi.",
+        action_proposal=None, focus_proposal=None, memory_proposals=(),
+        evidence_refs=("event-1",), uncertainty=CognitiveUncertainty.LOW,
+        reason_codes=("propose_speech",),
+    )
+    with pytest.raises(ValueError, match="effective WAIT"):
+        CognitiveGroundingDecision(
+            config=cognition_config, schema_version=1,
+            source_turn_id=speech.turn_id, context_id=context.context_id,
+            source_mode=speech.mode, source_uncertainty=speech.uncertainty,
+            outcome=CognitiveGroundingOutcome.SUPPRESSED_EMPTY_EVIDENCE,
+            effective_turn=speech,
+        )
+    with pytest.raises(ValueError, match="non-WAIT"):
+        CognitiveGroundingDecision(
+            config=cognition_config, schema_version=1,
+            source_turn_id="source-wait", context_id=context.context_id,
+            source_mode=CognitiveMode.WAIT,
+            source_uncertainty=speech.uncertainty,
+            outcome=CognitiveGroundingOutcome.PASSED,
+            effective_turn=speech,
         )
 
 

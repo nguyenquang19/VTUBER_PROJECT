@@ -92,11 +92,14 @@ shadow → canary → primary, không nhảy cóc.
 
 ### B1 — Grounding gate contract · công trung
 Gate `uncertainty/evidence → WAIT`, chạy **shadow** trước.
-- **Files:** mở rộng `interfaces/cognition.py`; gate trong đường Brain.
-- **Contract:** `mode==WAIT` | `uncertainty > ngưỡng` | `evidence_refs` rỗng/không tồn tại → suppress.
-- **YAML:** uncertainty threshold, evidence policy.
+- **Files:** mở rộng `interfaces/cognition.py`; `services/cognition/grounding_gate.py`; wire sau Brain proposal
+  và trước bounded shadow record trong scheduler.
+- **Contract:** `mode==WAIT` | `uncertainty > ngưỡng` | `evidence_refs` rỗng/không tồn tại → deterministic
+  effective `WAIT`; giữ source identity/outcome để audit, không giữ unsafe speech làm effective turn.
+- **YAML:** uncertainty threshold `MEDIUM`, evidence policy `all_current`.
 - **Test:** deterministic; reject empty/bịa evidence; ngưỡng từ YAML.
-- **Gate:** chạy shadow, log, chưa ảnh hưởng output thật.
+- **Gate:** chạy sau public execute trong shadow, log bounded, chưa ảnh hưởng output thật. Gate là safety
+  boundary bắt buộc của feature `cognitive_brain_shadow`, không có cờ bypass riêng; gate lỗi fail-closed.
 
 ### B2 — Brain live-context + timeout/fallback (vẫn shadow) · công cao
 Nối Opportunity → Brain lúc **live** (không post-exec), bọc `wait_for(budget≈2s)` → fallback. Vẫn shadow

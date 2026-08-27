@@ -30,6 +30,7 @@ from interfaces.agent import (
     ThreadExtractionService,
 )
 from interfaces.base import HealthState, HealthStatus, Service
+from interfaces.cognition import CognitiveGroundingGateService
 from interfaces.filter import FilterCategory, FilterService, FilterVerdict
 from interfaces.input import EventSource, InputEvent, InputService
 from interfaces.human_like import HumanLikeCalibrationService
@@ -100,6 +101,7 @@ class TestServiceContract:
             (EpisodicMemoryService, "set_enabled"),
             (RecallGateService, "evaluate"),
             (RecallGateService, "set_enabled"),
+            (CognitiveGroundingGateService, "evaluate"),
             (RelationshipService, "context_hints"),
             (RelationshipService, "context_enabled"),
             (RelationshipService, "set_context_enabled"),
@@ -193,6 +195,7 @@ class TestServiceContract:
         [
             InputService, STTService, LLMService, FilterService, TTSService,
             AnimationService, MemoryService, RelationshipService,
+            CognitiveGroundingGateService,
             EventLedgerService, AgentStateService,
             GoalManagerService,
             GoalProposalService,

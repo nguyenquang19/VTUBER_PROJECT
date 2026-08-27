@@ -19,6 +19,7 @@ from interfaces.cognition import (
     CognitiveUncertainty,
 )
 from services.operations.metrics import MetricsCollector
+from services.cognition.grounding_gate import CognitiveGroundingGate
 from services.cognition.scheduler import CognitiveOpportunityScheduler
 from tests.unit.test_cognitive_brain_shadow import _config, _context
 
@@ -100,6 +101,28 @@ class _Brain:
         )
 
 
+class _HighUncertaintySpeechBrain(_Brain):
+    async def propose(self, context):
+        assert context is self.context
+        self.calls += 1
+        return CognitiveTurn(
+            config=self.config, context=context, schema_version=1,
+            turn_id=f"unsafe-source-{self.calls}", context_id=context.context_id,
+            mode=CognitiveMode.SPEAK, attention_target_id="agent:chat:m1",
+            intent="answer the viewer", speech_text="Uncertain source wording.",
+            action_proposal=None, focus_proposal=None, memory_proposals=(),
+            evidence_refs=("agent:chat:m1",),
+            uncertainty=CognitiveUncertainty.HIGH,
+            reason_codes=("propose_speech",),
+        )
+
+
+class _FailingGroundingGate(CognitiveGroundingGate):
+    def evaluate(self, context, turn):
+        del context, turn
+        raise RuntimeError("synthetic grounding failure")
+
+
 def _opportunity(config, suffix: str, *, hold: bool = False) -> CognitiveOpportunity:
     hard = CognitiveHardState(
         config=config, schema_version=1, emergency=hold, operator_hold=False,
@@ -138,7 +161,8 @@ async def test_feature_off_creates_no_worker_context_or_brain_call() -> None:
     builder = _Builder(context)
     brain = _Brain(config, context)
     scheduler = CognitiveOpportunityScheduler(
-        config=config, context_builder=builder, brain=brain, clock=lambda: NOW,
+        config=config, context_builder=builder, brain=brain,
+        grounding_gate=CognitiveGroundingGate(config), clock=lambda: NOW,
     )
     assert scheduler.offer(_opportunity(config, "off")) is False
     assert builder.calls == 0 and brain.calls == 0
@@ -156,6 +180,7 @@ async def test_one_opportunity_produces_one_observer_record_and_bounded_metrics(
     brain = _Brain(config, context)
     scheduler = CognitiveOpportunityScheduler(
         config=config, context_builder=builder, brain=brain,
+        grounding_gate=CognitiveGroundingGate(config, metrics=metrics),
         metrics=metrics, clock=lambda: NOW,
     )
     await scheduler.start()
@@ -163,10 +188,56 @@ async def test_one_opportunity_produces_one_observer_record_and_bounded_metrics(
     await _until(lambda: len(scheduler.recent()) == 1)
     record = scheduler.recent()[0]
     assert record.outcome is CognitiveShadowOutcome.PROPOSED
+    assert record.grounding_decision is not None
+    assert record.grounding_decision.outcome.value == "SUPPRESSED_WAIT"
     assert builder.calls == 1 and brain.calls == 1
     assert metrics.cognition_brain_snapshot()["turns"] == {"WAIT": 1}
     await scheduler.stop()
     assert scheduler.recent() == ()
+
+
+@pytest.mark.asyncio
+async def test_scheduler_retains_only_grounded_wait_for_unsafe_speech() -> None:
+    config = _config()
+    context = _context(config)
+    builder = _Builder(context)
+    brain = _HighUncertaintySpeechBrain(config, context)
+    scheduler = CognitiveOpportunityScheduler(
+        config=config, context_builder=builder, brain=brain,
+        grounding_gate=CognitiveGroundingGate(config), clock=lambda: NOW,
+    )
+    await scheduler.start()
+    assert scheduler.offer(_opportunity(config, "unsafe-speech")) is True
+    await _until(lambda: len(scheduler.recent()) == 1)
+    record = scheduler.recent()[0]
+    assert record.outcome is CognitiveShadowOutcome.PROPOSED
+    assert record.turn is not None and record.turn.mode is CognitiveMode.WAIT
+    assert record.turn.speech_text is None and record.turn.intent is None
+    assert record.grounding_decision is not None
+    assert record.grounding_decision.source_turn_id == "unsafe-source-1"
+    assert record.grounding_decision.source_mode is CognitiveMode.SPEAK
+    assert record.grounding_decision.source_uncertainty is CognitiveUncertainty.HIGH
+    assert record.grounding_decision.outcome.value == "SUPPRESSED_UNCERTAINTY"
+    assert record.compatibility.mode is CognitiveMode.SPEAK
+    await scheduler.stop()
+
+
+@pytest.mark.asyncio
+async def test_grounding_failure_retains_no_unsafe_cognition() -> None:
+    config = _config()
+    context = _context(config)
+    scheduler = CognitiveOpportunityScheduler(
+        config=config, context_builder=_Builder(context),
+        brain=_HighUncertaintySpeechBrain(config, context),
+        grounding_gate=_FailingGroundingGate(config), clock=lambda: NOW,
+    )
+    await scheduler.start()
+    assert scheduler.offer(_opportunity(config, "gate-failure")) is True
+    await _until(lambda: len(scheduler.recent()) == 1)
+    record = scheduler.recent()[0]
+    assert record.outcome is CognitiveShadowOutcome.SERVICE_ERROR
+    assert record.turn is None and record.grounding_decision is None
+    await scheduler.stop()
 
 
 @pytest.mark.asyncio
@@ -176,7 +247,8 @@ async def test_hard_hold_and_same_material_never_call_brain_twice() -> None:
     builder = _Builder(context)
     brain = _Brain(config, context)
     scheduler = CognitiveOpportunityScheduler(
-        config=config, context_builder=builder, brain=brain, clock=lambda: NOW,
+        config=config, context_builder=builder, brain=brain,
+        grounding_gate=CognitiveGroundingGate(config), clock=lambda: NOW,
     )
     await scheduler.start()
     assert scheduler.offer(_opportunity(config, "hold", hold=True)) is False
@@ -199,7 +271,8 @@ async def test_latest_wins_slot_supersedes_only_pending_work() -> None:
     builder = _Builder(context, gate=gate)
     brain = _Brain(config, context)
     scheduler = CognitiveOpportunityScheduler(
-        config=config, context_builder=builder, brain=brain, clock=lambda: NOW,
+        config=config, context_builder=builder, brain=brain,
+        grounding_gate=CognitiveGroundingGate(config), clock=lambda: NOW,
     )
     await scheduler.start()
     scheduler.offer(_opportunity(config, "active"))
@@ -226,7 +299,8 @@ async def test_live_preemption_cancels_shadow_without_creating_public_fallback()
     builder = _Builder(context)
     brain = _Brain(config, context, gate=gate)
     scheduler = CognitiveOpportunityScheduler(
-        config=config, context_builder=builder, brain=brain, clock=lambda: NOW,
+        config=config, context_builder=builder, brain=brain,
+        grounding_gate=CognitiveGroundingGate(config), clock=lambda: NOW,
     )
     await scheduler.start()
     scheduler.offer(_opportunity(config, "preempt"))

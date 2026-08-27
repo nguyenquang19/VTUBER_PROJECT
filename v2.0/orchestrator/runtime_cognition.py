@@ -9,6 +9,7 @@ from interfaces.turn_kernel import KernelConfig, TurnRolloutMode
 from orchestrator.runtime_feature_bindings import attach_boolean_feature
 from services.cognition.brain import CognitiveBrain
 from services.cognition.context_builder import CognitiveContextBuilder
+from services.cognition.grounding_gate import CognitiveGroundingGate
 from services.cognition.model_adapter import CognitiveModelAdapter
 from services.cognition.scheduler import CognitiveOpportunityScheduler
 
@@ -41,8 +42,10 @@ def build_cognitive_runtime_stack(
     brain = CognitiveBrain(
         config=config, model_adapter=model_adapter,
     )
+    grounding_gate = CognitiveGroundingGate(config, metrics=metrics)
     scheduler = CognitiveOpportunityScheduler(
-        config=config, context_builder=context_builder, brain=brain, metrics=metrics,
+        config=config, context_builder=context_builder, brain=brain,
+        grounding_gate=grounding_gate, metrics=metrics,
     )
 
     def hard_state(value: Any) -> CognitiveHardState:

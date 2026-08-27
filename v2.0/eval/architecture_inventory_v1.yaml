@@ -290,13 +290,13 @@ scope:
   - tests/**/*.py
 
 snapshot:
-  production_python_files: 200
-  production_modules: 200
+  production_python_files: 201
+  production_modules: 201
   config_yaml_files: 31
   prompt_files: 7
   script_files: 35
   test_python_files_before_s0: 224
-  test_python_files: 223
+  test_python_files: 224
   feature_count: 52
   feature_enabled_count: 38
   feature_disabled_count: 14

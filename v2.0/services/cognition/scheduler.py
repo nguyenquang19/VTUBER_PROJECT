@@ -16,6 +16,8 @@ from interfaces.cognition import (
     CognitiveBrainShadowSchedulerService,
     CognitiveBrainSnapshot,
     CognitiveContextBuilderService,
+    CognitiveGroundingDecision,
+    CognitiveGroundingGateService,
     CognitiveOpportunity,
     CognitiveModelBusyError,
     CognitiveModelContextError,
@@ -38,12 +40,16 @@ class CognitiveOpportunityScheduler(CognitiveBrainShadowSchedulerService):
         config: CognitionConfig,
         context_builder: CognitiveContextBuilderService,
         brain: CognitiveBrainService,
+        grounding_gate: CognitiveGroundingGateService,
         metrics: Any = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._config = config
         self._context_builder = context_builder
         self._brain = brain
+        if not isinstance(grounding_gate, CognitiveGroundingGateService):
+            raise ValueError("grounding_gate must implement CognitiveGroundingGateService")
+        self._grounding_gate = grounding_gate
         self._metrics = metrics
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._running = False
@@ -64,7 +70,12 @@ class CognitiveOpportunityScheduler(CognitiveBrainShadowSchedulerService):
     async def start(self) -> None:
         if self._running:
             return
-        await self._brain.start()
+        await self._grounding_gate.start()
+        try:
+            await self._brain.start()
+        except BaseException:
+            await self._grounding_gate.stop()
+            raise
         self._running = True
         self._worker = asyncio.create_task(
             self._run(), name="cognitive-brain-shadow-scheduler",
@@ -99,7 +110,10 @@ class CognitiveOpportunityScheduler(CognitiveBrainShadowSchedulerService):
         self._active_task = None
         self._active_opportunity = None
         self._signal.clear()
-        await self._brain.stop()
+        try:
+            await self._brain.stop()
+        finally:
+            await self._grounding_gate.stop()
         self._records.clear()
         self._material_seen.clear()
         self._material_completed.clear()
@@ -127,6 +141,7 @@ class CognitiveOpportunityScheduler(CognitiveBrainShadowSchedulerService):
         }
         for outcome, count in sorted(self._counts.items()):
             values[f"cognitive_brain_shadow_{outcome.casefold()}_total"] = count
+        values.update(self._grounding_gate.get_metrics())
         return values
 
     def offer(self, opportunity: CognitiveOpportunity) -> bool:
@@ -280,6 +295,8 @@ class CognitiveOpportunityScheduler(CognitiveBrainShadowSchedulerService):
             return
         try:
             turn = await self._brain.propose(context)
+            grounding_decision = self._grounding_gate.evaluate(context, turn)
+            turn = grounding_decision.effective_turn
         except CognitiveModelBusyError:
             outcome = CognitiveShadowOutcome.SKIPPED_BUSY
         except CognitiveModelContextError:
@@ -313,6 +330,7 @@ class CognitiveOpportunityScheduler(CognitiveBrainShadowSchedulerService):
                 queued_at=queued_at, started_at=started_at,
                 context_id=context.context_id, turn=turn,
                 telemetry=_telemetry(self._brain),
+                grounding_decision=grounding_decision,
             )
             return
         self._append_record(
@@ -331,6 +349,7 @@ class CognitiveOpportunityScheduler(CognitiveBrainShadowSchedulerService):
         context_id: str | None,
         turn: Any,
         telemetry: CognitiveModelTelemetry | None,
+        grounding_decision: CognitiveGroundingDecision | None = None,
     ) -> None:
         completed_at = _utc(self._clock())
         if completed_at < queued_at:
@@ -354,6 +373,7 @@ class CognitiveOpportunityScheduler(CognitiveBrainShadowSchedulerService):
             compatibility=opportunity.compatibility,
             outcome=outcome,
             turn=turn,
+            grounding_decision=grounding_decision,
             queued_at=queued_at,
             started_at=started_at,
             completed_at=completed_at,

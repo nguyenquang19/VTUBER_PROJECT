@@ -1,4 +1,4 @@
-"""Strict proposal-only contracts for the Cognitive Brain boundary.
+"""Strict proposal-only and grounding contracts for the Cognitive Brain boundary.
 
 MCB-1 defines immutable proposal values. MCB-2 adds only a read-only context
 builder boundary. Nothing in this module calls an LLM, executes an action,
@@ -14,7 +14,7 @@ from dataclasses import InitVar, dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from types import MappingProxyType
-from typing import Any, Mapping
+from typing import AbstractSet, Any, Mapping
 
 from interfaces.base import Service
 
@@ -106,6 +106,8 @@ class CognitionConfig:
     max_opportunity_age_seconds: float
     max_brain_intent_chars: int
     max_brain_speech_chars: int
+    grounding_uncertainty_threshold: CognitiveUncertainty
+    grounding_evidence_policy: str
     max_id_chars: int
     max_label_chars: int
     max_text_chars: int
@@ -144,7 +146,8 @@ class CognitionConfig:
         "max_brain_inflight", "max_brain_shadow_records",
         "opportunity_debounce_seconds", "opportunity_reconsider_seconds",
         "max_opportunity_age_seconds", "max_brain_intent_chars",
-        "max_brain_speech_chars",
+        "max_brain_speech_chars", "grounding_uncertainty_threshold",
+        "grounding_evidence_policy",
         "max_id_chars", "max_label_chars",
         "max_text_chars", "max_speech_chars", "max_attention_items",
         "max_memory_items", "max_recent_delivered_speech",
@@ -204,6 +207,23 @@ class CognitionConfig:
             raise ValueError("max_brain_intent_chars must not exceed max_text_chars")
         if self.max_brain_speech_chars > self.max_speech_chars:
             raise ValueError("max_brain_speech_chars must not exceed max_speech_chars")
+        _enum(
+            self.grounding_uncertainty_threshold,
+            CognitiveUncertainty,
+            "grounding_uncertainty_threshold",
+        )
+        if self.grounding_uncertainty_threshold in {
+            CognitiveUncertainty.HIGH, CognitiveUncertainty.UNKNOWN,
+        }:
+            raise ValueError("grounding uncertainty threshold must be LOW or MEDIUM")
+        evidence_policy = _text(
+            self.grounding_evidence_policy,
+            "grounding_evidence_policy",
+            self.max_label_chars,
+        )
+        if evidence_policy != "all_current":
+            raise ValueError("grounding_evidence_policy must be all_current")
+        object.__setattr__(self, "grounding_evidence_policy", evidence_policy)
         if self.max_opportunity_age_seconds > self.max_context_request_age_seconds:
             raise ValueError("max_opportunity_age_seconds must not exceed context request age")
         if self.max_speech_chars > self.max_text_chars:
@@ -279,6 +299,12 @@ class CognitionConfig:
                 f"cognition config keys mismatch: missing={missing}, unknown={unknown}"
             )
         payload = dict(value)
+        try:
+            payload["grounding_uncertainty_threshold"] = CognitiveUncertainty(
+                payload["grounding_uncertainty_threshold"]
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError("grounding_uncertainty_threshold is invalid") from exc
         pressure = payload["focus_pressure_by_status"]
         if not isinstance(pressure, Mapping):
             raise ValueError("focus_pressure_by_status must be a YAML mapping")
@@ -873,7 +899,7 @@ class CognitiveTurn:
             raise ValueError("reason_codes contains an unsupported code")
         object.__setattr__(self, "reason_codes", reasons)
 
-        current_refs = _context_reference_set(context)
+        current_refs = cognitive_context_references(context)
         if any(ref not in current_refs for ref in refs):
             raise ValueError("CognitiveTurn evidence_refs contains a stale reference")
         if self.focus_proposal is not None:
@@ -922,6 +948,62 @@ class CognitiveShadowOutcome(str, Enum):
     PARSE_REJECTED = "PARSE_REJECTED"
     SCHEMA_REJECTED = "SCHEMA_REJECTED"
     SERVICE_ERROR = "SERVICE_ERROR"
+
+
+class CognitiveGroundingOutcome(str, Enum):
+    PASSED = "PASSED"
+    SUPPRESSED_WAIT = "SUPPRESSED_WAIT"
+    SUPPRESSED_UNCERTAINTY = "SUPPRESSED_UNCERTAINTY"
+    SUPPRESSED_EMPTY_EVIDENCE = "SUPPRESSED_EMPTY_EVIDENCE"
+    SUPPRESSED_UNKNOWN_EVIDENCE = "SUPPRESSED_UNKNOWN_EVIDENCE"
+
+
+@dataclass(frozen=True)
+class CognitiveGroundingDecision:
+    """Auditable source identity plus the only turn safe for downstream use."""
+
+    config: InitVar[CognitionConfig]
+    schema_version: int
+    source_turn_id: str
+    context_id: str
+    source_mode: CognitiveMode
+    source_uncertainty: CognitiveUncertainty
+    outcome: CognitiveGroundingOutcome
+    effective_turn: CognitiveTurn
+
+    def __post_init__(self, config: CognitionConfig) -> None:
+        _schema(self.schema_version, config)
+        object.__setattr__(self, "source_turn_id", _identifier(
+            self.source_turn_id, "source_turn_id", config,
+        ))
+        context_id = _context_hash(self.context_id, config)
+        object.__setattr__(self, "context_id", context_id)
+        _enum(self.source_mode, CognitiveMode, "source_mode")
+        _enum(self.source_uncertainty, CognitiveUncertainty, "source_uncertainty")
+        _enum(self.outcome, CognitiveGroundingOutcome, "outcome")
+        _instance(self.effective_turn, CognitiveTurn, "effective_turn")
+        if self.effective_turn.context_id != context_id:
+            raise ValueError("grounding decision context_id is stale or mismatched")
+        if self.effective_turn.uncertainty is not self.source_uncertainty:
+            raise ValueError("grounding decision must preserve source uncertainty")
+        if self.outcome is CognitiveGroundingOutcome.PASSED:
+            if (
+                self.source_mode is CognitiveMode.WAIT
+                or self.effective_turn.turn_id != self.source_turn_id
+                or self.effective_turn.mode is not self.source_mode
+            ):
+                raise ValueError("passed grounding decision must preserve a non-WAIT turn")
+        else:
+            if self.effective_turn.mode is not CognitiveMode.WAIT:
+                raise ValueError("suppressed grounding decision requires effective WAIT")
+            if self.outcome is CognitiveGroundingOutcome.SUPPRESSED_WAIT:
+                if (
+                    self.source_mode is not CognitiveMode.WAIT
+                    or self.effective_turn.turn_id != self.source_turn_id
+                ):
+                    raise ValueError("WAIT grounding must preserve the source WAIT")
+            elif self.source_mode is CognitiveMode.WAIT:
+                raise ValueError("non-WAIT suppression requires a non-WAIT source")
 
 
 @dataclass(frozen=True)
@@ -987,6 +1069,7 @@ class CognitiveShadowRecord:
     compatibility: CognitiveCompatibilityObservation
     outcome: CognitiveShadowOutcome
     turn: CognitiveTurn | None
+    grounding_decision: CognitiveGroundingDecision | None
     queued_at: datetime
     started_at: datetime | None
     completed_at: datetime
@@ -1014,11 +1097,25 @@ class CognitiveShadowRecord:
             _instance(self.turn, CognitiveTurn, "turn")
             if context_id is None or self.turn.context_id != context_id:
                 raise ValueError("shadow turn must match record context_id")
+        if self.grounding_decision is not None:
+            _instance(
+                self.grounding_decision,
+                CognitiveGroundingDecision,
+                "grounding_decision",
+            )
+            if (
+                context_id is None
+                or self.grounding_decision.context_id != context_id
+                or self.turn != self.grounding_decision.effective_turn
+            ):
+                raise ValueError("shadow grounding decision must match effective turn")
         if self.outcome is CognitiveShadowOutcome.PROPOSED:
-            if self.turn is None or context_id is None:
-                raise ValueError("PROPOSED shadow record requires context and turn")
-        elif self.turn is not None:
-            raise ValueError("non-PROPOSED shadow record must not retain a turn")
+            if self.turn is None or context_id is None or self.grounding_decision is None:
+                raise ValueError(
+                    "PROPOSED shadow record requires context, grounding, and turn"
+                )
+        elif self.turn is not None or self.grounding_decision is not None:
+            raise ValueError("non-PROPOSED shadow record must not retain cognition")
         queued = _utc(self.queued_at, "queued_at")
         started = _optional_utc(self.started_at, "started_at")
         completed = _utc(self.completed_at, "completed_at")
@@ -1080,6 +1177,16 @@ class CognitiveBrainService(Service):
     @abstractmethod
     async def propose(self, context: CognitiveContext) -> CognitiveTurn:
         """Return one proposal without executing or committing any side effect."""
+
+
+class CognitiveGroundingGateService(Service):
+    """Mandatory fail-closed policy between Brain proposal and shadow retention."""
+
+    @abstractmethod
+    def evaluate(
+        self, context: CognitiveContext, turn: CognitiveTurn,
+    ) -> CognitiveGroundingDecision:
+        """Return the effective WAIT/pass decision for one current context."""
 
 
 class CognitiveModelError(RuntimeError):
@@ -1427,7 +1534,8 @@ def _require_focus_state_fields(proposal: FocusProposal, refs: tuple[str, ...]) 
         raise ValueError("CREATE/UPDATE requires complete proposal-owned state and evidence")
 
 
-def _context_reference_set(context: CognitiveContext) -> set[str]:
+def cognitive_context_references(context: CognitiveContext) -> frozenset[str]:
+    """Return the immutable canonical reference set accepted for one context."""
     refs = set(context.conversation_state.evidence_refs)
     items = list(context.attention_items)
     if context.chat_digest is not None:
@@ -1444,11 +1552,13 @@ def _context_reference_set(context: CognitiveContext) -> set[str]:
     for item in context.available_actions:
         refs.add(item.availability_ref)
         refs.update(item.evidence_refs)
-    return refs
+    return frozenset(refs)
 
 
 def _validate_focus_against_context(
-    proposal: FocusProposal, context: CognitiveContext, current_refs: set[str],
+    proposal: FocusProposal,
+    context: CognitiveContext,
+    current_refs: AbstractSet[str],
 ) -> None:
     if proposal.context_id != context.context_id:
         raise ValueError("FocusProposal context_id is stale or mismatched")
@@ -1481,7 +1591,7 @@ def _matching_envelope(
     if envelope.target_required and proposal.target_ref is None:
         raise ValueError("current action envelope requires target_ref")
     _validate_arguments_against_schema(proposal.arguments, envelope.argument_schema)
-    current_refs = _context_reference_set(context)
+    current_refs = cognitive_context_references(context)
     if any(ref not in current_refs for ref in proposal.evidence_refs):
         raise ValueError("CognitiveActionProposal evidence contains a stale reference")
     return envelope

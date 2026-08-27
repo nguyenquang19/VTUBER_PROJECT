@@ -49,6 +49,10 @@ COGNITIVE_BRAIN_OUTCOMES = frozenset({
     "PARSE_REJECTED", "SCHEMA_REJECTED", "SERVICE_ERROR",
 })
 COGNITIVE_BRAIN_MODES = frozenset({"WAIT", "SPEAK"})
+COGNITIVE_GROUNDING_OUTCOMES = frozenset({
+    "PASSED", "SUPPRESSED_WAIT", "SUPPRESSED_UNCERTAINTY",
+    "SUPPRESSED_EMPTY_EVIDENCE", "SUPPRESSED_UNKNOWN_EVIDENCE", "FAILURE",
+})
 LLM_WORKLOAD_CLASS_PAIRS = frozenset({"live_shadow"})
 TURN_KERNEL_MODES = frozenset({"OFF", "SHADOW"})
 TURN_KERNEL_OWNERS = frozenset({"COMPATIBILITY"})
@@ -577,6 +581,11 @@ class MetricsCollector:
             "cognitive_brain_turn_total", "Validated Brain shadow turn modes",
             ["mode"], registry=self.registry,
         )
+        self.cognitive_grounding_decision_total_c = Counter(
+            "cognitive_grounding_decision_total",
+            "Deterministic Brain grounding gate outcomes",
+            ["outcome"], registry=self.registry,
+        )
         self.cognitive_brain_preemption_total_c = Counter(
             "cognitive_brain_preemption_total", "Brain shadow preemption outcomes",
             ["outcome"], registry=self.registry,
@@ -584,6 +593,7 @@ class MetricsCollector:
         self._cognitive_opportunities: dict[tuple[str, str], int] = {}
         self._cognitive_brain_requests: dict[str, int] = {}
         self._cognitive_brain_turns: dict[str, int] = {}
+        self._cognitive_grounding_decisions: dict[str, int] = {}
         self.turn_kernel_selection_total_c = Counter(
             "turn_kernel_selection_total",
             "Single-owner Turn Kernel selection outcomes",
@@ -759,6 +769,17 @@ class MetricsCollector:
             raise ValueError("unsupported cognitive Brain mode")
         self._cognitive_brain_turns[mode] = self._cognitive_brain_turns.get(mode, 0) + 1
         self.cognitive_brain_turn_total_c.labels(mode=mode).inc()
+
+    def record_cognitive_grounding_decision(self, outcome: str) -> None:
+        if outcome not in COGNITIVE_GROUNDING_OUTCOMES:
+            raise ValueError("unsupported cognitive grounding outcome")
+        self._cognitive_grounding_decisions[outcome] = (
+            self._cognitive_grounding_decisions.get(outcome, 0) + 1
+        )
+        self.cognitive_grounding_decision_total_c.labels(outcome=outcome).inc()
+
+    def cognition_grounding_snapshot(self) -> dict[str, int]:
+        return dict(sorted(self._cognitive_grounding_decisions.items()))
 
     def cognition_brain_snapshot(self) -> dict[str, Any]:
         return {

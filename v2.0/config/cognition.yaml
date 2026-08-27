@@ -14,6 +14,8 @@ opportunity_reconsider_seconds: 15.0
 max_opportunity_age_seconds: 12.0
 max_brain_intent_chars: 80
 max_brain_speech_chars: 240
+grounding_uncertainty_threshold: MEDIUM
+grounding_evidence_policy: all_current
 
 max_id_chars: 128
 max_label_chars: 64

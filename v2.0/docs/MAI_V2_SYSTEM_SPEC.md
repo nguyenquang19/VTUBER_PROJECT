@@ -119,6 +119,7 @@ Agent/World/Perception mutation → `AuthoritativeStateReducer` → đọc qua `
 |---|---|
 | `context_builder.py` | Chiếu read-only state → Cognitive Context + Focus (~1.2k dòng). |
 | `brain.py` | Cognitive Brain **proposal-only**: 1 call LLM → JSON strict `{mode, speech_text, evidence_refs, uncertainty, reason_codes, attention_target_id, intent}`. "Không tự execute proposal." **SHADOW.** |
+| `grounding_gate.py` | B1 safety boundary: proposal `WAIT`, uncertainty quá ngưỡng hoặc evidence thiếu/không thuộc context → effective `WAIT`; **SHADOW**. |
 | `model_adapter.py` | Ranh giới prompt/model duy nhất cho Brain. |
 | `scheduler.py` | Latest-wins, single-inflight; preempt khi có input live. |
 | `agent_context_projection · compatibility_context` | Chiếu context/text exact cho đường DirectorLoop. |
@@ -249,6 +250,7 @@ TurnKernel._loop (ngủ 1.5s)
        ├─ _select_director_decision()   # ← CHỐT câu public (4.2)
        └─ nếu action ≠ WAIT: turn_lock → transaction (4.3)
   └─ (chỉ khi rollout_mode=shadow) brain_scheduler.offer(...)   # Brain nhận cơ hội SAU execute
+       └─ Brain proposal → grounding gate → shadow record        # chưa bao giờ public
 ```
 
 > **Bẫy naming — đọc kỹ.** Trong `turn_kernel`, `public_owner` **hardcode = COMPATIBILITY**. "COMPATIBILITY"
@@ -272,6 +274,14 @@ Config tracked: `director.yaml::director_v2_takeover.ownership_mode = primary`, 
 Tức: **Director V2 là primary** — tự materialize câu public khi proposal hợp lệ. **Legacy Compatibility
 Director** giữ 2 vai: (a) hard-preemption safety/segment luôn thắng trước; (b) fallback khi V2 không dựng
 được câu. **Cognitive Brain** shadow thuần, offer sau execute, không bao giờ public.
+
+B1 đặt grounding gate bắt buộc sau `CognitiveBrain.propose()` và trước khi scheduler giữ shadow record.
+Proposal `WAIT` giữ `WAIT`; proposal có uncertainty cao hơn ngưỡng YAML, evidence rỗng hoặc reference không
+thuộc đúng Cognitive Context hiện tại được thay bằng một deterministic effective `WAIT` không speech/intent/
+proposal. `CognitiveTurn` vẫn reject stale/fabricated reference từ lúc materialize; gate kiểm tra lại theo
+context canonical, không nới contract. Gate lỗi fail-closed bằng record không giữ proposal nói. Shadow record
+giữ source turn identity/mode/uncertainty cùng outcome gate để audit, nhưng chỉ effective turn mới là ứng viên
+cho các phase rollout sau. B1 không đổi owner public, không đổi thời điểm offer và không execute/commit gì.
 
 Tỷ lệ V2-vs-legacy thực tế đọc qua metric `director_v2_primary_selected_total` /
 `director_v2_primary_fallback_total` khi chạy live.
@@ -326,6 +336,12 @@ Relationship context đọc `state.yaml::relationships` cho regular visit/last-s
 `recall_gate`; tone fixed không tiêu recall budget, fact/callback dùng shared gate trước semantic memory để ưu
 tiên social tone mà vẫn không recite hồ sơ.
 
+Brain grounding đọc `cognition.yaml::grounding_uncertainty_threshold=MEDIUM` và
+`grounding_evidence_policy=all_current`: `LOW/MEDIUM` chỉ qua nếu proposal nói có ít nhất một evidence ref
+và mọi ref còn thuộc context; `HIGH/UNKNOWN` hoặc evidence không đạt policy → effective `WAIT`. Đây là safety
+boundary bắt buộc của feature hiện hữu `cognitive_brain_shadow`, không có cờ tắt riêng; tắt Brain shadow là
+rollback và giữ nguyên public DirectorLoop. Metric gồm evaluated/pass/suppressed theo reason/failure/rate.
+
 ---
 
 ## 6. An toàn, riêng tư, phục hồi
@@ -364,7 +380,7 @@ tiên social tone mà vẫn không recite hồ sơ.
 | Speech / Avatar typed adapter | **LIVE (test)** | fail-safe khi VTS thiếu |
 | Mood Hybrid (v1+v2) | **LIVE** | Kênh A số deterministic; Kênh B sắc thái LLM |
 | World / Self Model | SHADOW | read-only, không đổi quyết định |
-| Cognitive Brain | SHADOW | proposal-only, offer sau execute, chưa public |
+| Cognitive Brain | SHADOW | proposal-only, offer sau execute; B1 grounding gate fail-closed trước shadow record, chưa public |
 | Semantic memory | **LIVE** | mặc định qua `memory_semantic`; timeout/startup fail → working-only |
 | OBS scene action + perception | OFF | có executor thật, chưa credential/canary |
 | Goal proposals · closed-loop canary | OFF | chưa vào vòng quyết định tự chủ |
