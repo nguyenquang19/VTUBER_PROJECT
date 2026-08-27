@@ -8,7 +8,7 @@ from typing import Any, Callable, Mapping
 
 from interfaces.agent import ContextSelectorService, ConversationContextService
 from interfaces.base import HealthStatus
-from interfaces.memory import MemoryEntry
+from interfaces.memory import MemoryEntry, RecallDecision, RecallGateService
 from interfaces.state import GoalSnapshot
 from interfaces.state import AgentStateSnapshot, GroundedEvent
 
@@ -80,6 +80,7 @@ class ConversationContextComposer(ConversationContextService, ContextSelectorSer
         capability_snapshot_provider: Callable[[], Any] | None = None,
         memory_provider: Callable[[], Any] | None = None,
         operator_constraints_provider: Callable[[], Any] | None = None,
+        recall_gate: RecallGateService | None = None,
         selector_enabled: bool = False,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
@@ -93,6 +94,7 @@ class ConversationContextComposer(ConversationContextService, ContextSelectorSer
         self._capability_snapshot_provider = capability_snapshot_provider
         self._memory_provider = memory_provider
         self._operator_constraints_provider = operator_constraints_provider
+        self._recall_gate = recall_gate
         if not isinstance(selector_enabled, bool):
             raise ValueError("selector_enabled must be boolean")
         self._selector_enabled = selector_enabled
@@ -104,6 +106,7 @@ class ConversationContextComposer(ConversationContextService, ContextSelectorSer
         self._memory_items_total = 0
         self._world_items_total = 0
         self._memory_errors = 0
+        self._recall_gate_errors = 0
         self._world_overrides = 0
         self._source_errors = 0
         self._items_dropped = 0
@@ -122,6 +125,11 @@ class ConversationContextComposer(ConversationContextService, ContextSelectorSer
             raise ValueError("context selector enabled state must be boolean")
         self._selector_enabled = enabled
 
+    def set_recall_gate(self, recall_gate: RecallGateService | None) -> None:
+        if recall_gate is not None and not isinstance(recall_gate, RecallGateService):
+            raise ValueError("recall_gate must implement RecallGateService")
+        self._recall_gate = recall_gate
+
     async def start(self) -> None:
         self._running = True
 
@@ -134,18 +142,22 @@ class ConversationContextComposer(ConversationContextService, ContextSelectorSer
         return HealthStatus.healthy(self.service_id, renders=self._renders, selector_enabled=self._selector_enabled)
 
     def get_metrics(self) -> dict[str, Any]:
-        return {
+        values = {
             "conversation_context_renders_total": self._renders,
             "conversation_context_last_chars": self._last_chars,
             "conversation_context_selector_renders_total": self._selector_renders,
             "conversation_context_selector_memory_items_total": self._memory_items_total,
             "conversation_context_selector_world_items_total": self._world_items_total,
             "conversation_context_selector_memory_errors_total": self._memory_errors,
+            "conversation_context_selector_recall_gate_errors_total": self._recall_gate_errors,
             "conversation_context_selector_world_override_total": self._world_overrides,
             "conversation_context_selector_source_errors_total": self._source_errors,
             "conversation_context_selector_items_dropped_total": self._items_dropped,
             "conversation_context_selector_truncations_total": self._truncations,
         }
+        if self._recall_gate is not None:
+            values.update(self._recall_gate.get_metrics())
+        return values
 
     def render(
         self, state: AgentStateSnapshot, query: str = "", viewer_id: str | None = None,
@@ -328,7 +340,7 @@ class ConversationContextComposer(ConversationContextService, ContextSelectorSer
         return tuple(lines)
 
     def _memory_lines(self, entries: tuple[MemoryEntry, ...], world_paths: frozenset[str]) -> tuple[str, ...]:
-        lines: list[str] = []
+        eligible: list[MemoryEntry] = []
         for entry in entries:
             metadata = entry.metadata if isinstance(entry.metadata, Mapping) else {}
             world_path = str(metadata.get("world_path") or "").strip()
@@ -339,15 +351,40 @@ class ConversationContextComposer(ConversationContextService, ContextSelectorSer
             if status in {"success", "succeeded", "delivered"} and metadata.get("verified") is not True:
                 self._source_errors += 1
                 continue
-            outcome = "success" if status in {"success", "succeeded", "delivered"} else status
-            provenance = _text(metadata.get("provenance"), "memory")
-            confidence = _text(metadata.get("confidence"), "unknown")
-            lines.append(
-                f"Past memory (past evidence, never current truth) [{entry.entry_id}; tier={entry.tier.value}; provenance={provenance}; "
-                f"confidence={confidence}; outcome={outcome}; timestamp={_timestamp(entry.timestamp)}]: "
-                f"{_compact(entry.content, self.config.item_max_chars)}"
-            )
-        return tuple(lines)
+            eligible.append(entry)
+        gate = self._recall_gate
+        if gate is None or not gate.enabled:
+            return tuple(self._raw_memory_line(entry) for entry in eligible)
+        try:
+            decisions = gate.evaluate(tuple(eligible), now=_utc(self._clock()))
+            if len(decisions) != len(eligible):
+                raise ValueError("recall gate decision count mismatch")
+            lines: list[str] = []
+            for entry, decision in zip(eligible, decisions, strict=True):
+                if not isinstance(decision, RecallDecision) or decision.memory_ref != entry.entry_id:
+                    raise ValueError("recall gate decision provenance mismatch")
+                if decision.surface:
+                    lines.append(
+                        "Latent memory hint (past context, never current truth): "
+                        f"{decision.latent_hint}"
+                    )
+            return tuple(lines)
+        except Exception:
+            self._recall_gate_errors += 1
+            return ()
+
+    def _raw_memory_line(self, entry: MemoryEntry) -> str:
+        metadata = entry.metadata if isinstance(entry.metadata, Mapping) else {}
+        status = str(metadata.get("action_status") or "unknown").strip().casefold()
+        outcome = "success" if status in {"success", "succeeded", "delivered"} else status
+        provenance = _text(metadata.get("provenance"), "memory")
+        confidence = _text(metadata.get("confidence"), "unknown")
+        return (
+            f"Past memory (past evidence, never current truth) [{entry.entry_id}; "
+            f"tier={entry.tier.value}; provenance={provenance}; confidence={confidence}; "
+            f"outcome={outcome}; timestamp={_timestamp(entry.timestamp)}]: "
+            f"{_compact(entry.content, self.config.item_max_chars)}"
+        )
 
     def _safe_goals(self) -> GoalSnapshot:
         if self._goal_provider is None:

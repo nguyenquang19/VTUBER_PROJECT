@@ -92,6 +92,35 @@ class EpisodicTurn:
         object.__setattr__(self, "salience", salience)
 
 
+@dataclass(frozen=True)
+class RecallDecision:
+    """Privacy-safe decision for projecting one retrieved memory into context."""
+
+    memory_ref: str
+    surface: bool
+    salience: float
+    latent_hint: str | None
+    reason_code: str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "memory_ref", _required_text(self.memory_ref, "memory_ref"))
+        if not isinstance(self.surface, bool):
+            raise ValueError("surface must be boolean")
+        if isinstance(self.salience, bool) or not isinstance(self.salience, (int, float)):
+            raise ValueError("recall salience must be numeric")
+        salience = float(self.salience)
+        if not math.isfinite(salience) or not 0.0 <= salience <= 1.0:
+            raise ValueError("recall salience must be finite and between zero and one")
+        object.__setattr__(self, "salience", salience)
+        hint = self.latent_hint
+        if hint is not None:
+            hint = _required_text(hint, "latent_hint")
+        if self.surface != (hint is not None):
+            raise ValueError("surface decisions require exactly one latent hint")
+        object.__setattr__(self, "latent_hint", hint)
+        object.__setattr__(self, "reason_code", _required_text(self.reason_code, "reason_code"))
+
+
 class MemoryService(Service):
     @abstractmethod
     async def write(self, entry: MemoryEntry) -> None:
@@ -137,6 +166,25 @@ class EpisodicMemoryService(MemoryService):
     @abstractmethod
     def set_enabled(self, enabled: bool) -> None:
         """Enable or disable summary creation; disable clears buffered source text."""
+
+
+class RecallGateService(Service):
+    """Bounded policy that converts retrieved memory into non-verbatim latent hints."""
+
+    @property
+    @abstractmethod
+    def enabled(self) -> bool:
+        """Whether recall gating is active; disabled callers preserve the prior projection."""
+
+    @abstractmethod
+    def evaluate(
+        self, entries: tuple[MemoryEntry, ...], *, now: datetime,
+    ) -> tuple[RecallDecision, ...]:
+        """Return one deterministic surface decision per input entry."""
+
+    @abstractmethod
+    def set_enabled(self, enabled: bool) -> None:
+        """Toggle the policy; disabling clears all cooldown and frequency state."""
 
 
 def _required_text(value: Any, name: str) -> str:

@@ -37,6 +37,12 @@ class MemoryRuntimeConfig:
     summary_seed: int = 42
     recency_weight: float = 0.4
     salience_weight: float = 0.6
+    recall_cooldown_s: float = 60.0
+    recall_frequency_window_s: float = 120.0
+    recall_frequency_cap: int = 2
+    recall_salience_threshold: float = 0.6
+    recall_max_hints: int = 1
+    recall_entry_history_max: int = 256
 
     def __post_init__(self) -> None:
         for name in (
@@ -46,11 +52,16 @@ class MemoryRuntimeConfig:
             "tags_max", "tag_max_chars", "extractor_min_chars", "pending_writes_max",
             "summary_every_turns", "max_summaries", "summary_input_max_chars",
             "summary_max_chars", "summary_max_tokens", "summary_pending_max",
+            "recall_frequency_cap", "recall_max_hints", "recall_entry_history_max",
         ):
             _positive_int(getattr(self, name), f"memory.{name}")
         _positive_number(self.query_timeout_s, "memory.query_timeout_s")
         _positive_number(self.session_ttl_s, "memory.session_ttl_s")
         _positive_number(self.summary_timeout_s, "memory.summary_timeout_s")
+        _positive_number(self.recall_cooldown_s, "memory.recall_cooldown_s")
+        _positive_number(
+            self.recall_frequency_window_s, "memory.recall_frequency_window_s",
+        )
         if self.default_top_k > self.max_query_top_k:
             raise ValueError("memory.default_top_k must not exceed max_query_top_k")
         if (
@@ -76,6 +87,15 @@ class MemoryRuntimeConfig:
                 or not 0.0 <= float(value) <= 1.0
             ):
                 raise ValueError(f"memory.{name} must be finite and between zero and one")
+        if (
+            isinstance(self.recall_salience_threshold, bool)
+            or not isinstance(self.recall_salience_threshold, (int, float))
+            or not math.isfinite(float(self.recall_salience_threshold))
+            or not 0.0 <= float(self.recall_salience_threshold) <= 1.0
+        ):
+            raise ValueError(
+                "memory.recall_salience_threshold must be finite and between zero and one"
+            )
         if not math.isclose(
             float(self.recency_weight) + float(self.salience_weight), 1.0,
             rel_tol=0.0, abs_tol=1e-9,
@@ -85,6 +105,12 @@ class MemoryRuntimeConfig:
             raise ValueError("memory.summary_max_chars must not exceed content_max_chars")
         if self.summary_every_turns + 13 > self.metadata_max_items:
             raise ValueError("memory summary provenance exceeds metadata_max_items")
+        if self.recall_max_hints > self.recall_frequency_cap:
+            raise ValueError("memory.recall_max_hints must not exceed recall_frequency_cap")
+        if self.recall_frequency_cap > self.recall_entry_history_max:
+            raise ValueError(
+                "memory.recall_frequency_cap must not exceed recall_entry_history_max"
+            )
 
     @classmethod
     def from_loader(cls, loader: Any) -> "MemoryRuntimeConfig":
@@ -101,6 +127,9 @@ class MemoryRuntimeConfig:
             "summary_input_max_chars", "summary_max_chars", "summary_max_tokens",
             "summary_timeout_s", "summary_pending_max", "summary_seed",
             "recency_weight", "salience_weight",
+            "recall_cooldown_s", "recall_frequency_window_s",
+            "recall_frequency_cap", "recall_salience_threshold",
+            "recall_max_hints", "recall_entry_history_max",
         }
         unknown = set(raw) - expected
         missing = expected - set(raw)

@@ -38,6 +38,12 @@ def _raw() -> dict[str, object]:
         "summary_seed": 42,
         "recency_weight": 0.4,
         "salience_weight": 0.6,
+        "recall_cooldown_s": 60.0,
+        "recall_frequency_window_s": 120.0,
+        "recall_frequency_cap": 2,
+        "recall_salience_threshold": 0.6,
+        "recall_max_hints": 1,
+        "recall_entry_history_max": 256,
     }
 
 
@@ -62,9 +68,14 @@ def test_canonical_memory_yaml_loads_strictly() -> None:
     assert config.summary_every_turns == 6
     assert config.max_summaries == 8
     assert config.recency_weight + config.salience_weight == 1.0
+    assert config.recall_cooldown_s == 60.0
+    assert config.recall_frequency_cap == 2
+    assert config.recall_salience_threshold == 0.6
     assert loader.get("features", "features.memory_semantic.enabled") is True
     assert loader.get("features", "features.episodic_memory.enabled") is True
     assert loader.get("features", "features.episodic_memory.depends_on") == ["memory_semantic"]
+    assert loader.get("features", "features.recall_gate.enabled") is True
+    assert loader.get("features", "features.recall_gate.depends_on") == []
 
 
 @pytest.mark.parametrize(
@@ -82,6 +93,12 @@ def test_canonical_memory_yaml_loads_strictly() -> None:
         ("summary_seed", -1),
         ("summary_pending_max", 2),
         ("recency_weight", 1.1),
+        ("recall_cooldown_s", 0),
+        ("recall_frequency_window_s", "120"),
+        ("recall_frequency_cap", 0),
+        ("recall_salience_threshold", 1.1),
+        ("recall_max_hints", 3),
+        ("recall_entry_history_max", 1),
     ],
 )
 def test_memory_config_rejects_coercion_and_invalid_ranges(field: str, value: object) -> None:

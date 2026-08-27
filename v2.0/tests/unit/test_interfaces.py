@@ -36,6 +36,7 @@ from interfaces.human_like import HumanLikeCalibrationService
 from interfaces.llm import LLMRequest, LLMService, LLMToken
 from interfaces.memory import (
     EpisodicMemoryService, EpisodicTurn, MemoryEntry, MemoryService, MemoryTier,
+    RecallDecision, RecallGateService,
 )
 from interfaces.operations import (
     DashboardDataSourceService,
@@ -94,6 +95,8 @@ class TestServiceContract:
             (MemoryService, "forget"),
             (EpisodicMemoryService, "observe_verified_turn"),
             (EpisodicMemoryService, "set_enabled"),
+            (RecallGateService, "evaluate"),
+            (RecallGateService, "set_enabled"),
             (EventLedgerService, "append"),
             (EventLedgerService, "recent"),
             (AgentStateService, "record"),
@@ -379,6 +382,18 @@ class TestMoodState:
 
 
 class TestMemoryModels:
+    def test_recall_decision_requires_hint_exactly_when_surfaced(self) -> None:
+        decision = RecallDecision(
+            memory_ref="memory-1", surface=True, salience=0.8,
+            latent_hint="Use past context subtly.", reason_code="surfaced",
+        )
+        assert decision.surface is True
+        with pytest.raises(ValueError, match="exactly one latent hint"):
+            RecallDecision(
+                memory_ref="memory-1", surface=False, salience=0.8,
+                latent_hint="leaky", reason_code="cooldown",
+            )
+
     def test_episodic_turn_is_verified_payload_with_bounded_salience(self) -> None:
         turn = EpisodicTurn(
             user_text="một lượt người xem đã được giao thành công",

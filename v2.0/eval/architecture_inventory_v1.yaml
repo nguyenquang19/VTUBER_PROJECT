@@ -290,15 +290,15 @@ scope:
   - tests/**/*.py
 
 snapshot:
-  production_python_files: 199
-  production_modules: 199
+  production_python_files: 200
+  production_modules: 200
   config_yaml_files: 31
   prompt_files: 7
   script_files: 35
   test_python_files_before_s0: 224
-  test_python_files: 221
-  feature_count: 50
-  feature_enabled_count: 36
+  test_python_files: 222
+  feature_count: 51
+  feature_enabled_count: 37
   feature_disabled_count: 14
   preexisting_tracked_modified_at_s0:
     - MAI_V2_MASTER_IMPLEMENTATION_BLUEPRINT_v2.0.md
@@ -724,6 +724,7 @@ features:
   obs_scene_executor: {enabled: false, disposition: KEEP, target_owner: services/execution}
   memory_semantic: {enabled: true, disposition: KEEP, target_owner: services/memory}
   episodic_memory: {enabled: true, disposition: KEEP, target_owner: services/memory/episodic.py}
+  recall_gate: {enabled: true, disposition: KEEP, target_owner: services/memory/recall_gate.py}
   data_collector: {enabled: true, disposition: MERGE, target_owner: services/operations}
   agent_context: {enabled: true, disposition: MERGE, target_owner: services/cognition/context_builder.py}
   goal_proposals: {enabled: false, disposition: MERGE, target_owner: services/state}

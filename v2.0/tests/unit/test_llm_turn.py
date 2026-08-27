@@ -3,18 +3,26 @@ from __future__ import annotations
 
 import asyncio
 import random
+from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
 from interfaces.llm import LLMToken
+from interfaces.memory import MemoryEntry
+from orchestrator.config_loader import ConfigLoader
 from orchestrator.fallback_manager import FallbackManager
 from services.llm.canned_response import CannedResponder
 from services.llm.llm_turn import LLMTurnRunner
 from services.llm.prompt_cache import PromptCache
 from services.llm.prompt_manager import PromptManager
 from services.memory.extractor import MemoryExtractor
+from services.memory.config import MemoryRuntimeConfig
+from services.memory.recall_gate import RecallGate
+from services.cognition.compatibility_context import ConversationContextComposer
 
 VALID = ["Chào cậu.", "\n\n[vui:5 buon:0 buc:0 bon_chon:0 nguong:0]", "\nlý do: x\ncòn nữa: không"]
+ROOT = Path(__file__).resolve().parents[2]
 
 
 class FakeLLM:
@@ -109,6 +117,44 @@ class TestDirectedTurn:
             for message in request.messages
         )
         assert request.messages[-1].role == "user"
+
+    async def test_recall_gate_keeps_verbatim_memory_out_of_llm_request_and_output(self) -> None:
+        class State:
+            def snapshot(self):
+                from interfaces.state import AgentStateSnapshot
+                return AgentStateSnapshot()
+
+        class Memory:
+            async def query(self, _query, *, top_k, viewer_id):
+                del top_k, viewer_id
+                return [MemoryEntry(
+                    entry_id="private-memory",
+                    content=raw,
+                    timestamp=datetime(2026, 8, 27, tzinfo=timezone.utc),
+                    importance=0.9,
+                    metadata={"cognitive_kind": "EPISODIC"},
+                )]
+
+        raw = "Chuỗi memory nguyên văn tuyệt đối không được lặp lại."
+        loader = ConfigLoader(ROOT / "config")
+        loader.load_all()
+        gate = RecallGate(MemoryRuntimeConfig.from_loader(loader))
+        composer = ConversationContextComposer.from_loader(
+            loader,
+            memory_provider=Memory,
+            recall_gate=gate,
+            selector_enabled=True,
+            clock=lambda: datetime(2026, 8, 27, tzinfo=timezone.utc),
+        )
+        fake = FakeLLM(VALID)
+        runner, _pm, *_ = make_runner(fake)
+        runner._agent_state = State()
+        runner.set_conversation_context_renderer(composer)
+        parsed, _level = await runner.run_turn("c2", "mình từng nói gì?")
+        request_text = "\n".join(message.content for message in fake.requests[0].messages)
+        assert "Latent memory hint" in request_text
+        assert raw not in request_text
+        assert raw not in parsed.text
 
 
 class TestPrimarySuccess:

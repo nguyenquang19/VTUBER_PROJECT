@@ -21,6 +21,9 @@ from interfaces.compatibility import (
     WorldSnapshot,
 )
 from interfaces.memory import MemoryEntry, MemoryTier
+from orchestrator.config_loader import ConfigLoader
+from services.memory.config import MemoryRuntimeConfig
+from services.memory.recall_gate import RecallGate
 from interfaces.state import DeliveredTurnRecord
 from services.operations.metrics import MetricsCollector
 from interfaces.state import GoalSnapshot
@@ -227,7 +230,9 @@ def _sources(
     }
 
 
-def _session_memory(now: datetime, *, world_path: str | None = None) -> MemoryEntry:
+def _session_memory(
+    now: datetime, *, world_path: str | None = None, importance: float = 0.5,
+) -> MemoryEntry:
     metadata: dict[str, object] = {
         "cognitive_kind": "EPISODIC",
         "cognitive_scope": "SESSION",
@@ -242,6 +247,7 @@ def _session_memory(now: datetime, *, world_path: str | None = None) -> MemoryEn
         content="Mai từng nói về cà phê.",
         timestamp=now - timedelta(minutes=1),
         tier=MemoryTier.SESSION,
+        importance=importance,
         metadata=metadata,
     )
 
@@ -294,6 +300,7 @@ def _builder(
     metrics: MetricsCollector | None = None,
     memory: _Memory | None = None,
     continuity: object | None = None,
+    recall_gate: RecallGate | None = None,
 ) -> CognitiveContextBuilder:
     return CognitiveContextBuilder(
         config,
@@ -305,9 +312,16 @@ def _builder(
         thread_manager=_Snapshot(sources["thread"]),
         memory_service=memory or _Memory(sources["memory"]),  # type: ignore[arg-type]
         continuity_service=continuity,
+        recall_gate=recall_gate,
         metrics=metrics,
         clock=lambda: clock,
     )
+
+
+def _recall_gate(*, enabled: bool = True) -> RecallGate:
+    loader = ConfigLoader(ROOT / "config")
+    loader.load_all()
+    return RecallGate(MemoryRuntimeConfig.from_loader(loader), enabled=enabled)
 
 
 @pytest.mark.asyncio
@@ -412,6 +426,31 @@ async def test_optional_memory_failure_yields_degraded_context() -> None:
     assert context is not None
     assert "memory" in context.operator_state.source_failure_codes
     assert builder.get_metrics()["cognitive_context_builder_builds"] == {"degraded": 1}
+
+
+@pytest.mark.asyncio
+async def test_brain_memory_projection_uses_hint_and_never_raw_content() -> None:
+    raw = "Một câu memory nguyên văn không được đi vào Brain prompt."
+    original = _session_memory(NOW, importance=0.9)
+    entry = MemoryEntry(
+        entry_id=original.entry_id,
+        content=raw,
+        timestamp=original.timestamp,
+        tier=original.tier,
+        importance=original.importance,
+        metadata=original.metadata,
+    )
+    sources = _sources(memory_entries=[entry])
+    gate = _recall_gate()
+    config = _config()
+    builder = _builder(config, sources, recall_gate=gate)
+    await builder.start()
+    first = await builder.build(_request(config))
+    second = await builder.build(_request(config))
+    assert first is not None and len(first.memory_items) == 1
+    assert "subtle continuity cue" in first.memory_items[0].summary
+    assert raw not in first.memory_items[0].summary
+    assert second is not None and second.memory_items == ()
 
 
 @pytest.mark.asyncio

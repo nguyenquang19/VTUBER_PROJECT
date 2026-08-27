@@ -55,11 +55,14 @@ Thêm tầng nhớ giữa đang thiếu: cứ N turn LLM tóm tắt rolling → 
 
 ### A3 — Recall gate (chống recite máy móc) · công trung
 Quyết **khi nào** memory/fact được surface + đảm bảo chỉ inject dạng hint, không để quote nguyên văn.
-- **Files:** `services/memory/recall_gate.py` (mới); tích hợp `services/cognition/context_builder.py`.
+- **Files:** `services/memory/recall_gate.py` (mới); tích hợp cả typed Brain projection trong
+  `services/cognition/context_builder.py` và public DirectorLoop projection trong
+  `services/cognition/compatibility_context.py`.
 - **Contract:** gate trả (surface? + salience); context nhận **latent hint** không phải raw text; cooldown.
 - **YAML:** recall cooldown, frequency cap, salience threshold.
 - **Test:** không surface mỗi turn; cooldown; **scan output không có memory verbatim**; deterministic.
-- **Gate:** recall rate dưới ngưỡng; test khẳng định không leak raw memory vào câu nói.
+- **Gate:** recall rate dưới ngưỡng; public projection được xét trước Brain shadow; lỗi gate bỏ memory thay vì
+  fallback raw; test khẳng định không leak raw memory vào prompt/câu nói.
 - **Flag:** `recall_gate`.
 
 ### A4 — Relationship → context · công trung

@@ -30,7 +30,7 @@ from interfaces.cognition import (
     MemoryScope,
 )
 from interfaces.compatibility import SelfSnapshot, StateValue, WorldSnapshot
-from interfaces.memory import MemoryEntry
+from interfaces.memory import MemoryEntry, RecallDecision, RecallGateService
 from interfaces.state import GoalSnapshot
 from interfaces.state import (
     AgentEventKind,
@@ -90,6 +90,7 @@ class CognitiveContextBuilder(CognitiveContextBuilderService):
         metrics: Any = None,
         agent_context_projection: Any = None,
         conversation_context_projection: Any = None,
+        recall_gate: RecallGateService | None = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         if not isinstance(config, CognitionConfig):
@@ -114,6 +115,9 @@ class CognitiveContextBuilder(CognitiveContextBuilderService):
         self._metrics = metrics
         self._agent_context_projection = agent_context_projection
         self._conversation_context_projection = conversation_context_projection
+        if recall_gate is not None and not isinstance(recall_gate, RecallGateService):
+            raise ValueError("recall_gate must implement RecallGateService")
+        self._recall_gate = recall_gate
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._contexts: deque[CognitiveContext] = deque()
         self._focus: FocusState | None = None
@@ -381,6 +385,8 @@ class CognitiveContextBuilder(CognitiveContextBuilderService):
         projection = self._conversation_context_projection
         if projection is not None:
             values.update(projection.get_metrics())
+        if self._recall_gate is not None:
+            values.update(self._recall_gate.get_metrics())
         return values
 
     def _validate_request_time(self, requested: datetime, now: datetime) -> None:
@@ -768,7 +774,7 @@ class CognitiveContextBuilder(CognitiveContextBuilderService):
             return (), True
         if not isinstance(entries, list):
             return (), True
-        items: list[CognitiveMemoryItem] = []
+        pairs: list[tuple[MemoryEntry, CognitiveMemoryItem]] = []
         invalid = False
         for entry in entries:
             if not isinstance(entry, MemoryEntry):
@@ -780,7 +786,29 @@ class CognitiveContextBuilder(CognitiveContextBuilderService):
                 invalid = True
                 continue
             if item is not None:
-                items.append(item)
+                pairs.append((entry, item))
+        items: list[CognitiveMemoryItem]
+        gate = self._recall_gate
+        if gate is not None and gate.enabled:
+            try:
+                decisions = gate.evaluate(
+                    tuple(entry for entry, _item in pairs), now=requested_at,
+                )
+                if len(decisions) != len(pairs):
+                    raise ValueError("recall gate decision count mismatch")
+                items = []
+                for (entry, item), decision in zip(pairs, decisions, strict=True):
+                    if (
+                        not isinstance(decision, RecallDecision)
+                        or decision.memory_ref != entry.entry_id
+                    ):
+                        raise ValueError("recall gate decision provenance mismatch")
+                    if decision.surface:
+                        items.append(self._memory_hint_item(item, decision))
+            except Exception:
+                return (), True
+        else:
+            items = [item for _entry, item in pairs]
         items.sort(key=lambda item: (-item.observed_at.timestamp(), item.memory_ref))
         deduped = _dedupe_contracts(items, "memory_ref")
         if deduped is None:
@@ -824,6 +852,25 @@ class CognitiveContextBuilder(CognitiveContextBuilderService):
             observed_at=entry.timestamp,
             expires_at=expires,
             confidence=float(confidence),
+        )
+
+    def _memory_hint_item(
+        self, item: CognitiveMemoryItem, decision: RecallDecision,
+    ) -> CognitiveMemoryItem:
+        if not decision.surface or decision.latent_hint is None:
+            raise ValueError("surfaced recall decision requires a latent hint")
+        return CognitiveMemoryItem(
+            config=self._config,
+            schema_version=item.schema_version,
+            memory_ref=item.memory_ref,
+            kind=item.kind,
+            summary=decision.latent_hint,
+            scope=item.scope,
+            viewer_ref=item.viewer_ref,
+            provenance_refs=item.provenance_refs,
+            observed_at=item.observed_at,
+            expires_at=item.expires_at,
+            confidence=item.confidence,
         )
 
     def _recent_speech(

@@ -1503,6 +1503,18 @@ async def _compose_stream_runtime(
     )
     memory = episodic_memory
     await _start_owned_resource(rollback, "memory", memory)
+    from services.memory.recall_gate import RecallGate
+    try:
+        recall_gate_status = await feature_manager.get_status("recall_gate")
+        recall_gate_enabled = recall_gate_status in (
+            FeatureStatus.ENABLED, FeatureStatus.DEGRADED,
+        )
+    except KeyError:
+        get_logger("stream_runtime").warning("recall_gate_feature_missing")
+        recall_gate_enabled = False
+    recall_gate = RecallGate(memory_config, enabled=recall_gate_enabled)
+    await _start_owned_resource(rollback, "recall_gate", recall_gate)
+    conversation_context_projection.set_recall_gate(recall_gate)
     memory_extractor = MemoryExtractor.from_loader(loader)
     emotion.set_memory_service(memory)
     relationship_manager.set_memory_service(memory)
@@ -1523,6 +1535,22 @@ async def _compose_stream_runtime(
         enable=_enable_episodic_memory,
         disable=_disable_episodic_memory,
         health=_episodic_memory_health,
+    )
+
+    async def _enable_recall_gate() -> None:
+        recall_gate.set_enabled(True)
+
+    async def _disable_recall_gate() -> None:
+        recall_gate.set_enabled(False)
+
+    async def _recall_gate_health() -> bool:
+        return recall_gate.enabled and (await recall_gate.health_check()).is_ok
+
+    feature_manager.attach_handlers(
+        "recall_gate",
+        enable=_enable_recall_gate,
+        disable=_disable_recall_gate,
+        health=_recall_gate_health,
     )
 
     agent_context_renderer = agent_context_projection
@@ -2746,6 +2774,7 @@ async def _compose_stream_runtime(
         metrics=metrics,
         agent_context_projection=agent_context_projection,
         conversation_context_projection=conversation_context_projection,
+        recall_gate=recall_gate,
     )
 
     # S4: compose Cognition below one Turn Kernel. Brain remains non-public.

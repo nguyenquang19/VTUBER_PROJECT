@@ -121,6 +121,16 @@ features:
     name: Episodic session memory
     description: Bounded privacy-safe rolling summaries generated as llama.cpp shadow work.
 
+  recall_gate:
+    enabled: true               # A3 latent-hint recall; flag-off preserves the A2 projection
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: memory
+    depends_on: []
+    conflicts_with: []
+    name: Memory recall gate
+    description: Bounded deterministic cooldown and salience gate that prevents verbatim memory injection.
+
   data_collector:
     enabled: true
     vram_cost_mb: 0

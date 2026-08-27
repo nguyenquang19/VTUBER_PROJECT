@@ -48,6 +48,12 @@ memory:
   summary_seed: 42
   recency_weight: 0.4
   salience_weight: 0.6
+  recall_cooldown_s: 60.0
+  recall_frequency_window_s: 120.0
+  recall_frequency_cap: 2
+  recall_salience_threshold: 0.6
+  recall_max_hints: 1
+  recall_entry_history_max: 256
 
 conversation:
   cooldown_ms: 500

@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from interfaces.compatibility import SelfSnapshot, StateValue, WorldSnapshot
 from interfaces.memory import MemoryEntry, MemoryTier
+from orchestrator.config_loader import ConfigLoader
+from services.memory.config import MemoryRuntimeConfig
+from services.memory.recall_gate import RecallGate
 from services.cognition.compatibility_context import ConversationContextComposer, ConversationContextConfig
 from interfaces.state import (
     Goal, GoalKind, GoalSnapshot, GoalSource, GoalStatus,
@@ -12,6 +16,7 @@ from interfaces.state import (
 from interfaces.state import AgentStateSnapshot
 
 NOW = datetime(2026, 8, 15, 12, 0, tzinfo=timezone.utc)
+ROOT = Path(__file__).resolve().parents[2]
 
 
 class Memory:
@@ -51,6 +56,7 @@ def _composer(
     world_provider=_world,
     goal_provider=None,
     operator_provider=None,
+    recall_gate: RecallGate | None = None,
 ) -> ConversationContextComposer:
     return ConversationContextComposer(
         ConversationContextConfig(
@@ -68,9 +74,20 @@ def _composer(
         memory_provider=lambda: memory,
         goal_provider=goal_provider,
         operator_constraints_provider=operator_provider,
+        recall_gate=recall_gate,
         selector_enabled=enabled,
         clock=lambda: NOW,
     )
+
+
+def _recall_config() -> MemoryRuntimeConfig:
+    loader = ConfigLoader(ROOT / "config")
+    loader.load_all()
+    return MemoryRuntimeConfig.from_loader(loader)
+
+
+def _recall_gate(*, enabled: bool = True) -> RecallGate:
+    return RecallGate(_recall_config(), enabled=enabled)
 
 
 async def test_selector_world_truth_overrides_conflicting_memory_and_preserves_failure() -> None:
@@ -94,6 +111,59 @@ async def test_selector_world_truth_overrides_conflicting_memory_and_preserves_f
     assert "Available capability [WAIT" in context
     metrics = composer.get_metrics()
     assert metrics["conversation_context_selector_world_override_total"] == 1
+
+
+async def test_enabled_recall_gate_injects_only_latent_hint_and_applies_cooldown() -> None:
+    raw = "Bí mật nguyên văn chỉ có trong memory và không được vào prompt."
+    memory = Memory([MemoryEntry(
+        entry_id="episodic-private",
+        content=raw,
+        timestamp=NOW,
+        tier=MemoryTier.SESSION,
+        importance=0.9,
+        metadata={"cognitive_kind": "EPISODIC"},
+    )])
+    gate = _recall_gate()
+    composer = _composer(memory, recall_gate=gate)
+    first = await composer.select(AgentStateSnapshot(), "chủ đề")
+    second = await composer.select(AgentStateSnapshot(), "chủ đề")
+    assert "Latent memory hint" in first
+    assert raw not in first
+    assert "Latent memory hint" not in second
+    assert raw not in second
+    metrics = composer.get_metrics()
+    assert metrics["recall_gate_surfaced_total"] == 1
+    assert metrics["recall_gate_suppressed"]["cooldown"] == 1
+
+
+async def test_disabled_recall_gate_restores_a2_raw_projection() -> None:
+    raw = "Nội dung A2 được giữ khi rollback flag-off."
+    memory = Memory([MemoryEntry(
+        entry_id="a2-memory", content=raw, timestamp=NOW, importance=0.9,
+    )])
+    context = await _composer(
+        memory, recall_gate=_recall_gate(enabled=False),
+    ).select(AgentStateSnapshot(), "chủ đề")
+    assert raw in context
+    assert "Latent memory hint" not in context
+
+
+async def test_recall_gate_failure_omits_memory_instead_of_falling_back_raw() -> None:
+    class FailingRecallGate(RecallGate):
+        def evaluate(self, entries, *, now):
+            raise RuntimeError("gate unavailable")
+
+    raw = "Nội dung không được fallback khi gate lỗi."
+    memory = Memory([MemoryEntry(
+        entry_id="failed-gate", content=raw, timestamp=NOW, importance=0.9,
+    )])
+    composer = _composer(memory, recall_gate=FailingRecallGate(_recall_config()))
+    context = await composer.select(AgentStateSnapshot(), "chủ đề")
+    assert raw not in context
+    assert "Past memory" not in context
+    assert composer.get_metrics()[
+        "conversation_context_selector_recall_gate_errors_total"
+    ] == 1
 
 
 async def test_selector_memory_error_fails_open_to_grounded_world() -> None:

@@ -78,7 +78,7 @@ Chỗ ghép toàn hệ thống. Không business logic, chỉ lắp ráp.
 | Module | Vai trò |
 |---|---|
 | `stream_runtime.py` | Composition root (~2.8k dòng): tạo + wire + lifecycle mọi service. |
-| `features.py` | `FeatureManager`: 50 cờ, dependency/conflict/budget fail-closed, persist atomic. |
+| `features.py` | `FeatureManager`: 51 cờ, dependency/conflict/budget fail-closed, persist atomic. |
 | `config_loader.py` · `runtime_config_validation.py` | Nạp + validate 31 YAML, fail-closed với giá trị sai. |
 | `logger.py` · `migration_runner.py` | Structured logging; migration schema khi khởi động. |
 
@@ -133,14 +133,19 @@ session_recap · mood_policy · topic_matcher`.
 `memory/`: `semantic_memory` (bge-m3 1024-dim CPU + sqlite-vec, hard bound 150ms — **LIVE mặc định**) ·
 `working_memory` (deque bounded, luôn là fallback) · `memory_fallback` (semantic → working, semantic lỗi
 khởi động/query thì degrade working-only) · `episodic` (rolling session summary bằng llama.cpp ở workload
-shadow, **LIVE mặc định** sau `episodic_memory`) · `embedder · sqlite_vec_store · extractor`. Entry tự động
+shadow, **LIVE mặc định** sau `episodic_memory`) · `recall_gate` (policy deterministic, bounded, **LIVE mặc
+định** sau `recall_gate`) · `embedder · sqlite_vec_store · extractor`. Entry tự động
 chỉ được tạo sau verified delivery và lưu **bí danh + ý nghĩa đã sanitize**, không lưu transcript, tên thật,
 ngày sinh hoặc định danh trực tiếp. Episodic chỉ giữ turn nguồn trong RAM bounded tới lần summary, lưu summary
 bounded cùng provenance outcome, session scope và expiry; query loại entry sai session/hết hạn rồi rerank
-candidate episodic theo recency + salience. Tắt `episodic_memory` giữ nguyên chain A1; tắt `memory_semantic`
-đưa runtime về working-only mà không làm chết turn. Metric owner của chain gồm semantic hit/miss, query
-latency p95 trên cửa sổ bounded, timeout/fallback và episodic observed/generated/rejected/failed/evicted/
-expired/retrieved/pending.
+candidate episodic theo recency + salience. Sau retrieval, một recall gate dùng chung cho public compatibility
+projection (ưu tiên trước) và Cognitive Brain shadow chỉ surface latent hint theo salience threshold, cooldown
+per-entry và frequency cap cửa sổ bounded; raw `MemoryEntry.content` và định danh viewer không đi vào prompt
+khi gate bật. Lỗi gate fail-closed bằng cách bỏ memory khỏi context, không fallback sang raw text.
+Tắt `recall_gate` khôi phục đúng projection A2; tắt `episodic_memory` giữ nguyên chain A1; tắt
+`memory_semantic` đưa runtime về working-only mà không làm chết turn. Metric owner của chain gồm semantic
+hit/miss, query latency p95 trên cửa sổ bounded, timeout/fallback; episodic observed/generated/rejected/
+failed/evicted/expired/retrieved/pending; và recall evaluated/surfaced/suppressed/failure/recall-rate.
 
 `relationship/`: `manager` (hồ sơ pseudonymous M7 — LIVE) · `store` (SQLite chỉ bí danh, **no PII**).
 
@@ -283,7 +288,7 @@ từ goal/thread/lore, **không bịa**) → cùng đường transaction 4.3.
 
 ## 5. Config & feature flags
 
-31 YAML trong `config/`; 50 cờ trong `features.yaml` (mỗi cờ có `enabled` state, `depends_on`,
+31 YAML trong `config/`; 51 cờ trong `features.yaml` (mỗi cờ có `enabled` state, `depends_on`,
 `vram_cost_mb`). Owner chính:
 
 | YAML | Owner cho |
@@ -302,7 +307,8 @@ với scalar sai kiểu, dependency/conflict sai, resource budget vượt.
 Memory runtime đọc bound/capacity từ `system.yaml::memory`: SQLite semantic evict oldest khi vượt
 `semantic_max_entries`, query semantic bị cắt ở `query_timeout_s=0.15`, cửa sổ tính p95 có giới hạn,
 episodic summary có cadence/capacity/TTL/input-output/timeout/pending bound cùng trọng số recency-salience,
-và `features.yaml::memory_semantic` + `features.yaml::episodic_memory` là các master flag tương ứng.
+recall có cooldown/cửa sổ/cap/salience threshold/max hint bounded, và `features.yaml::memory_semantic` +
+`features.yaml::episodic_memory` + `features.yaml::recall_gate` là các master flag tương ứng.
 Flag tắt hoặc semantic không khởi động được đều giữ working memory hoạt động; config/contract sai vẫn
 fail-closed khi composition.
 
