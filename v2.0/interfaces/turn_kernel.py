@@ -3,15 +3,17 @@ from __future__ import annotations
 
 import math
 from abc import abstractmethod
-from dataclasses import dataclass
+from dataclasses import InitVar, dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Mapping
 
 from interfaces.base import Service
 from interfaces.cognition import (
+    CognitionConfig,
     CognitiveContextRequest,
     CognitiveHardState,
+    CognitiveMode,
     CognitiveOpportunityKind,
 )
 
@@ -19,6 +21,7 @@ from interfaces.cognition import (
 class TurnRolloutMode(str, Enum):
     OFF = "OFF"
     SHADOW = "SHADOW"
+    PUBLIC_BRAIN = "PUBLIC_BRAIN"
     CANARY = "CANARY"
     PRIMARY = "PRIMARY"
     RELEASED = "RELEASED"
@@ -27,6 +30,13 @@ class TurnRolloutMode(str, Enum):
 class TurnOwner(str, Enum):
     COMPATIBILITY = "COMPATIBILITY"
     BRAIN = "BRAIN"
+
+
+class TurnRouteOutcome(str, Enum):
+    COMPATIBILITY = "COMPATIBILITY"
+    BRAIN_SPEAK = "BRAIN_SPEAK"
+    BRAIN_WAIT = "BRAIN_WAIT"
+    FALLBACK = "FALLBACK"
 
 
 KERNEL_HARD_REASON_CODES = frozenset({
@@ -49,11 +59,12 @@ class KernelConfig:
     max_reason_codes: int
     max_id_chars: int
     reason_codes: tuple[str, ...]
+    brain_canary_roles: tuple[str, ...]
 
     _KEYS = frozenset({
         "schema_version", "rollout_mode", "tick_seconds",
         "max_recent_selections", "max_reason_codes", "max_id_chars",
-        "reason_codes",
+        "reason_codes", "brain_canary_roles",
     })
 
     def __post_init__(self) -> None:
@@ -61,8 +72,12 @@ class KernelConfig:
             raise ValueError("schema_version must be 1")
         if not isinstance(self.rollout_mode, TurnRolloutMode):
             raise ValueError("rollout_mode must be a TurnRolloutMode")
-        if self.rollout_mode not in (TurnRolloutMode.OFF, TurnRolloutMode.SHADOW):
-            raise ValueError("S4 runtime allows only OFF or SHADOW")
+        if self.rollout_mode not in (
+            TurnRolloutMode.OFF,
+            TurnRolloutMode.SHADOW,
+            TurnRolloutMode.PUBLIC_BRAIN,
+        ):
+            raise ValueError("runtime allows only OFF, SHADOW, or PUBLIC_BRAIN")
         if (
             isinstance(self.tick_seconds, bool)
             or not isinstance(self.tick_seconds, float)
@@ -91,6 +106,10 @@ class KernelConfig:
         if set(normalized) != KERNEL_HARD_REASON_CODES:
             raise ValueError("reason_codes must match the S4 hard-preflight allowlist")
         object.__setattr__(self, "reason_codes", tuple(normalized))
+        roles = _reason_tuple(self.brain_canary_roles)
+        if not roles or any(role not in {"owner", "moderator"} for role in roles):
+            raise ValueError("brain_canary_roles must use owner/moderator roles")
+        object.__setattr__(self, "brain_canary_roles", roles)
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any]) -> "KernelConfig":
@@ -103,15 +122,18 @@ class KernelConfig:
                 f"missing={sorted(cls._KEYS - keys)}, unknown={sorted(keys - cls._KEYS)}"
             )
         raw_reasons = value["reason_codes"]
-        if not isinstance(raw_reasons, list):
-            raise ValueError("reason_codes must be a YAML list")
+        raw_roles = value["brain_canary_roles"]
+        if not isinstance(raw_reasons, list) or not isinstance(raw_roles, list):
+            raise ValueError("reason_codes and brain_canary_roles must be YAML lists")
         try:
-            mode = TurnRolloutMode(str(value["rollout_mode"]).upper())
+            raw_mode = str(value["rollout_mode"]).upper()
+            mode = TurnRolloutMode.PUBLIC_BRAIN if raw_mode == "BRAIN" else TurnRolloutMode(raw_mode)
         except (TypeError, ValueError) as exc:
             raise ValueError("rollout_mode is unsupported") from exc
         payload = dict(value)
         payload["rollout_mode"] = mode
         payload["reason_codes"] = tuple(raw_reasons)
+        payload["brain_canary_roles"] = tuple(raw_roles)
         return cls(**payload)
 
 
@@ -186,10 +208,87 @@ class TurnOwnerSelection:
         _identifier(self.selection_ref, "selection_ref")
 
 
+@dataclass(frozen=True)
+class PublicTurnRoute:
+    """Typed route projection; never carries raw context or viewer identity."""
+
+    config: InitVar[KernelConfig]
+    cognition_config: InitVar[CognitionConfig]
+    schema_version: int
+    opportunity_id: str
+    owner: TurnOwner
+    outcome: TurnRouteOutcome
+    mode: CognitiveMode
+    speech_text: str | None
+    source_turn_id: str | None
+    evidence_refs: tuple[str, ...]
+    reason_code: str
+
+    def __post_init__(
+        self, config: KernelConfig, cognition_config: CognitionConfig,
+    ) -> None:
+        _schema(self.schema_version)
+        _identifier(self.opportunity_id, "opportunity_id")
+        if not isinstance(self.owner, TurnOwner):
+            raise ValueError("owner must be a TurnOwner")
+        if not isinstance(self.outcome, TurnRouteOutcome):
+            raise ValueError("outcome must be a TurnRouteOutcome")
+        if not isinstance(self.mode, CognitiveMode):
+            raise ValueError("mode must be a CognitiveMode")
+        if self.mode is CognitiveMode.PROPOSE_ACTION:
+            raise ValueError("B3 public route cannot expose PROPOSE_ACTION")
+        if self.speech_text is not None:
+            if (
+                not isinstance(self.speech_text, str)
+                or self.speech_text != self.speech_text.strip()
+                or not self.speech_text
+                or len(self.speech_text) > cognition_config.max_speech_chars
+            ):
+                raise ValueError("speech_text must be bounded trimmed text")
+        if self.source_turn_id is not None:
+            _identifier(self.source_turn_id, "source_turn_id")
+        refs = _reason_tuple(self.evidence_refs)
+        if len(refs) > cognition_config.max_evidence_refs:
+            raise ValueError("evidence_refs exceeds cognition bound")
+        object.__setattr__(self, "evidence_refs", refs)
+        reason = _identifier(self.reason_code, "reason_code")
+        if len(reason) > config.max_id_chars:
+            raise ValueError("reason_code exceeds kernel bound")
+        if self.owner is TurnOwner.BRAIN:
+            expected_outcome = (
+                TurnRouteOutcome.BRAIN_SPEAK
+                if self.mode is CognitiveMode.SPEAK
+                else TurnRouteOutcome.BRAIN_WAIT
+            )
+            if self.outcome is not expected_outcome:
+                raise ValueError("Brain route outcome must match its effective mode")
+            if (self.mode is CognitiveMode.SPEAK) != (self.speech_text is not None):
+                raise ValueError("Brain SPEAK requires text and WAIT forbids text")
+            if self.source_turn_id is None:
+                raise ValueError("Brain route requires source_turn_id provenance")
+            if self.mode is CognitiveMode.SPEAK and not refs:
+                raise ValueError("Brain SPEAK requires grounded evidence_refs")
+            if self.mode is CognitiveMode.WAIT and refs:
+                raise ValueError("Brain WAIT cannot expose evidence_refs")
+        else:
+            if self.outcome not in {
+                TurnRouteOutcome.COMPATIBILITY, TurnRouteOutcome.FALLBACK,
+            }:
+                raise ValueError("compatibility owner requires compatibility outcome")
+            if self.speech_text is not None or self.source_turn_id is not None or refs:
+                raise ValueError("compatibility route cannot carry Brain output")
+
+
 class TurnKernelService(Service):
     @abstractmethod
     async def tick_once(self) -> object:
-        """Run exactly one selected compatibility turn in S4."""
+        """Run exactly one selected public turn."""
+
+    @abstractmethod
+    async def route_decision(
+        self, decision: Any, director_input: Any, decision_id: str | None,
+    ) -> PublicTurnRoute | None:
+        """Route one compatibility decision through hard preflight and rollout policy."""
 
     @abstractmethod
     def notify_input_activity(self) -> None:

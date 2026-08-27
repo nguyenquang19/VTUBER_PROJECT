@@ -12,11 +12,19 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import yaml
 
 from interfaces.tts import TTSDeliveryMode, TTSDeliveryResult
 from interfaces.animation import MoodState
 from interfaces.director_v2 import DirectorV2Proposal, DirectorV2TakeoverSelection
 from interfaces.filter import FilterCategory, FilterVerdict
+from interfaces.cognition import CognitiveMode
+from interfaces.turn_kernel import (
+    KernelConfig,
+    PublicTurnRoute,
+    TurnOwner,
+    TurnRouteOutcome,
+)
 from services.director.chat_pulse import ChatPulse
 from services.director.action_types import DirectorInput
 from services.director.director import (
@@ -36,6 +44,7 @@ from interfaces.state import (
     AgentStateSnapshot, ConversationMove, OpenThread, ThreadEvidence,
 )
 from services.llm.parser import ParsedResponse
+from tests.unit.test_cognitive_brain_shadow import _config as _cognition_config
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -302,6 +311,104 @@ async def test_cognitive_tap_runs_before_public_generation_and_result_is_unread(
     assert await loop.tick_once() is DirectorAction.READ_CHAT
     assert observed == ["read_chat", "verified:read_chat"]
     assert runner.read_calls == ["Mai ơi"]
+
+
+def _public_route(*, speak: bool, owner: TurnOwner = TurnOwner.BRAIN) -> PublicTurnRoute:
+    raw = yaml.safe_load((REPO_ROOT / "config" / "kernel.yaml").read_text(encoding="utf-8"))
+    kernel_config = KernelConfig.from_mapping(raw)
+    cognition_config = _cognition_config()
+    return PublicTurnRoute(
+        config=kernel_config,
+        cognition_config=cognition_config,
+        schema_version=1,
+        opportunity_id="opportunity:director-public",
+        owner=owner,
+        outcome=(
+            TurnRouteOutcome.BRAIN_SPEAK if speak and owner is TurnOwner.BRAIN
+            else TurnRouteOutcome.BRAIN_WAIT if owner is TurnOwner.BRAIN
+            else TurnRouteOutcome.FALLBACK
+        ),
+        mode=CognitiveMode.SPEAK if speak else CognitiveMode.WAIT,
+        speech_text=(
+            "Câu Brain đã grounded."
+            if speak and owner is TurnOwner.BRAIN else None
+        ),
+        source_turn_id="brain-turn:director-public" if owner is TurnOwner.BRAIN else None,
+        evidence_refs=(
+            ("agent:chat:m-public",)
+            if speak and owner is TurnOwner.BRAIN else ()
+        ),
+        reason_code=(
+            "brain_speak" if speak and owner is TurnOwner.BRAIN
+            else "brain_wait" if owner is TurnOwner.BRAIN
+            else "fallback_brain"
+        ),
+    )
+
+
+@pytest.mark.asyncio
+async def test_public_brain_exact_speech_bypasses_compatibility_generation_but_uses_delivery() -> None:
+    loop, _director, pool, _pulse, runner, clock = _make()
+    delivered: list[str] = []
+
+    async def capture(request_id: str, text: str) -> TTSDeliveryResult:
+        delivered.append(text)
+        return TTSDeliveryResult(
+            request_id=request_id, delivered=True,
+            mode=TTSDeliveryMode.SUBTITLE, sentences_total=1,
+            sentences_delivered=1, subtitle_sentences=1,
+        )
+
+    class Router:
+        async def route_decision(self, *_args: object) -> PublicTurnRoute:
+            assert runner.read_calls == []
+            assert loop.turn_in_progress is True
+            return _public_route(speak=True)
+
+        def observe_verified_outcome(self, *_args: object) -> bool:
+            return True
+
+    loop._speak = capture
+    loop.configure_turn_event_sink(Router())
+    pool.add("m-public", "Mai public nhé", now=0.0, kind="mention")
+    clock["t"] = 1.0
+    assert await loop.tick_once() is DirectorAction.READ_CHAT
+    assert runner.read_calls == []
+    assert delivered == ["Câu Brain đã grounded."]
+    assert pool.size() == 0
+
+
+@pytest.mark.asyncio
+async def test_public_brain_wait_never_falls_back_to_compatibility_speech() -> None:
+    loop, _director, pool, _pulse, runner, clock = _make()
+
+    class Router:
+        async def route_decision(self, *_args: object) -> PublicTurnRoute:
+            return _public_route(speak=False)
+
+    loop.configure_turn_event_sink(Router())
+    pool.add("m-public", "Mai đừng nói", now=0.0, kind="mention")
+    clock["t"] = 1.0
+    assert await loop.tick_once() is DirectorAction.WAIT
+    assert runner.read_calls == []
+    assert pool.size() == 1
+
+
+@pytest.mark.asyncio
+async def test_public_brain_fallback_uses_original_compatibility_generation() -> None:
+    loop, _director, pool, _pulse, runner, clock = _make()
+
+    class Router:
+        async def route_decision(self, *_args: object) -> PublicTurnRoute:
+            assert loop.turn_in_progress is True
+            return _public_route(speak=True, owner=TurnOwner.COMPATIBILITY)
+
+    loop.configure_turn_event_sink(Router())
+    pool.add("m-public", "Mai fallback nhé", now=0.0, kind="mention")
+    clock["t"] = 1.0
+    assert await loop.tick_once() is DirectorAction.READ_CHAT
+    assert runner.read_calls == ["Mai fallback nhé"]
+    assert pool.size() == 0
 
 
 @pytest.mark.asyncio

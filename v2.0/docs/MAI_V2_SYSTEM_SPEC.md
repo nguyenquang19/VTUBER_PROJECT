@@ -78,7 +78,7 @@ Chỗ ghép toàn hệ thống. Không business logic, chỉ lắp ráp.
 | Module | Vai trò |
 |---|---|
 | `stream_runtime.py` | Composition root (~2.8k dòng): tạo + wire + lifecycle mọi service. |
-| `features.py` | `FeatureManager`: 52 cờ, dependency/conflict/budget fail-closed, persist atomic. |
+| `features.py` | `FeatureManager`: 53 cờ, dependency/conflict/budget fail-closed, persist atomic. |
 | `config_loader.py` · `runtime_config_validation.py` | Nạp + validate 31 YAML, fail-closed với giá trị sai. |
 | `logger.py` · `migration_runner.py` | Structured logging; migration schema khi khởi động. |
 
@@ -121,7 +121,7 @@ Agent/World/Perception mutation → `AuthoritativeStateReducer` → đọc qua `
 | `brain.py` | Cognitive Brain **proposal-only**: 1 call LLM → JSON strict `{mode, speech_text, evidence_refs, uncertainty, reason_codes, attention_target_id, intent}`. "Không tự execute proposal." **SHADOW.** |
 | `grounding_gate.py` | B1 safety boundary: proposal `WAIT`, uncertainty quá ngưỡng hoặc evidence thiếu/không thuộc context → effective `WAIT`; **SHADOW**. |
 | `model_adapter.py` | Ranh giới prompt/model duy nhất cho Brain. |
-| `scheduler.py` | Latest-wins, single-inflight; B2 live-budget shadow từ decision event, preempt khi có input mới. |
+| `scheduler.py` | Latest-wins, single-inflight; B2 live-budget shadow và B3 public canary cùng đi qua một Brain + grounding gate. |
 | `agent_context_projection · compatibility_context` | Chiếu context/text exact cho đường DirectorLoop. |
 
 ### L5 — Mục tiêu · thread · ký ức · quan hệ
@@ -239,8 +239,8 @@ mood_ab · review · scenario_loader`. Không đụng runtime quyết định.
 
 ### 4.1. Chuỗi gọi mỗi tick
 
-`stream_runtime` wire: `TurnKernel(compatibility=director_loop, rollout_mode=shadow)` +
-`director_loop.configure_director_v2_takeover(shadow, takeover)`.
+`stream_runtime` wire `TurnKernel(compatibility=director_loop, rollout_mode=brain)` (public vẫn OFF qua
+feature flag mặc định) cùng `director_loop.configure_director_v2_takeover(shadow, takeover)`.
 
 ```
 TurnKernel._loop (ngủ 1.5s)
@@ -248,14 +248,15 @@ TurnKernel._loop (ngủ 1.5s)
        ├─ evict_stale + update pulse
        ├─ dựng DirectorInput (chat + goals + agent_state + segment + dead-air + mood)
        ├─ _select_director_decision()   # ← CHỐT câu public (4.2)
-       ├─ emit decision → brain_scheduler.offer(...)             # non-blocking, trước execute
-       └─ nếu action ≠ WAIT: turn_lock → transaction (4.3)
-            └─ song song: context → Brain → grounding → shadow record  # chưa bao giờ public
+       └─ decision actionable: turn_lock → hard preflight + route tại TurnKernel
+            ├─ OFF/SHADOW/ngoài canary/lỗi → DirectorLoop compatibility
+            ├─ PUBLIC_BRAIN + operator canary → context → Brain → grounding + filter
+            └─ nếu effective SPEAK: transaction (4.3) → verified delivery
 ```
 
-> **Bẫy naming — đọc kỹ.** Trong `turn_kernel`, `public_owner` **hardcode = COMPATIBILITY**. "COMPATIBILITY"
-> ở đây nghĩa là **"đường DirectorLoop, không phải Brain"** — KHÔNG phải legacy Compatibility Director.
-> Metric/health in `public_owner=compatibility` là do vậy; đừng đọc nhầm thành "legacy đang quyết".
+> **Bẫy naming — đọc kỹ.** Khi `public_owner=COMPATIBILITY`, giá trị này nghĩa là **"đường
+> DirectorLoop, không phải Brain"** — KHÔNG phải legacy Compatibility Director. Chỉ khi B3 flag đang bật
+> và đúng canary, route record mới có owner `BRAIN`; health báo `BRAIN_CANARY`, không tuyên bố takeover rộng.
 
 ### 4.2. Thuật toán chốt quyết định (`_select_director_decision`)
 
@@ -273,8 +274,9 @@ Config tracked: `director.yaml::director_v2_takeover.ownership_mode = primary`, 
 
 Tức: **Director V2 là primary** — tự materialize câu public khi proposal hợp lệ. **Legacy Compatibility
 Director** giữ 2 vai: (a) hard-preemption safety/segment luôn thắng trước; (b) fallback khi V2 không dựng
-được câu. **Cognitive Brain** shadow thuần, offer non-blocking từ decision event trước execute, không bao giờ
-public và public path không await kết quả Brain.
+được câu. Ở `OFF/SHADOW` hoặc khi public-canary flag tắt, **Cognitive Brain** chỉ là observer non-blocking từ
+decision event trước execute. B3 thêm route `PUBLIC_BRAIN` nhưng chỉ cho owner/moderator canary đã cấu hình;
+mọi lượt khác vẫn đi DirectorLoop compatibility.
 
 B1 đặt grounding gate bắt buộc sau `CognitiveBrain.propose()` và trước khi scheduler giữ shadow record.
 Proposal `WAIT` giữ `WAIT`; proposal có uncertainty cao hơn ngưỡng YAML, evidence rỗng hoặc reference không
@@ -293,15 +295,31 @@ counterfactual telemetry: DirectorLoop vẫn execute public độc lập, `publi
 shadow record và không có route Brain public trước B3. Cửa sổ latency có bound YAML; metric xuất p50/p95,
 timeout rate và would-select/would-fallback rate. Input mới vẫn preempt shadow để nhường llama.cpp cho live.
 
-Tỷ lệ V2-vs-legacy thực tế đọc qua metric `director_v2_primary_selected_total` /
-`director_v2_primary_fallback_total` khi chạy live.
+B3 mở route public canary sau cờ `cognitive_brain_public` (mặc định OFF, phụ thuộc
+`cognitive_brain_shadow` và `filter_rule`) khi `kernel.yaml::rollout_mode=brain`. TurnKernel chạy hard
+preflight trước khi gọi Brain và chỉ cho các role trong `brain_canary_roles`; không ghi viewer ID vào route,
+metric hoặc journal. Public Brain dùng workload live, đúng một generation, rồi bắt buộc qua B1 grounding và
+RuleFilter. Grounded `SPEAK` được chuyển nguyên văn vào ranh giới transaction/delivery hiện hữu; grounded
+`WAIT` (kể cả proposal bị suppress) giữ `WAIT`, không gọi compatibility để tạo lời thay thế.
+`PROPOSE_ACTION` chưa public ở B3 và fail-closed thành `WAIT`. Timeout/busy/parse/schema/context/service hoặc
+filter reject/fail-open mới fallback về chính `DirectorDecision` compatibility đã chọn. Fallback không bỏ
+legacy/V2, không cho Brain commit state và vẫn giữ `verify → commit → project`. Metric finite-label ghi route
+selected/wait/fallback theo reason và owner selection. Tắt flag hoặc đổi rollout về `shadow` khôi phục đường
+B2/V2-primary; canary không tự mở rộng và chưa cho phép B4.
+
+Trong các lượt compatibility, tỷ lệ V2-vs-legacy thực tế đọc qua metric
+`director_v2_primary_selected_total` / `director_v2_primary_fallback_total` khi chạy live.
 
 ### 4.3. Delivery transaction
 
 ```
 turn_lock (mỗi lúc 1 lượt)
-  → coordinator.reserve(idempotency_key)   # trùng key → bỏ qua, chống nói 2 lần
-  → _execute: dựng user_text + context + mood directive → LLM stream → parse → rule_filter (regen nếu phạm)
+  → hard preflight + owner route
+       Brain canary: context → 1 live generation → grounding → rule_filter
+       compatibility: giữ nguyên DirectorDecision đã chọn
+  → effective SPEAK: coordinator.reserve(idempotency_key)   # trùng key → bỏ qua, chống nói 2 lần
+  → compatibility: dựng context → LLM stream → parse → rule_filter (regen nếu phạm)
+    hoặc Brain canary: dùng exact grounded+filtered speech, không generation lần hai
              → TTS phát + subtitle + VTS
              → verify đã giao?  có → commit → project vào World/Self ("Mai vừa nói X")
                                 không → release, KHÔNG ghi là đã nói
@@ -317,7 +335,7 @@ từ goal/thread/lore, **không bịa**) → cùng đường transaction 4.3.
 
 ## 5. Config & feature flags
 
-31 YAML trong `config/`; 52 cờ trong `features.yaml` (mỗi cờ có `enabled` state, `depends_on`,
+31 YAML trong `config/`; 53 cờ trong `features.yaml` (mỗi cờ có `enabled` state, `depends_on`,
 `vram_cost_mb`). Owner chính:
 
 | YAML | Owner cho |
@@ -357,6 +375,12 @@ Brain live-shadow B2 đọc `cognition.yaml::brain_live_timeout_seconds=2.0` và
 bounded không giữ prompt/output. Feature `cognitive_brain_shadow` tắt thì không build context/gọi Brain và
 public giữ nguyên. B2 không tự kích hoạt B3 dù p95/timeout đạt gate; operator phải review telemetry trước.
 
+B3 đọc `kernel.yaml::rollout_mode=brain` và `brain_canary_roles=[owner, moderator]`. Cấu hình chỉ làm runtime
+canary-ready; `cognitive_brain_public` vẫn OFF mặc định và chỉ operator bật sau khi duyệt telemetry B2.
+`rollout_mode=shadow` là rollback cấu hình exact; public flag cũng fail-closed nếu scheduler/filter dependency
+không khỏe. Thành viên canary lấy từ YAML; Python chỉ giới hạn contract vào hai role có provenance hiện hữu
+`owner/moderator`.
+
 ---
 
 ## 6. An toàn, riêng tư, phục hồi
@@ -395,7 +419,7 @@ public giữ nguyên. B2 không tự kích hoạt B3 dù p95/timeout đạt gate
 | Speech / Avatar typed adapter | **LIVE (test)** | fail-safe khi VTS thiếu |
 | Mood Hybrid (v1+v2) | **LIVE** | Kênh A số deterministic; Kênh B sắc thái LLM |
 | World / Self Model | SHADOW | read-only, không đổi quyết định |
-| Cognitive Brain | SHADOW | proposal-only, B2 offer pre-execute non-blocking + live timeout telemetry; B1 grounding bắt buộc, chưa public |
+| Cognitive Brain | CANARY-READY, OFF | B3 operator-only public route sau flag; B1 grounding + filter bắt buộc, legacy fallback còn nguyên |
 | Semantic memory | **LIVE** | mặc định qua `memory_semantic`; timeout/startup fail → working-only |
 | OBS scene action + perception | OFF | có executor thật, chưa credential/canary |
 | Goal proposals · closed-loop canary | OFF | chưa vào vòng quyết định tự chủ |
@@ -411,7 +435,8 @@ trạng thái cao hơn.
 | Thấy trong code/metric | Đừng hiểu thành | Nghĩa thật |
 |---|---|---|
 | `public_owner = COMPATIBILITY` | Legacy Director đang quyết | "đường DirectorLoop (không phải Brain)" — bên trong V2 vẫn primary |
-| `cognitive_brain_shadow` | Brain chạy chính | Brain offer pre-execute nhưng non-blocking, chỉ ghi shadow, không ra loa |
+| `cognitive_brain_shadow` | Brain chạy chính | Chỉ cấp lifecycle/observer; public còn cần `cognitive_brain_public` + mode `brain` + canary role |
+| `rollout_mode = brain` | Brain đã takeover toàn stream | Chỉ cho phép route B3; flag mặc định OFF và role ngoài canary vẫn compatibility |
 | `director_v2_takeover` | V2 đã takeover production | test-cutover, có legacy đỡ mỗi khi fail |
 | `rollout_mode: shadow` (kernel) | Brain shadow ⇒ legacy public | Kernel route public sang DirectorLoop (nơi V2 primary), Brain shadow |
 | "compatibility" (2 nghĩa) | luôn cùng một thứ | (a) đường DirectorLoop trong kernel; (b) legacy Director trong DirectorLoop |

@@ -1,6 +1,6 @@
-# S4 canonical owner for live turn scheduling. Brain remains shadow-only.
+# B3 canary-ready owner routing. Public Brain still requires its feature flag.
 schema_version: 1
-rollout_mode: shadow
+rollout_mode: brain
 tick_seconds: 1.5
 max_recent_selections: 256
 max_reason_codes: 8
@@ -13,3 +13,6 @@ reason_codes:
   - transaction_conflict
   - critical_state
   - source_failure
+brain_canary_roles:
+  - owner
+  - moderator

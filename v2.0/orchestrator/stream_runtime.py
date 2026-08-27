@@ -2794,7 +2794,7 @@ async def _compose_stream_runtime(
         relationship_service=relationship_manager,
     )
 
-    # S4: compose Cognition below one Turn Kernel. Brain remains non-public.
+    # B3: compose one Turn Kernel; public Brain remains an explicit canary toggle.
     from interfaces.turn_kernel import KernelConfig
     kernel_config = KernelConfig.from_mapping(loader.section("kernel"))
     from orchestrator.runtime_cognition import build_cognitive_runtime_stack
@@ -2818,9 +2818,16 @@ async def _compose_stream_runtime(
         compatibility=director_loop,
         brain_scheduler=cognitive_scheduler,
         hard_state_provider=cognitive_stack.hard_state_provider,
+        output_filter=filter_svc,
         metrics=metrics,
         turn_journal=turn_journal,
         session_id=session_id,
+    )
+    attach_boolean_feature(
+        feature_manager,
+        "cognitive_brain_public",
+        set_enabled=turn_kernel.set_public_brain_enabled,
+        is_enabled=lambda: turn_kernel.public_brain_enabled,
     )
     director_loop.configure_turn_kernel(turn_kernel)
 

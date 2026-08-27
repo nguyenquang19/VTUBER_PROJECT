@@ -29,6 +29,7 @@ from interfaces.execution import ActionRequest, ActionResult
 from interfaces.decision_record import DecisionCandidateSummary
 from interfaces.director_v2 import DirectorV2Proposal, DirectorV2TakeoverSelection
 from interfaces.self_talk import SelfTalkContext, SelfTalkStage
+from interfaces.turn_kernel import PublicTurnRoute, TurnOwner
 from orchestrator.logger import get_logger
 from services.autonomy.material_provider import RuntimeContext
 from services.autonomy.dedup import DedupBuffer
@@ -41,6 +42,7 @@ from services.director.v2_primary import (
 from services.director.action_context import ActionContextBuilder
 from services.director.action_types import DirectorChatRef, DirectorInput
 from services.execution.speech import DirectorDeliveryBoundary
+from services.llm.parser import ParsedResponse
 from services.director.action_prompts import (
     history_text_for as _history_text_for,
     join_directives as _join_directives,
@@ -487,16 +489,24 @@ class DirectorLoop:
         expected_intention_id = self._decision_intention_id(dec, director_input)
         self._record_director_metric(dec)
         decision_id = self._record_decision(dec, director_input, now)
-        self._emit_turn_decision(dec, director_input, decision_id)
 
         if dec.action == DirectorAction.WAIT:
+            await self._route_turn_decision(dec, director_input, decision_id)
             self._record_trajectory_no_action(decision_id, dec.reason)
             self._record_director_action(dec, now)
             return dec.action
 
-        self._record_trajectory_action(decision_id, dec, director_input, now)
-
         async with self._turn_lock:
+            public_route = await self._route_turn_decision(
+                dec, director_input, decision_id,
+            )
+            if public_route is not None and public_route.mode.value == "WAIT":
+                self._record_trajectory_no_action(
+                    decision_id, public_route.reason_code,
+                )
+                self._record_director_action(dec, now)
+                return DirectorAction.WAIT
+            self._record_trajectory_action(decision_id, dec, director_input, now)
             transaction_id = None
             execution_reservation = None
             self._active_decision_id = decision_id
@@ -527,9 +537,14 @@ class DirectorLoop:
                         )
                         self._record_director_action(dec, now)
                         return dec.action
-                committed = await self._execute(
-                    dec, now, director_input, transaction_id=transaction_id,
-                )
+                if public_route is not None and public_route.owner is TurnOwner.BRAIN:
+                    committed = await self._execute_brain_route(
+                        public_route, dec, now, transaction_id=transaction_id,
+                    )
+                else:
+                    committed = await self._execute(
+                        dec, now, director_input, transaction_id=transaction_id,
+                    )
                 if transaction_id is not None:
                     if execution_reservation is not None:
                         transaction = self._transactions.get(transaction_id)
@@ -896,6 +911,27 @@ class DirectorLoop:
         except Exception as exc:
             self._log.warning("turn_event_sink_failed", error=str(exc))
 
+    async def _route_turn_decision(
+        self, dec: DirectorDecision, value: DirectorInput, decision_id: str | None,
+    ) -> PublicTurnRoute | None:
+        sink = self._turn_event_sink
+        if sink is None:
+            return None
+        route = getattr(sink, "route_decision", None)
+        if callable(route):
+            try:
+                result = await route(dec, value, decision_id)
+                return result if isinstance(result, PublicTurnRoute) else None
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                self._log.warning(
+                    "turn_route_sink_failed", error=type(exc).__name__,
+                )
+                return None
+        self._emit_turn_decision(dec, value, decision_id)
+        return None
+
     def _emit_turn_verified_outcome(
         self, dec: DirectorDecision, value: DirectorInput, decision_id: str | None,
     ) -> None:
@@ -968,6 +1004,55 @@ class DirectorLoop:
                 dec, now, director_input, transaction_id=transaction_id,
             )
         return False
+
+    async def _execute_brain_route(
+        self,
+        route: PublicTurnRoute,
+        dec: DirectorDecision,
+        now: float,
+        *,
+        transaction_id: str | None = None,
+    ) -> bool:
+        """Deliver exact grounded Brain speech through the existing verifier boundary."""
+        if route.owner is not TurnOwner.BRAIN or not route.speech_text:
+            return False
+        request_id = route.source_turn_id or route.opportunity_id
+        parsed = ParsedResponse(
+            text=route.speech_text,
+            mood=self._current_mood(),
+            reason="cognitive_brain_public",
+            continuation=False,
+            ok=True,
+            raw=route.speech_text,
+        )
+        refs = list(dec.refs)
+        primary = refs[0] if refs else None
+        stage = getattr(self._runner, "stage_external_delivery", None)
+        if callable(stage):
+            stage(
+                request_id=request_id,
+                parsed=parsed,
+                user_text=_read_user_text(dec) if refs else None,
+                viewer_id=primary.viewer_id if primary is not None else None,
+                trigger_type="cognitive_brain_public",
+            )
+        spoken = await self._maybe_speak(
+            request_id,
+            parsed,
+            dec.action,
+            refs,
+            goal_id=dec.goal_id,
+            transaction_id=transaction_id,
+        )
+        if not spoken:
+            return False
+        if dec.action is DirectorAction.READ_CHAT and not self._continuity_committed(request_id):
+            self._focus_delivered_chat(refs)
+        for ref in refs:
+            self._pool.remove(ref.msg_id)
+        self._turns_read += 1
+        self._director.mark_spoke(dec.action, now)
+        return True
 
     async def _exec_goal_action(
         self, dec: Any, now: float, director_input: DirectorInput,

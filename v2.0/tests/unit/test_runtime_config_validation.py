@@ -206,12 +206,21 @@ def test_repository_runtime_config_is_valid() -> None:
     assert validated.director_speech_style_max_regenerations == 2
     assert validated.conversation_summarize_after_moves == 2
     assert validated.manage_llama_process is True
+    assert KERNEL_CONFIG["rollout_mode"] == "brain"
+    assert KERNEL_CONFIG["brain_canary_roles"] == ["owner", "moderator"]
 
 
 def test_runtime_rejects_invalid_kernel_config_before_composition() -> None:
     invalid = dict(KERNEL_CONFIG)
     invalid["rollout_mode"] = "canary"
     with pytest.raises(ConfigError, match="Runtime kernel config"):
+        validate_runtime_config(OverrideLoader({("kernel", "section"): invalid}))
+
+
+def test_runtime_rejects_unknown_public_brain_canary_role() -> None:
+    invalid = dict(KERNEL_CONFIG)
+    invalid["brain_canary_roles"] = ["viewer"]
+    with pytest.raises(ConfigError, match="brain_canary_roles"):
         validate_runtime_config(OverrideLoader({("kernel", "section"): invalid}))
 
 

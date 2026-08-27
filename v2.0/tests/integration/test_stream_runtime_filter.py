@@ -195,6 +195,53 @@ async def _build_runtime(
 
 
 class TestRuntimeFilterWiring:
+    async def test_public_brain_canary_requires_dependencies_and_toggles_real_kernel(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        runtime, _, _ = await _build_runtime(
+            monkeypatch,
+            tmp_path,
+            [BAD_OUTPUT],
+            filter_enabled=True,
+            kernel_mode="brain",
+        )
+        try:
+            blocked = await runtime._feature_manager.enable(
+                "cognitive_brain_public", user="test",
+            )
+            assert blocked.ok is False
+            assert "cognitive_brain_shadow" in blocked.reason
+
+            shadow = await runtime._feature_manager.enable(
+                "cognitive_brain_shadow", user="test",
+            )
+            assert shadow.ok is True
+            public = await runtime._feature_manager.enable(
+                "cognitive_brain_public", user="test",
+            )
+            assert public.ok is True
+            assert runtime._turn_kernel.public_brain_enabled is True
+            assert runtime.operations_snapshot()["turn_kernel"][
+                "turn_kernel_public_owner"
+            ] == "BRAIN_CANARY"
+
+            disable_shadow = await runtime._feature_manager.disable(
+                "cognitive_brain_shadow", user="test",
+            )
+            assert disable_shadow.ok is False
+            assert "cognitive_brain_public" in disable_shadow.reason
+            assert (await runtime._feature_manager.disable(
+                "cognitive_brain_public", user="test",
+            )).ok is True
+            assert runtime._turn_kernel.public_brain_enabled is False
+            assert (await runtime._feature_manager.disable(
+                "cognitive_brain_shadow", user="test",
+            )).ok is True
+        finally:
+            await runtime.stop()
+
     async def test_kernel_off_rejects_brain_worker_activation(
         self,
         monkeypatch: pytest.MonkeyPatch,

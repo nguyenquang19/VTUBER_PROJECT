@@ -55,9 +55,15 @@ COGNITIVE_GROUNDING_OUTCOMES = frozenset({
     "SUPPRESSED_EMPTY_EVIDENCE", "SUPPRESSED_UNKNOWN_EVIDENCE", "FAILURE",
 })
 LLM_WORKLOAD_CLASS_PAIRS = frozenset({"live_shadow"})
-TURN_KERNEL_MODES = frozenset({"OFF", "SHADOW"})
-TURN_KERNEL_OWNERS = frozenset({"COMPATIBILITY"})
+TURN_KERNEL_MODES = frozenset({"OFF", "SHADOW", "PUBLIC_BRAIN"})
+TURN_KERNEL_OWNERS = frozenset({"COMPATIBILITY", "BRAIN"})
 TURN_KERNEL_PREFLIGHT_OUTCOMES = frozenset({"allowed", "hard_hold"})
+TURN_KERNEL_ROUTE_OUTCOMES = frozenset({
+    "compatibility_off", "compatibility_shadow", "compatibility_flag_off",
+    "compatibility_outside_canary", "compatibility_hard_hold",
+    "brain_speak", "brain_wait", "brain_action_suppressed",
+    "fallback_brain", "fallback_filter_reject", "fallback_filter_failure",
+})
 
 
 class MetricsCollector:
@@ -620,6 +626,12 @@ class MetricsCollector:
             registry=self.registry,
         )
         self._turn_kernel_selections: dict[tuple[str, str, str], int] = {}
+        self.turn_kernel_route_total_c = Counter(
+            "turn_kernel_route_total",
+            "Finite public Turn Kernel route outcomes",
+            ["outcome"], registry=self.registry,
+        )
+        self._turn_kernel_routes: dict[str, int] = {}
         # --- Real NVIDIA device metrics for the operator dashboard ---
         self.gpu_util = Gauge(
             "mai_gpu_util_percent", "NVIDIA GPU utilization",
@@ -853,6 +865,15 @@ class MetricsCollector:
                 self._turn_kernel_selections.items()
             )
         }
+
+    def record_turn_kernel_route(self, outcome: str) -> None:
+        if outcome not in TURN_KERNEL_ROUTE_OUTCOMES:
+            raise ValueError("unsupported Turn Kernel route outcome")
+        self._turn_kernel_routes[outcome] = self._turn_kernel_routes.get(outcome, 0) + 1
+        self.turn_kernel_route_total_c.labels(outcome=outcome).inc()
+
+    def turn_kernel_route_snapshot(self) -> dict[str, int]:
+        return dict(sorted(self._turn_kernel_routes.items()))
 
     @staticmethod
     def _observe_non_negative(value: float, histogram: Any) -> None:

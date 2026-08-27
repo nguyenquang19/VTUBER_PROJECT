@@ -297,9 +297,9 @@ snapshot:
   script_files: 35
   test_python_files_before_s0: 224
   test_python_files: 224
-  feature_count: 52
+  feature_count: 53
   feature_enabled_count: 38
-  feature_disabled_count: 14
+  feature_disabled_count: 15
   preexisting_tracked_modified_at_s0:
     - MAI_V2_MASTER_IMPLEMENTATION_BLUEPRINT_v2.0.md
     - config/cognition.yaml
@@ -760,6 +760,7 @@ features:
   self_model_projection: {enabled: true, disposition: MERGE, target_owner: services/state}
   capability_registry: {enabled: true, disposition: MERGE, target_owner: services/kernel}
   cognitive_brain_shadow: {enabled: false, disposition: MERGE, target_owner: services/cognition/brain.py}
+  cognitive_brain_public: {enabled: false, disposition: KEEP, target_owner: services/kernel/turn_kernel.py}
   action_mock_closed_loop: {enabled: true, disposition: OFFLINE, target_owner: services/evaluation}
   director_v2_shadow: {enabled: true, disposition: DELETE, target_owner: services/evaluation, deletion_gate: after_s6_all_conversation_modes_canary, removal_gate_state: BLOCKED}
   director_v2_takeover: {enabled: true, disposition: DELETE, target_owner: services/kernel, deletion_gate: after_s6_all_conversation_modes_canary, removal_gate_state: BLOCKED}

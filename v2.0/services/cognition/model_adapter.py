@@ -132,6 +132,17 @@ class CognitiveModelAdapter(CognitiveModelAdapterService):
             await self._llm.cancel(request_id)
 
     async def generate(self, context: CognitiveContext) -> CognitiveModelOutput:
+        return await self._generate(context, workload_class=LLMWorkloadClass.SHADOW)
+
+    async def generate_public(self, context: CognitiveContext) -> CognitiveModelOutput:
+        return await self._generate(context, workload_class=LLMWorkloadClass.LIVE)
+
+    async def _generate(
+        self,
+        context: CognitiveContext,
+        *,
+        workload_class: LLMWorkloadClass,
+    ) -> CognitiveModelOutput:
         if not self._running:
             raise RuntimeError("Cognitive model adapter is not running")
         if self._active_request_id is not None:
@@ -149,7 +160,7 @@ class CognitiveModelAdapter(CognitiveModelAdapterService):
             ],
             max_tokens=self._config.brain_max_output_tokens,
             temperature=self._config.brain_temperature,
-            workload_class=LLMWorkloadClass.SHADOW,
+            workload_class=workload_class,
             context_overflow_policy=LLMContextOverflowPolicy.REJECT,
             response_format=LLMJsonSchemaResponse(
                 name="mai_cognitive_shadow_turn",

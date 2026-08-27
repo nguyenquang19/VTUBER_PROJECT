@@ -1,4 +1,4 @@
-"""Single live tick owner for S4 compatibility + Brain shadow scheduling."""
+"""Single live tick owner for compatibility, shadow, and Brain public canary."""
 from __future__ import annotations
 
 import asyncio
@@ -20,11 +20,13 @@ from interfaces.cognition import (
 )
 from interfaces.turn_kernel import (
     KernelConfig,
+    PublicTurnRoute,
     TurnKernelService,
     TurnOpportunity,
     TurnOwner,
     TurnOwnerSelection,
     TurnPreflight,
+    TurnRouteOutcome,
     TurnRolloutMode,
 )
 from interfaces.operations import TurnJournalEvent, TurnJournalStage
@@ -37,7 +39,7 @@ HardStateProvider = Callable[[DirectorInput], CognitiveHardState]
 
 
 class TurnKernel(TurnKernelService):
-    """Own the only runtime tick; S4 always routes public work to compatibility."""
+    """Own the only runtime tick, hard preflight, and public owner route."""
 
     service_id = "turn_kernel"
 
@@ -49,6 +51,7 @@ class TurnKernel(TurnKernelService):
         compatibility: Any,
         brain_scheduler: CognitiveBrainShadowSchedulerService,
         hard_state_provider: HardStateProvider,
+        output_filter: Any = None,
         metrics: Any = None,
         turn_journal: Any = None,
         session_id: str = "stream:runtime",
@@ -59,6 +62,7 @@ class TurnKernel(TurnKernelService):
         self._compatibility = compatibility
         self._brain_scheduler = brain_scheduler
         self._hard_state_provider = hard_state_provider
+        self._output_filter = output_filter
         self._metrics = metrics
         self._turn_journal = turn_journal
         self._session_id = session_id
@@ -75,6 +79,8 @@ class TurnKernel(TurnKernelService):
         )
         self._ticks = 0
         self._selection_counts: dict[str, int] = {}
+        self._route_counts: dict[str, int] = {}
+        self._public_brain_enabled = False
         self._log = get_logger("turn_kernel")
 
     async def start(self) -> None:
@@ -110,7 +116,10 @@ class TurnKernel(TurnKernelService):
         return HealthStatus.healthy(
             self.service_id,
             rollout_mode=self._config.rollout_mode.value,
-            public_owner=TurnOwner.COMPATIBILITY.value,
+            public_owner=(
+                "BRAIN_CANARY" if self._public_brain_enabled
+                else TurnOwner.COMPATIBILITY.value
+            ),
         )
 
     def get_metrics(self) -> dict[str, Any]:
@@ -119,9 +128,30 @@ class TurnKernel(TurnKernelService):
             "turn_kernel_ticks_total": self._ticks,
             "turn_kernel_recent_selections": len(self._selections),
             "turn_kernel_rollout_mode": self._config.rollout_mode.value,
-            "turn_kernel_public_owner": TurnOwner.COMPATIBILITY.value,
+            "turn_kernel_public_owner": (
+                "BRAIN_CANARY" if self._public_brain_enabled
+                else TurnOwner.COMPATIBILITY.value
+            ),
             "turn_kernel_selection_total": dict(sorted(self._selection_counts.items())),
+            "turn_kernel_route_total": dict(sorted(self._route_counts.items())),
         }
+
+    @property
+    def public_brain_enabled(self) -> bool:
+        return self._public_brain_enabled
+
+    def set_public_brain_enabled(self, enabled: bool) -> None:
+        if not isinstance(enabled, bool):
+            raise TypeError("enabled must be a bool")
+        if enabled:
+            if self._config.rollout_mode is not TurnRolloutMode.PUBLIC_BRAIN:
+                raise RuntimeError("public Brain requires kernel rollout mode BRAIN")
+            snapshot = self._brain_scheduler.snapshot()
+            if not snapshot.running or not snapshot.healthy:
+                raise RuntimeError("public Brain requires a healthy Brain scheduler")
+            if self._output_filter is None:
+                raise RuntimeError("public Brain requires the output filter")
+        self._public_brain_enabled = enabled
 
     async def _loop(self) -> None:
         while self._running:
@@ -148,11 +178,159 @@ class TurnKernel(TurnKernelService):
         director_input: DirectorInput,
         decision_id: str | None,
     ) -> bool:
-        """Capture and non-blockingly offer shadow work before public execution."""
+        """Compatibility observer used by OFF/SHADOW tests and older sinks."""
+        prepared = self._prepare_decision(decision, director_input, decision_id)
+        if prepared is None:
+            return False
+        opportunity, preflight, observation, event_ref = prepared
+        self._pending = (opportunity, preflight, observation)
+        if self._config.rollout_mode is not TurnRolloutMode.OFF:
+            try:
+                self._brain_scheduler.offer(self._cognitive_opportunity(
+                    opportunity, observation,
+                ))
+            except Exception as exc:
+                self._log.warning(
+                    "cognitive_live_shadow_offer_failed",
+                    error=type(exc).__name__,
+                )
+        self._finish_route(
+            opportunity, preflight, observation, event_ref,
+            owner=TurnOwner.COMPATIBILITY,
+            route_outcome=(
+                "compatibility_off"
+                if self._config.rollout_mode is TurnRolloutMode.OFF
+                else "compatibility_shadow"
+            ),
+        )
+        return True
+
+    async def route_decision(
+        self,
+        decision: DirectorDecision,
+        director_input: DirectorInput,
+        decision_id: str | None,
+    ) -> PublicTurnRoute | None:
+        """Apply hard preflight, canary policy, grounding, filter, then route."""
+        prepared = self._prepare_decision(decision, director_input, decision_id)
+        if prepared is None:
+            return None
+        opportunity, preflight, observation, event_ref = prepared
+        self._pending = (opportunity, preflight, observation)
+        cognitive = self._cognitive_opportunity(opportunity, observation)
+
+        if not preflight.allowed:
+            return self._compatibility_route(
+                opportunity, preflight, observation, event_ref,
+                "compatibility_hard_hold", TurnRouteOutcome.COMPATIBILITY,
+                mode=CognitiveMode.WAIT,
+            )
+        if self._config.rollout_mode is TurnRolloutMode.OFF:
+            return self._compatibility_route(
+                opportunity, preflight, observation, event_ref,
+                "compatibility_off", TurnRouteOutcome.COMPATIBILITY,
+            )
+        if self._config.rollout_mode is TurnRolloutMode.SHADOW:
+            self._offer_shadow(cognitive)
+            return self._compatibility_route(
+                opportunity, preflight, observation, event_ref,
+                "compatibility_shadow", TurnRouteOutcome.COMPATIBILITY,
+            )
+        if not self._public_brain_enabled:
+            self._offer_shadow(cognitive)
+            return self._compatibility_route(
+                opportunity, preflight, observation, event_ref,
+                "compatibility_flag_off", TurnRouteOutcome.COMPATIBILITY,
+            )
+        if not _is_canary(decision, self._config.brain_canary_roles):
+            self._offer_shadow(cognitive)
+            return self._compatibility_route(
+                opportunity, preflight, observation, event_ref,
+                "compatibility_outside_canary", TurnRouteOutcome.COMPATIBILITY,
+            )
+
+        try:
+            grounded = await self._brain_scheduler.resolve_public(cognitive)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            self._log.warning(
+                "cognitive_public_resolution_failed", error=type(exc).__name__,
+            )
+            grounded = None
+        if grounded is None:
+            return self._compatibility_route(
+                opportunity, preflight, observation, event_ref,
+                "fallback_brain", TurnRouteOutcome.FALLBACK,
+            )
+        effective = grounded.effective_turn
+        if effective.mode is CognitiveMode.SPEAK:
+            filter_reason = await self._filter_public_speech(effective.speech_text or "")
+            if filter_reason is not None:
+                return self._compatibility_route(
+                    opportunity, preflight, observation, event_ref,
+                    filter_reason, TurnRouteOutcome.FALLBACK,
+                )
+            route = PublicTurnRoute(
+                config=self._config,
+                cognition_config=self._cognition_config,
+                schema_version=self._config.schema_version,
+                opportunity_id=opportunity.opportunity_id,
+                owner=TurnOwner.BRAIN,
+                outcome=TurnRouteOutcome.BRAIN_SPEAK,
+                mode=CognitiveMode.SPEAK,
+                speech_text=effective.speech_text,
+                source_turn_id=grounded.source_turn_id,
+                evidence_refs=effective.evidence_refs,
+                reason_code="brain_speak",
+            )
+            self._finish_route(
+                opportunity, preflight, observation, event_ref,
+                owner=TurnOwner.BRAIN, route_outcome="brain_speak",
+                mode=CognitiveMode.SPEAK,
+                source_turn_id=grounded.source_turn_id,
+                evidence_refs=effective.evidence_refs,
+            )
+            return route
+
+        route_reason = (
+            "brain_action_suppressed"
+            if grounded.source_mode is CognitiveMode.PROPOSE_ACTION
+            else "brain_wait"
+        )
+        route = PublicTurnRoute(
+            config=self._config,
+            cognition_config=self._cognition_config,
+            schema_version=self._config.schema_version,
+            opportunity_id=opportunity.opportunity_id,
+            owner=TurnOwner.BRAIN,
+            outcome=TurnRouteOutcome.BRAIN_WAIT,
+            mode=CognitiveMode.WAIT,
+            speech_text=None,
+            source_turn_id=grounded.source_turn_id,
+            evidence_refs=(),
+            reason_code=route_reason,
+        )
+        self._finish_route(
+            opportunity, preflight, observation, event_ref,
+            owner=TurnOwner.BRAIN, route_outcome=route_reason,
+            mode=CognitiveMode.WAIT,
+            source_turn_id=grounded.source_turn_id,
+        )
+        return route
+
+    def _prepare_decision(
+        self,
+        decision: DirectorDecision,
+        director_input: DirectorInput,
+        decision_id: str | None,
+    ) -> tuple[
+        TurnOpportunity, TurnPreflight, CognitiveCompatibilityObservation, str | None,
+    ] | None:
         trigger = _trigger(decision)
         if trigger is None:
             self._pending = None
-            return False
+            return None
         kind, material_ref, event_ref = trigger
         opened_at = datetime.fromtimestamp(float(director_input.now), timezone.utc)
         hard_state = self._hard_state_provider(director_input)
@@ -184,25 +362,6 @@ class TurnKernel(TurnKernelService):
             hard_state=hard_state,
             reason_codes=reasons,
         )
-        selection = TurnOwnerSelection(
-            schema_version=self._config.schema_version,
-            opportunity_id=opportunity_id,
-            selected_at=opened_at,
-            rollout_mode=self._config.rollout_mode,
-            owner=TurnOwner.COMPATIBILITY,
-            selection_ref=_digest(
-                "selection", opportunity_id, self._config.rollout_mode.value,
-                TurnOwner.COMPATIBILITY.value,
-            ),
-        )
-        self._selections.append(selection)
-        key = f"{selection.rollout_mode.value}:{selection.owner.value}"
-        self._selection_counts[key] = self._selection_counts.get(key, 0) + 1
-        _call_metric(
-            self._metrics, "record_turn_kernel_selection",
-            selection.rollout_mode.value, selection.owner.value,
-            "allowed" if preflight.allowed else "hard_hold",
-        )
         compatibility_mode = (
             CognitiveMode.WAIT
             if decision.action is DirectorAction.WAIT else CognitiveMode.SPEAK
@@ -218,68 +377,155 @@ class TurnKernel(TurnKernelService):
             action_label=decision.action.value,
             reason_label=decision.reason,
         )
-        lineage_id = decision_id or opportunity_id
+        return opportunity, preflight, observation, event_ref
+
+    def _finish_route(
+        self,
+        opportunity: TurnOpportunity,
+        preflight: TurnPreflight,
+        observation: CognitiveCompatibilityObservation,
+        event_ref: str | None,
+        *,
+        owner: TurnOwner,
+        route_outcome: str,
+        mode: CognitiveMode | None = None,
+        source_turn_id: str | None = None,
+        evidence_refs: tuple[str, ...] = (),
+    ) -> None:
+        selection = TurnOwnerSelection(
+            schema_version=self._config.schema_version,
+            opportunity_id=opportunity.opportunity_id,
+            selected_at=opportunity.opened_at,
+            rollout_mode=self._config.rollout_mode,
+            owner=owner,
+            selection_ref=_digest(
+                "selection", opportunity.opportunity_id,
+                self._config.rollout_mode.value, owner.value,
+            ),
+        )
+        self._selections.append(selection)
+        key = f"{selection.rollout_mode.value}:{selection.owner.value}"
+        self._selection_counts[key] = self._selection_counts.get(key, 0) + 1
+        self._route_counts[route_outcome] = self._route_counts.get(route_outcome, 0) + 1
+        _call_metric(
+            self._metrics, "record_turn_kernel_selection",
+            selection.rollout_mode.value, selection.owner.value,
+            "allowed" if preflight.allowed else "hard_hold",
+        )
+        _call_metric(self._metrics, "record_turn_kernel_route", route_outcome)
+        lineage_id = observation.decision_ref
         if event_ref is not None:
             self._append_journal(TurnJournalEvent(
                 schema_version=1,
                 lineage_id=lineage_id,
                 stage=TurnJournalStage.EVENT_RECEIVED,
-                occurred_at=opened_at,
+                occurred_at=opportunity.opened_at,
                 session_id=self._session_id,
                 event_id=event_ref,
-                opportunity_id=opportunity_id,
-                decision_id=decision_id,
-                owner=TurnOwner.COMPATIBILITY.value,
-                mode=compatibility_mode.value,
+                opportunity_id=opportunity.opportunity_id,
+                decision_id=observation.decision_ref,
+                owner=owner.value,
+                mode=(mode or observation.mode).value,
                 evidence_refs=(event_ref,),
             ))
         self._append_journal(TurnJournalEvent(
             schema_version=1,
             lineage_id=lineage_id,
             stage=TurnJournalStage.OPPORTUNITY_OPENED,
-            occurred_at=opened_at,
+            occurred_at=opportunity.opened_at,
             session_id=self._session_id,
             event_id=event_ref,
-            opportunity_id=opportunity_id,
-            decision_id=decision_id,
-            owner=TurnOwner.COMPATIBILITY.value,
-            mode=compatibility_mode.value,
-            reason_codes=reasons,
-            evidence_refs=((material_ref,) if material_ref else ()),
+            opportunity_id=opportunity.opportunity_id,
+            decision_id=observation.decision_ref,
+            owner=owner.value,
+            mode=(mode or observation.mode).value,
+            reason_codes=preflight.reason_codes,
+            evidence_refs=(opportunity.material_change_ref,),
         ))
         self._append_journal(TurnJournalEvent(
             schema_version=1,
             lineage_id=lineage_id,
             stage=TurnJournalStage.DECISION_RECORDED,
-            occurred_at=opened_at,
+            occurred_at=opportunity.opened_at,
             session_id=self._session_id,
             event_id=event_ref,
-            opportunity_id=opportunity_id,
-            decision_id=decision_id,
-            owner=TurnOwner.COMPATIBILITY.value,
-            mode=compatibility_mode.value,
-            terminal_state=("WAIT" if compatibility_mode is CognitiveMode.WAIT else None),
-            reason_codes=((decision.reason,) if decision.reason else ()),
+            opportunity_id=opportunity.opportunity_id,
+            decision_id=observation.decision_ref,
+            owner=owner.value,
+            mode=(mode or observation.mode).value,
+            terminal_state=(
+                "WAIT" if (mode or observation.mode) is CognitiveMode.WAIT else None
+            ),
+            turn_id=source_turn_id,
+            reason_codes=(route_outcome,),
+            evidence_refs=evidence_refs,
         ))
-        self._pending = (opportunity, preflight, observation)
-        if self._config.rollout_mode is TurnRolloutMode.SHADOW:
-            try:
-                self._brain_scheduler.offer(CognitiveOpportunity(
-                    config=self._cognition_config,
-                    schema_version=self._cognition_config.schema_version,
-                    opportunity_id=opportunity.opportunity_id,
-                    kind=opportunity.kind,
-                    opened_at=opportunity.opened_at,
-                    material_change_ref=opportunity.material_change_ref,
-                    context_request=opportunity.context_request,
-                    compatibility=observation,
-                ))
-            except Exception as exc:
-                self._log.warning(
-                    "cognitive_live_shadow_offer_failed",
-                    error=type(exc).__name__,
-                )
-        return True
+
+    def _cognitive_opportunity(
+        self,
+        opportunity: TurnOpportunity,
+        observation: CognitiveCompatibilityObservation,
+    ) -> CognitiveOpportunity:
+        return CognitiveOpportunity(
+            config=self._cognition_config,
+            schema_version=self._cognition_config.schema_version,
+            opportunity_id=opportunity.opportunity_id,
+            kind=opportunity.kind,
+            opened_at=opportunity.opened_at,
+            material_change_ref=opportunity.material_change_ref,
+            context_request=opportunity.context_request,
+            compatibility=observation,
+        )
+
+    def _offer_shadow(self, opportunity: CognitiveOpportunity) -> None:
+        try:
+            self._brain_scheduler.offer(opportunity)
+        except Exception as exc:
+            self._log.warning(
+                "cognitive_live_shadow_offer_failed", error=type(exc).__name__,
+            )
+
+    def _compatibility_route(
+        self,
+        opportunity: TurnOpportunity,
+        preflight: TurnPreflight,
+        observation: CognitiveCompatibilityObservation,
+        event_ref: str | None,
+        reason: str,
+        outcome: TurnRouteOutcome,
+        *,
+        mode: CognitiveMode | None = None,
+    ) -> PublicTurnRoute:
+        self._finish_route(
+            opportunity, preflight, observation, event_ref,
+            owner=TurnOwner.COMPATIBILITY, route_outcome=reason, mode=mode,
+        )
+        return PublicTurnRoute(
+            config=self._config,
+            cognition_config=self._cognition_config,
+            schema_version=self._config.schema_version,
+            opportunity_id=opportunity.opportunity_id,
+            owner=TurnOwner.COMPATIBILITY,
+            outcome=outcome,
+            mode=mode or observation.mode,
+            speech_text=None,
+            source_turn_id=None,
+            evidence_refs=(),
+            reason_code=reason,
+        )
+
+    async def _filter_public_speech(self, text: str) -> str | None:
+        try:
+            verdict = await self._output_filter.check(
+                text, {"source": "cognitive_brain_public"},
+            )
+        except Exception:
+            return "fallback_filter_failure"
+        if str(getattr(verdict, "reason", "")).startswith("fail-open:"):
+            return "fallback_filter_failure"
+        if getattr(verdict, "passed", False) is not True:
+            return "fallback_filter_reject"
+        return None
 
     def observe_verified_outcome(
         self,
@@ -372,6 +618,16 @@ def _hard_reasons(state: CognitiveHardState) -> tuple[str, ...]:
     if state.source_failure_codes:
         reasons.append("source_failure")
     return tuple(reasons)
+
+
+def _is_canary(decision: DirectorDecision, roles: tuple[str, ...]) -> bool:
+    if not decision.refs:
+        return False
+    primary = decision.refs[0]
+    return any((
+        "owner" in roles and bool(primary.is_owner),
+        "moderator" in roles and bool(primary.is_moderator),
+    ))
 
 
 def _digest(prefix: str, *parts: str) -> str:

@@ -14,6 +14,7 @@ from orchestrator.config_loader import ConfigLoader
 from orchestrator.fallback_manager import FallbackManager
 from services.llm.canned_response import CannedResponder
 from services.llm.llm_turn import LLMTurnRunner
+from services.llm.parser import parse_response
 from services.llm.prompt_cache import PromptCache
 from services.llm.prompt_manager import PromptManager
 from services.memory.extractor import MemoryExtractor
@@ -198,6 +199,30 @@ class TestPrimarySuccess:
         assert runner.finalize_delivery("deferred", True) is True
         assert pm.history() == []
         assert runner.finalize_delivery("deferred", True) is False
+
+    def test_external_delivery_staging_clears_stale_filter_state(self) -> None:
+        fake = FakeLLM(VALID)
+        runner, pm, *_ = make_runner(fake)
+        runner.last_filter_verdict = type(
+            "Rejected", (), {"passed": False},
+        )()
+        parsed = parse_response("Câu Brain đã grounded.")
+
+        runner.stage_external_delivery(
+            request_id="brain-public",
+            parsed=parsed,
+            user_text="Mai trả lời nhé",
+            viewer_id="raw-viewer",
+            trigger_type="cognitive_brain_public",
+        )
+
+        assert runner.last_filter_verdict is None
+        assert fake.requests == []
+        pending = runner.pending_delivery_context("brain-public")
+        assert pending.parsed.text == "Câu Brain đã grounded."
+        assert pending.history_user_text == "Mai trả lời nhé"
+        assert pending.viewer_id == "raw-viewer"
+        assert pm.history() == []
 
     async def test_failed_deferred_delivery_discards_history(self) -> None:
         runner, pm, *_ = make_runner(FakeLLM(VALID))

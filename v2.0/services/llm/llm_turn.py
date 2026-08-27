@@ -564,6 +564,44 @@ class LLMTurnRunner:
             return True
         return True
 
+    def stage_external_delivery(
+        self,
+        *,
+        request_id: str,
+        parsed: ParsedResponse,
+        user_text: str | None,
+        viewer_id: str | None,
+        trigger_type: str,
+    ) -> None:
+        """Stage one externally generated exact turn for verified delivery/continuity."""
+        # The public Brain route already passed its mandatory RuleFilter.  A
+        # rejected verdict retained from an earlier compatibility generation
+        # must not be mistaken for the verdict of this externally generated
+        # turn at the shared delivery boundary.
+        self._reset_filter_tracking()
+        turn_id = self._log_turn(
+            request_id=request_id,
+            kind="cognitive_brain_public",
+            user_text=user_text,
+            parsed=parsed,
+            trigger_type=trigger_type,
+            level_used=0,
+            latency_ms=None,
+            viewer_id=viewer_id,
+            session_id=self.session_id,
+            extra=None,
+        )
+        self._store_pending_delivery(request_id, _PendingDelivery(
+            turn_id=turn_id,
+            parsed=parsed,
+            mode="chat",
+            trigger_type=trigger_type,
+            session_id=self.session_id,
+            history_user_text=user_text,
+            viewer_id=viewer_id,
+            commit_history=user_text is not None,
+        ))
+
     def pending_delivery_context(self, request_id: str) -> Any:
         """Return read-only pending metadata for the canonical continuity boundary."""
         return self._pending_deliveries.get(request_id)

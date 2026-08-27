@@ -5,13 +5,20 @@ import asyncio
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
 
-from interfaces.cognition import CognitiveHardState
+from interfaces.cognition import CognitiveHardState, CognitiveMode
 from interfaces.state import AgentStateSnapshot, GoalSnapshot
-from interfaces.turn_kernel import KernelConfig, TurnOwner, TurnRolloutMode
+from interfaces.turn_kernel import (
+    KernelConfig,
+    PublicTurnRoute,
+    TurnOwner,
+    TurnRolloutMode,
+    TurnRouteOutcome,
+)
 from services.director.action_types import DirectorChatRef, DirectorInput
 from services.director.director import DirectorAction, DirectorDecision, ReadMode
 from services.kernel.turn_kernel import TurnKernel
@@ -30,6 +37,9 @@ class _Scheduler:
         self.fail_offer = False
         self.shadow_gate: asyncio.Event | None = None
         self.shadow_task: asyncio.Task[bool] | None = None
+        self.resolve_result = None
+        self.resolve_calls = 0
+        self.running = True
 
     def offer(self, value) -> bool:
         self.events.append("brain_offer")
@@ -47,6 +57,25 @@ class _Scheduler:
 
     def preempt_for_live(self) -> None:
         self.preemptions += 1
+
+    def snapshot(self):
+        return SimpleNamespace(running=self.running, healthy=self.running)
+
+    async def resolve_public(self, value):
+        self.resolve_calls += 1
+        return self.resolve_result
+
+
+class _Filter:
+    def __init__(self, *, passed: bool = True, reason: str = "") -> None:
+        self.passed = passed
+        self.reason = reason
+        self.calls: list[str] = []
+
+    async def check(self, text: str, context: dict[str, object]):
+        assert context == {"source": "cognitive_brain_public"}
+        self.calls.append(text)
+        return SimpleNamespace(passed=self.passed, reason=self.reason)
 
 
 class _Compatibility:
@@ -104,7 +133,8 @@ def _hard_state(value: DirectorInput) -> CognitiveHardState:
 
 
 def _build(
-    decision: DirectorDecision, *, mode: str = "shadow",
+    decision: DirectorDecision, *, mode: str = "shadow", output_filter=None,
+    hard_state_provider=_hard_state,
 ) -> tuple[TurnKernel, _Compatibility, _Scheduler]:
     events: list[str] = []
     compatibility = _Compatibility(decision, events)
@@ -114,7 +144,8 @@ def _build(
         cognition_config=_config(),
         compatibility=compatibility,
         brain_scheduler=scheduler,
-        hard_state_provider=_hard_state,
+        hard_state_provider=hard_state_provider,
+        output_filter=output_filter,
         session_id="session-real",
         clock=lambda: datetime.fromtimestamp(NOW, timezone.utc),
     )
@@ -124,7 +155,7 @@ def _build(
 
 def test_s4_rejects_unreleased_public_rollout_modes() -> None:
     for mode in ("canary", "primary", "released"):
-        with pytest.raises(ValueError, match="S4 runtime"):
+        with pytest.raises(ValueError, match="runtime allows"):
             _kernel_config(mode)
 
 
@@ -133,6 +164,37 @@ def test_kernel_config_requires_the_exact_hard_reason_allowlist() -> None:
     raw["reason_codes"].remove("emergency")
     with pytest.raises(ValueError, match="hard-preflight allowlist"):
         KernelConfig.from_mapping(raw)
+
+
+def test_public_route_rejects_owner_mode_outcome_or_provenance_mismatch() -> None:
+    kwargs = {
+        "config": _kernel_config("brain"),
+        "cognition_config": _config(),
+        "schema_version": 1,
+        "opportunity_id": "opportunity:typed-route",
+        "owner": TurnOwner.BRAIN,
+        "outcome": TurnRouteOutcome.BRAIN_SPEAK,
+        "mode": CognitiveMode.SPEAK,
+        "speech_text": "Câu đã grounded.",
+        "source_turn_id": "brain-turn:typed-route",
+        "evidence_refs": ("agent:chat:typed-route",),
+        "reason_code": "brain_speak",
+    }
+    assert PublicTurnRoute(**kwargs).owner is TurnOwner.BRAIN
+    with pytest.raises(ValueError, match="outcome must match"):
+        PublicTurnRoute(**{**kwargs, "outcome": TurnRouteOutcome.BRAIN_WAIT})
+    with pytest.raises(ValueError, match="source_turn_id"):
+        PublicTurnRoute(**{**kwargs, "source_turn_id": None})
+    with pytest.raises(ValueError, match="evidence_refs"):
+        PublicTurnRoute(**{**kwargs, "evidence_refs": ()})
+    with pytest.raises(ValueError, match="compatibility outcome"):
+        PublicTurnRoute(**{
+            **kwargs,
+            "owner": TurnOwner.COMPATIBILITY,
+            "speech_text": None,
+            "source_turn_id": None,
+            "evidence_refs": (),
+        })
 
 
 @pytest.mark.asyncio
@@ -234,3 +296,173 @@ def test_kernel_config_and_selection_values_are_immutable() -> None:
     with pytest.raises(Exception):
         config.rollout_mode = TurnRolloutMode.OFF  # type: ignore[misc]
     assert replace(config, rollout_mode=TurnRolloutMode.OFF).rollout_mode is TurnRolloutMode.OFF
+
+
+def _grounded(*, mode: CognitiveMode, speech: str | None = None, source_mode=None):
+    effective = SimpleNamespace(
+        mode=mode,
+        speech_text=speech,
+        evidence_refs=("agent:chat:canary",) if speech else (),
+    )
+    return SimpleNamespace(
+        effective_turn=effective,
+        source_turn_id="brain-turn:canary",
+        source_mode=source_mode or mode,
+    )
+
+
+def _canary_decision(*, owner: bool = True, moderator: bool = False) -> DirectorDecision:
+    ref = DirectorChatRef(
+        msg_id="canary", text="Mai ơi", kind="chat", score=20,
+        created_at=NOW, is_owner=owner, is_moderator=moderator,
+    )
+    return DirectorDecision(
+        DirectorAction.READ_CHAT, "main", "chat", refs=(ref,),
+    )
+
+
+@pytest.mark.asyncio
+async def test_public_brain_routes_only_configured_canary_role_after_flag() -> None:
+    output_filter = _Filter()
+    decision = _canary_decision()
+    kernel, _, scheduler = _build(
+        decision, mode="brain", output_filter=output_filter,
+    )
+    scheduler.resolve_result = _grounded(
+        mode=CognitiveMode.SPEAK, speech="Chào cậu nhé.",
+    )
+    kernel.set_public_brain_enabled(True)
+    route = await kernel.route_decision(decision, _input(), "decision-public")
+    assert route is not None
+    assert route.owner is TurnOwner.BRAIN
+    assert route.outcome is TurnRouteOutcome.BRAIN_SPEAK
+    assert route.speech_text == "Chào cậu nhé."
+    assert scheduler.resolve_calls == 1
+    assert output_filter.calls == ["Chào cậu nhé."]
+    assert kernel.recent_selections()[-1].owner is TurnOwner.BRAIN
+
+    regular = _canary_decision(owner=False)
+    regular_route = await kernel.route_decision(regular, _input(), "decision-regular")
+    assert regular_route is not None
+    assert regular_route.owner is TurnOwner.COMPATIBILITY
+    assert regular_route.reason_code == "compatibility_outside_canary"
+    assert scheduler.resolve_calls == 1
+    assert len(scheduler.offers) == 1
+
+
+@pytest.mark.asyncio
+async def test_public_brain_route_replay_is_deterministic() -> None:
+    decision = _canary_decision(moderator=True)
+    routes = []
+    for _ in range(2):
+        kernel, _, scheduler = _build(
+            decision, mode="brain", output_filter=_Filter(),
+        )
+        scheduler.resolve_result = _grounded(
+            mode=CognitiveMode.SPEAK, speech="Cùng một câu grounded.",
+        )
+        kernel.set_public_brain_enabled(True)
+        routes.append(
+            await kernel.route_decision(decision, _input(), "decision-replay")
+        )
+
+    assert routes[0] == routes[1]
+
+
+@pytest.mark.asyncio
+async def test_public_brain_wait_and_action_are_fail_closed_without_fallback() -> None:
+    decision = _canary_decision()
+    kernel, _, scheduler = _build(decision, mode="brain", output_filter=_Filter())
+    kernel.set_public_brain_enabled(True)
+    scheduler.resolve_result = _grounded(mode=CognitiveMode.WAIT)
+    route = await kernel.route_decision(decision, _input(), "decision-wait")
+    assert route is not None
+    assert route.owner is TurnOwner.BRAIN
+    assert route.outcome is TurnRouteOutcome.BRAIN_WAIT
+    assert route.speech_text is None
+
+    scheduler.resolve_result = _grounded(
+        mode=CognitiveMode.WAIT, source_mode=CognitiveMode.PROPOSE_ACTION,
+    )
+    route = await kernel.route_decision(decision, _input(), "decision-action")
+    assert route is not None
+    assert route.owner is TurnOwner.BRAIN
+    assert route.reason_code == "brain_action_suppressed"
+
+
+@pytest.mark.asyncio
+async def test_public_brain_failures_and_filter_rejection_fallback() -> None:
+    decision = _canary_decision()
+    output_filter = _Filter(passed=False, reason="unsafe")
+    kernel, _, scheduler = _build(
+        decision, mode="brain", output_filter=output_filter,
+    )
+    kernel.set_public_brain_enabled(True)
+    scheduler.resolve_result = _grounded(
+        mode=CognitiveMode.SPEAK, speech="unsafe output",
+    )
+    route = await kernel.route_decision(decision, _input(), "decision-filter")
+    assert route is not None
+    assert route.owner is TurnOwner.COMPATIBILITY
+    assert route.outcome is TurnRouteOutcome.FALLBACK
+    assert route.reason_code == "fallback_filter_reject"
+
+    scheduler.resolve_result = None
+    route = await kernel.route_decision(decision, _input(), "decision-timeout")
+    assert route is not None
+    assert route.owner is TurnOwner.COMPATIBILITY
+    assert route.reason_code == "fallback_brain"
+
+
+@pytest.mark.asyncio
+async def test_hard_preflight_and_flag_off_never_call_public_brain() -> None:
+    decision = _canary_decision()
+
+    def hard(value: DirectorInput) -> CognitiveHardState:
+        config = _config()
+        return CognitiveHardState(
+            config=config,
+            schema_version=config.schema_version,
+            emergency=False,
+            operator_hold=False,
+            safety_hold=True,
+            permission_hold=False,
+            transaction_conflict=False,
+            critical_state=False,
+            source_failure_codes=(),
+        )
+
+    kernel, _, scheduler = _build(
+        decision, mode="brain", output_filter=_Filter(), hard_state_provider=hard,
+    )
+    kernel.set_public_brain_enabled(True)
+    route = await kernel.route_decision(decision, _input(), "decision-hold")
+    assert route is not None
+    assert route.owner is TurnOwner.COMPATIBILITY
+    assert route.reason_code == "compatibility_hard_hold"
+    assert route.mode is CognitiveMode.WAIT
+    assert scheduler.resolve_calls == 0
+    assert scheduler.offers == []
+
+    kernel, _, scheduler = _build(decision, mode="brain", output_filter=_Filter())
+    route = await kernel.route_decision(decision, _input(), "decision-flag-off")
+    assert route is not None
+    assert route.reason_code == "compatibility_flag_off"
+    assert scheduler.resolve_calls == 0
+    assert len(scheduler.offers) == 1
+
+
+def test_public_flag_requires_brain_mode_healthy_scheduler_and_filter() -> None:
+    decision = _canary_decision()
+    kernel, _, _ = _build(decision, mode="shadow", output_filter=_Filter())
+    with pytest.raises(RuntimeError, match="rollout mode BRAIN"):
+        kernel.set_public_brain_enabled(True)
+
+    kernel, _, scheduler = _build(decision, mode="brain", output_filter=_Filter())
+    scheduler.running = False
+    with pytest.raises(RuntimeError, match="healthy"):
+        kernel.set_public_brain_enabled(True)
+
+    kernel, _, scheduler = _build(decision, mode="brain")
+    with pytest.raises(RuntimeError, match="output filter"):
+        kernel.set_public_brain_enabled(True)

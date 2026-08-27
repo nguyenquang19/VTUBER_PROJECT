@@ -424,6 +424,16 @@ features:
     conflicts_with: []
     name: Cognitive Brain shadow
     description: Live-timed grounded shadow observer; compatibility Director remains authoritative.
+  cognitive_brain_public:
+    enabled: false
+    activation_allowed: true
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: agent
+    depends_on: [cognitive_brain_shadow, filter_rule]
+    conflicts_with: []
+    name: Cognitive Brain public canary
+    description: Operator-only grounded public Brain route with compatibility fallback.
   action_mock_closed_loop:
     enabled: true
     vram_cost_mb: 0

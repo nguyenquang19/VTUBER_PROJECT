@@ -1188,6 +1188,10 @@ class CognitiveBrainService(Service):
     async def propose(self, context: CognitiveContext) -> CognitiveTurn:
         """Return one proposal without executing or committing any side effect."""
 
+    async def propose_public(self, context: CognitiveContext) -> CognitiveTurn:
+        """Return one live-priority proposal; simple test doubles may reuse propose()."""
+        return await self.propose(context)
+
 
 class CognitiveGroundingGateService(Service):
     """Mandatory fail-closed policy between Brain proposal and shadow retention."""
@@ -1268,6 +1272,10 @@ class CognitiveModelAdapterService(Service):
     async def generate(self, context: CognitiveContext) -> CognitiveModelOutput:
         """Run exactly one bounded model generation for a cognitive context."""
 
+    async def generate_public(self, context: CognitiveContext) -> CognitiveModelOutput:
+        """Run one live-priority generation; adapters may reuse generate by default."""
+        return await self.generate(context)
+
     @abstractmethod
     async def cancel_active(self) -> None:
         """Cancel only the adapter-owned shadow request, if any."""
@@ -1301,6 +1309,12 @@ class CognitiveBrainShadowSchedulerService(Service):
     @abstractmethod
     def offer(self, opportunity: CognitiveOpportunity) -> bool:
         """Validate/coalesce/enqueue without awaiting context or model I/O."""
+
+    @abstractmethod
+    async def resolve_public(
+        self, opportunity: CognitiveOpportunity,
+    ) -> CognitiveGroundingDecision | None:
+        """Resolve one live-priority opportunity; return None for fallback failures."""
 
     @abstractmethod
     def preempt_for_live(self) -> None:

@@ -142,6 +142,22 @@ async def test_brain_uses_shadow_reject_schema_and_returns_no_side_effect_propos
 
 
 @pytest.mark.asyncio
+async def test_public_brain_keeps_same_strict_contract_with_live_priority() -> None:
+    config = _config()
+    llm = _LLM(_speak_json())
+    brain = CognitiveBrain(
+        config=config, llm=llm, persona_prompt="Mai persona",
+        shadow_prompt="Return strict JSON.",
+    )
+    await brain.start()
+    turn = await brain.propose_public(_context(config))
+    assert turn.mode is CognitiveMode.SPEAK
+    assert len(llm.requests) == 1
+    assert llm.requests[0].workload_class.value == "live"
+    assert llm.requests[0].response_format is not None
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("output", "error"),
     [

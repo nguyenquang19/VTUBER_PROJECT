@@ -53,6 +53,21 @@ async def test_adapter_owns_exactly_one_strict_shadow_generation() -> None:
     assert adapter.get_metrics()["cognitive_model_adapter_calls_total"] == 1
 
 
+@pytest.mark.asyncio
+async def test_public_adapter_generation_uses_live_workload_without_second_call() -> None:
+    config = _config()
+    llm = _LLM(_speak_json())
+    adapter = CognitiveModelAdapter(
+        config=config, llm=llm, persona_prompt="Mai persona",
+        brain_prompt="Return strict JSON.",
+    )
+    await adapter.start()
+    output = await adapter.generate_public(_context(config))
+    assert output.raw_output == _speak_json()
+    assert len(llm.requests) == 1
+    assert llm.requests[0].workload_class.value == "live"
+
+
 class _FailingLLM(_LLM):
     def __init__(self, error: Exception) -> None:
         super().__init__("")

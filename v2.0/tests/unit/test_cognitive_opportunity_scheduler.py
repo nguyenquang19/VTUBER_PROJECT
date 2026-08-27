@@ -306,6 +306,45 @@ async def test_live_budget_includes_context_build() -> None:
     await scheduler.stop()
 
 
+@pytest.mark.asyncio
+async def test_public_resolution_returns_only_grounded_effective_turn() -> None:
+    config = _config()
+    context = _context(config)
+    brain = _HighUncertaintySpeechBrain(config, context)
+    scheduler = CognitiveOpportunityScheduler(
+        config=config, context_builder=_Builder(context), brain=brain,
+        grounding_gate=CognitiveGroundingGate(config), clock=lambda: NOW,
+    )
+    await scheduler.start()
+    decision = await scheduler.resolve_public(_opportunity(config, "public"))
+    assert decision is not None
+    assert decision.source_mode is CognitiveMode.SPEAK
+    assert decision.effective_turn.mode is CognitiveMode.WAIT
+    record = scheduler.recent()[-1]
+    assert record.grounding_decision is decision
+    assert record.turn is decision.effective_turn
+    assert record.outcome is CognitiveShadowOutcome.PROPOSED
+    await scheduler.stop()
+
+
+@pytest.mark.asyncio
+async def test_public_resolution_timeout_returns_none_and_cancels_generation() -> None:
+    config = replace(_config(), brain_live_timeout_seconds=0.01)
+    context = _context(config)
+    gate = asyncio.Event()
+    brain = _Brain(config, context, gate=gate)
+    scheduler = CognitiveOpportunityScheduler(
+        config=config, context_builder=_Builder(context), brain=brain,
+        grounding_gate=CognitiveGroundingGate(config), clock=lambda: NOW,
+    )
+    await scheduler.start()
+    result = await scheduler.resolve_public(_opportunity(config, "public-timeout"))
+    assert result is None
+    assert brain.calls == 1 and brain.cancelled == 1
+    assert scheduler.recent()[-1].outcome is CognitiveShadowOutcome.TIMEOUT
+    await scheduler.stop()
+
+
 def test_live_latency_window_percentiles_and_replay_are_deterministic() -> None:
     def replay() -> dict[str, object]:
         config = replace(_config(), brain_live_latency_sample_max=3)

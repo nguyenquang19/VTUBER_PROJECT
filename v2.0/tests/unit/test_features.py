@@ -94,6 +94,14 @@ class TestRegistryBasics:
 
         assert await production.get_status("director_chat_gate") is FeatureStatus.ENABLED
 
+    async def test_public_brain_canary_is_off_and_depends_on_shadow_and_filter(self) -> None:
+        loader = ConfigLoader(REPO_ROOT / "config")
+        loader.load_all()
+        production = FeatureManager.from_config(loader)
+        assert await production.get_status("cognitive_brain_public") is FeatureStatus.DISABLED
+        graph = await production.get_dependencies("cognitive_brain_public")
+        assert {"cognitive_brain_shadow", "filter_rule"}.issubset(graph.requires)
+
     async def test_phase14_trajectory_test_cutover_and_phase15_operator_features(self) -> None:
         loader = ConfigLoader(REPO_ROOT / "config")
         loader.load_all()

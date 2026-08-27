@@ -65,6 +65,7 @@ class CognitiveOpportunityScheduler(CognitiveBrainShadowSchedulerService):
         self._signal = asyncio.Event()
         self._worker: asyncio.Task[None] | None = None
         self._active_task: asyncio.Task[None] | None = None
+        self._public_task: asyncio.Task[Any] | None = None
         self._active_opportunity: CognitiveOpportunity | None = None
         self._preempt_requested = False
         self._records: deque[CognitiveShadowRecord] = deque(
@@ -112,6 +113,19 @@ class CognitiveOpportunityScheduler(CognitiveBrainShadowSchedulerService):
         active = self._active_task
         if active is not None and not active.done():
             active.cancel()
+        public = self._public_task
+        if (
+            public is not None
+            and public is not asyncio.current_task()
+            and not public.done()
+        ):
+            public.cancel()
+            try:
+                await asyncio.wait_for(
+                    public, timeout=self._config.brain_cancel_grace_seconds,
+                )
+            except (asyncio.CancelledError, asyncio.TimeoutError):
+                pass
         worker = self._worker
         if worker is not None:
             worker.cancel()
@@ -123,6 +137,7 @@ class CognitiveOpportunityScheduler(CognitiveBrainShadowSchedulerService):
                 pass
         self._worker = None
         self._active_task = None
+        self._public_task = None
         self._active_opportunity = None
         self._signal.clear()
         try:
@@ -144,7 +159,9 @@ class CognitiveOpportunityScheduler(CognitiveBrainShadowSchedulerService):
         return HealthStatus.healthy(
             self.service_id,
             queue_depth=int(self._pending is not None),
-            inflight_count=int(self._active_task is not None),
+            inflight_count=int(
+                self._active_task is not None or self._public_task is not None
+            ),
         )
 
     def get_metrics(self) -> dict[str, Any]:
@@ -152,7 +169,9 @@ class CognitiveOpportunityScheduler(CognitiveBrainShadowSchedulerService):
         values: dict[str, Any] = {
             "cognitive_brain_shadow_running": self._running,
             "cognitive_brain_shadow_queue_depth": int(self._pending is not None),
-            "cognitive_brain_shadow_inflight": int(self._active_task is not None),
+            "cognitive_brain_shadow_inflight": int(
+                self._active_task is not None or self._public_task is not None
+            ),
             "cognitive_brain_shadow_records": len(self._records),
             "cognitive_brain_live_evaluated_total": self._live_evaluated,
             "cognitive_brain_live_latency_samples": len(samples),
@@ -251,6 +270,116 @@ class CognitiveOpportunityScheduler(CognitiveBrainShadowSchedulerService):
         self._preempt_requested = True
         task.cancel()
 
+    async def resolve_public(
+        self, opportunity: CognitiveOpportunity,
+    ) -> CognitiveGroundingDecision | None:
+        """Resolve one public canary proposal after preempting subordinate work."""
+        if not isinstance(opportunity, CognitiveOpportunity):
+            raise TypeError("opportunity must be CognitiveOpportunity")
+        queued_at = _utc(self._clock())
+        queued_monotonic = _monotonic_seconds(self._monotonic())
+        if not self._running:
+            self._append_record(
+                opportunity, CognitiveShadowOutcome.SKIPPED_DISABLED,
+                queued_at=queued_at, started_at=None, context_id=None,
+                turn=None, telemetry=None,
+            )
+            return None
+        if _has_hard_hold(opportunity):
+            self._append_record(
+                opportunity, CognitiveShadowOutcome.SKIPPED_HARD_HOLD,
+                queued_at=queued_at, started_at=None, context_id=None,
+                turn=None, telemetry=None,
+            )
+            return None
+
+        pending = self._pending
+        pending_at = self._pending_queued_at
+        self._pending = None
+        self._pending_queued_at = None
+        self._pending_queued_monotonic = None
+        self._observe_queue_depth()
+        if pending is not None and pending_at is not None:
+            self._append_record(
+                pending, CognitiveShadowOutcome.SUPERSEDED,
+                queued_at=pending_at, started_at=None, context_id=None,
+                turn=None, telemetry=None,
+            )
+        active = self._active_task
+        if active is not None and not active.done():
+            self._preempt_requested = True
+            active.cancel()
+            try:
+                await active
+            except asyncio.CancelledError:
+                pass
+
+        current = asyncio.current_task()
+        self._public_task = current
+        context: CognitiveContext | None = None
+        decision: CognitiveGroundingDecision | None = None
+        turn: CognitiveTurn | None = None
+        outcome = CognitiveShadowOutcome.SERVICE_ERROR
+        started_at = _utc(self._clock())
+
+        def latency_ms() -> float:
+            return max(
+                0.0,
+                (_monotonic_seconds(self._monotonic()) - queued_monotonic) * 1000.0,
+            )
+
+        async def build_grounded() -> CognitiveGroundingDecision | None:
+            nonlocal context
+            context = await self._context_builder.build(opportunity.context_request)
+            if context is None:
+                return None
+            public_proposer = getattr(self._brain, "propose_public", None)
+            source = await (
+                public_proposer(context)
+                if callable(public_proposer) else self._brain.propose(context)
+            )
+            return self._grounding_gate.evaluate(context, source)
+
+        try:
+            remaining = self._config.brain_live_timeout_seconds - latency_ms() / 1000.0
+            if remaining <= 0:
+                outcome = CognitiveShadowOutcome.TIMEOUT
+            else:
+                try:
+                    decision = await asyncio.wait_for(build_grounded(), timeout=remaining)
+                except CognitiveModelBusyError:
+                    outcome = CognitiveShadowOutcome.SKIPPED_BUSY
+                except CognitiveModelContextError:
+                    outcome = CognitiveShadowOutcome.PREFLIGHT_REJECTED
+                except CognitiveModelPreemptedError:
+                    outcome = CognitiveShadowOutcome.PREEMPTED
+                except (CognitiveModelTimeoutError, asyncio.TimeoutError):
+                    outcome = CognitiveShadowOutcome.TIMEOUT
+                except CognitiveBrainParseError:
+                    outcome = CognitiveShadowOutcome.PARSE_REJECTED
+                except (CognitiveBrainSchemaError, ValueError):
+                    outcome = CognitiveShadowOutcome.SCHEMA_REJECTED
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    outcome = CognitiveShadowOutcome.SERVICE_ERROR
+                else:
+                    if decision is not None:
+                        turn = decision.effective_turn
+                        outcome = CognitiveShadowOutcome.PROPOSED
+            self._append_record(
+                opportunity, outcome,
+                queued_at=queued_at, started_at=started_at,
+                context_id=None if context is None else context.context_id,
+                turn=turn, telemetry=_telemetry(self._brain),
+                grounding_decision=decision,
+                live_latency_ms=latency_ms(),
+            )
+            return decision if outcome is CognitiveShadowOutcome.PROPOSED else None
+        finally:
+            if self._public_task is current:
+                self._public_task = None
+
     def recent(self, limit: int | None = None) -> tuple[CognitiveShadowRecord, ...]:
         records = tuple(self._records)
         if limit is None:
@@ -267,7 +396,9 @@ class CognitiveOpportunityScheduler(CognitiveBrainShadowSchedulerService):
             running=self._running,
             healthy=self._running and self._worker is not None and not self._worker.done(),
             queue_depth=int(self._pending is not None),
-            inflight_count=int(self._active_task is not None),
+            inflight_count=int(
+                self._active_task is not None or self._public_task is not None
+            ),
             retained_record_count=len(records),
             last_outcome=records[-1].outcome if records else None,
             recent_records=records,

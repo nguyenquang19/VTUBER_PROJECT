@@ -89,6 +89,19 @@ class TestRecorders:
         with pytest.raises(ValueError, match="unsupported"):
             m.record_cognitive_brain_live_result("viewer-specific-label")
 
+    def test_public_brain_route_metrics_use_finite_non_identity_labels(self) -> None:
+        m = fresh()
+        m.record_turn_kernel_selection("PUBLIC_BRAIN", "BRAIN", "allowed")
+        m.record_turn_kernel_route("brain_speak")
+        m.record_turn_kernel_route("fallback_brain")
+        assert m.turn_kernel_route_snapshot() == {
+            "brain_speak": 1, "fallback_brain": 1,
+        }
+        text = m.prometheus_text().decode()
+        assert 'turn_kernel_route_total{outcome="brain_speak"} 1.0' in text
+        with pytest.raises(ValueError, match="unsupported"):
+            m.record_turn_kernel_route("viewer:raw-id")
+
 
 class TestGpuMetrics:
     def test_nvidia_csv_updates_real_snapshot(self) -> None:

@@ -35,7 +35,7 @@ BrainTelemetry = CognitiveModelTelemetry
 
 
 class CognitiveBrain(CognitiveBrainService):
-    """One-call live-timed shadow Brain that cannot execute its proposal."""
+    """One-call Brain that proposes only and never executes or commits."""
 
     service_id = "cognitive_brain_shadow"
 
@@ -129,11 +129,22 @@ class CognitiveBrain(CognitiveBrainService):
         await self._model_adapter.cancel_active()
 
     async def propose(self, context: CognitiveContext) -> CognitiveTurn:
+        return await self._propose(context, public=False)
+
+    async def propose_public(self, context: CognitiveContext) -> CognitiveTurn:
+        return await self._propose(context, public=True)
+
+    async def _propose(
+        self, context: CognitiveContext, *, public: bool,
+    ) -> CognitiveTurn:
         if not self._running:
             raise RuntimeError("Cognitive Brain is not running")
         self._calls += 1
         try:
-            generated = await self._model_adapter.generate(context)
+            generated = await (
+                self._model_adapter.generate_public(context)
+                if public else self._model_adapter.generate(context)
+            )
             self._last_telemetry = generated.telemetry
             payload = _parse_exact_object(generated.raw_output)
             turn = _materialize_turn(payload, context, self._config)

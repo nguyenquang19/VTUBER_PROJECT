@@ -120,11 +120,20 @@ Nối Opportunity → Brain lúc **live** (không post-exec), bọc `wait_for(bu
 ### B3 — Turn Kernel route public → Brain · công cao
 Thay đổi lớn nhất. Kernel thêm mode `PUBLIC_BRAIN`; sau flag; canary operator-only. Legacy fallback +
 safety preempt giữ nguyên.
-- **Files:** `turn_kernel.py` (route + method interface), `config/kernel.yaml` (`rollout_mode: brain`).
-- **Test:** route contract; fallback path; safety hard-preempt chạy **trước** Brain; grounding gate (B1)
-  active; deterministic replay.
-- **Gate:** canary live có giám sát + rollback rehearsal; regression đầy đủ.
-- **Rollback:** `rollout_mode` về `shadow` → exact hành vi cũ (V2 primary).
+- **Files:** `interfaces/turn_kernel.py`, `turn_kernel.py` (async route), scheduler/model adapter public-live,
+  DirectorLoop compatibility delivery adapter và `config/kernel.yaml` (`rollout_mode: brain`).
+- **Contract:** cờ `cognitive_brain_public` mặc định OFF, phụ thuộc `cognitive_brain_shadow + filter_rule`;
+  chỉ owner/moderator theo YAML vào canary. Hard preflight chạy trước Brain. Grounded `SPEAK` đi nguyên văn
+  qua filter + transaction/verifier/outcome hiện hữu; grounded/suppressed `WAIT` không fallback thành speech;
+  `PROPOSE_ACTION` fail-closed WAIT trong B3.
+- **Fallback:** timeout/busy/parse/schema/context/service hoặc filter reject/fail-open quay về exact
+  `DirectorDecision` compatibility đã chọn; không generation Brain lần hai, không gỡ V2/legacy.
+- **Metric:** finite route outcome theo selected/wait/fallback reason và owner selection; không label PII.
+- **Test:** route contract; operator-only; fallback path; safety hard-preempt chạy **trước** Brain; grounding
+  gate (B1) active; filter/transaction/verified delivery; flag-off + shadow rollback; deterministic replay.
+- **Gate:** implementation chỉ canary-ready. Canary live có giám sát + rollback rehearsal và regression đầy
+  đủ; không tự mở rộng role hoặc chuyển sang B4.
+- **Rollback:** tắt `cognitive_brain_public` hoặc `rollout_mode` về `shadow` → hành vi cũ (V2 primary).
 
 ### B4 — Cắt Director V2 · công trung
 Sau khi Brain primary ổn qua canary, retire V2 khỏi runtime.
