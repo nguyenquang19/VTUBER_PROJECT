@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from datetime import timezone
 from enum import Enum
+import math
 from typing import Any
 
 from interfaces.base import Service
@@ -59,6 +60,54 @@ class ReviewStatus(str, Enum):
 class NarrativeStatus(str, Enum):
     ACTIVE = "active"
     RESOLVED = "resolved"
+
+
+class RelationshipHintKind(str, Enum):
+    TONE = "tone"
+    FACT = "fact"
+    CALLBACK = "callback"
+
+
+@dataclass(frozen=True)
+class RelationshipContextHint:
+    """Pseudonymous latent instruction; never contains stored relationship wording."""
+
+    hint_id: str
+    viewer_ref: str
+    kind: RelationshipHintKind
+    instruction: str
+    evidence_refs: tuple[str, ...]
+    observed_at: datetime
+    expires_at: datetime
+    salience: float
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.hint_id, str) or not self.hint_id.strip():
+            raise ValueError("relationship hint requires an id")
+        if not isinstance(self.viewer_ref, str) or not self.viewer_ref.startswith("v_"):
+            raise ValueError("relationship hint requires a pseudonymous viewer")
+        if not isinstance(self.kind, RelationshipHintKind):
+            raise ValueError("relationship hint kind is invalid")
+        if not isinstance(self.instruction, str) or not self.instruction.strip():
+            raise ValueError("relationship hint requires an instruction")
+        refs = tuple(self.evidence_refs)
+        if not refs or any(not isinstance(item, str) or not item.strip() for item in refs):
+            raise ValueError("relationship hint requires evidence")
+        if len(refs) != len(set(refs)):
+            raise ValueError("relationship hint evidence must be unique")
+        object.__setattr__(self, "evidence_refs", refs)
+        observed = _utc(self.observed_at)
+        expires = _utc(self.expires_at)
+        if expires <= observed:
+            raise ValueError("relationship hint expiry must follow observation")
+        object.__setattr__(self, "observed_at", observed)
+        object.__setattr__(self, "expires_at", expires)
+        if isinstance(self.salience, bool) or not isinstance(self.salience, (int, float)):
+            raise ValueError("relationship hint salience must be numeric")
+        salience = float(self.salience)
+        if not math.isfinite(salience) or not 0.0 <= salience <= 1.0:
+            raise ValueError("relationship hint salience must be bounded")
+        object.__setattr__(self, "salience", salience)
 
 
 @dataclass(frozen=True)
@@ -237,6 +286,21 @@ class RelationshipService(Service):
     @abstractmethod
     def render_context(self, raw_viewer_id: str | None = None) -> str:
         """Render bounded approved relationship/narrative prompt context."""
+
+    @abstractmethod
+    def context_hints(
+        self, *, raw_viewer_id: str | None = None, event_ref: str | None = None,
+    ) -> tuple[RelationshipContextHint, ...]:
+        """Return bounded latent hints from either a public raw ID or grounded event lineage."""
+
+    @property
+    @abstractmethod
+    def context_enabled(self) -> bool:
+        """Whether A4 latent relationship projection is active."""
+
+    @abstractmethod
+    def set_context_enabled(self, enabled: bool) -> None:
+        """Toggle A4 projection; disabled preserves the bounded M7 renderer."""
 
     @abstractmethod
     def create_running_gag(

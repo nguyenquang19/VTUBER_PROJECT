@@ -28,6 +28,10 @@ _HINTS = {
         "Use prior social context only to warm the tone; "
         "do not recite a profile or stored fact."
     ),
+    "RELATIONSHIP_CALLBACK": (
+        "An approved recurring callback is available; use only a light indirect callback "
+        "if it fits, and never quote stored wording."
+    ),
     "SELF_SUMMARY": (
         "Use prior self-context only as a subtle consistency cue; "
         "do not quote stored memory."

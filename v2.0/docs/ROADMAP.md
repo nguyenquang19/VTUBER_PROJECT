@@ -67,11 +67,13 @@ Quyết **khi nào** memory/fact được surface + đảm bảo chỉ inject d�
 
 ### A4 — Relationship → context · công trung
 Regular được nhận ra, **tông ấm hơn**, callback chọn lọc qua recall gate. Không recite hồ sơ.
-- **Files:** `services/relationship/*`; wire `context_builder`; dùng `recall_gate` (A3).
+- **Files:** `services/relationship/*`; thay public M7 raw projection trong
+  `services/cognition/compatibility_context.py`, wire typed Brain `context_builder`; dùng `recall_gate` (A3).
 - **Contract:** fact per-pseudonym bounded, no PII; inject CognitiveContext dạng hint; callback qua recall gate.
 - **YAML:** fact slots max, visit/last-seen, callback frequency cap.
 - **Test:** regular quen → context có hint; lạ → không; no PII; callback selective.
-- **Gate:** giữ pseudonymous; no verbatim recall; ưu tiên tông > fact.
+- **Gate:** public hash raw ID, Brain resolve pseudonym từ grounded event lineage; giữ pseudonymous; no verbatim
+  recall; ưu tiên fixed warm-tone > gated fact/callback. Flag-off khôi phục bounded M7 projection hiện tại.
 - **Flag:** `relationship_context`, `depends_on: [recall_gate]`.
 
 ### A5 — Fine-tune LoRA (track model, song song) · công trung

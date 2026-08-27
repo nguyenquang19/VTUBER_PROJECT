@@ -76,6 +76,13 @@ class RelationshipStore:
         ).fetchone()
         return _profile(row) if row is not None else None
 
+    def viewer_for_event(self, event_id: str) -> str | None:
+        row = self._conn.execute(
+            "SELECT viewer_id FROM relationship_seen_events WHERE event_id = ?",
+            (event_id,),
+        ).fetchone()
+        return str(row[0]) if row is not None else None
+
     def list_profiles(self) -> tuple[ViewerProfile, ...]:
         rows = self._conn.execute(
             "SELECT * FROM viewer_profiles ORDER BY last_seen DESC, viewer_id"

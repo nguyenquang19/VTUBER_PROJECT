@@ -88,6 +88,9 @@ relationships:
   max_text_chars: 240
   consent_mode: operator_notice
   auto_delete: false
+  regular_min_interactions: 3
+  regular_last_seen_days: 14
+  context_fact_slots_max: 2
 
 notes:
   max_per_viewer: 20
@@ -104,3 +107,5 @@ running_gags:
   positive_emotion_categories: [chat_compliment, chat_mention_direct, donation_small, donation_large]
   reference_cooldown_seconds: 1800
   max_per_viewer: 5
+  callback_frequency_window_seconds: 3600
+  callback_frequency_cap: 1

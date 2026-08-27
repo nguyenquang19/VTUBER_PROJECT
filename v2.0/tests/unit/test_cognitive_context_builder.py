@@ -21,6 +21,10 @@ from interfaces.compatibility import (
     WorldSnapshot,
 )
 from interfaces.memory import MemoryEntry, MemoryTier
+from interfaces.relationship import (
+    RelationshipContextHint,
+    RelationshipHintKind,
+)
 from orchestrator.config_loader import ConfigLoader
 from services.memory.config import MemoryRuntimeConfig
 from services.memory.recall_gate import RecallGate
@@ -292,6 +296,19 @@ class _Memory:
         return self.entries
 
 
+class _Relationship:
+    def __init__(self, hints: tuple[RelationshipContextHint, ...]) -> None:
+        self.hints = hints
+        self.event_refs: list[str | None] = []
+
+    def context_hints(
+        self, *, raw_viewer_id: str | None = None, event_ref: str | None = None,
+    ) -> tuple[RelationshipContextHint, ...]:
+        assert raw_viewer_id is None
+        self.event_refs.append(event_ref)
+        return self.hints
+
+
 def _builder(
     config: CognitionConfig,
     sources: dict[str, object],
@@ -301,6 +318,7 @@ def _builder(
     memory: _Memory | None = None,
     continuity: object | None = None,
     recall_gate: RecallGate | None = None,
+    relationship: object | None = None,
 ) -> CognitiveContextBuilder:
     return CognitiveContextBuilder(
         config,
@@ -313,6 +331,7 @@ def _builder(
         memory_service=memory or _Memory(sources["memory"]),  # type: ignore[arg-type]
         continuity_service=continuity,
         recall_gate=recall_gate,
+        relationship_service=relationship,
         metrics=metrics,
         clock=lambda: clock,
     )
@@ -454,6 +473,41 @@ async def test_brain_memory_projection_uses_hint_and_never_raw_content() -> None
 
 
 @pytest.mark.asyncio
+async def test_brain_relationship_projection_uses_typed_event_lineage_hint() -> None:
+    raw_stored_fact = "viewer secret sapphire preference"
+    relationship = _Relationship((RelationshipContextHint(
+        hint_id="relationship-tone:v_0123456789abcdef",
+        viewer_ref="v_0123456789abcdef",
+        kind=RelationshipHintKind.TONE,
+        instruction=(
+            "Treat the current viewer as a returning regular with a slightly warmer tone."
+        ),
+        evidence_refs=("relationship:profile:v_0123456789abcdef",),
+        observed_at=NOW - timedelta(seconds=5),
+        expires_at=NOW + timedelta(minutes=5),
+        salience=1.0,
+    ),))
+    config = _config()
+    sources = _sources(memory_entries=[])
+    builder = _builder(config, sources, relationship=relationship)
+    await builder.start()
+
+    context = await builder.build(_request(config))
+    assert context is not None
+    assert relationship.event_refs == ["chat-1"]
+    assert len(context.memory_items) == 1
+    item = context.memory_items[0]
+    assert item.kind.value == "RELATIONSHIP_NOTE"
+    assert item.viewer_ref == "v_0123456789abcdef"
+    assert "returning regular" in item.summary
+    assert raw_stored_fact not in item.summary
+    assert context.operator_state.source_failure_codes == ()
+    assert builder.get_metrics()["cognitive_context_builder_sources"][
+        "relationship:accepted"
+    ] == 1
+
+
+@pytest.mark.asyncio
 async def test_bounded_cache_evicts_and_stop_clears_all_snapshots() -> None:
     config = _config(max_context_snapshots=2)
     metrics = MetricsCollector()
@@ -566,6 +620,7 @@ def test_context_metrics_reject_unbounded_labels() -> None:
     metrics = MetricsCollector()
     metrics.record_cognitive_context_build("ready")
     metrics.record_cognitive_context_source("world", "accepted")
+    metrics.record_cognitive_context_source("relationship", "accepted")
     metrics.record_cognitive_focus_projection("present")
     metrics.record_cognitive_snapshot_evicted("context")
     with pytest.raises(ValueError, match="unsupported"):
@@ -573,7 +628,7 @@ def test_context_metrics_reject_unbounded_labels() -> None:
     snapshot = metrics.cognition_context_snapshot()
     assert snapshot == {
         "build": {"ready": 1},
-        "source": {"world:accepted": 1},
+        "source": {"relationship:accepted": 1, "world:accepted": 1},
         "focus": {"present": 1},
         "evicted": {"context": 1},
     }

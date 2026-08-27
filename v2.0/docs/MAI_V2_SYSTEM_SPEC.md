@@ -78,7 +78,7 @@ Chỗ ghép toàn hệ thống. Không business logic, chỉ lắp ráp.
 | Module | Vai trò |
 |---|---|
 | `stream_runtime.py` | Composition root (~2.8k dòng): tạo + wire + lifecycle mọi service. |
-| `features.py` | `FeatureManager`: 51 cờ, dependency/conflict/budget fail-closed, persist atomic. |
+| `features.py` | `FeatureManager`: 52 cờ, dependency/conflict/budget fail-closed, persist atomic. |
 | `config_loader.py` · `runtime_config_validation.py` | Nạp + validate 31 YAML, fail-closed với giá trị sai. |
 | `logger.py` · `migration_runner.py` | Structured logging; migration schema khi khởi động. |
 
@@ -147,7 +147,16 @@ Tắt `recall_gate` khôi phục đúng projection A2; tắt `episodic_memory` g
 hit/miss, query latency p95 trên cửa sổ bounded, timeout/fallback; episodic observed/generated/rejected/
 failed/evicted/expired/retrieved/pending; và recall evaluated/surfaced/suppressed/failure/recall-rate.
 
-`relationship/`: `manager` (hồ sơ pseudonymous M7 — LIVE) · `store` (SQLite chỉ bí danh, **no PII**).
+`relationship/`: `manager` (hồ sơ pseudonymous M7 — LIVE) · `store` (SQLite chỉ bí danh, **no PII**) ·
+relationship context A4 (**LIVE mặc định** sau `relationship_context`). A4 nhận regular chỉ khi đủ lượt
+tương tác và `last_seen` còn mới theo YAML; stranger/stale không có social hint. Public DirectorLoop hash raw
+viewer ID tại boundary hiện hữu; Brain shadow resolve pseudonym từ grounded chat event lineage, không đưa raw
+identity vào `CognitiveContextRequest` hoặc AgentState. Regular luôn nhận một fixed warm-tone hint; fact/callback
+candidate bounded chỉ được chuyển thành fixed latent hint qua recall gate, không nội suy preference, note,
+running-gag hoặc narrative content. Callback phải operator-approved và qua cooldown + frequency cap. Lỗi gate
+giữ tone hint an toàn nhưng bỏ fact/callback. Tắt `relationship_context` khôi phục projection M7 bounded đã
+sanitize/operator-review; `relationship_memory` vẫn là owner collection/storage và tắt nó thì không có context.
+Metric gồm regular/stranger/stale/lineage, tone hint và fact/callback considered/surfaced/suppressed/error.
 
 ### L6 — Cảm xúc / mood (`services/emotion · orchestrator/`)
 
@@ -288,7 +297,7 @@ từ goal/thread/lore, **không bịa**) → cùng đường transaction 4.3.
 
 ## 5. Config & feature flags
 
-31 YAML trong `config/`; 51 cờ trong `features.yaml` (mỗi cờ có `enabled` state, `depends_on`,
+31 YAML trong `config/`; 52 cờ trong `features.yaml` (mỗi cờ có `enabled` state, `depends_on`,
 `vram_cost_mb`). Owner chính:
 
 | YAML | Owner cho |
@@ -311,6 +320,11 @@ recall có cooldown/cửa sổ/cap/salience threshold/max hint bounded, và `fea
 `features.yaml::episodic_memory` + `features.yaml::recall_gate` là các master flag tương ứng.
 Flag tắt hoặc semantic không khởi động được đều giữ working memory hoạt động; config/contract sai vẫn
 fail-closed khi composition.
+
+Relationship context đọc `state.yaml::relationships` cho regular visit/last-seen/fact-slot bound và
+`state.yaml::running_gags` cho callback cooldown/window/cap. `features.yaml::relationship_context` phụ thuộc
+`recall_gate`; tone fixed không tiêu recall budget, fact/callback dùng shared gate trước semantic memory để ưu
+tiên social tone mà vẫn không recite hồ sơ.
 
 ---
 

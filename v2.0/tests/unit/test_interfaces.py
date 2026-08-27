@@ -38,6 +38,9 @@ from interfaces.memory import (
     EpisodicMemoryService, EpisodicTurn, MemoryEntry, MemoryService, MemoryTier,
     RecallDecision, RecallGateService,
 )
+from interfaces.relationship import (
+    RelationshipContextHint, RelationshipHintKind, RelationshipService,
+)
 from interfaces.operations import (
     DashboardDataSourceService,
     EmergencyControlService, HealthSupervisorService, IncidentLogService,
@@ -97,6 +100,9 @@ class TestServiceContract:
             (EpisodicMemoryService, "set_enabled"),
             (RecallGateService, "evaluate"),
             (RecallGateService, "set_enabled"),
+            (RelationshipService, "context_hints"),
+            (RelationshipService, "context_enabled"),
+            (RelationshipService, "set_context_enabled"),
             (EventLedgerService, "append"),
             (EventLedgerService, "recent"),
             (AgentStateService, "record"),
@@ -186,7 +192,8 @@ class TestServiceContract:
         "iface",
         [
             InputService, STTService, LLMService, FilterService, TTSService,
-            AnimationService, MemoryService, EventLedgerService, AgentStateService,
+            AnimationService, MemoryService, RelationshipService,
+            EventLedgerService, AgentStateService,
             GoalManagerService,
             GoalProposalService,
             OpenThreadManagerService,
@@ -392,6 +399,30 @@ class TestMemoryModels:
             RecallDecision(
                 memory_ref="memory-1", surface=False, salience=0.8,
                 latent_hint="leaky", reason_code="cooldown",
+            )
+
+    def test_relationship_hint_requires_pseudonym_and_bounded_salience(self) -> None:
+        hint = RelationshipContextHint(
+            hint_id="relationship-tone:v_0123456789abcdef",
+            viewer_ref="v_0123456789abcdef",
+            kind=RelationshipHintKind.TONE,
+            instruction="Use a warmer returning-regular tone.",
+            evidence_refs=("relationship:profile:v_0123456789abcdef",),
+            observed_at=datetime(2026, 8, 27, tzinfo=timezone.utc),
+            expires_at=datetime(2026, 8, 28, tzinfo=timezone.utc),
+            salience=1.0,
+        )
+        assert hint.kind is RelationshipHintKind.TONE
+        with pytest.raises(ValueError, match="pseudonymous"):
+            RelationshipContextHint(
+                hint_id=hint.hint_id,
+                viewer_ref="raw-viewer-id",
+                kind=hint.kind,
+                instruction=hint.instruction,
+                evidence_refs=hint.evidence_refs,
+                observed_at=hint.observed_at,
+                expires_at=hint.expires_at,
+                salience=hint.salience,
             )
 
     def test_episodic_turn_is_verified_payload_with_bounded_salience(self) -> None:

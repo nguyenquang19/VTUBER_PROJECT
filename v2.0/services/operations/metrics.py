@@ -28,7 +28,7 @@ COGNITIVE_CONTEXT_BUILD_OUTCOMES = frozenset({
 })
 COGNITIVE_CONTEXT_SOURCES = frozenset({
     "hard_state", "world", "self", "capability", "agent_state",
-    "goal", "thread", "memory", "delivery",
+    "goal", "thread", "memory", "relationship", "delivery",
 })
 COGNITIVE_CONTEXT_SOURCE_OUTCOMES = frozenset({"accepted", "omitted", "failed"})
 COGNITIVE_FOCUS_OUTCOMES = frozenset({

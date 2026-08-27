@@ -31,6 +31,7 @@ from interfaces.cognition import (
 )
 from interfaces.compatibility import SelfSnapshot, StateValue, WorldSnapshot
 from interfaces.memory import MemoryEntry, RecallDecision, RecallGateService
+from interfaces.relationship import RelationshipContextHint
 from interfaces.state import GoalSnapshot
 from interfaces.state import (
     AgentEventKind,
@@ -86,6 +87,7 @@ class CognitiveContextBuilder(CognitiveContextBuilderService):
         goal_manager: Any = None,
         thread_manager: Any = None,
         memory_service: Any = None,
+        relationship_service: Any = None,
         continuity_service: Any = None,
         metrics: Any = None,
         agent_context_projection: Any = None,
@@ -111,6 +113,7 @@ class CognitiveContextBuilder(CognitiveContextBuilderService):
         self._goal_manager = goal_manager
         self._thread_manager = thread_manager
         self._memory_service = memory_service
+        self._relationship_service = relationship_service
         self._continuity_service = continuity_service
         self._metrics = metrics
         self._agent_context_projection = agent_context_projection
@@ -289,6 +292,18 @@ class CognitiveContextBuilder(CognitiveContextBuilderService):
         else:
             self._record_source("delivery", "omitted")
 
+        relationship, relationship_failed = self._relationship_items(
+            request.trigger_event_ref,
+            request.requested_at,
+        )
+        if relationship_failed:
+            failures.add("memory")
+            self._record_source("relationship", "failed")
+        elif relationship:
+            self._record_source("relationship", "accepted")
+        else:
+            self._record_source("relationship", "omitted")
+
         memory, memory_failed = await self._memory_items(
             chat.summary if chat is not None else (conversation.topic or conversation.summary),
             current_paths,
@@ -301,6 +316,7 @@ class CognitiveContextBuilder(CognitiveContextBuilderService):
             self._record_source("memory", "accepted")
         else:
             self._record_source("memory", "omitted")
+        memory = tuple((*relationship, *memory)[: self._config.max_memory_items])
 
         try:
             hard_state = self._hard_state(request.hard_state, failures)
@@ -814,6 +830,49 @@ class CognitiveContextBuilder(CognitiveContextBuilderService):
         if deduped is None:
             return (), True
         return tuple(deduped[: self._config.max_memory_items]), invalid
+
+    def _relationship_items(
+        self,
+        event_ref: str | None,
+        requested_at: datetime,
+    ) -> tuple[tuple[CognitiveMemoryItem, ...], bool]:
+        service = self._relationship_service
+        if service is None or event_ref is None:
+            return (), False
+        context_hints = getattr(service, "context_hints", None)
+        if not callable(context_hints):
+            return (), True
+        try:
+            hints = context_hints(event_ref=event_ref)
+            if not isinstance(hints, tuple):
+                raise ValueError("relationship hints must be a tuple")
+            items: list[CognitiveMemoryItem] = []
+            for hint in hints:
+                if not isinstance(hint, RelationshipContextHint):
+                    raise ValueError("relationship hint contract mismatch")
+                if hint.expires_at <= requested_at:
+                    continue
+                items.append(CognitiveMemoryItem(
+                    config=self._config,
+                    schema_version=self._config.schema_version,
+                    memory_ref=hint.hint_id,
+                    kind=MemoryKind.RELATIONSHIP_NOTE,
+                    summary=_safe_text(
+                        hint.instruction, self._config.max_text_chars,
+                    ) or hint.instruction,
+                    scope=MemoryScope.VIEWER,
+                    viewer_ref=hint.viewer_ref,
+                    provenance_refs=_safe_refs(hint.evidence_refs, self._config),
+                    observed_at=hint.observed_at,
+                    expires_at=hint.expires_at,
+                    confidence=hint.salience,
+                ))
+            deduped = _dedupe_contracts(items, "memory_ref")
+            if deduped is None:
+                raise ValueError("relationship hints must be unique")
+            return tuple(deduped[: self._config.max_memory_items]), False
+        except Exception:
+            return (), True
 
     def _memory_item(
         self,

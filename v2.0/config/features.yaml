@@ -301,6 +301,16 @@ features:
     depends_on: []
     conflicts_with: []
 
+  relationship_context:
+    enabled: true               # A4 regular warm-tone + gated fact/callback latent hints
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: memory
+    depends_on: [recall_gate]
+    conflicts_with: []
+    name: Relationship context
+    description: Pseudonymous regular recognition with fixed tone and non-verbatim gated callbacks.
+
   human_like_calibration:
     enabled: false              # Phase 14 offline human review; never changes runtime decisions
     vram_cost_mb: 0

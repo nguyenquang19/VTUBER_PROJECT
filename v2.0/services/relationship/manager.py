@@ -7,12 +7,15 @@ from typing import Any, Callable
 import uuid
 
 from interfaces.base import HealthStatus
+from interfaces.memory import MemoryEntry, MemoryTier, RecallDecision, RecallGateService
 from interfaces.relationship import RelationshipService
 from services.data.sanitize import hash_viewer_id
 from services.data.sanitize import mask_pii
 from services.relationship.store import RelationshipStore
 from interfaces.relationship import (
     RelationshipNote,
+    RelationshipContextHint,
+    RelationshipHintKind,
     RelationshipSnapshot,
     NarrativeItem,
     NarrativeStatus,
@@ -42,6 +45,11 @@ class RelationshipLimits:
     )
     gag_reference_cooldown_s: int = 1800
     max_gags_per_viewer: int = 5
+    regular_min_interactions: int = 3
+    regular_last_seen_days: int = 14
+    context_fact_slots_max: int = 2
+    callback_frequency_window_s: int = 3600
+    callback_frequency_cap: int = 1
 
     @classmethod
     def from_loader(cls, loader: Any) -> "RelationshipLimits":
@@ -72,6 +80,21 @@ class RelationshipLimits:
             max_gags_per_viewer=int(loader.get(
                 "state", "running_gags.max_per_viewer", 5,
             )),
+            regular_min_interactions=int(loader.get(
+                "state", prefix + "regular_min_interactions", 3,
+            )),
+            regular_last_seen_days=int(loader.get(
+                "state", prefix + "regular_last_seen_days", 14,
+            )),
+            context_fact_slots_max=int(loader.get(
+                "state", prefix + "context_fact_slots_max", 2,
+            )),
+            callback_frequency_window_s=int(loader.get(
+                "state", "running_gags.callback_frequency_window_seconds", 3600,
+            )),
+            callback_frequency_cap=int(loader.get(
+                "state", "running_gags.callback_frequency_cap", 1,
+            )),
         )
         if min(
             value.profile_ttl_days, value.seen_event_ttl_days, value.max_profiles_snapshot,
@@ -81,9 +104,26 @@ class RelationshipLimits:
             value.prompt_max_items, value.prompt_max_chars,
             value.positive_interactions_required, value.gag_reference_cooldown_s,
             value.max_gags_per_viewer,
+            value.regular_min_interactions, value.regular_last_seen_days,
+            value.context_fact_slots_max, value.callback_frequency_window_s,
+            value.callback_frequency_cap,
         ) <= 0:
             raise ValueError("relationship limits must be positive")
+        if value.context_fact_slots_max > value.max_notes_per_viewer:
+            raise ValueError("relationship fact slots must not exceed note storage cap")
+        if value.callback_frequency_cap > value.max_gags_per_viewer:
+            raise ValueError("relationship callback cap must not exceed gag storage cap")
         return value
+
+
+@dataclass(frozen=True)
+class _ContextCandidate:
+    entry: MemoryEntry
+    kind: RelationshipHintKind
+    evidence_refs: tuple[str, ...]
+    observed_at: datetime
+    expires_at: datetime
+    callback_id: str | None = None
 
 
 class RelationshipManager(RelationshipService):
@@ -93,34 +133,47 @@ class RelationshipManager(RelationshipService):
         self, store: RelationshipStore, limits: RelationshipLimits, *,
         metrics: Any = None, clock: Callable[[], datetime] | None = None,
         enabled: bool = True,
+        context_enabled: bool = False,
         evidence_exists: Callable[[str], bool] | None = None,
         memory_service: Any = None,
+        recall_gate: RecallGateService | None = None,
     ) -> None:
         self._store = store
         self.limits = limits
         self._metrics = metrics
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._enabled = bool(enabled)
+        if not isinstance(context_enabled, bool):
+            raise ValueError("context_enabled must be boolean")
+        if recall_gate is not None and not isinstance(recall_gate, RecallGateService):
+            raise ValueError("recall_gate must implement RecallGateService")
+        self._context_enabled = context_enabled
         self._evidence_exists = evidence_exists or (lambda _event_id: False)
         self._memory_service = memory_service
+        self._recall_gate = recall_gate
         self._running = False
         self._accepted = 0
         self._duplicates = 0
+        self._context_counts: dict[str, int] = {}
 
     @classmethod
     def from_loader(
         cls, loader: Any, *, store: RelationshipStore | None = None, metrics: Any = None,
         clock: Callable[[], datetime] | None = None,
         enabled: bool = True,
+        context_enabled: bool = False,
         evidence_exists: Callable[[str], bool] | None = None,
         memory_service: Any = None,
+        recall_gate: RecallGateService | None = None,
     ) -> "RelationshipManager":
         return cls(
             store or RelationshipStore(loader.get("system", "paths.db_file", "data/mai.db")),
             RelationshipLimits.from_loader(loader), metrics=metrics, clock=clock,
             enabled=enabled,
+            context_enabled=context_enabled,
             evidence_exists=evidence_exists,
             memory_service=memory_service,
+            recall_gate=recall_gate,
         )
 
     async def start(self) -> None:
@@ -137,12 +190,16 @@ class RelationshipManager(RelationshipService):
         )
 
     def get_metrics(self) -> dict[str, Any]:
-        return {
+        values = {
             "relationship_interactions_total": self._accepted,
             "relationship_duplicates_total": self._duplicates,
             "relationship_profiles": len(self.snapshot().profiles),
             "relationship_enabled": self._enabled,
+            "relationship_context_enabled": self._context_enabled,
         }
+        for name, count in sorted(self._context_counts.items()):
+            values[f"relationship_context_{name}_total"] = count
+        return values
 
     def observe_interaction(
         self, *, raw_viewer_id: str | None, event_id: str, occurred_at: datetime,
@@ -377,9 +434,113 @@ class RelationshipManager(RelationshipService):
         self._record("deleted", "viewer_privacy")
         return {"viewer_id": viewer_id, "memory": memory_deleted, "relationships": counts}
 
+    def context_hints(
+        self, *, raw_viewer_id: str | None = None, event_ref: str | None = None,
+    ) -> tuple[RelationshipContextHint, ...]:
+        if not self._enabled or not self._context_enabled:
+            return ()
+        if raw_viewer_id is not None and event_ref is not None:
+            raise ValueError("relationship context accepts one identity source")
+        viewer_id = self._resolve_context_viewer(raw_viewer_id, event_ref)
+        if viewer_id is None:
+            self._context_record("stranger")
+            return ()
+        now = _utc(self._clock())
+        profile = self._store.get_profile(viewer_id)
+        if profile is None:
+            self._context_record("stranger")
+            return ()
+        if (
+            profile.expires_at <= now
+            or now - profile.last_seen > timedelta(days=self.limits.regular_last_seen_days)
+        ):
+            self._context_record("stale")
+            return ()
+        if profile.interaction_count < self.limits.regular_min_interactions:
+            self._context_record("stranger")
+            return ()
+        self._context_record("regular")
+        hints = [RelationshipContextHint(
+            hint_id=f"relationship-tone:{viewer_id}",
+            viewer_ref=viewer_id,
+            kind=RelationshipHintKind.TONE,
+            instruction=(
+                "Treat the current viewer as a returning regular: use a slightly warmer, "
+                "more familiar tone without claiming or listing personal details."
+            ),
+            evidence_refs=(f"relationship:profile:{viewer_id}",),
+            observed_at=profile.last_seen,
+            expires_at=profile.expires_at,
+            salience=1.0,
+        )]
+        self._context_record("tone_hint")
+        candidates = self._context_candidates(profile, now)
+        if not candidates:
+            return tuple(hints)
+        for candidate in candidates:
+            self._context_record(f"{candidate.kind.value}_considered")
+        gate = self._recall_gate
+        if gate is None or not gate.enabled:
+            self._context_record("gate_unavailable")
+            for candidate in candidates:
+                self._context_record(f"{candidate.kind.value}_suppressed")
+            return tuple(hints)
+        try:
+            decisions = gate.evaluate(
+                tuple(candidate.entry for candidate in candidates), now=now,
+            )
+            if len(decisions) != len(candidates):
+                raise ValueError("relationship recall decision count mismatch")
+            projected: list[tuple[_ContextCandidate, RelationshipContextHint]] = []
+            for candidate, decision in zip(candidates, decisions, strict=True):
+                if (
+                    not isinstance(decision, RecallDecision)
+                    or decision.memory_ref != candidate.entry.entry_id
+                ):
+                    raise ValueError("relationship recall provenance mismatch")
+                if not decision.surface:
+                    continue
+                if decision.latent_hint is None:
+                    raise ValueError("surfaced relationship recall requires a hint")
+                projected.append((candidate, RelationshipContextHint(
+                    hint_id=f"relationship-hint:{candidate.entry.entry_id}",
+                    viewer_ref=viewer_id,
+                    kind=candidate.kind,
+                    instruction=decision.latent_hint,
+                    evidence_refs=candidate.evidence_refs,
+                    observed_at=candidate.observed_at,
+                    expires_at=candidate.expires_at,
+                    salience=decision.salience,
+                )))
+            for candidate, decision in zip(candidates, decisions, strict=True):
+                if not decision.surface:
+                    self._context_record(f"{candidate.kind.value}_suppressed")
+            for candidate, hint in projected:
+                hints.append(hint)
+                self._context_record(f"{candidate.kind.value}_surfaced")
+                if candidate.callback_id is not None:
+                    self._store.mark_running_gag_referenced(candidate.callback_id, now)
+        except Exception:
+            self._context_record("gate_error")
+            for candidate in candidates:
+                self._context_record(f"{candidate.kind.value}_suppressed")
+            return tuple(hints)
+        return tuple(hints)
+
     def render_context(self, raw_viewer_id: str | None = None) -> str:
         if not self._enabled:
             return ""
+        if not self._context_enabled:
+            return self._render_m7_context(raw_viewer_id)
+        hints = self.context_hints(raw_viewer_id=raw_viewer_id)
+        if not hints:
+            return ""
+        lines = ["[Latent relationship context — never recite a viewer profile]"]
+        for hint in hints:
+            lines.append(f"{hint.kind.value.title()} hint: {hint.instruction}")
+        return "\n".join(lines)[: self.limits.prompt_max_chars]
+
+    def _render_m7_context(self, raw_viewer_id: str | None) -> str:
         now = _utc(self._clock())
         viewer_id = hash_viewer_id(raw_viewer_id)
         lines = ["[Grounded relationship/narrative — do not infer beyond evidence]"]
@@ -432,12 +593,125 @@ class RelationshipManager(RelationshipService):
             return ""
         return "\n".join(lines)[: self.limits.prompt_max_chars]
 
+    def _resolve_context_viewer(
+        self, raw_viewer_id: str | None, event_ref: str | None,
+    ) -> str | None:
+        if raw_viewer_id is not None:
+            return hash_viewer_id(raw_viewer_id)
+        if event_ref is None or not isinstance(event_ref, str) or not event_ref.strip():
+            return None
+        event_id = event_ref.strip().removeprefix("agent:chat:")
+        viewer_id = self._store.viewer_for_event(event_id)
+        if viewer_id is None:
+            self._context_record("lineage_miss")
+        return viewer_id
+
+    def _context_candidates(
+        self, profile: ViewerProfile, now: datetime,
+    ) -> tuple[_ContextCandidate, ...]:
+        candidates: list[_ContextCandidate] = []
+        gags = self._store.list_running_gags(profile.viewer_id)
+        recent_callbacks = sum(
+            1 for gag in gags
+            if gag.last_referenced_at is not None
+            and 0.0 <= (now - gag.last_referenced_at).total_seconds()
+            < self.limits.callback_frequency_window_s
+        )
+        approved = [gag for gag in gags if gag.status is ReviewStatus.APPROVED]
+        if recent_callbacks < self.limits.callback_frequency_cap:
+            ready = [gag for gag in approved if (
+                gag.last_referenced_at is None
+                or (now - gag.last_referenced_at).total_seconds()
+                >= self.limits.gag_reference_cooldown_s
+            )]
+            if ready:
+                gag = ready[0]
+                candidates.append(_ContextCandidate(
+                    entry=self._latent_candidate_entry(
+                        entry_id=gag.gag_id,
+                        observed_at=gag.created_at,
+                        importance=0.9,
+                        cognitive_kind="RELATIONSHIP_CALLBACK",
+                    ),
+                    kind=RelationshipHintKind.CALLBACK,
+                    evidence_refs=gag.event_refs,
+                    observed_at=gag.created_at,
+                    expires_at=profile.expires_at,
+                    callback_id=gag.gag_id,
+                ))
+            elif approved:
+                self._context_record("callback_considered")
+                self._context_record("callback_suppressed")
+        elif approved:
+            self._context_record("callback_considered")
+            self._context_record("callback_suppressed")
+        facts: list[_ContextCandidate] = []
+        if profile.confirmed_preferences or profile.boundaries or profile.tone:
+            facts.append(_ContextCandidate(
+                entry=self._latent_candidate_entry(
+                    entry_id=f"relationship-profile-fact:{profile.viewer_id}",
+                    observed_at=profile.last_seen,
+                    importance=0.75,
+                    cognitive_kind="PREFERENCE",
+                ),
+                kind=RelationshipHintKind.FACT,
+                evidence_refs=(f"relationship:profile:{profile.viewer_id}",),
+                observed_at=profile.last_seen,
+                expires_at=profile.expires_at,
+            ))
+        approved_notes = [
+            note for note in self._store.list_notes(profile.viewer_id)
+            if note.status is ReviewStatus.APPROVED and note.expires_at > now
+        ]
+        for note in approved_notes:
+            facts.append(_ContextCandidate(
+                entry=self._latent_candidate_entry(
+                    entry_id=note.note_id,
+                    observed_at=note.created_at,
+                    importance=0.7,
+                    cognitive_kind="RELATIONSHIP_NOTE",
+                ),
+                kind=RelationshipHintKind.FACT,
+                evidence_refs=note.evidence_refs,
+                observed_at=note.created_at,
+                expires_at=note.expires_at,
+            ))
+        candidates.extend(facts[: self.limits.context_fact_slots_max])
+        return tuple(candidates)
+
+    def _latent_candidate_entry(
+        self, *, entry_id: str, observed_at: datetime, importance: float,
+        cognitive_kind: str,
+    ) -> MemoryEntry:
+        return MemoryEntry(
+            entry_id=entry_id,
+            content="relationship latent candidate",
+            timestamp=observed_at,
+            importance=importance,
+            tier=MemoryTier.PERSISTENT,
+            metadata={"cognitive_kind": cognitive_kind},
+        )
+
     @property
     def enabled(self) -> bool:
         return self._enabled
 
     def set_enabled(self, enabled: bool) -> None:
         self._enabled = bool(enabled)
+
+    @property
+    def context_enabled(self) -> bool:
+        return self._context_enabled
+
+    def set_context_enabled(self, enabled: bool) -> None:
+        if not isinstance(enabled, bool):
+            raise ValueError("relationship context enabled state must be boolean")
+        self._context_enabled = enabled
+
+    def set_recall_gate(self, recall_gate: RecallGateService | None) -> None:
+        if recall_gate is not None and not isinstance(recall_gate, RecallGateService):
+            raise ValueError("recall_gate must implement RecallGateService")
+        self._recall_gate = recall_gate
 
     def _valid_evidence(self, refs: list[str]) -> bool:
         unique = tuple(dict.fromkeys(str(item).strip() for item in refs if str(item).strip()))
@@ -458,6 +732,9 @@ class RelationshipManager(RelationshipService):
     def _record(self, outcome: str, reason: str) -> None:
         if self._metrics is not None and hasattr(self._metrics, "record_relationship_event"):
             self._metrics.record_relationship_event(outcome, reason)
+
+    def _context_record(self, outcome: str) -> None:
+        self._context_counts[outcome] = self._context_counts.get(outcome, 0) + 1
 
 
 def _utc(value: datetime) -> datetime:

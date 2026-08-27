@@ -1282,12 +1282,21 @@ async def _compose_stream_runtime(
     except KeyError:
         get_logger("stream_runtime").warning("relationship_memory_feature_missing")
         relationship_enabled = False
+    try:
+        relationship_context_status = await feature_manager.get_status("relationship_context")
+        relationship_context_enabled = relationship_context_status in (
+            FeatureStatus.ENABLED, FeatureStatus.DEGRADED,
+        )
+    except KeyError:
+        get_logger("stream_runtime").warning("relationship_context_feature_missing")
+        relationship_context_enabled = False
     MigrationRunner.from_config(loader).initialize()
     relationship_manager = RelationshipManager.from_loader(
         loader,
         store=RelationshipStore(loader.get("system", "paths.db_file", "data/mai.db")),
         metrics=metrics,
         enabled=relationship_enabled,
+        context_enabled=relationship_context_enabled,
         evidence_exists=lambda event_id: any(
             item.event_id == event_id for item in agent_state.snapshot().recent_events
         ),
@@ -1515,6 +1524,7 @@ async def _compose_stream_runtime(
     recall_gate = RecallGate(memory_config, enabled=recall_gate_enabled)
     await _start_owned_resource(rollback, "recall_gate", recall_gate)
     conversation_context_projection.set_recall_gate(recall_gate)
+    relationship_manager.set_recall_gate(recall_gate)
     memory_extractor = MemoryExtractor.from_loader(loader)
     emotion.set_memory_service(memory)
     relationship_manager.set_memory_service(memory)
@@ -1551,6 +1561,12 @@ async def _compose_stream_runtime(
         enable=_enable_recall_gate,
         disable=_disable_recall_gate,
         health=_recall_gate_health,
+    )
+    attach_boolean_feature(
+        feature_manager,
+        "relationship_context",
+        set_enabled=relationship_manager.set_context_enabled,
+        is_enabled=lambda: relationship_manager.context_enabled,
     )
 
     agent_context_renderer = agent_context_projection
@@ -2775,6 +2791,7 @@ async def _compose_stream_runtime(
         agent_context_projection=agent_context_projection,
         conversation_context_projection=conversation_context_projection,
         recall_gate=recall_gate,
+        relationship_service=relationship_manager,
     )
 
     # S4: compose Cognition below one Turn Kernel. Brain remains non-public.

@@ -296,9 +296,9 @@ snapshot:
   prompt_files: 7
   script_files: 35
   test_python_files_before_s0: 224
-  test_python_files: 222
-  feature_count: 51
-  feature_enabled_count: 37
+  test_python_files: 223
+  feature_count: 52
+  feature_enabled_count: 38
   feature_disabled_count: 14
   preexisting_tracked_modified_at_s0:
     - MAI_V2_MASTER_IMPLEMENTATION_BLUEPRINT_v2.0.md
@@ -746,6 +746,7 @@ features:
   behavior_library: {enabled: true, disposition: DELETE, target_owner: services/cognition/brain.py, deletion_gate: after_s6_content_blind_acceptance, removal_gate_state: BLOCKED}
   natural_timing: {enabled: true, disposition: MERGE, target_owner: services/kernel/opportunity_scheduler.py}
   relationship_memory: {enabled: true, disposition: MERGE, target_owner: services/state}
+  relationship_context: {enabled: true, disposition: KEEP, target_owner: services/relationship/manager.py}
   human_like_calibration: {enabled: false, disposition: OFFLINE, target_owner: services/evaluation}
   evaluation_harness: {enabled: true, disposition: OFFLINE, target_owner: services/evaluation}
   evaluation_acceptance: {enabled: true, disposition: OFFLINE, target_owner: services/evaluation}
