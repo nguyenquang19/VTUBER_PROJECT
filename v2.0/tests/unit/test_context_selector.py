@@ -105,6 +105,35 @@ async def test_selector_memory_error_fails_open_to_grounded_world() -> None:
     assert composer.get_metrics()["conversation_context_selector_memory_errors_total"] == 1
 
 
+async def test_episodic_summary_is_bounded_by_existing_prompt_budget() -> None:
+    summary = "Một chủ đề đã được khái quát an toàn. " * 30
+    memory = Memory([MemoryEntry(
+        entry_id="episodic-1",
+        content=summary,
+        timestamp=NOW,
+        tier=MemoryTier.SESSION,
+        importance=0.8,
+        metadata={
+            "memory_kind": "episodic_summary",
+            "cognitive_kind": "EPISODIC",
+            "cognitive_scope": "SESSION",
+            "session_id": "session-1",
+            "expires_at": (NOW + timedelta(minutes=5)).isoformat(),
+            "provenance": "verified_delivery_rollup",
+            "provenance_refs": ("outcome-1",),
+            "verified": True,
+            "action_status": "delivered",
+            "outcome_id": "outcome-1",
+            "confidence": 1.0,
+            "summary_salience": 0.8,
+        },
+    )])
+    context = await _composer(memory).select(AgentStateSnapshot(), "chủ đề")
+    assert "Past memory (past evidence, never current truth) [episodic-1" in context
+    assert len(context) <= 3000
+    assert summary not in context
+
+
 async def test_selector_disabled_preserves_legacy_continuity_and_does_not_query_memory() -> None:
     memory = Memory([MemoryEntry(entry_id="m1", content="unused", timestamp=NOW)])
     context = await _composer(memory, enabled=False).select(AgentStateSnapshot(), "track")

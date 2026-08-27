@@ -27,6 +27,17 @@ def _raw() -> dict[str, object]:
         "extractor_min_chars": 15,
         "extractor_promote_intensity": 7,
         "pending_writes_max": 64,
+        "summary_every_turns": 6,
+        "max_summaries": 8,
+        "session_ttl_s": 21600,
+        "summary_input_max_chars": 6000,
+        "summary_max_chars": 600,
+        "summary_max_tokens": 160,
+        "summary_timeout_s": 10.0,
+        "summary_pending_max": 1,
+        "summary_seed": 42,
+        "recency_weight": 0.4,
+        "salience_weight": 0.6,
     }
 
 
@@ -48,7 +59,12 @@ def test_canonical_memory_yaml_loads_strictly() -> None:
     assert config.query_timeout_s == 0.15
     assert config.latency_sample_max == 256
     assert config.pending_writes_max == 64
+    assert config.summary_every_turns == 6
+    assert config.max_summaries == 8
+    assert config.recency_weight + config.salience_weight == 1.0
     assert loader.get("features", "features.memory_semantic.enabled") is True
+    assert loader.get("features", "features.episodic_memory.enabled") is True
+    assert loader.get("features", "features.episodic_memory.depends_on") == ["memory_semantic"]
 
 
 @pytest.mark.parametrize(
@@ -61,6 +77,11 @@ def test_canonical_memory_yaml_loads_strictly() -> None:
         ("default_top_k", 3.0),
         ("extractor_promote_intensity", 11),
         ("pending_writes_max", 0),
+        ("summary_every_turns", 0),
+        ("session_ttl_s", "21600"),
+        ("summary_seed", -1),
+        ("summary_pending_max", 2),
+        ("recency_weight", 1.1),
     ],
 )
 def test_memory_config_rejects_coercion_and_invalid_ranges(field: str, value: object) -> None:

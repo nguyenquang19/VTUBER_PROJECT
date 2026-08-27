@@ -59,6 +59,39 @@ class MemoryEntry:
         object.__setattr__(self, "metadata", frozen)
 
 
+@dataclass(frozen=True)
+class EpisodicTurn:
+    """One verified delivered turn offered to session-summary memory."""
+
+    user_text: str
+    assistant_text: str
+    session_id: str
+    outcome_id: str
+    timestamp: datetime
+    salience: float = 0.5
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "user_text", _required_text(self.user_text, "user_text"))
+        object.__setattr__(
+            self, "assistant_text", _required_text(self.assistant_text, "assistant_text"),
+        )
+        object.__setattr__(self, "session_id", _required_text(self.session_id, "session_id"))
+        object.__setattr__(self, "outcome_id", _required_text(self.outcome_id, "outcome_id"))
+        if (
+            not isinstance(self.timestamp, datetime)
+            or self.timestamp.tzinfo is None
+            or self.timestamp.utcoffset() is None
+        ):
+            raise ValueError("episodic timestamp must be timezone-aware")
+        object.__setattr__(self, "timestamp", self.timestamp.astimezone(timezone.utc))
+        if isinstance(self.salience, bool) or not isinstance(self.salience, (int, float)):
+            raise ValueError("episodic salience must be numeric")
+        salience = float(self.salience)
+        if not math.isfinite(salience) or not 0.0 <= salience <= 1.0:
+            raise ValueError("episodic salience must be finite and between zero and one")
+        object.__setattr__(self, "salience", salience)
+
+
 class MemoryService(Service):
     @abstractmethod
     async def write(self, entry: MemoryEntry) -> None:
@@ -92,6 +125,18 @@ class MemoryService(Service):
         for entry in entries:
             await self.forget(entry.entry_id)
         return len(entries)
+
+
+class EpisodicMemoryService(MemoryService):
+    """Memory wrapper that observes verified turns and stores session summaries."""
+
+    @abstractmethod
+    def observe_verified_turn(self, turn: EpisodicTurn) -> bool:
+        """Accept a committed turn without blocking the delivery boundary."""
+
+    @abstractmethod
+    def set_enabled(self, enabled: bool) -> None:
+        """Enable or disable summary creation; disable clears buffered source text."""
 
 
 def _required_text(value: Any, name: str) -> str:

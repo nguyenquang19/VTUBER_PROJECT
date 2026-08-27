@@ -51,7 +51,7 @@ Thêm tầng nhớ giữa đang thiếu: cứ N turn LLM tóm tắt rolling → 
 - **YAML:** `summary_every_turns`, max summaries, retrieval weight (recency+salience).
 - **Test:** transcript → summary bounded tất định; retrieval; replay; no PII scan.
 - **Gate:** không quote PII; size bounded; feed context không vỡ budget prompt.
-- **Flag:** `episodic_memory`, `depends_on: [semantic_memory]`.
+- **Flag:** `episodic_memory`, `depends_on: [memory_semantic]` (feature ID canonical).
 
 ### A3 — Recall gate (chống recite máy móc) · công trung
 Quyết **khi nào** memory/fact được surface + đảm bảo chỉ inject dạng hint, không để quote nguyên văn.

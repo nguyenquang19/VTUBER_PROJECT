@@ -12,14 +12,21 @@ Test không tải bge-m3 (dùng FakeEmbedder) cover logic path, verify DoD-adjac
 from __future__ import annotations
 
 import asyncio
+import json
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import AsyncIterator
 
 import pytest
 
-from interfaces.memory import MemoryEntry, MemoryTier
+from interfaces.base import HealthStatus
+from interfaces.llm import LLMRequest, LLMService, LLMToken
+from interfaces.memory import EpisodicTurn, MemoryEntry, MemoryTier
+from orchestrator.config_loader import ConfigLoader
 from orchestrator.migration_runner import MigrationRunner
+from services.memory.config import MemoryRuntimeConfig
+from services.memory.episodic import EpisodicMemoryManager
 from services.memory.memory_fallback import MemoryFallbackManager
 from services.memory.semantic_memory import SemanticMemoryService, new_entry_id
 from services.memory.sqlite_vec_store import SqliteVecStore
@@ -59,6 +66,32 @@ class FakeEmbedder:
             if kw in text_lower:
                 return [seed] * DIM
         return [(hash(text_lower) % 1000) / 1000.0] * DIM
+
+
+class FakeSummaryLLM(LLMService):
+    service_id = "fake_summary_llm"
+
+    def __init__(self) -> None:
+        self.requests: list[LLMRequest] = []
+
+    async def start(self) -> None: pass
+    async def stop(self) -> None: pass
+    async def health_check(self) -> HealthStatus: return HealthStatus.healthy(self.service_id)
+    def get_metrics(self): return {"fake_summary_requests": len(self.requests)}
+    async def cancel(self, request_id: str) -> None: pass
+
+    async def generate_stream(self, request: LLMRequest) -> AsyncIterator[LLMToken]:
+        self.requests.append(request)
+        payload = {
+            "summary": "Cuộc trò chuyện có chủ đề cà phê và phản hồi thân thiện.",
+            "salience": 0.7,
+        }
+        yield LLMToken(
+            request_id=request.request_id,
+            token=json.dumps(payload, ensure_ascii=False),
+            is_final=False,
+        )
+        yield LLMToken(request_id=request.request_id, token="", is_final=True)
 
 
 @pytest.fixture
@@ -234,3 +267,60 @@ class TestMultiViewer:
         results = await fb.query("cà phê", top_k=10)
         viewer_ids = {r.metadata.get("viewer_id") for r in results}
         assert viewer_ids == {"v_a", "v_b", "v_c"}
+
+
+@pytest.mark.asyncio
+async def test_episodic_summary_round_trip_through_semantic_chain(tmp_path: Path) -> None:
+    """A2 chain: verified turns → bounded summary → semantic retrieval."""
+    db = tmp_path / "episodic.db"
+    MigrationRunner(db, REPO_ROOT / "migrations", tmp_path / "backups").initialize()
+    store = SqliteVecStore(db_path=db)
+    semantic = SemanticMemoryService(
+        store=store, embedder=FakeEmbedder(), query_timeout_s=0.15,
+    )
+    fallback = MemoryFallbackManager(
+        primary=semantic, fallback=WorkingMemoryService(maxlen=20),
+    )
+    loader = ConfigLoader(REPO_ROOT / "config")
+    loader.load_all()
+    config = MemoryRuntimeConfig.from_loader(loader)
+    llm = FakeSummaryLLM()
+    now = datetime.now(timezone.utc)
+    episodic = EpisodicMemoryManager(
+        storage=fallback,
+        llm=llm,
+        session_id="integration-session",
+        config=config,
+        enabled=True,
+        clock=lambda: now + timedelta(seconds=10),
+    )
+    await episodic.start()
+    try:
+        for index in range(config.summary_every_turns):
+            episodic.observe_verified_turn(EpisodicTurn(
+                user_text=(
+                    "Email riêng test@example.com; người xem muốn trò chuyện về cà phê."
+                    if index == 0 else f"Lượt kiểm thử an toàn về cà phê số {index}."
+                ),
+                assistant_text=f"Mai phản hồi thân thiện ở lượt kiểm thử số {index}.",
+                session_id="integration-session",
+                outcome_id=f"integration-outcome-{index}",
+                timestamp=now + timedelta(seconds=index),
+                salience=0.6,
+            ))
+        for _ in range(100):
+            if episodic.get_metrics()["memory_episodic_pending"] == 0:
+                break
+            await asyncio.sleep(0.01)
+        assert episodic.get_metrics()["memory_episodic_generated_total"] == 1
+        results = await episodic.query(
+            "cà phê", top_k=3, tier=MemoryTier.SESSION,
+        )
+        assert len(results) == 1
+        assert results[0].metadata["memory_kind"] == "episodic_summary"
+        assert results[0].metadata["session_id"] == "integration-session"
+        assert "test@example.com" not in results[0].content
+        assert llm.requests and "test@example.com" not in llm.requests[0].messages[1].content
+        assert episodic.get_metrics()["memory_episodic_retrieved_total"] == 1
+    finally:
+        await episodic.stop()

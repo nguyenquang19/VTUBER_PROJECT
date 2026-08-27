@@ -6,7 +6,9 @@ from types import SimpleNamespace
 
 import pytest
 
+from interfaces.base import HealthStatus
 from interfaces.execution import OutcomeCommit, OutcomeDisposition
+from interfaces.memory import EpisodicMemoryService, EpisodicTurn, MemoryEntry, MemoryTier
 from interfaces.state import (
     ContinuityCommitDisposition,
     DeliveredTurnRecord,
@@ -50,6 +52,47 @@ class _Goals:
     def focus_delivered_thread(self, parent_id, **kwargs) -> int:
         self.focused.append((parent_id, kwargs))
         return 1
+
+
+class _Episodic(EpisodicMemoryService):
+    service_id = "fake_episodic"
+
+    def __init__(self) -> None:
+        self.turns: list[EpisodicTurn] = []
+        self.enabled = True
+
+    async def start(self) -> None:
+        return None
+
+    async def stop(self) -> None:
+        return None
+
+    async def health_check(self) -> HealthStatus:
+        return HealthStatus.healthy(self.service_id)
+
+    def get_metrics(self) -> dict[str, object]:
+        return {}
+
+    async def write(self, entry: MemoryEntry) -> None:
+        return None
+
+    async def query(
+        self, query_text: str, top_k: int = 3,
+        tier: MemoryTier | None = None, viewer_id: str | None = None,
+    ) -> list[MemoryEntry]:
+        return []
+
+    async def forget(self, entry_id: str) -> None:
+        return None
+
+    def observe_verified_turn(self, turn: EpisodicTurn) -> bool:
+        if not self.enabled:
+            return False
+        self.turns.append(turn)
+        return True
+
+    def set_enabled(self, enabled: bool) -> None:
+        self.enabled = enabled
 
 
 def _config(*, pending: int = 4) -> ContinuityConfig:
@@ -122,6 +165,7 @@ async def test_committed_turn_projects_each_continuity_facet_once() -> None:
             self.entries.append(entry)
 
     memory = Memory()
+    episodic = _Episodic()
     service = ContinuityCommitter(
         _config(),
         authoritative_state=state,
@@ -129,6 +173,7 @@ async def test_committed_turn_projects_each_continuity_facet_once() -> None:
         goal_manager=goals,
         memory=memory,
         memory_extractor=MemoryExtractor(),
+        episodic_memory=episodic,
         clock=lambda: NOW,
     )
     await service.start()
@@ -147,6 +192,10 @@ async def test_committed_turn_projects_each_continuity_facet_once() -> None:
     await asyncio.sleep(0)
     assert len(memory.entries) == 1
     assert memory.entries[0].metadata["outcome_id"] == "outcome:verified"
+    assert len(episodic.turns) == 1
+    assert episodic.turns[0].outcome_id == "outcome:verified"
+    assert episodic.turns[0].session_id == "session-1"
+    assert "episodic_observed" in receipt.committed_facets
     assert service.recent() == (_record(),)
     snapshot_text = str(service.snapshot())
     assert "viewer-hash" not in snapshot_text
@@ -158,6 +207,7 @@ async def test_committed_turn_projects_each_continuity_facet_once() -> None:
     assert len(history.turns) == 1
     assert len(state.events) == 2
     assert len(memory.entries) == 1
+    assert len(episodic.turns) == 1
     await service.stop()
 
 

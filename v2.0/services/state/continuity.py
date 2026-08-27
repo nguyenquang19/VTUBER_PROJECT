@@ -10,6 +10,7 @@ from typing import Any, Callable, Mapping
 from interfaces.base import HealthStatus
 from interfaces.events import CanonicalEvent, CanonicalEventRoute, EventProvenance
 from interfaces.execution import OutcomeCommit, OutcomeDisposition
+from interfaces.memory import EpisodicMemoryService, EpisodicTurn
 from interfaces.state import (
     AgentEventKind,
     AgentEventSource,
@@ -102,6 +103,7 @@ class ContinuityCommitter(ContinuityStateService):
         goal_manager: Any = None,
         memory: Any = None,
         memory_extractor: Any = None,
+        episodic_memory: EpisodicMemoryService | None = None,
         metrics: Any = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
@@ -119,6 +121,11 @@ class ContinuityCommitter(ContinuityStateService):
         self._goals = goal_manager
         self._memory = memory
         self._memory_extractor = memory_extractor
+        if episodic_memory is not None and not isinstance(
+            episodic_memory, EpisodicMemoryService,
+        ):
+            raise ValueError("episodic_memory must implement EpisodicMemoryService")
+        self._episodic_memory = episodic_memory
         self._metrics = metrics
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._records: deque[DeliveredTurnRecord] = deque(maxlen=config.max_records)
@@ -218,6 +225,7 @@ class ContinuityCommitter(ContinuityStateService):
         self._publish_speech_completed(record, committed, failed)
         self._commit_focus(record, committed, failed)
         self._schedule_memory(record, committed, failed)
+        self._observe_episodic(record, committed, failed)
 
         disposition = (
             ContinuityCommitDisposition.INCONSISTENT
@@ -434,6 +442,31 @@ class ContinuityCommitter(ContinuityStateService):
         self._memory_tasks.add(task)
         task.add_done_callback(self._memory_done)
         committed.append("memory_enqueued")
+
+    def _observe_episodic(
+        self, record: DeliveredTurnRecord, committed: list[str], failed: list[str],
+    ) -> None:
+        if record.history_input is None or self._episodic_memory is None:
+            return
+        if record.viewer_ref is not None and "viewer" not in self._config.allowed_memory_scopes:
+            return
+        if record.viewer_ref is None and "session" not in self._config.allowed_memory_scopes:
+            return
+        salience = max(0.5, (record.mood_intensity or 0) / 10.0)
+        try:
+            accepted = self._episodic_memory.observe_verified_turn(EpisodicTurn(
+                user_text=record.history_input,
+                assistant_text=record.speech_text,
+                session_id=record.session_id,
+                outcome_id=record.outcome_ref,
+                timestamp=record.delivered_at,
+                salience=salience,
+            ))
+        except Exception:
+            failed.append("episodic_memory")
+            return
+        if accepted:
+            committed.append("episodic_observed")
 
     async def _write_memory(self, entry: Any) -> None:
         async with asyncio.timeout(self._config.memory_write_timeout_s):

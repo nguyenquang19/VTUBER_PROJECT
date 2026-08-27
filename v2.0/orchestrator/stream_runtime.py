@@ -1451,7 +1451,9 @@ async def _compose_stream_runtime(
     )
 
     # ─── Memory: working is core; semantic is feature-gated and fail-safe ───
+    session_id = str(uuid.uuid4())
     from services.memory.extractor import MemoryExtractor
+    from services.memory.episodic import EpisodicMemoryManager
     from services.memory.memory_fallback import MemoryFallbackManager
     from services.memory.config import MemoryRuntimeConfig
     from services.memory.working_memory import WorkingMemoryService
@@ -1478,20 +1480,55 @@ async def _compose_stream_runtime(
         store = SqliteVecStore(db_path=db_path)
         embedder = BgeM3Embedder.from_loader(loader)
         semantic = SemanticMemoryService.from_loader(loader, store=store, embedder=embedder)
-    memory = MemoryFallbackManager(
+    base_memory = MemoryFallbackManager(
         primary=semantic, fallback=working,
         max_query_top_k=memory_config.max_query_top_k,
     )
+    try:
+        episodic_status = await feature_manager.get_status("episodic_memory")
+        episodic_enabled = (
+            cfg.enable_memory
+            and semantic_enabled
+            and episodic_status in (FeatureStatus.ENABLED, FeatureStatus.DEGRADED)
+        )
+    except KeyError:
+        get_logger("stream_runtime").warning("episodic_memory_feature_missing")
+        episodic_enabled = False
+    episodic_memory = EpisodicMemoryManager(
+        storage=base_memory,
+        llm=llm_svc,
+        session_id=session_id,
+        config=memory_config,
+        enabled=episodic_enabled,
+    )
+    memory = episodic_memory
     await _start_owned_resource(rollback, "memory", memory)
     memory_extractor = MemoryExtractor.from_loader(loader)
     emotion.set_memory_service(memory)
     relationship_manager.set_memory_service(memory)
 
+    async def _enable_episodic_memory() -> None:
+        if not cfg.enable_memory:
+            raise RuntimeError("memory disabled by runtime rollback switch")
+        episodic_memory.set_enabled(True)
+
+    async def _disable_episodic_memory() -> None:
+        episodic_memory.set_enabled(False)
+
+    async def _episodic_memory_health() -> bool:
+        return cfg.enable_memory and episodic_memory.enabled
+
+    feature_manager.attach_handlers(
+        "episodic_memory",
+        enable=_enable_episodic_memory,
+        disable=_disable_episodic_memory,
+        health=_episodic_memory_health,
+    )
+
     agent_context_renderer = agent_context_projection
     conversation_context = conversation_context_projection
 
     # ─── Runner ───
-    session_id = str(uuid.uuid4())
     bind_log_session(session_id)
     runner = LLMTurnRunner.from_loader(
         loader, llm_svc, pm, fb, canned,
@@ -1820,6 +1857,7 @@ async def _compose_stream_runtime(
         goal_manager=goal_manager,
         memory=memory,
         memory_extractor=memory_extractor,
+        episodic_memory=episodic_memory,
         metrics=metrics,
     )
     from services.director.decision_record import DecisionRecordManager

@@ -37,6 +37,17 @@ memory:
   extractor_min_chars: 15
   extractor_promote_intensity: 7
   pending_writes_max: 64
+  summary_every_turns: 6
+  max_summaries: 8
+  session_ttl_s: 21600
+  summary_input_max_chars: 6000
+  summary_max_chars: 600
+  summary_max_tokens: 160
+  summary_timeout_s: 10.0
+  summary_pending_max: 1
+  summary_seed: 42
+  recency_weight: 0.4
+  salience_weight: 0.6
 
 conversation:
   cooldown_ms: 500

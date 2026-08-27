@@ -24,6 +24,19 @@ class MemoryRuntimeConfig:
     extractor_min_chars: int
     extractor_promote_intensity: int
     pending_writes_max: int
+    # Defaults preserve direct-constructor compatibility in isolated tests;
+    # production composition always loads these values from system.yaml.
+    summary_every_turns: int = 6
+    max_summaries: int = 8
+    session_ttl_s: float = 21600.0
+    summary_input_max_chars: int = 6000
+    summary_max_chars: int = 600
+    summary_max_tokens: int = 160
+    summary_timeout_s: float = 10.0
+    summary_pending_max: int = 1
+    summary_seed: int = 42
+    recency_weight: float = 0.4
+    salience_weight: float = 0.6
 
     def __post_init__(self) -> None:
         for name in (
@@ -31,9 +44,13 @@ class MemoryRuntimeConfig:
             "default_top_k", "max_query_top_k",
             "content_max_chars", "metadata_max_items", "metadata_text_max_chars",
             "tags_max", "tag_max_chars", "extractor_min_chars", "pending_writes_max",
+            "summary_every_turns", "max_summaries", "summary_input_max_chars",
+            "summary_max_chars", "summary_max_tokens", "summary_pending_max",
         ):
             _positive_int(getattr(self, name), f"memory.{name}")
         _positive_number(self.query_timeout_s, "memory.query_timeout_s")
+        _positive_number(self.session_ttl_s, "memory.session_ttl_s")
+        _positive_number(self.summary_timeout_s, "memory.summary_timeout_s")
         if self.default_top_k > self.max_query_top_k:
             raise ValueError("memory.default_top_k must not exceed max_query_top_k")
         if (
@@ -42,6 +59,32 @@ class MemoryRuntimeConfig:
             or not 0 <= self.extractor_promote_intensity <= 10
         ):
             raise ValueError("memory.extractor_promote_intensity must be an integer from 0 to 10")
+        if (
+            isinstance(self.summary_seed, bool)
+            or not isinstance(self.summary_seed, int)
+            or self.summary_seed < 0
+        ):
+            raise ValueError("memory.summary_seed must be a non-negative integer")
+        if self.summary_pending_max != 1:
+            raise ValueError("memory.summary_pending_max must be one for deterministic rolling order")
+        for name in ("recency_weight", "salience_weight"):
+            value = getattr(self, name)
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(float(value))
+                or not 0.0 <= float(value) <= 1.0
+            ):
+                raise ValueError(f"memory.{name} must be finite and between zero and one")
+        if not math.isclose(
+            float(self.recency_weight) + float(self.salience_weight), 1.0,
+            rel_tol=0.0, abs_tol=1e-9,
+        ):
+            raise ValueError("memory recency_weight + salience_weight must equal one")
+        if self.summary_max_chars > self.content_max_chars:
+            raise ValueError("memory.summary_max_chars must not exceed content_max_chars")
+        if self.summary_every_turns + 13 > self.metadata_max_items:
+            raise ValueError("memory summary provenance exceeds metadata_max_items")
 
     @classmethod
     def from_loader(cls, loader: Any) -> "MemoryRuntimeConfig":
@@ -54,6 +97,10 @@ class MemoryRuntimeConfig:
             "content_max_chars", "metadata_max_items", "metadata_text_max_chars",
             "tags_max", "tag_max_chars", "extractor_min_chars",
             "extractor_promote_intensity", "pending_writes_max",
+            "summary_every_turns", "max_summaries", "session_ttl_s",
+            "summary_input_max_chars", "summary_max_chars", "summary_max_tokens",
+            "summary_timeout_s", "summary_pending_max", "summary_seed",
+            "recency_weight", "salience_weight",
         }
         unknown = set(raw) - expected
         missing = expected - set(raw)

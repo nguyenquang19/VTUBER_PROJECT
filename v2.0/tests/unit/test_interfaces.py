@@ -34,7 +34,9 @@ from interfaces.filter import FilterCategory, FilterService, FilterVerdict
 from interfaces.input import EventSource, InputEvent, InputService
 from interfaces.human_like import HumanLikeCalibrationService
 from interfaces.llm import LLMRequest, LLMService, LLMToken
-from interfaces.memory import MemoryEntry, MemoryService, MemoryTier
+from interfaces.memory import (
+    EpisodicMemoryService, EpisodicTurn, MemoryEntry, MemoryService, MemoryTier,
+)
 from interfaces.operations import (
     DashboardDataSourceService,
     EmergencyControlService, HealthSupervisorService, IncidentLogService,
@@ -90,6 +92,8 @@ class TestServiceContract:
             (MemoryService, "write"),
             (MemoryService, "query"),
             (MemoryService, "forget"),
+            (EpisodicMemoryService, "observe_verified_turn"),
+            (EpisodicMemoryService, "set_enabled"),
             (EventLedgerService, "append"),
             (EventLedgerService, "recent"),
             (AgentStateService, "record"),
@@ -375,6 +379,23 @@ class TestMoodState:
 
 
 class TestMemoryModels:
+    def test_episodic_turn_is_verified_payload_with_bounded_salience(self) -> None:
+        turn = EpisodicTurn(
+            user_text="một lượt người xem đã được giao thành công",
+            assistant_text="một phản hồi của Mai đã được giao thành công",
+            session_id="session-1",
+            outcome_id="outcome-1",
+            timestamp=datetime.now(timezone.utc),
+            salience=0.8,
+        )
+        assert turn.salience == 0.8
+        with pytest.raises(ValueError, match="salience"):
+            EpisodicTurn(
+                user_text="user", assistant_text="assistant",
+                session_id="session-1", outcome_id="outcome-1",
+                timestamp=datetime.now(timezone.utc), salience=1.1,
+            )
+
     def test_entry_defaults(self) -> None:
         e = MemoryEntry(entry_id="m1", content="user thích mèo", timestamp=datetime.now(timezone.utc))
         assert e.tier is MemoryTier.WORKING

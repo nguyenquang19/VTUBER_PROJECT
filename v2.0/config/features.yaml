@@ -111,6 +111,16 @@ features:
     depends_on: []
     conflicts_with: []
 
+  episodic_memory:
+    enabled: true               # A2 rolling session summary; flag-off preserves the A1 chain
+    vram_cost_mb: 0
+    latency_impact_ms: 0
+    category: memory
+    depends_on: [memory_semantic]
+    conflicts_with: []
+    name: Episodic session memory
+    description: Bounded privacy-safe rolling summaries generated as llama.cpp shadow work.
+
   data_collector:
     enabled: true
     vram_cost_mb: 0
