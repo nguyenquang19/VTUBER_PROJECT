@@ -18,6 +18,18 @@ ROOT_MARKDOWN_ALLOWLIST = {
     "MAI_V2_MASTER_IMPLEMENTATION_BLUEPRINT_v2.0.md",
     "README.md",
 }
+# Bộ markdown canonical trong docs/ sau rewrite e510a2a (thêm ROADMAP.md tách
+# scope/thứ tự tương lai khỏi spec "current behavior").
+DOCS_MARKDOWN_ALLOWLIST = {"README.md", "ROADMAP.md", *CANONICAL_DOCS}
+# Spec mới tóm tắt "31 YAML" thay vì liệt kê từng file; guard chỉ còn yêu cầu bộ
+# config lõi được nêu tên trong spec.
+CORE_DOCUMENTED_CONFIGS = (
+    "system.yaml",
+    "features.yaml",
+    "state.yaml",
+    "kernel.yaml",
+    "cognition.yaml",
+)
 IMPLEMENTATION_ROOTS = (
     "config",
     "dashboard",
@@ -141,22 +153,18 @@ def test_frozen_v1_feature_inventory_is_immutable() -> None:
     assert _backtick_names(disabled_text) == FROZEN_V1_DISABLED
 
 
-def test_current_feature_inventory_matches_feature_yaml() -> None:
-    features = _yaml("config/features.yaml")["features"]
-    enabled = {name for name, config in features.items() if config["enabled"] is True}
-    disabled = set(features) - enabled
-    spec = (ROOT / "docs" / "MAI_V2_SYSTEM_SPEC.md").read_text(encoding="utf-8")
-    enabled_text = spec.split("- **Đang bật:**", 1)[1]
-    enabled_text, disabled_text = enabled_text.split("- **Đang tắt/tùy chọn:**", 1)
-    disabled_text = disabled_text.split("Trong đó `speech_action_adapter`", 1)[0]
-    assert _backtick_names(enabled_text) == enabled
-    assert _backtick_names(disabled_text) == disabled
+# Spec rewrite (e510a2a) bỏ section liệt kê feature-flag "Đang bật/Đang tắt";
+# trạng thái giờ là bảng theo module (LIVE/SHADOW) chứ không map 1-1 flag name.
+# Guard inventory-per-flag không còn target → gỡ (features.yaml vẫn được
+# FeatureManager validate ở runtime + test riêng).
 
 
-def test_documented_config_inventory_matches_loader_registry() -> None:
+def test_core_config_files_documented_in_spec() -> None:
+    registry = set(CONFIG_FILES.values())
     spec = (ROOT / "docs" / "MAI_V2_SYSTEM_SPEC.md").read_text(encoding="utf-8")
-    for filename in CONFIG_FILES.values():
-        assert f"`{filename}`" in spec, f"undocumented config: {filename}"
+    for filename in CORE_DOCUMENTED_CONFIGS:
+        assert filename in registry, f"core config not in loader registry: {filename}"
+        assert f"`{filename}`" in spec, f"undocumented core config: {filename}"
 
 
 def test_runtime_data_schema_view_matches_frozen_contract() -> None:
@@ -208,7 +216,7 @@ def test_no_auxiliary_markdown_or_root_lore_draft_remains() -> None:
     root_markdown = {path.name for path in ROOT.glob("*.md")}
     assert root_markdown == ROOT_MARKDOWN_ALLOWLIST
     docs_markdown = {path.name for path in (ROOT / "docs").glob("*.md")}
-    assert docs_markdown == {"README.md", *CANONICAL_DOCS}
+    assert docs_markdown == DOCS_MARKDOWN_ALLOWLIST
     assert not (ROOT / "MAI_LORE_DRAFT.txt").exists()
 
 
@@ -227,73 +235,30 @@ def test_implementation_comments_do_not_restore_stale_work_promises() -> None:
     assert stale == [], "stale implementation work comments returned:\n" + "\n".join(stale)
 
 
-def test_canonical_docs_keep_current_phase_and_release_limits_explicit() -> None:
-    spec = (ROOT / "docs" / "MAI_V2_SYSTEM_SPEC.md").read_text(encoding="utf-8")
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    required = (
-        "V2 test cutover",
-        "agreement-controlled",
-        "Feature `obs_scene_executor` vẫn mặc định `enabled=false`",
-        "speech_action_adapter",
-        "avatar_action_adapter",
-        "commit rồi mới project Mô hình Thế giới",
-        "Vòng tự chủ khép kín | Chưa đạt",
-        "`v2.0\\venv` hiện dùng CPython `3.11.15`",
-        "Phase 10 đã đóng canonical perception ingress",
-        "Phase 15 chưa đóng release gate",
-        "Phase 13 Embodiment Policy targeted: 381 đạt",
-        "Phase 14 calibration/trajectory targeted và impacted: 471 đạt",
-        "full offline `pytest tests -q`: 2.304 đạt, 0 lỗi",
-        "contract và implementation kỹ thuật đạt ngày 20/08/2026",
-        "Dashboard toggle thành công phải persist",
-        "RuntimeCriticalConfig` không nhận chuỗi thay cho",
-        "Khởi động là một giao dịch hai tầng",
-        "Repository không tự nạp `.env`",
-        "MAI_DASHBOARD_CONTROL_TOKEN",
-        "X-Mai-Operator-Token",
-    )
-    for statement in required:
-        assert statement in spec, f"critical implementation limit disappeared: {statement}"
-
-    assert "Phase 1–15 đã đóng gate kỹ thuật" in readme
-    assert "Director V2 đang ở strict primary mode cho test-cutover" in readme
-    forbidden = (
-        "Phase 1–13 đã đóng gate kỹ thuật",
-        "Phase 1–12 đã đóng gate kỹ thuật",
-        "Phase 1–11 đã đóng gate kỹ thuật",
-        "Phase 1–10 đã đóng gate kỹ thuật",
-        "Phase 1–9 đã đóng gate kỹ thuật",
-        "Perception expansion và các release gate sau vẫn chưa hoàn tất",
-        "WIP chưa commit",
-        "Working tree còn thay đổi Phase 14",
-        "full offline `pytest -m \"not slow and not llm\"`: 1.999 đạt",
-        "chưa thực sự thay thế quyết định cũ",
-        "chưa được lắp hoàn chỉnh vào điểm ghép chính",
-        "trạng thái Thế giới có thể được cập nhật trước",
-        "Mức 2 — sửa tính đúng của giao dịch",
-    )
-    combined = readme + "\n" + spec
-    for statement in forbidden:
-        assert statement not in combined, f"stale implementation claim returned: {statement}"
+# Guard cũ pin trạng thái theo phase/commit-hash/số test (Phase 1–15, 2.304 đạt,
+# d02c84e, "S8 chưa commit"...). Rewrite e510a2a chuyển spec sang "current
+# behavior" và tách tiến trình sang ROADMAP.md, cố ý không track các mốc đó nữa
+# → gỡ các assert snapshot. Các invariant cấu trúc repo vẫn giữ ở test dưới.
 
 
-def test_s2_checkpoint_and_s8_canonical_boundary_are_current() -> None:
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+def test_canonical_boundary_structure_is_current() -> None:
     index = (ROOT / "docs" / "README.md").read_text(encoding="utf-8")
     blueprint = (
         ROOT / "MAI_V2_MASTER_IMPLEMENTATION_BLUEPRINT_v2.0.md"
     ).read_text(encoding="utf-8")
     spec = (ROOT / "docs" / "MAI_V2_SYSTEM_SPEC.md").read_text(encoding="utf-8")
-    combined = "\n".join((readme, index, blueprint, spec))
+    combined = "\n".join(
+        (
+            (ROOT / "README.md").read_text(encoding="utf-8"),
+            index,
+            blueprint,
+            spec,
+        )
+    )
 
-    for document in (readme, index, blueprint, spec):
-        assert "d02c84e" in document
-    assert "S3/MCB-5 chưa bắt đầu" in combined
     assert "config/state.yaml" in combined
     assert not (ROOT / "config" / "agent_state.yaml").exists()
     assert not (ROOT / "config" / "relationships.yaml").exists()
-    assert "không còn compatibility YAML" in spec
-    assert "CanonicalEventNormalizer" in spec
     assert "AuthoritativeStateReducer" in spec
     assert "│   ├── models.yaml" in blueprint
     assert "│   ├── model.yaml" not in blueprint
@@ -301,26 +266,9 @@ def test_s2_checkpoint_and_s8_canonical_boundary_are_current() -> None:
     assert "S2 sau đó được triển khai trong working tree nhưng chưa commit" not in combined
 
 
-def test_post_s8_closure_status_paths_and_config_are_current() -> None:
-    readme_head = "\n".join(
-        (ROOT / "README.md").read_text(encoding="utf-8").splitlines()[:30]
-    )
-    index_head = "\n".join(
-        (ROOT / "docs" / "README.md").read_text(encoding="utf-8").splitlines()[:40]
-    )
-    spec_head = "\n".join(
-        (ROOT / "docs" / "MAI_V2_SYSTEM_SPEC.md")
-        .read_text(encoding="utf-8").splitlines()[:140]
-    )
-    for current in (readme_head, index_head, spec_head):
-        assert "723ca33" in current
-        assert "S8" in current
-        assert "S8 chưa commit" not in current
-        assert "chưa commit/push S8" not in current
-
-    root_agents = (ROOT.parent / "AGENTS.md").read_text(encoding="utf-8")
-    assert "v2.0/docs/V1_BASELINE.md" in root_agents
-    assert "v2.0/docs/00_V1_0_BASELINE.md" not in root_agents
+def test_dead_config_keys_and_repo_hygiene_are_current() -> None:
+    # Head-of-doc status strings (commit hash 723ca33, mốc "S8 chưa commit"...)
+    # do rewrite e510a2a cố ý bỏ; guard giữ lại phần config/repo invariant.
     assert (ROOT / "docs" / "V1_BASELINE.md").is_file()
 
     system = _yaml("config/system.yaml")
